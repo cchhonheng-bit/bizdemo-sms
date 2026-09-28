@@ -19,8 +19,30 @@ Docs: `../Doc_Sup` (Requirements v1.2, Architecture v1.1, Security Review v1, UI
 6. Run migrations: `npx supabase login` → `npx supabase link --project-ref <ref>` → `npx supabase db push`.
 7. Authentication → Hooks → **Custom Access Token** → enable → schema `public`, function `custom_access_token_hook`.
 8. Bootstrap: Authentication → Users → *Add user* `ceo@oneteam.local` (auto-confirm, temporary password) → SQL Editor → run `supabase/seed_dev.sql`.
-9. Deploy functions: `npx supabase functions deploy login --no-verify-jwt` · `npx supabase functions deploy admin-users`.
-10. Secrets (M2): `npx supabase secrets set TELEGRAM_BOT_TOKEN=<new token> ALLOWED_ORIGINS=http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app`
+9. Deploy functions: `npx supabase functions deploy login --no-verify-jwt` · `npx supabase functions deploy admin-users` · `npx supabase functions deploy telegram-webhook --no-verify-jwt` · `npx supabase functions deploy telegram-sender --no-verify-jwt` · `npx supabase functions deploy resolve-maps-link`.
+10. Secrets: `npx supabase secrets set TELEGRAM_BOT_TOKEN=<NEW token from BotFather> TELEGRAM_BOT_USERNAME=Oneteam_app_bot TELEGRAM_WEBHOOK_SECRET=<random 32+> CRON_SECRET=<random 32+> ALLOWED_ORIGINS=http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app`
+    (random secret: `openssl rand -hex 32` or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+
+## 1b. Telegram (M2)
+1. **Revoke the old bot token** (it was pasted in chat): @BotFather → /mybots → Oneteam_app_bot → API Token → Revoke → use the new token in step 10 above.
+2. Webhook (run once, from your PC — replace the 3 values):
+   `curl "https://api.telegram.org/bot<TOKEN>/setWebhook" -d url=https://<ref>.supabase.co/functions/v1/telegram-webhook -d secret_token=<TELEGRAM_WEBHOOK_SECRET> -d "allowed_updates=[\"message\"]"`
+   Check: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
+3. @BotFather → /setprivacy → Oneteam_app_bot → **Disable** (so the bot sees `/register` in groups). Add the bot to the One Team job group.
+4. In the app: **Me → Link Telegram** (CEO first) → open the link → bot replies "ភ្ជាប់រួច". Then in the group type `/register` (CEO only) → group becomes the job channel.
+5. Outbox worker (cron backstop, 1/min): SQL Editor →
+   ```sql
+   create extension if not exists pg_cron; create extension if not exists pg_net;
+   select cron.schedule('telegram-sender', '* * * * *', $$
+     select net.http_post(url := 'https://<ref>.supabase.co/functions/v1/telegram-sender',
+       headers := '{"Content-Type":"application/json","x-cron-secret":"<CRON_SECRET>"}'::jsonb, body := '{}'::jsonb) $$);
+   ```
+   (The app also calls `telegram-sender` right after every assignment, so messages normally arrive within seconds.)
+
+## 1c. Free tier pausing (production)
+Supabase Free projects pause after 7 days without activity. Options (owner decision, see MORNING_REPORT):
+- **Pro plan ($25/month per project)** — no pausing, daily backups, 8 GB DB. Recommended for the paying customer's production project.
+- Free + keep-alive: the `telegram-sender` cron above already runs every minute → the project counts as active. Not guaranteed by Supabase; no backups beyond 1 day.
 
 ## 2. GitHub
 - Private repo `bizdemo-sms` · Secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`.
@@ -40,11 +62,15 @@ SQL tests on a local PostgreSQL (optional): `PSQL="psql -U postgres" pnpm db:tes
 ```
 apps/web            React PWA (routes by role, i18n km/en, offline shell)
 packages/shared     zod schemas, permission keys, money helpers (+ vitest)
-supabase/migrations 0001_foundation.sql … (schemas app/api, RLS, RPC, JWT hook)
-supabase/functions  login · admin-users (Deno) · _shared
+supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox)
+supabase/functions  login · admin-users · telegram-webhook · telegram-sender · resolve-maps-link (Deno) · _shared
 supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.sh
 ```
 
 ## 5. Login (M1)
 Username / phone / email + password → Edge Function `login` (rate-limited, identical errors) → session.
 First login forces a password change. Users are created by CEO in **Settings → Users** (temporary password shown once).
+
+## 6. Booking flow (M2)
+Customers · Catalog · **Bookings** (board / list) · New booking (customer search, type A/B, category, schedule, location from a Google Maps link / "lat, lng" / GPS, vehicle) · Detail (team, timeline, Direction) · **Assign** (lead + assistants + vehicle + time, availability ±2h) → Telegram *Booking Confirmed* to the group + each linked technician (with 🗺 Direction button) + in-app notifications.
+Technician phone view: today's jobs → job card (call, Direction). Checkpoints (depart/arrive/start/done) come in M3.
