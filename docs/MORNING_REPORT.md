@@ -31,6 +31,7 @@
 5. **Telegram (M2)** — README §1b: secrets (`TELEGRAM_BOT_TOKEN` ថ្មី, `TELEGRAM_WEBHOOK_SECRET`, `CRON_SECRET`), `setWebhook`, privacy mode OFF, បញ្ចូល bot ក្នុង group ការងារ, Me → «ភ្ជាប់ Telegram», `/register` ក្នុង group, cron job 1 នាទី (SQL 3 បន្ទាត់)។
 6. **សម្រេច Q-01…Q-03 ខាងក្រោម**។
 7. **យក Source**: `Oneteam_Engineering\Source\` = working tree ចុងក្រោយ (គ្មាន node_modules) · `Doc_Sup\06_Development\bizdemo-sms.bundle` = git history ពេញ → `git clone bizdemo-sms.bundle bizdemo-sms` ឬ `git pull <bundle> main`។
+   ⚠ ឧបករណ៍ remote មិនអាចសរសេរ `Source\.github\workflows\*.yml` និង `Source\.npmrc` (protected) → ច្បាប់ចម្លងនៅ `06_Development\protected_files\` (ឬ clone ពី bundle ដែលមានគ្រប់ file)។
 
 ## 4. ការសម្រេចចិត្តដែលបានធ្វើ (ក្នុងវិសាលភាពអនុម័តជាមុន)
 D-01 … D-14 (M1) និង **D-15 … D-21 (M2)** — សរុបក្នុង `06_Development/DECISIONS.md`។ សំខាន់ៗសម្រាប់ M2:
