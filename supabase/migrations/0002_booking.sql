@@ -549,10 +549,11 @@ begin
   returning o.*;
 end $$;
 
-create or replace function api.outbox_result(p_id bigint, p_ok boolean, p_error text) returns void
+-- p_permanent: Telegram said the chat is unreachable (blocked / not found) → no retry
+create or replace function api.outbox_result(p_id bigint, p_ok boolean, p_error text, p_permanent boolean default false) returns void
 language sql security definer set search_path = app, pg_temp as $$
   update app.telegram_outbox set
-    status = (case when p_ok then 'sent' when attempts >= 5 then 'failed' else 'pending' end)::app.outbox_status,
+    status = (case when p_ok then 'sent' when p_permanent or attempts >= 5 then 'failed' else 'pending' end)::app.outbox_status,
     sent_at = case when p_ok then now() else sent_at end,
     last_error = p_error
   where id = p_id

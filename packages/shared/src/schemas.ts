@@ -44,3 +44,51 @@ export const companySettingsSchema = z.object({
   invoice_prefix: z.string().regex(/^[A-Z]{2,5}$/),
 });
 export type CompanySettingsInput = z.infer<typeof companySettingsSchema>;
+
+// ---------- M2: customers / catalog / bookings ----------
+import { BOOKING_TYPES, SERVICE_CATEGORIES, ZONES } from "./booking";
+
+export const customerSchema = z.object({
+  name: z.string().trim().min(1, "REQUIRED").max(120, "TOO_LONG"),
+  phones: z.array(phoneSchema).max(3),
+  address: z.string().trim().max(300).optional().or(z.literal("")),
+  zone: z.enum(ZONES),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+});
+export type CustomerInput = z.infer<typeof customerSchema>;
+
+export const catalogItemSchema = z.object({
+  name_km: z.string().trim().min(1, "REQUIRED").max(120, "TOO_LONG"),
+  name_en: z.string().trim().max(120).optional().or(z.literal("")),
+  kind: z.enum(["service", "product"]),
+  category: z.enum(SERVICE_CATEGORIES),
+  unit: z.string().trim().max(20).optional().or(z.literal("")),
+  sell_price: z.number().int().min(0),
+  cost_price: z.number().int().min(0).nullable().optional(),
+});
+export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
+
+export const bookingSchema = z.object({
+  customer_id: z.string().uuid("REQUIRED"),
+  type: z.enum(BOOKING_TYPES),
+  category: z.enum(SERVICE_CATEGORIES),
+  service_text: z.string().trim().min(1, "REQUIRED").max(1000, "TOO_LONG"),
+  scheduled_at: z.string().optional().or(z.literal("")),
+  address: z.string().trim().max(300).optional().or(z.literal("")),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+  zone: z.enum(ZONES),
+  vehicle_id: z.string().uuid().optional().or(z.literal("")),
+  notes: z.string().trim().max(500).optional().or(z.literal("")),
+});
+export type BookingInput = z.infer<typeof bookingSchema>;
+
+export const assignSchema = z.object({
+  lead: z.string().uuid("LEAD_REQUIRED"),
+  assistants: z.array(z.string().uuid()).max(10),
+  vehicle_id: z.string().uuid().optional().or(z.literal("")),
+  scheduled_at: z.string().min(1, "SCHEDULE_REQUIRED"),
+}).refine((v) => !v.assistants.includes(v.lead), { message: "LEAD_IN_ASSISTANTS", path: ["assistants"] });
+export type AssignInput = z.infer<typeof assignSchema>;

@@ -41,7 +41,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
         with: { deno-version: v2.x }
-      - run: cd supabase/functions && deno lint && deno check login/index.ts admin-users/index.ts
+      - run: cmp packages/shared/src/maps.ts supabase/functions/_shared/maps.ts   # shared parser copies must match
+      - run: cd supabase/functions && deno lint && deno check login/index.ts admin-users/index.ts telegram-webhook/index.ts telegram-sender/index.ts resolve-maps-link/index.ts
   secrets:
     name: Secret scan (gitleaks)
     runs-on: ubuntu-latest

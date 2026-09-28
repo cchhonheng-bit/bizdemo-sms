@@ -41,3 +41,12 @@ verify_jwt = true
 
 [edge_runtime]
 enabled = true
+
+[functions.telegram-webhook]
+verify_jwt = false          # Telegram calls it; protected by X-Telegram-Bot-Api-Secret-Token
+
+[functions.telegram-sender]
+verify_jwt = false          # cron secret header OR user JWT checked inside
+
+[functions.resolve-maps-link]
+verify_jwt = true

@@ -257,6 +257,9 @@ select pg_temp.assert((select status::text from app.telegram_outbox where id = :
 update app.telegram_outbox set attempts = 5 where id = :'ob2';
 select api.outbox_result(:'ob2', false, 'HTTP 502');
 select pg_temp.assert((select status::text from app.telegram_outbox where id = :'ob2') = 'failed', 'T8 failed after 5 attempts');
+select id as ob3 from app.telegram_outbox where status = 'pending' order by id limit 1 \gset
+select api.outbox_result(:'ob3', false, 'HTTP 403 bot blocked', true);
+select pg_temp.assert((select status::text from app.telegram_outbox where id = :'ob3') = 'failed', 'T8 permanent error fails immediately');
 select pg_temp.assert((select count(*) from api.outbox_take(10)) = (select count(*) from app.telegram_outbox where status = 'pending' and attempts < 5) + 0, 'T8 take returns remaining pending');
 reset role;
 
