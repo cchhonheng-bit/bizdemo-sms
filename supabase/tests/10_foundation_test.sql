@@ -79,6 +79,7 @@ select pg_temp.assert(api.has_perm('invoice.issue') = false, 'T4 tech cannot iss
 select pg_temp.assert(api.has_perm('cost.read') = false, 'T4 tech cannot read cost');
 select pg_temp.assert((select count(*) from api.profiles) = 1, 'T4 tech sees only own profile in api.profiles');
 select pg_temp.assert((select count(*) from api.users_basic) = 3, 'T4 tech sees basic list of colleagues');
+select pg_temp.assert((select count(*) from api.company_settings) = 0, 'T4 tech cannot read company settings (F1)');
 select pg_temp.assert((select count(*) from api.audit_log) = 0, 'T4 tech cannot read audit log');
 do $$ begin
   perform api.update_user('11111111-1111-1111-1111-111111111111', '{"role":"tech"}');

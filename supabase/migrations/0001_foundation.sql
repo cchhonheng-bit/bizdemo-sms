@@ -349,8 +349,9 @@ create policy companies_auth_admin_read on app.companies for select to supabase_
 create view api.companies with (security_invoker = true) as
   select id, name, slug, plan, is_active, timezone from app.companies;
 
+-- settings: technicians do not need the full settings row (review F1)
 create view api.company_settings with (security_invoker = true) as
-  select * from app.company_settings;
+  select * from app.company_settings where app.role() <> 'tech';
 
 -- full profile (for user.manage) — column-level: hide telegram ids for non-managers via api.users_basic
 create view api.profiles with (security_invoker = true) as
@@ -443,7 +444,7 @@ begin
   end if;
   update app.profiles set
     full_name         = coalesce(p_patch ->> 'full_name', full_name),
-    username          = coalesce(p_patch ->> 'username', username),
+    username          = coalesce(lower(p_patch ->> 'username'), username),
     phone             = case when p_patch ? 'phone' then nullif(p_patch ->> 'phone', '') else phone end,
     email             = case when p_patch ? 'email' then nullif(p_patch ->> 'email', '') else email end,
     role              = coalesce((p_patch ->> 'role')::app.user_role, role),

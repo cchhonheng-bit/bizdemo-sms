@@ -2,7 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@sms/shared";
 import { useTranslation } from "react-i18next";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui";
@@ -12,18 +12,17 @@ import { SUPABASE_CONFIGURED } from "@/lib/supabase";
 export default function LoginPage() {
   const { t, i18n } = useTranslation();
   const { login, status } = useAuth();
-  const nav = useNavigate();
   const loc = useLocation() as { state?: { from?: string } };
   const [err, setErr] = useState<string | null>(null);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginInput>({ resolver: zodResolver(loginSchema) });
 
-  if (status === "authed") { nav("/", { replace: true }); return null; }
+  const dest = loc.state?.from && loc.state.from !== "/login" ? loc.state.from : "/";
+  if (status === "authed") return <Navigate to={dest} replace />;
 
   const onSubmit = handleSubmit(async (v) => {
     setErr(null);
     const r = await login(v.identifier, v.password, v.company);
-    if (r.ok) nav(loc.state?.from && loc.state.from !== "/login" ? loc.state.from : "/", { replace: true });
-    else setErr(r.code === "RATE_LIMITED" ? t("auth.rate_limited") : r.code === "NETWORK" ? t("auth.network") : t("auth.invalid"));
+    if (!r.ok) setErr(r.code === "RATE_LIMITED" ? t("auth.rate_limited") : r.code === "NETWORK" ? t("auth.network") : t("auth.invalid"));
   });
 
   return (
