@@ -1,0 +1,17 @@
+{
+  "name": "bizdemo-sms",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.12.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "pnpm --filter @sms/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "db:test": "bash supabase/tests/run_local.sh",
+    "db:push": "supabase db push",
+    "functions:check": "cd supabase/functions && deno check login/index.ts admin-users/index.ts"
+  }
+}

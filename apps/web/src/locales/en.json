@@ -1,0 +1,26 @@
+{
+  "app": { "name": "BizDemo Service Manager", "loading": "Loading…", "save": "Save", "cancel": "Cancel", "edit": "Edit", "create": "Create", "close": "Close", "confirm": "Confirm", "yes": "Yes", "no": "No", "search": "Search", "actions": "Actions", "saved": "Saved", "error": "Something went wrong", "retry": "Retry", "offline": "Offline", "empty": "No data yet", "required": "Required", "language": "Language", "logout": "Log out", "active": "Active", "inactive": "Inactive" },
+  "nav": { "dashboard": "Dashboard", "bookings": "Bookings", "customers": "Customers", "catalog": "Products & Services", "users": "Users", "settings": "Settings", "me": "Me", "today": "Today", "attendance": "Attendance", "notifications": "Notifications" },
+  "roles": { "ceo": "CEO", "cfo": "CFO", "gm": "GM", "admin": "Admin + Accounting", "tech": "Technician", "platform_admin": "Platform" },
+  "auth": {
+    "title": "Sign in", "identifier": "Username / Phone / Email", "password": "Password", "company": "Company (optional)",
+    "login": "Sign in", "forgot": "Forgot password? Contact your company Admin or CEO",
+    "invalid": "Invalid credentials", "rate_limited": "Too many attempts · wait 1 minute", "network": "Cannot reach the server",
+    "first_title": "Set your password", "first_hint": "For security, choose a new password (at least 8 characters)",
+    "new_password": "New password", "confirm_password": "Confirm password", "mismatch": "Passwords do not match", "too_short": "At least 8 characters", "too_common": "Password is too common", "changed": "Password changed"
+  },
+  "users": {
+    "title": "Users", "new": "+ New user", "username": "Username", "full_name": "Full name", "role": "Role", "phone": "Phone", "email": "Email", "status": "Status", "telegram": "Telegram", "linked": "Linked", "not_linked": "Not linked",
+    "tracks_attendance": "Track attendance", "password_optional": "Password (leave empty = generate)", "reset_password": "Reset password", "deactivate": "Deactivate", "activate": "Activate",
+    "temp_password": "Temporary password", "temp_hint": "Give it to the user directly · shown once · must be changed at first login", "copy": "Copy", "copied": "Copied",
+    "confirm_deactivate": "Deactivate this user? They will be signed out within 15 minutes and cannot log in.", "confirm_reset": "Reset password? The user will get a temporary password.",
+    "err": { "USERNAME_TAKEN": "Username already exists", "PHONE_TAKEN": "Phone already exists", "EMAIL_TAKEN": "Email already exists", "INVALID_USERNAME": "Username: lowercase letters, digits . _ - (3–30)", "INVALID_PHONE": "Phone: 9–10 digits starting with 0", "INVALID_EMAIL": "Invalid email", "PASSWORD_TOO_SHORT": "At least 8 characters", "PASSWORD_TOO_COMMON": "Password is too common", "CANNOT_CHANGE_SELF": "You cannot change your own role/status", "FORBIDDEN": "No permission", "NOT_FOUND": "Not found" }
+  },
+  "settings": {
+    "title": "Company settings", "work_hours": "Working hours", "work_start": "Start", "work_end": "End", "work_days": "Working days", "office": "Office location", "lat": "Latitude", "lng": "Longitude", "geofence": "Attendance radius (m)", "out_of_range": "Job out-of-range distance (m)",
+    "fx": "Exchange rate (KHR per $1)", "discount_limit": "Discount needs CEO approval from ($)", "late_alert": "Late technician alert (min)", "telegram_group": "Telegram group chat ID", "invoice_prefix": "Invoice prefix", "vehicles": "Vehicles", "vehicle_code": "Code", "plate": "Plate", "owner": "Responsible", "add_vehicle": "+ Vehicle",
+    "days": { "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "7": "Sun" }
+  },
+  "me": { "title": "Me", "change_password": "Change password", "current_password": "Current password", "telegram": "Link Telegram", "telegram_hint": "Available in M2", "company": "Company" },
+  "dashboard": { "title": "Dashboard", "coming": "Dashboard arrives in M6 · M2: Booking flow" }
+}

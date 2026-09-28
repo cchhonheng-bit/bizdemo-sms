@@ -1,0 +1,26 @@
+{
+  "app": { "name": "BizDemo Service Manager", "loading": "កំពុងផ្ទុក…", "save": "រក្សាទុក", "cancel": "បោះបង់", "edit": "កែ", "create": "បង្កើត", "close": "បិទ", "confirm": "បញ្ជាក់", "yes": "បាទ/ចាស", "no": "ទេ", "search": "ស្វែងរក", "actions": "សកម្មភាព", "saved": "រក្សាទុករួច", "error": "មានបញ្ហា", "retry": "ព្យាយាមម្តងទៀត", "offline": "គ្មានអ៊ីនធឺណិត", "empty": "មិនទាន់មានទិន្នន័យ", "required": "ត្រូវការ", "language": "ភាសា", "logout": "ចាកចេញ", "active": "សកម្ម", "inactive": "បិទ" },
+  "nav": { "dashboard": "ផ្ទាំងគ្រប់គ្រង", "bookings": "ការងារ / Booking", "customers": "អតិថិជន", "catalog": "ទំនិញ និងសេវាកម្ម", "users": "អ្នកប្រើ", "settings": "ការកំណត់", "me": "ខ្ញុំ", "today": "ថ្ងៃនេះ", "attendance": "វត្តមាន", "notifications": "ជូនដំណឹង" },
+  "roles": { "ceo": "CEO", "cfo": "CFO", "gm": "GM", "admin": "Admin + គណនេយ្យ", "tech": "ជាង", "platform_admin": "Platform" },
+  "auth": {
+    "title": "ចូលប្រព័ន្ធ", "identifier": "Username / លេខទូរស័ព្ទ / Email", "password": "ពាក្យសម្ងាត់", "company": "ក្រុមហ៊ុន (ស្រេចចិត្ត)",
+    "login": "ចូល", "forgot": "ភ្លេចពាក្យសម្ងាត់? សូមទាក់ទង Admin ឬ CEO របស់ក្រុមហ៊ុន",
+    "invalid": "ព័ត៌មានចូលមិនត្រឹមត្រូវ", "rate_limited": "ព្យាយាមច្រើនដងពេក · សូមរង់ចាំ 1 នាទី", "network": "មិនអាចភ្ជាប់ Server បានទេ",
+    "first_title": "ប្តូរពាក្យសម្ងាត់ដំបូង", "first_hint": "ដើម្បីសុវត្ថិភាព សូមកំណត់ពាក្យសម្ងាត់ថ្មីរបស់អ្នក (យ៉ាងតិច 8 តួ)",
+    "new_password": "ពាក្យសម្ងាត់ថ្មី", "confirm_password": "បញ្ជាក់ពាក្យសម្ងាត់", "mismatch": "ពាក្យសម្ងាត់មិនដូចគ្នា", "too_short": "យ៉ាងតិច 8 តួ", "too_common": "ពាក្យសម្ងាត់ងាយស្មានពេក", "changed": "ប្តូរពាក្យសម្ងាត់រួច"
+  },
+  "users": {
+    "title": "អ្នកប្រើ", "new": "+ អ្នកប្រើថ្មី", "username": "Username", "full_name": "ឈ្មោះពេញ", "role": "តួនាទី", "phone": "លេខទូរស័ព្ទ", "email": "Email", "status": "ស្ថានភាព", "telegram": "Telegram", "linked": "ភ្ជាប់រួច", "not_linked": "មិនទាន់",
+    "tracks_attendance": "កត់វត្តមាន", "password_optional": "ពាក្យសម្ងាត់ (ទុកទទេ = បង្កើតដោយស្វ័យប្រវត្តិ)", "reset_password": "Reset ពាក្យសម្ងាត់", "deactivate": "បិទអ្នកប្រើ", "activate": "បើកអ្នកប្រើ",
+    "temp_password": "ពាក្យសម្ងាត់បណ្តោះអាសន្ន", "temp_hint": "ផ្ញើឲ្យអ្នកប្រើដោយផ្ទាល់ · បង្ហាញតែម្តង · ត្រូវប្តូរពេល Login ដំបូង", "copy": "ចម្លង", "copied": "ចម្លងរួច",
+    "confirm_deactivate": "បិទអ្នកប្រើនេះ? គេនឹងចាកចេញក្នុង ≤ 15 នាទី ហើយមិនអាចចូលបានទៀត។", "confirm_reset": "Reset ពាក្យសម្ងាត់? អ្នកប្រើនឹងទទួលពាក្យសម្ងាត់បណ្តោះអាសន្ន។",
+    "err": { "USERNAME_TAKEN": "Username នេះមានរួចហើយ", "PHONE_TAKEN": "លេខទូរស័ព្ទនេះមានរួចហើយ", "EMAIL_TAKEN": "Email នេះមានរួចហើយ", "INVALID_USERNAME": "Username: អក្សរតូច លេខ . _ - (3–30 តួ)", "INVALID_PHONE": "លេខទូរស័ព្ទ 9–10 ខ្ទង់ ចាប់ដោយ 0", "INVALID_EMAIL": "Email មិនត្រឹមត្រូវ", "PASSWORD_TOO_SHORT": "យ៉ាងតិច 8 តួ", "PASSWORD_TOO_COMMON": "ពាក្យសម្ងាត់ងាយស្មានពេក", "CANNOT_CHANGE_SELF": "មិនអាចប្តូរតួនាទី/ស្ថានភាពខ្លួនឯង", "FORBIDDEN": "គ្មានសិទ្ធិ", "NOT_FOUND": "រកមិនឃើញ" }
+  },
+  "settings": {
+    "title": "ការកំណត់ក្រុមហ៊ុន", "work_hours": "ម៉ោងធ្វើការ", "work_start": "ម៉ោងចូល", "work_end": "ម៉ោងចេញ", "work_days": "ថ្ងៃធ្វើការ", "office": "ទីតាំង Office", "lat": "Latitude", "lng": "Longitude", "geofence": "រង្វង់វត្តមាន (m)", "out_of_range": "ចម្ងាយក្រៅរង្វង់ការងារ (m)",
+    "fx": "អត្រាប្តូរប្រាក់ (៛ / 1$)", "discount_limit": "Discount ត្រូវ CEO អនុម័តចាប់ពី ($)", "late_alert": "ជូនដំណឹងជាងយឺត (នាទី)", "telegram_group": "Telegram Group Chat ID", "invoice_prefix": "បុព្វបទវិក្កយបត្រ", "vehicles": "ឡាន", "vehicle_code": "លេខឡាន", "plate": "ស្លាកលេខ", "owner": "អ្នកទទួលខុសត្រូវ", "add_vehicle": "+ ឡាន",
+    "days": { "1": "ចន្ទ", "2": "អង្គារ", "3": "ពុធ", "4": "ព្រហ", "5": "សុក្រ", "6": "សៅរ៍", "7": "អាទិត្យ" }
+  },
+  "me": { "title": "ខ្ញុំ", "change_password": "ប្តូរពាក្យសម្ងាត់", "current_password": "ពាក្យសម្ងាត់បច្ចុប្បន្ន", "telegram": "ភ្ជាប់ Telegram", "telegram_hint": "មាននៅ M2", "company": "ក្រុមហ៊ុន" },
+  "dashboard": { "title": "ផ្ទាំងគ្រប់គ្រង", "coming": "Dashboard នឹងមាននៅ M6 · M2: Booking flow" }
+}
