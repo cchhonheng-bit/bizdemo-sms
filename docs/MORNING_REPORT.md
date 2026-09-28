@@ -56,7 +56,7 @@ D-01 … D-14 (M1) និង **D-15 … D-21 (M2)** — សរុបក្នុ
 - **Bundle size** web ≈ 690 KB precache (≈ 190 KB gzip) — ល្អសម្រាប់ 3G/4G; PWA offline shell OK។
 
 ## 7. ឯកសារដែលបានប្រគល់ (Doc_Sup)
-- `06_Development/MORNING_REPORT.md` (ឯកសារនេះ) · `06_Development/DECISIONS.md` (D-01…D-21) · `06_Development/bizdemo-sms.bundle` (git, 8 commits)
+- `06_Development/MORNING_REPORT.md` (ឯកសារនេះ) · `06_Development/DECISIONS.md` (D-01…D-21) · `06_Development/bizdemo-sms.bundle` (git, 10 commits)
 - `07_QA/QA_M1.md` · `07_QA/QA_M2.md` · `07_QA/screenshots_m2/*.png`
 - `04_Security/CodeReview_M1.md` · `04_Security/CodeReview_M2.md`
 - `Source/` (working tree · 105 files · README ជាមួយជំហាន Supabase/Telegram/Cron)
