@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
 import type { PermissionKey } from "@sms/shared";
+import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 
 type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[] };
 
@@ -23,6 +24,7 @@ export default function Shell() {
   const { me, logout, can } = useAuth();
   const nav = useNavigate();
   const online = useOnline();
+  const unread = useUnreadCount();
   if (!me) return null;
   const isTech = me.role === "tech";
 
@@ -39,9 +41,9 @@ export default function Shell() {
 
   const techItems: Item[] = [
     { to: "/tech", label: t("nav.today"), icon: ClipboardList },
-    { to: "/tech/attendance", label: t("nav.attendance"), icon: CalendarClock },
     { to: "/notifications", label: t("nav.notifications"), icon: Bell },
     { to: "/me", label: t("nav.me"), icon: User },
+    { to: "/tech/attendance", label: t("nav.attendance"), icon: CalendarClock }, // M4
   ];
   const items = isTech ? techItems : desktopItems;
 
@@ -79,6 +81,10 @@ export default function Shell() {
           <div className="flex items-center gap-2">
             {!online && <span className="badge bg-warning-50 text-warning flex items-center gap-1"><WifiOff size={12} /> {t("app.offline")}</span>}
             {langBtn}
+            <NavLink to="/notifications" className="relative p-1.5 rounded hover:bg-grey-bg" aria-label={t("nav.notifications")}>
+              <Bell size={18} />
+              {unread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center" data-testid="unread-badge">{unread}</span>}
+            </NavLink>
             <NavLink to="/me" className="flex items-center gap-2 text-sm">
               <span className="h-8 w-8 rounded-full bg-blue-50 text-navy flex items-center justify-center font-bold">{me.full_name.slice(0, 1)}</span>
               <span className="hidden sm:inline">{me.full_name}</span>
@@ -92,8 +98,9 @@ export default function Shell() {
         {/* Bottom nav (mobile) */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-white border-t border-grey-line flex justify-around items-center z-40">
           {items.slice(0, 4).map((i) => (
-            <NavLink key={i.to} to={i.to} className={({ isActive }) => `flex flex-col items-center gap-0.5 text-[11px] px-2 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
+            <NavLink key={i.to} to={i.to} className={({ isActive }) => `relative flex flex-col items-center gap-0.5 text-[11px] px-2 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
               <i.icon size={22} /> {i.label}
+              {i.to === "/notifications" && unread > 0 && <span className="absolute top-0 right-0 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center">{unread}</span>}
             </NavLink>
           ))}
         </nav>

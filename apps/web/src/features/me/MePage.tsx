@@ -6,13 +6,27 @@ import { supabase } from "@/lib/supabase";
 import { setLanguage } from "@/lib/i18n";
 import { Badge, Button, Card, Field, Input } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { api, errCode } from "@/lib/api";
+import { Copy, Send } from "lucide-react";
+
+const BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) ?? "Oneteam_app_bot";
 
 export default function MePage() {
   const { t, i18n } = useTranslation();
   const { me, logout, load } = useAuth();
   const nav = useNavigate();
   const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [busy, setBusy] = useState(false);
+  const [tgLink, setTgLink] = useState<string | null>(null); const [tgBusy, setTgBusy] = useState(false);
   if (!me) return null;
+
+  const linkTelegram = async () => {
+    setTgBusy(true);
+    try {
+      const code = await api.telegramLinkCode();
+      setTgLink(`https://t.me/${BOT}?start=${code}`);
+    } catch (e) { toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
+    setTgBusy(false);
+  };
 
   const changePw = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,8 +61,24 @@ export default function MePage() {
             <Button className={i18n.language === "km" ? "bg-navy text-white" : ""} onClick={() => void changeLang("km")}>ខ្មែរ</Button>
             <Button className={i18n.language === "en" ? "bg-navy text-white" : ""} onClick={() => void changeLang("en")}>English</Button>
           </dd>
-          <dt className="text-muted">{t("me.telegram")}</dt><dd>{me.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <span className="text-muted">{t("me.telegram_hint")}</span>}</dd>
+          <dt className="text-muted">{t("me.telegram")}</dt>
+          <dd>{me.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</dd>
         </dl>
+      </Card>
+      <Card title={t("me.telegram")}>
+        <p className="text-sm text-muted mb-3">{t("me.telegram_hint")}</p>
+        {tgLink ? (
+          <div className="space-y-2">
+            <a href={tgLink} target="_blank" rel="noopener noreferrer" className="btn-primary btn-lg w-full sm:w-auto" data-testid="tg-open"><Send size={16} /> {t("me.telegram_open")}</a>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 bg-grey-bg rounded px-3 py-2 text-xs break-all">{tgLink}</code>
+              <Button onClick={() => { void navigator.clipboard?.writeText(tgLink); toast.success(t("users.copied")); }}><Copy size={16} /></Button>
+            </div>
+            <p className="text-xs text-muted">{t("me.telegram_expires")}</p>
+          </div>
+        ) : (
+          <Button variant="primary" onClick={() => void linkTelegram()} loading={tgBusy} data-testid="tg-link"><Send size={16} /> {me.telegram_linked ? t("me.telegram_relink") : t("me.telegram_link")}</Button>
+        )}
       </Card>
       <Card title={t("me.change_password")}>
         <form onSubmit={changePw} className="max-w-sm">

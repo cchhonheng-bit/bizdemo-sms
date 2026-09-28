@@ -10,6 +10,13 @@ import UsersPage from "@/features/users/UsersPage";
 import CompanySettingsPage from "@/features/settings/CompanySettingsPage";
 import MePage from "@/features/me/MePage";
 import DashboardPage from "@/features/dashboard/DashboardPage";
+import CustomersPage from "@/features/customers/CustomersPage";
+import CatalogPage from "@/features/catalog/CatalogPage";
+import BookingsPage from "@/features/bookings/BookingsPage";
+import BookingFormPage from "@/features/bookings/BookingFormPage";
+import BookingDetailPage from "@/features/bookings/BookingDetailPage";
+import TechTodayPage, { TechJobPage } from "@/features/tech/TechTodayPage";
+import NotificationsPage from "@/features/notifications/NotificationsPage";
 import { Toaster } from "@/components/ui";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } } });
@@ -27,7 +34,17 @@ export default function App() {
             <Route element={<Shell />}>
               <Route index element={<Home />} />
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/tech" element={<DashboardPage />} />
+              <Route path="/bookings" element={<BookingsPage />} />
+              <Route element={<RequirePerm perm="booking.create" />}>
+                <Route path="/bookings/new" element={<BookingFormPage />} />
+                <Route path="/bookings/:id/edit" element={<BookingFormPage />} />
+              </Route>
+              <Route path="/bookings/:id" element={<BookingDetailPage />} />
+              <Route element={<RequirePerm perm="customer.manage" />}><Route path="/customers" element={<CustomersPage />} /></Route>
+              <Route element={<RequirePerm perm="catalog.manage" />}><Route path="/catalog" element={<CatalogPage />} /></Route>
+              <Route path="/tech" element={<TechTodayPage />} />
+              <Route path="/tech/job/:id" element={<TechJobPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/me" element={<MePage />} />
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>
