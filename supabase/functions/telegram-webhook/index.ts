@@ -7,6 +7,7 @@
 //   group chat    /register       → set this group as the company's job channel (settings.manage only)
 import { checkRate, serviceClient } from "../_shared/supabase.ts";
 import { sendMessage } from "../_shared/telegram.ts";
+import { safeEqual } from "../_shared/http.ts";
 
 const SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET") ?? "";
 const BOT_USERNAME = (Deno.env.get("TELEGRAM_BOT_USERNAME") ?? "Oneteam_app_bot").toLowerCase();
@@ -35,7 +36,7 @@ function command(text: string): { cmd: string; arg: string } | null {
 
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
-  if (!SECRET || req.headers.get("x-telegram-bot-api-secret-token") !== SECRET) {
+  if (!safeEqual(req.headers.get("x-telegram-bot-api-secret-token") ?? "", SECRET)) {
     return new Response("forbidden", { status: 403 });
   }
   let update: Update;

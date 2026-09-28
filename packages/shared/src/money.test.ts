@@ -8,6 +8,13 @@ describe("money", () => {
     expect(toCents(18.5)).toBe(1850);
     expect(toCents("1,864.50")).toBe(186450);
     expect(toCents(0.1 + 0.2)).toBe(30);
+    expect(toCents("$ 12.5")).toBe(1250);
+  });
+  it("B-M2-01: rejects non-numeric text instead of returning 0", () => {
+    expect(() => toCents("abc")).toThrow("INVALID_AMOUNT");
+    expect(() => toCents("12abc")).toThrow("INVALID_AMOUNT");
+    expect(() => toCents("")).toThrow("INVALID_AMOUNT");
+    expect(() => toCents("1.2.3")).toThrow("INVALID_AMOUNT");
   });
   it("formats", () => {
     expect(formatUsd(186450)).toBe("$1,864.50");

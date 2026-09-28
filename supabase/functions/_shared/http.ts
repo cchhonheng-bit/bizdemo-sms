@@ -38,3 +38,13 @@ export async function readJson<T>(req: Request): Promise<T | null> {
     return null;
   }
 }
+
+/** Constant-time string comparison for shared secrets (F-M2-04). */
+export function safeEqual(a: string, b: string): boolean {
+  const enc = new TextEncoder();
+  const x = enc.encode(a), y = enc.encode(b);
+  if (x.length !== y.length || x.length === 0) return false;
+  let diff = 0;
+  for (let i = 0; i < x.length; i++) diff |= x[i] ^ y[i];
+  return diff === 0;
+}

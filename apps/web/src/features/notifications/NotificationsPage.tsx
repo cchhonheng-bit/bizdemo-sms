@@ -12,7 +12,7 @@ export default function NotificationsPage() {
   const read = useMutation({ mutationFn: api.markRead, onSuccess: () => void qc.invalidateQueries({ queryKey: ["notifications"] }) });
   const open = (n: { id: number; read_at: string | null; link: string | null }) => {
     if (!n.read_at) read.mutate(n.id);
-    if (n.link) nav(n.link);
+    if (n.link && n.link.startsWith("/") && !n.link.startsWith("//")) nav(n.link); // F-M2-06: relative app links only
   };
   return (
     <div className="max-w-xl">

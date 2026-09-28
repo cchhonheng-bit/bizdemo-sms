@@ -375,6 +375,11 @@ begin
   select * into v_old from app.bookings where id = p_id and company_id = app.tenant() for update;
   if not found then raise exception 'NOT_FOUND' using errcode = 'P0002'; end if;
   if v_old.status not in ('new', 'survey', 'quoted', 'assigned') then raise exception 'BOOKING_LOCKED' using errcode = 'P0001'; end if;
+  -- F-M2-01: vehicle must belong to the tenant
+  if nullif(p_patch ->> 'vehicle_id', '') is not null
+     and not exists (select 1 from app.vehicles where id = (p_patch ->> 'vehicle_id')::uuid and company_id = app.tenant() and is_active) then
+    raise exception 'VEHICLE_NOT_FOUND' using errcode = 'P0002';
+  end if;
   update app.bookings set
     service_text = coalesce(p_patch ->> 'service_text', service_text),
     category     = coalesce((p_patch ->> 'category')::app.service_category, category),
@@ -483,12 +488,13 @@ end $$;
 -- availability helper for the assign drawer (FR-402)
 create or replace function api.technician_availability(p_at timestamptz) returns jsonb
 language sql stable security definer set search_path = app, pg_temp as $$
-  select coalesce(jsonb_agg(jsonb_build_object('user_id', p.id, 'full_name', p.full_name, 'role', p.role,
+  -- F-M2-02: only assigners see the team schedule
+  select case when not app.has_perm('booking.assign') then null else coalesce(jsonb_agg(jsonb_build_object('user_id', p.id, 'full_name', p.full_name, 'role', p.role,
            'busy', coalesce((select jsonb_agg(jsonb_build_object('number', b.number, 'scheduled_at', b.scheduled_at))
                     from app.booking_technicians t join app.bookings b on b.id = t.booking_id
                     where t.user_id = p.id and b.status in ('assigned','en_route','on_site','working')
                       and b.scheduled_at between p_at - interval '2 hours' and p_at + interval '2 hours'), '[]'::jsonb))
-         order by p.role, p.full_name), '[]'::jsonb)
+         order by p.role, p.full_name), '[]'::jsonb) end
   from app.profiles p where p.company_id = app.tenant() and p.is_active and p.role in ('tech', 'gm')
 $$;
 
@@ -517,6 +523,13 @@ begin
   select user_id into v_uid from app.telegram_link_codes where code = p_code and used_at is null and expires_at > now();
   if v_uid is null then return jsonb_build_object('ok', false, 'error', 'INVALID_CODE'); end if;
   update app.telegram_link_codes set used_at = now() where code = p_code;
+  -- F-M2-03: a Telegram account can be linked to one user only → unlink it from any previous profile (audited)
+  update app.profiles set telegram_user_id = null, telegram_chat_id = null where telegram_user_id = p_tg_user and id <> v_uid;
+  if found then
+    insert into app.audit_log (company_id, user_id, action, source, table_name, row_id, new_data)
+    select company_id, id, 'telegram.unlink', 'telegram', 'profiles', id::text, jsonb_build_object('reason', 'relinked_to_other_user')
+    from app.profiles where id = v_uid;
+  end if;
   update app.profiles set telegram_user_id = p_tg_user, telegram_chat_id = p_chat where id = v_uid
     returning full_name, company_id into v_name, v_company;
   insert into app.audit_log (company_id, user_id, action, source, table_name, row_id, new_data)

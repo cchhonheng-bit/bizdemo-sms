@@ -4,7 +4,7 @@
 //   2. The web app right after assign (fire-and-forget) with the user's JWT → instant delivery
 // Either way only queued rows are sent; nothing is exposed to the caller except counts.
 import { serviceClient, userClient } from "../_shared/supabase.ts";
-import { corsHeaders, error, json } from "../_shared/http.ts";
+import { corsHeaders, error, json, safeEqual } from "../_shared/http.ts";
 import { sendMessage, telegramConfigured } from "../_shared/telegram.ts";
 
 const CRON_SECRET = Deno.env.get("CRON_SECRET") ?? "";
@@ -16,7 +16,7 @@ Deno.serve(async (req) => {
   if (req.method !== "POST") return error(req, "METHOD_NOT_ALLOWED", 405);
 
   // auth: cron secret OR any authenticated user
-  const bySecret = CRON_SECRET.length > 0 && req.headers.get("x-cron-secret") === CRON_SECRET;
+  const bySecret = safeEqual(req.headers.get("x-cron-secret") ?? "", CRON_SECRET);
   if (!bySecret) {
     const caller = userClient(req);
     if (!caller) return error(req, "UNAUTHENTICATED", 401);

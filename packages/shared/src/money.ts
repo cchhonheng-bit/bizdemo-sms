@@ -2,7 +2,10 @@
 export type Cents = number;
 
 export function toCents(usd: number | string): Cents {
-  const n = typeof usd === "string" ? Number(usd.replace(/[^0-9.-]/g, "")) : usd;
+  const cleaned = typeof usd === "string" ? usd.replace(/[,$\s]/g, "") : usd;
+  // B-M2-01: "abc" must not silently become 0 — only digits, one dot and a sign are accepted
+  if (typeof cleaned === "string" && !/^-?\d+(\.\d+)?$/.test(cleaned)) throw new Error("INVALID_AMOUNT");
+  const n = typeof cleaned === "string" ? Number(cleaned) : cleaned;
   if (!Number.isFinite(n)) throw new Error("INVALID_AMOUNT");
   return Math.round(n * 100);
 }

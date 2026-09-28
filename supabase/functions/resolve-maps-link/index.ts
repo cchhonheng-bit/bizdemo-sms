@@ -2,7 +2,7 @@
 // Expands short Google Maps links (maps.app.goo.gl) server-side because browsers cannot follow them (CORS).
 // SSRF guard (S-12): only allowlisted hosts are fetched, redirects are followed manually (≤ 4 hops, each
 // hop re-checked against the allowlist), 5 s timeout, response bodies are never returned to the client.
-import { userClient } from "../_shared/supabase.ts";
+import { checkRate, serviceClient, userClient } from "../_shared/supabase.ts";
 import { corsHeaders, error, json, readJson } from "../_shared/http.ts";
 import { isAllowedMapsHost, parseLatLng } from "../_shared/maps.ts";
 
@@ -41,6 +41,9 @@ Deno.serve(async (req) => {
   if (!caller) return error(req, "UNAUTHENTICATED", 401);
   const { data, error: uErr } = await caller.auth.getUser();
   if (uErr || !data.user) return error(req, "UNAUTHENTICATED", 401);
+
+  // F-M2-05: 30 lookups / minute / user (each lookup is an outbound fetch)
+  if (!(await checkRate(serviceClient(), `maps:user:${data.user.id}`, 30, 60))) return error(req, "RATE_LIMITED", 429);
 
   const body = await readJson<{ url?: string }>(req);
   const url = (body?.url ?? "").trim();

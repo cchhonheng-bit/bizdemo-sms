@@ -199,6 +199,7 @@ select pg_temp.assert((select count(*) from api.notifications) >= 1, 'T5 kim has
 select pg_temp.expect_error(format($$select api.create_booking(%L, 'A', 'mep', 'x', null, null, null, null, null, null, null)$$, :'cust1'), 'FORBIDDEN', 'T5 tech cannot create booking');
 select pg_temp.expect_error(format($$select api.assign_booking(%L, %L, '{}', null, now())$$, :'bk2id', '22222222-2222-2222-2222-222222222222'), 'FORBIDDEN', 'T5 tech cannot assign');
 select pg_temp.expect_error(format($$select api.update_booking(%L, '{"notes":"x"}')$$, :'bk2id'), 'FORBIDDEN', 'T5 tech cannot edit booking');
+select pg_temp.assert(api.technician_availability(now()) is null, 'T5 tech cannot read team availability (F-M2-02)');
 select pg_temp.logout();
 select pg_temp.login('66666666-6666-6666-6666-666666666666', :'a', 'tech');
 select pg_temp.assert((select number from api.bookings) = 'BK-0001', 'T5 dara sees BK-0001 only');
@@ -216,6 +217,7 @@ reset role;
 select pg_temp.login('55555555-5555-5555-5555-555555555555', :'a', 'admin');
 select pg_temp.assert((select count(*) from api.booking_status_log where booking_id = :'bk1id' and to_status = 'en_route') = 1, 'T6 en_route logged by trigger');
 select pg_temp.expect_error(format($$select api.update_booking(%L, '{"notes":"late"}')$$, :'bk1id'), 'BOOKING_LOCKED', 'T6 booking locked after en_route');
+select pg_temp.expect_error(format($$select api.update_booking(%L, '{"vehicle_id":"%s"}')$$, :'bk2id', gen_random_uuid()), 'VEHICLE_NOT_FOUND', 'T6 foreign vehicle rejected (F-M2-01)');
 select api.update_booking(:'bk2id', '{"notes":"call first","scheduled_at":"2026-10-02T14:00:00+07:00","vehicle_id":""}');
 select pg_temp.assert((select notes from api.bookings where id = :'bk2id') = 'call first', 'T6 patch notes');
 select pg_temp.assert((select scheduled_at from api.bookings where id = :'bk2id') = '2026-10-02 14:00+07'::timestamptz, 'T6 patch schedule');
@@ -236,6 +238,18 @@ select pg_temp.assert((api.consume_telegram_link(:'code2', 900006, 900006)) ->> 
 select pg_temp.assert((api.consume_telegram_link(:'code2', 900006, 900006)) ->> 'error' = 'INVALID_CODE', 'T7 code single use');
 select pg_temp.assert((select telegram_chat_id from app.profiles where id = '66666666-6666-6666-6666-666666666666') = 900006, 'T7 chat id stored');
 select pg_temp.assert((select count(*) from app.audit_log where action = 'telegram.link' and source = 'telegram') = 1, 'T7 link audited');
+-- F-M2-03: same Telegram account linking to another user moves the link
+reset role;
+select pg_temp.login('33333333-3333-3333-3333-333333333333', :'a', 'gm');
+select api.create_telegram_link_code() as code3 \gset
+select pg_temp.logout();
+set local role service_role;
+select pg_temp.assert((api.consume_telegram_link(:'code3', 900006, 900006)) ->> 'ok' = 'true', 'T7 relink to other user ok');
+select pg_temp.assert((select telegram_user_id from app.profiles where id = '66666666-6666-6666-6666-666666666666') is null, 'T7 previous user unlinked');
+select pg_temp.assert((select telegram_user_id from app.profiles where id = '33333333-3333-3333-3333-333333333333') = 900006, 'T7 new user linked');
+select pg_temp.assert((select count(*) from app.audit_log where action = 'telegram.unlink') = 1, 'T7 unlink audited');
+update app.profiles set telegram_user_id = null, telegram_chat_id = null where id = '33333333-3333-3333-3333-333333333333';
+update app.profiles set telegram_user_id = 900006, telegram_chat_id = 900006 where id = '66666666-6666-6666-6666-666666666666';
 -- group registration: tech forbidden, unknown user not linked, CEO ok
 select pg_temp.assert((api.register_telegram_group(900006, -100999, 'One Team')) ->> 'error' = 'FORBIDDEN', 'T7 tech cannot register group');
 select pg_temp.assert((api.register_telegram_group(123, -100999, 'One Team')) ->> 'error' = 'NOT_LINKED', 'T7 unlinked user cannot register');

@@ -4,6 +4,7 @@ import { Bell, Building2, CalendarClock, ClipboardList, LayoutDashboard, LogOut,
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
+import { supabase } from "@/lib/supabase";
 import type { PermissionKey } from "@sms/shared";
 import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 
@@ -49,7 +50,14 @@ export default function Shell() {
 
   const langBtn = (
     <button className="text-xs px-2 py-1 rounded border border-grey-line hover:bg-grey-bg"
-      onClick={() => setLanguage(i18n.language === "km" ? "en" : "km")} aria-label={t("app.language")}>
+      onClick={() => {
+        // B-M2-02: persist to the profile, otherwise load() restores the server language on next visit
+        const lang = i18n.language === "km" ? "en" : "km";
+        setLanguage(lang);
+        useAuth.setState((s) => ({ me: s.me ? { ...s.me, language: lang } : s.me }));
+        // PostgrestBuilder is lazy: it only sends when awaited/then'd
+        supabase.rpc("set_language", { p_lang: lang }).then(() => undefined, () => undefined);
+      }} aria-label={t("app.language")}>
       {i18n.language === "km" ? "EN" : "ខ្មែរ"}
     </button>
   );
