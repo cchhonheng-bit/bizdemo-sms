@@ -8,7 +8,7 @@ const URL = Deno.env.get("SUPABASE_URL")!;
 /**
  * API keys (D-27): prefer the new publishable/secret keys (`sb_publishable_…` / `sb_secret_…`), which Supabase
  * injects as JSON maps SUPABASE_PUBLISHABLE_KEYS / SUPABASE_SECRET_KEYS ({"default": "sb_…"}), or as explicit
- * secrets SUPABASE_PUBLISHABLE_KEY / SUPABASE_SECRET_KEY; fall back to the legacy anon / service_role JWT keys
+ * secrets SB_PUBLISHABLE_KEY / SB_SECRET_KEY (custom secrets may not start with "SUPABASE_"); fall back to the legacy anon / service_role JWT keys
  * (deprecated end of 2026).
  */
 function keyFrom(mapVar: string, singleVar: string, legacyVar: string): string {
@@ -21,9 +21,9 @@ function keyFrom(mapVar: string, singleVar: string, legacyVar: string): string {
   }
   return Deno.env.get(singleVar) ?? Deno.env.get(legacyVar) ?? "";
 }
-const ANON = keyFrom("SUPABASE_PUBLISHABLE_KEYS", "SUPABASE_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY");
-const SERVICE = keyFrom("SUPABASE_SECRET_KEYS", "SUPABASE_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY");
-if (!ANON || !SERVICE) console.error("supabase keys missing: set SUPABASE_SECRET_KEY / SUPABASE_PUBLISHABLE_KEY");
+const ANON = keyFrom("SUPABASE_PUBLISHABLE_KEYS", "SB_PUBLISHABLE_KEY", "SUPABASE_ANON_KEY");
+const SERVICE = keyFrom("SUPABASE_SECRET_KEYS", "SB_SECRET_KEY", "SUPABASE_SERVICE_ROLE_KEY");
+if (!ANON || !SERVICE) console.error("supabase keys missing: set SB_SECRET_KEY / SB_PUBLISHABLE_KEY");
 
 /** Service-role client: bypasses RLS. Only call api.* RPCs granted to service_role. */
 export function serviceClient(): ApiClient {
