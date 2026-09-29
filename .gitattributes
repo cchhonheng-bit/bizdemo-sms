@@ -1,0 +1,5 @@
+*.cmd text eol=crlf
+*.sh text eol=lf
+deploy/server/bin/* text eol=lf
+deploy/server/Caddyfile text eol=lf
+deploy/server/compose.yml text eol=lf

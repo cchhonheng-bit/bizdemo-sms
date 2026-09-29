@@ -1,3 +1,3 @@
 #!/usr/bin/env bash
 # docker compose for the HangKH box: secrets from .env, image tags from images.env (written by remote-deploy.sh)
-cd /opt/hangkh && touch images.env && exec docker compose --env-file .env --env-file images.env -f compose.yml "$@"
+cd /opt/hangkh && touch images.env && exec docker compose -p hangkh --env-file .env --env-file images.env -f compose.yml "$@"

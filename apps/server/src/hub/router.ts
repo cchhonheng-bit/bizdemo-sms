@@ -4,7 +4,7 @@
 import type { FastifyBaseLogger } from "fastify";
 import { parseLinkCode, parseSubscribe } from "@sms/shared";
 import { config } from "../config.js";
-import { checkRate, underLimit } from "../lib/rate-limit.js";
+import { checkRate, refundRate } from "../lib/rate-limit.js";
 import { acceptConsent, consentButton, privacyUrl, stopSubscriptions, type TgFrom } from "./subscribers.js";
 import { callShop, getShop, logMessage } from "./shops.js";
 import { sql } from "../db.js";
@@ -44,13 +44,14 @@ async function forwardCode(kind: "link" | "group", raw: string, msg: Message, lo
   const from = msg.from!;
   const parsed = parseLinkCode(raw);
   const expected = kind === "link" ? "staff" : "group";
-  if (!underLimit(`tg:bad:${from.id}`, BAD_CODE_LIMIT, 3600)) {
+  // count the attempt BEFORE any await (concurrent updates cannot slip through — R7); refunded when the code was good
+  const badKey = `tg:bad:${from.id}`;
+  if (!checkRate(badKey, BAD_CODE_LIMIT, 3600)) {
     await reply(msg.chat.id, "⏳ ព្យាយាមច្រើនដងពេក។ សូមរង់ចាំ 1 ម៉ោង។", null, "rate_limited");
     return;
   }
   const shop = parsed && parsed.kind === expected ? await getShop(parsed.shop) : null;
   if (!parsed || parsed.kind !== expected || !shop || shop.status !== "active") {
-    checkRate(`tg:bad:${from.id}`, BAD_CODE_LIMIT, 3600);
     await reply(msg.chat.id, kind === "link" ? "❌ តំណមិនត្រឹមត្រូវ។ សូមចុច «ភ្ជាប់ Telegram» ក្នុងកម្មវិធីម្ដងទៀត។" : "❌ កូដក្រុមមិនត្រឹមត្រូវ។ ទម្រង់: /register ONETEAM-G-XXXXXX", parsed?.shop ?? null, `${kind}.invalid`);
     return;
   }
@@ -61,10 +62,9 @@ async function forwardCode(kind: "link" | "group", raw: string, msg: Message, lo
     return;
   }
   if (r.json.ok) {
+    refundRate(badKey);
     // from now on this shop may send to this chat (allowlist for /internal/send)
     await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values (${shop.code}, ${msg.chat.id}, ${kind === "link" ? "staff" : "group"}) on conflict do nothing`;
-  } else {
-    checkRate(`tg:bad:${from.id}`, BAD_CODE_LIMIT, 3600);
   }
   await reply(msg.chat.id, r.json.reply.slice(0, 1000), shop.code, `${kind}.${r.json.ok ? "ok" : "fail"}`);
 }
@@ -92,9 +92,12 @@ async function onMessage(msg: Message, log: FastifyBaseLogger): Promise<void> {
   if (isPrivate && c.cmd === "stop") {
     const promoOnly = /^promo\b/i.test(c.arg);
     const names = await stopSubscriptions(msg.from.id, promoOnly);
-    const text = names.length === 0
-      ? "ℹ️ អ្នកមិនមានការចុះឈ្មោះសកម្មទេ។"
-      : promoOnly ? `✅ បិទប្រូម៉ូសិនរួច: ${names.join(", ")}។ អ្នកនៅទទួលដំណឹងសេវាកម្ម។` : `✅ ឈប់ទទួលសាររួច: ${names.join(", ")}។ ចុះឈ្មោះម្ដងទៀតបានតាមតំណរបស់ហាង។`;
+    // /stop (all) also ends job messages from shops to this private chat — the person's opt-out (R6)
+    const staff = promoOnly ? [] : await sql<{ name: string }[]>`delete from hub_shop_chats c using hub_shops h where h.code = c.shop_code and c.chat_id = ${msg.chat.id} and c.kind = 'staff' returning h.name`;
+    const lines: string[] = [];
+    if (names.length) lines.push(promoOnly ? `✅ បិទប្រូម៉ូសិនរួច: ${names.join(", ")}។ អ្នកនៅទទួលដំណឹងសេវាកម្ម។` : `✅ ឈប់ទទួលសាររួច: ${names.join(", ")}។ ចុះឈ្មោះម្ដងទៀតបានតាមតំណរបស់ហាង។`);
+    if (staff.length) lines.push(`ℹ️ ការងារពី ${staff.map((x) => x.name).join(", ")} នឹងលែងផ្ញើមកទីនេះ។ ភ្ជាប់វិញ: App → ខ្ញុំ → ភ្ជាប់ Telegram។`);
+    const text = lines.length ? lines.join("\n") : "ℹ️ អ្នកមិនមានការចុះឈ្មោះសកម្មទេ។";
     return reply(msg.chat.id, text, null, promoOnly ? "stop.promo" : "stop.all");
   }
   if (isGroup && c.cmd === "register") return forwardCode("group", c.arg, msg, log);

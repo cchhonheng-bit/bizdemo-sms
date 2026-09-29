@@ -37,15 +37,15 @@ if (capture("docker version --format {{.Server.Version}}").code !== 0) stop("Doc
 if (run(`ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH} "test -f ${cfg.dir}/.env && echo server-ready"`) !== 0)
   stop(`SSH key login to ${cfg.host} failed, or the server is not initialised (SERVER_SETUP.md steps 1–3).`);
 
-// 3) server files (compose, Caddyfile, scripts) — takes effect at the restart below
-console.log("\n==> server files");
+// 3) server files → /opt/hangkh/.incoming only (installed by remote-deploy.sh after the image is loaded; rolled back with it — R10)
+console.log("\n==> server files (staged)");
 if (run(`ssh ${SSH} "rm -rf ${cfg.dir}/.incoming"`) !== 0 || run(`scp -q -r deploy/server ${SSH}:${cfg.dir}/.incoming`) !== 0 ||
-    run(`ssh ${SSH} "cd ${cfg.dir} && cp .incoming/compose.yml .incoming/Caddyfile .incoming/pg-init.sh . && cp .incoming/bin/* bin/ && chmod +x bin/* pg-init.sh && sed -i 's/\\r$//' bin/* pg-init.sh && rm -rf .incoming"`) !== 0)
+    run(`ssh ${SSH} "sed -i 's/\\r$//' ${cfg.dir}/.incoming/bin/* ${cfg.dir}/.incoming/pg-init.sh && chmod +x ${cfg.dir}/.incoming/bin/*"`) !== 0)
   stop("copying server files failed.");
 
 // 4) backup BEFORE anything changes (owner condition 1: backup fail = stop)
 console.log("\n==> backup on the server (pg_dump)");
-if (run(`ssh ${SSH} "${cfg.dir}/bin/backup.sh ${TARGETS[target].join(" ")}"`) !== 0) stop("server backup failed.");
+if (run(`ssh ${SSH} "bash ${cfg.dir}/.incoming/bin/backup.sh ${TARGETS[target].join(" ")}"`) !== 0) stop("server backup failed.");
 
 // 5) build on this PC (the 2 GB server never builds)
 console.log(`\n==> docker build ${image}`);
@@ -69,7 +69,7 @@ if (!sent) stop("sending the image failed.");
 
 // 7) switch + restart + health (automatic rollback on the server if unhealthy)
 console.log("\n==> restart");
-if (run(`ssh ${SSH} "${cfg.dir}/bin/remote-deploy.sh ${target} ${tag}"`) !== 0) {
+if (run(`ssh ${SSH} "bash ${cfg.dir}/.incoming/bin/remote-deploy.sh ${target} ${tag}"`) !== 0) {
   console.log(red("\nDEPLOY FAILED — the new version was not healthy; the server put the previous version back (see the log above)."));
   process.exit(1);
 }
@@ -78,4 +78,4 @@ if (run(`ssh ${SSH} "${cfg.dir}/bin/remote-deploy.sh ${target} ${tag}"`) !== 0) 
 const gitTag = `deploy-${target}-${stamp().slice(0, 13)}`;
 run(`git tag -f ${gitTag}`);
 console.log(green(`\nDEPLOYED ${image} → ${target} · git tag ${gitTag}`));
-console.log(`Rollback: deploy.cmd ${target} from an older commit (git checkout <tag>), or on the server: bin/remote-deploy.sh ${target} <older-tag>`);
+console.log(`Rollback: check out an older deploy tag and run deploy.cmd ${target} again (database migrations are forward-only).`);

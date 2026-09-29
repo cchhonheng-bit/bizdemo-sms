@@ -148,7 +148,12 @@ describe("shop → hub send (D-51: key + chat allowlist)", () => {
     sent = [];
     await gm.req("POST", `/api/bookings/${bk}/assign`, { scheduled_at: "2026-10-02T02:00:00Z", lead: s.users.kim, assistants: [] });
     expect((await sql`select status from bookings where id = ${bk}`)[0]!.status).toBe("assigned");
-    await flushOutbox(); // default sender = hub
+    // the assign route already flushes in the background; wait for it, then flush again (default sender = hub)
+    for (let i = 0; i < 40; i++) {
+      await flushOutbox();
+      if ((await sql`select 1 from telegram_outbox where text like '%Hub Customer%' and status = 'pending'`).length === 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(texts(700001).some((t) => t.includes("Booking Confirmed"))).toBe(true);   // kim (linked through the hub)
     expect(texts(-1001234).some((t) => t.includes("Booking Confirmed"))).toBe(true); // registered group
     const out = await sql<{ status: string }[]>`select status from telegram_outbox where text like '%Hub Customer%'`;
@@ -265,6 +270,46 @@ describe("Customer Subscribe A+B (A4) + Broadcast (A5)", () => {
     expect((await sql`select count(*)::int as n from hub_subscribers where blocked_at is not null`)[0]!.n).toBe(1);
     // records stay (A4): nothing deleted
     expect((await sql`select count(*)::int as n from hub_subscribers`)[0]!.n).toBe(4);
+  });
+});
+
+describe("independent review fixes (R5 · R6 · R7 · R12)", () => {
+  it("R12: shops may attach https link buttons only — no callback buttons (forged consent)", async () => {
+    const key = process.env.HUB_KEY_ONETEAM!;
+    const forged = await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700001", text: "tap", reply_markup: { inline_keyboard: [[{ text: "☑", callback_data: "sub:SHOPB:x" }]] } });
+    expect(forged.statusCode).toBe(400);
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700001", text: "x", reply_markup: { inline_keyboard: [[{ text: "go", url: "http://evil.example" }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700001", text: "ok", reply_markup: { inline_keyboard: [[{ text: "🗺 Direction", url: "https://www.google.com/maps/dir/?api=1&destination=1,2" }]] } })).json().ok).toBe(true);
+  });
+
+  it("R5: the hub keeps no text of shop messages (customer data stays in the shop) nor per-recipient broadcast copies", async () => {
+    const rows = await sql`select text from hub_message_log where kind in ('shop.send', 'broadcast') and text is not null`;
+    expect(rows.every((r) => /^\[\d+ chars\]$/.test(String(r.text)))).toBe(true);
+    expect((await sql`select count(*)::int as n from hub_message_log where text like '%Hub Customer%'`)[0]!.n).toBe(0);
+  });
+
+  it("R7: concurrent wrong codes cannot bypass the 10/hour limit", async () => {
+    resetRateLimits();
+    const before = shopCalls;
+    await Promise.all(Array.from({ length: 15 }, (_, i) => privateMsg(700050, `/start ONETEAM-S-ZZZZ${"ABCDEFGHJKLMNPQ"[i]}Z`)));
+    expect(shopCalls - before).toBeLessThanOrEqual(10);
+    resetRateLimits();
+  });
+
+  it("R6: /stop removes the staff chat from the shop's allowlist; deactivating a user unlinks Telegram at the hub", async () => {
+    // dara links, then is deactivated by the CEO → hub forgets the chat
+    const dara = await loginAs(shop, "dara");
+    const { code } = (await dara.req("POST", "/api/telegram/link-code")).json;
+    await privateMsg(700060, `/start ${code}`);
+    expect((await sql`select 1 from hub_shop_chats where chat_id = 700060`).length).toBe(1);
+    expect((await ceo.req("PATCH", `/api/users/${s.users.dara}`, { is_active: false })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await sql`select 1 from hub_shop_chats where chat_id = 700060`).length).toBe(0);
+    expect((await sql`select telegram_chat_id from users where id = ${s.users.dara!}`)[0]!.telegram_chat_id).toBeNull();
+    // kim sends /stop in the private chat → the shop can no longer write there
+    await privateMsg(700001, "/stop");
+    expect(lastText(700001)).toContain("One Team Engineering");
+    expect((await internal("ONETEAM", process.env.HUB_KEY_ONETEAM!, "POST", "/internal/send", { chat_id: "700001", text: "job" })).json().error).toBe("CHAT_NOT_ALLOWED");
   });
 });
 

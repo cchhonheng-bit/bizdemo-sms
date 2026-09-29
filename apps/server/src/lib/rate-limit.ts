@@ -18,14 +18,14 @@ export function checkRate(key: string, limit: number, windowSec: number, now = D
   return (buckets.get(key)?.count ?? 0) <= limit;
 }
 
+/** give back one hit (the attempt turned out to be legitimate) */
+export function refundRate(key: string): void {
+  const b = buckets.get(key);
+  if (b && b.count > 0) b.count -= 1;
+}
+
 /** test helper */
 export function resetRateLimits(): void {
   buckets.clear();
 }
 
-/** true while the key is still under its limit in the current window (does not count a hit) */
-export function underLimit(key: string, limit: number, windowSec: number, now = Date.now()): boolean {
-  const windowStart = Math.floor(now / 1000 / windowSec) * windowSec * 1000;
-  const b = buckets.get(key);
-  return !b || b.windowStart !== windowStart || b.count < limit;
-}

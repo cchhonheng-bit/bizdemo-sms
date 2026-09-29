@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Stand-in for the docker CLI in deploy/test/server-scripts.sh: "exec postgres <cmd>" runs <cmd> against a real
+# PostgreSQL 16 (psql / pg_dump from the host), everything else is recorded in $FAKE_LOG. Controlled by files in $FAKE_STATE.
+set -uo pipefail
+echo "docker $*" >> "$FAKE_LOG"
+pw_for() { case "$1" in postgres) echo postgres ;; hub) echo "$PW_HUB" ;; oneteam) echo "$PW_ONE" ;; esac; }
+if [ "$1" = volume ] && [ "$2" = inspect ]; then [ -f "$FAKE_STATE/volume" ]; exit $?; fi
+if [ "$1" = image ] && [ "$2" = inspect ]; then exit 0; fi
+if [ "$1" = images ]; then exit 0; fi
+if [ "$1" = compose ]; then
+  shift
+  while [ $# -gt 0 ]; do case "$1" in -p|--env-file|-f) shift 2 ;; *) break ;; esac; done
+  cmd="$1"; shift
+  case "$cmd" in
+    ps) [ -f "$FAKE_STATE/pg_down" ] || echo "cid123"; exit 0 ;;
+    exec)
+      [ "$1" = "-T" ] && shift
+      svc="$1"; shift
+      if [ "$svc" = postgres ]; then
+        [ -f "$FAKE_STATE/pg_broken" ] && { echo "exec failed" >&2; exit 1; }
+        user=postgres; args=("$@"); for i in "${!args[@]}"; do [ "${args[$i]}" = "-U" ] && user="${args[$((i+1))]}"; done
+        PGHOST=127.0.0.1 PGPORT="$FAKE_PGPORT" PGPASSWORD="$(pw_for "$user")" "$@"; exit $?
+      fi
+      # app health: wget -qO- http://127.0.0.1:3000/healthz
+      if [[ " $* " == *healthz* ]]; then tagfile="$FAKE_STATE/unhealthy_tag"; img=$(grep -h "^IMAGE_" /opt/hangkh/images.env | head -1)
+        if [ -f "$tagfile" ] && grep -q "$(cat "$tagfile")" /opt/hangkh/images.env; then exit 1; fi; exit 0; fi
+      exit 0 ;;
+    *) exit 0 ;;
+  esac
+fi
+exit 0

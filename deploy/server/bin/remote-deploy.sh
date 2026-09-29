@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
-# Called by deploy.cmd over SSH after the image was loaded:  remote-deploy.sh <oneteam|hub|all> <tag>
-# switch image tag → start → health check (90 s) → on failure put the previous image back (automatic rollback).
+# Run by deploy.cmd over SSH from the freshly copied /opt/hangkh/.incoming (image already loaded):
+#   bash /opt/hangkh/.incoming/bin/remote-deploy.sh <oneteam|hub|all> <tag>
+# 1 install new server files (old ones saved)  2 switch image tag  3 start  4 health check 90 s
+# unhealthy ⇒ old files + old image back, health re-checked (R10/R11). Migrations are forward-only (see SERVER_SETUP).
 set -euo pipefail
-cd /opt/hangkh
+ROOT=/opt/hangkh; IN="$ROOT/.incoming"; PREV="$ROOT/.prev"
+cd "$ROOT"
 target="${1:?target}"; tag="${2:?tag}"
 [[ "$tag" =~ ^[a-z0-9._-]+$ ]] || { echo "bad tag"; exit 1; }
 image="hangkh/app:$tag"
@@ -13,32 +16,43 @@ case "$target" in
   all)     services=(app-hub app-oneteam); vars=(IMAGE_HUB IMAGE_ONETEAM) ;;
   *) echo "target must be oneteam | hub | all"; exit 1 ;;
 esac
-touch images.env
-cp images.env images.env.prev
-# a first deploy of one app still needs a tag for the other (compose validates every service)
+FILES=(compose.yml Caddyfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh)
+
+# 1) server files: keep the running ones in .prev, install the new ones
+rm -rf "$PREV"; mkdir -p "$PREV/bin" bin
+for f in "${FILES[@]}"; do [ -f "$f" ] && cp -p "$f" "$PREV/$f"; done
+touch images.env; cp images.env "$PREV/images.env"
+for f in "${FILES[@]}"; do cp "$IN/$f" "$f"; done
+sed -i 's/\r$//' bin/* pg-init.sh; chmod +x bin/* pg-init.sh
+
+# 2) image tags (a first deploy of one app still needs a tag for the other: compose validates every service)
+first=0; grep -q "^IMAGE_" images.env || first=1
 for v in IMAGE_HUB IMAGE_ONETEAM; do grep -q "^$v=" images.env || echo "$v=$image" >> images.env; done
 for v in "${vars[@]}"; do sed -i "s|^$v=.*|$v=$image|" images.env; done
 echo "==> images: $(tr '\n' ' ' < images.env)"
 
-bin/dc up -d postgres
-bin/dc up -d --no-deps "${services[@]}"
-bin/dc up -d caddy
-bin/dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true
-
 healthy() { bin/dc exec -T "$1" wget -qO- http://127.0.0.1:3000/healthz >/dev/null 2>&1; }
-for s in "${services[@]}"; do
-  ok=0
-  for _ in $(seq 1 45); do if healthy "$s"; then ok=1; break; fi; sleep 2; done
-  if [ $ok -ne 1 ]; then
-    echo "!! $s is not healthy — last log lines:"; bin/dc logs --tail 40 "$s" || true
-    echo "!! ROLLBACK to the previous image"
-    cp images.env.prev images.env
-    if grep -q "^IMAGE_" images.env; then bin/dc up -d --no-deps "${services[@]}" || true; fi
-    exit 1
+wait_healthy() { for _ in $(seq 1 "${HEALTH_TRIES:-45}"); do healthy "$1" && return 0; sleep 2; done; return 1; }
+start() { bin/dc up -d postgres && bin/dc up -d --no-deps "${services[@]}" && bin/dc up -d caddy && { bin/dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true; }; }
+
+# 3 + 4)
+bad=""
+if start; then for s in "${services[@]}"; do wait_healthy "$s" || { bad="$s"; break; }; done; else bad="compose"; fi
+if [ -n "$bad" ]; then
+  echo "!! $bad is not healthy — last log lines:"; bin/dc logs --tail 40 "${services[@]}" 2>/dev/null || true
+  if [ $first -eq 1 ]; then
+    echo "!! first deploy failed — stopping ${services[*]} (nothing to roll back to)"; bin/dc stop "${services[@]}" || true; exit 1
   fi
-  echo "==> $s healthy"
-done
-# keep the images in use + the 3 newest others (rollback), remove older ones
-in_use=$(grep -h '^IMAGE_' images.env images.env.prev | cut -d= -f2 | sort -u)
+  echo "!! ROLLBACK: previous server files + previous image"
+  for f in "${FILES[@]}"; do [ -f "$PREV/$f" ] && cp -p "$PREV/$f" "$f"; done
+  cp "$PREV/images.env" images.env
+  start || true
+  for s in "${services[@]}"; do if wait_healthy "$s"; then echo "==> rollback: $s healthy again"; else echo "!! rollback: $s still NOT healthy — call support"; fi; done
+  exit 1
+fi
+for s in "${services[@]}"; do echo "==> $s healthy"; done
+rm -rf "$IN"
+# keep images in use + the 3 newest others (rollback), remove older ones
+in_use=$(grep -h '^IMAGE_' images.env "$PREV/images.env" 2>/dev/null | cut -d= -f2 | sort -u)
 docker images hangkh/app --format '{{.Repository}}:{{.Tag}}' | grep -vxF "$in_use" | tail -n +4 | xargs -r docker rmi >/dev/null 2>&1 || true
 echo "==> deployed $image → ${services[*]}"

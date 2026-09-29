@@ -105,16 +105,22 @@ export async function flushHubOutbox(limit = 100, send: (chat: number | string, 
     const gap = pace ? Math.ceil(1000 / Math.max(1, config.hub.sendRate)) : 0;
     for (const r of rows) {
       const res = await send(r.chat_id, r.text);
-      await logMessage({ direction: "out", shop: r.shop_code, chatId: r.chat_id, kind: "broadcast", text: r.text, ok: res.ok, error: res.ok ? null : res.error });
+      // metadata only: the text is kept once in hub_broadcasts (R5)
+      await logMessage({ direction: "out", shop: r.shop_code, chatId: r.chat_id, kind: "broadcast", text: null, ok: res.ok, error: res.ok ? null : res.error });
       if (res.ok) {
         out.sent++;
         await sql`update hub_outbox set status = 'sent', sent_at = now(), last_error = null where id = ${r.id}`;
+      } else if (res.retryAfter && !res.permanent) {
+        // Telegram 429: not counted as an attempt; stop, the cron continues later (R8)
+        out.retry++;
+        const rest = rows.slice(rows.indexOf(r)).map((x) => x.id);
+        await sql`update hub_outbox set attempts = greatest(attempts - 1, 0), last_error = ${res.error} where id in ${sql(rest)}`;
+        break;
       } else {
         const failed = res.permanent || r.attempts >= 5;
         if (failed) out.failed++; else out.retry++;
         await sql`update hub_outbox set status = ${failed ? "failed" : "pending"}, last_error = ${res.error} where id = ${r.id}`;
         if (res.permanent && /^403/.test(res.error) && r.subscriber_id) await sql`update hub_subscribers set blocked_at = now() where id = ${r.subscriber_id}`;
-        if (res.retryAfter) await new Promise((ok) => setTimeout(ok, Math.min(res.retryAfter! * 1000, 5000)));
       }
       if (gap) await new Promise((ok) => setTimeout(ok, gap));
     }

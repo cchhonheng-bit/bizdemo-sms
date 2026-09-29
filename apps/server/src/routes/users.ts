@@ -7,6 +7,7 @@ import { AppError, bad, notFound } from "../lib/errors.js";
 import { hashPassword, tempPassword, validatePassword } from "../lib/password.js";
 import { audit } from "../services/audit.js";
 import { revokeUserSessions } from "../services/auth.js";
+import { hubForgetChat } from "../services/telegram.js";
 
 const USER_COLS = sql`id, company_id, username, phone, email, full_name, role, language, is_active, must_change_password, tracks_attendance,
   telegram_user_id is not null as telegram_linked, created_at, updated_at`;
@@ -67,6 +68,15 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
       return r[0]!;
     });
     if (patch.is_active === false || patch.role !== undefined) await revokeUserSessions(id); // S-05: deactivate / role change ends sessions now
+    if (patch.is_active === false) {
+      // a deactivated person stops receiving job messages: unlink Telegram here and at the hub (R6)
+      const tgRow = (await sql<{ telegram_chat_id: string | null }[]>`update users u set telegram_user_id = null, telegram_chat_id = null from users old
+        where u.id = ${id} and old.id = u.id returning old.telegram_chat_id`)[0];
+      if (tgRow?.telegram_chat_id) {
+        await audit(sql, { companyId: req.user!.companyId, userId: req.user!.id, action: "telegram.unlink", table: "users", rowId: id, new: { reason: "deactivated" }, ip: req.ip });
+        await hubForgetChat(tgRow.telegram_chat_id);
+      }
+    }
     return { ok: true, user: { id: result.id, role: result.role, is_active: result.is_active } };
   });
 

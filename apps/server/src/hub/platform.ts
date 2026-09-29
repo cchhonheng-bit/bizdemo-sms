@@ -47,7 +47,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (!sameOrigin(req)) return reply.status(403).send(loginForm("Forbidden"));
     const b = (req.body ?? {}) as Record<string, string>;
     const username = String(b.username ?? "").trim().toLowerCase().slice(0, 40), password = String(b.password ?? "").slice(0, 200);
-    if (!checkRate(`hub:login:ip:${req.ip}`, 5, 60) || !checkRate(`hub:login:id:${username}`, 10, 3600)) return reply.status(429).send(loginForm("ព្យាយាមច្រើនដងពេក · Too many attempts"));
+    if (!checkRate(`hub:login:ip:${req.ip}`, 5, 60) || !checkRate(`hub:login:id:${username}:${req.ip}`, 10, 3600)) return reply.status(429).send(loginForm("ព្យាយាមច្រើនដងពេក · Too many attempts"));
     const a = (await sql<{ id: string; password_hash: string }[]>`select id, password_hash from hub_admins where username = ${username} and is_active`)[0];
     const ok = await verifyPassword(password, a?.password_hash ?? (await DUMMY_HASH_PROMISE));
     if (!a || !ok) return reply.status(401).send(loginForm("Username ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ"));

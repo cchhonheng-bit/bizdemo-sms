@@ -6,7 +6,7 @@ import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
 import { audit } from "./audit.js";
-import { hubConfigured, sendViaHub } from "./hub-client.js";
+import { hubCall, hubConfigured, sendViaHub } from "./hub-client.js";
 
 export type SendResult = { ok: true } | { ok: false; error: string; permanent: boolean; retryAfter?: number };
 
@@ -35,11 +35,16 @@ export async function flushOutbox(limit = 20, send: (chatId: number | string, te
       if (res.ok) {
         out.sent++;
         await sql`update telegram_outbox set status = 'sent', sent_at = now(), last_error = null where id = ${r.id}`;
+      } else if (res.retryAfter && !res.permanent) {
+        // Telegram 429: this attempt does not count; stop the batch, the rest is retried by the next run (R8)
+        out.retry++;
+        const rest = rows.slice(rows.indexOf(r)).map((x) => x.id);
+        await sql`update telegram_outbox set attempts = greatest(attempts - 1, 0), last_error = ${res.error} where id in ${sql(rest)}`;
+        break;
       } else {
         const failed = res.permanent || r.attempts >= 5;
         if (failed) out.failed++; else out.retry++;
         await sql`update telegram_outbox set status = ${failed ? "failed" : "pending"}::outbox_status, last_error = ${res.error} where id = ${r.id}`;
-        if (res.retryAfter) await new Promise((r) => setTimeout(r, Math.min(res.retryAfter! * 1000, 5000)));
       }
     }
   } finally {
@@ -131,18 +136,29 @@ type Consumed = { ok: true; reply: string } | { ok: false; reply: string; error:
 
 /** Hub forwards "/start ONETEAM-S-XXXXXX" from a private chat. A Telegram account links to one user of this shop (F-M2-03). */
 export async function consumeLinkCode(code: string, tgUser: number, chatId: number): Promise<Consumed> {
-  return sql.begin(async (t) => {
+  const forgetLater: string[] = [];
+  const result = await sql.begin(async (t) => {
     const row = (await t<{ user_id: string; company_id: string }[]>`select user_id, company_id from telegram_link_codes
       where code = ${code} and kind = 'staff' and used_at is null and expires_at > now() for update`)[0];
     if (!row) return { ok: false as const, error: "INVALID_CODE", reply: "❌ កូដមិនត្រឹមត្រូវ ឬផុតកំណត់ (10 នាទី)។ សូមចុច «ភ្ជាប់ Telegram» ម្ដងទៀតក្នុងកម្មវិធី។" };
     await t`update telegram_link_codes set used_at = now() where code = ${code}`;
     const prev = await t<{ id: string; company_id: string }[]>`update users set telegram_user_id = null, telegram_chat_id = null where telegram_user_id = ${tgUser} and id <> ${row.user_id} returning id, company_id`;
     for (const p of prev) await audit(t, { companyId: p.company_id, userId: p.id, action: "telegram.unlink", source: "telegram", table: "users", rowId: p.id, new: { reason: "relinked_to_other_user" } });
+    const before = (await t<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from users where id = ${row.user_id}`)[0]?.telegram_chat_id;
+    if (before && String(before) !== String(chatId)) forgetLater.push(String(before));
     const u = (await t<{ full_name: string; is_active: boolean }[]>`update users set telegram_user_id = ${tgUser}, telegram_chat_id = ${chatId} where id = ${row.user_id} returning full_name, is_active`)[0]!;
     await audit(t, { companyId: row.company_id, userId: row.user_id, action: "telegram.link", source: "telegram", table: "users", rowId: row.user_id, new: { telegram_user_id: tgUser } });
     await t`insert into notifications (company_id, user_id, kind, title) values (${row.company_id}, ${row.user_id}, 'telegram.linked', 'Telegram ភ្ជាប់រួច')`;
     return { ok: true as const, reply: `✅ ភ្ជាប់រួចរាល់ ${u.full_name}។ អ្នកនឹងទទួលការងារថ្មីនៅទីនេះ។` };
-  }) as Promise<Consumed>;
+  }) as Consumed;
+  for (const c of forgetLater) void hubForgetChat(c);
+  return result;
+}
+
+/** The shop no longer writes to this private chat (user deactivated / moved to another Telegram account) — R6. Best effort. */
+export async function hubForgetChat(chatId: string | number): Promise<void> {
+  if (!hubConfigured()) return;
+  await hubCall("POST", "/internal/chat-forget", { chat_id: String(chatId) }).catch(() => undefined);
 }
 
 /** Hub forwards "/register ONETEAM-G-XXXXXX" from a group/supergroup → the company's work group. */
