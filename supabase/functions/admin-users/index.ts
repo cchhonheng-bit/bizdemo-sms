@@ -30,6 +30,18 @@ type Body = {
   patch?: Record<string, unknown>;
 };
 
+/** Payload of the bearer token — only used after auth.getUser() has verified the token with GoTrue. */
+function jwtClaims(req: Request): { app_metadata?: Record<string, unknown> } | null {
+  try {
+    const token = (req.headers.get("authorization") ?? "").slice(7);
+    const part = token.split(".")[1] ?? "";
+    const json = atob(part.replace(/-/g, "+").replace(/_/g, "/"));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(req) });
   if (req.method !== "POST") return error(req, "METHOD_NOT_ALLOWED", 405);
@@ -38,8 +50,12 @@ Deno.serve(async (req) => {
   if (!caller) return error(req, "UNAUTHENTICATED", 401);
   const { data: userData, error: userErr } = await caller.auth.getUser();
   if (userErr || !userData.user) return error(req, "UNAUTHENTICATED", 401);
+  // B-M2-05: company_id comes from the verified JWT claims (set by the access-token hook for every user),
+  // not only from the stored auth app_metadata (empty for users bootstrapped by seed_dev.sql).
+  const claims = jwtClaims(req);
+  const claimMeta = (claims?.app_metadata ?? {}) as Record<string, unknown>;
   const meta = (userData.user.app_metadata ?? {}) as Record<string, unknown>;
-  const companyId = String(meta.company_id ?? "");
+  const companyId = String(claimMeta.company_id ?? meta.company_id ?? "");
   if (!companyId) return error(req, "UNAUTHENTICATED", 401);
 
   const { data: allowed, error: permErr } = await caller.rpc("has_perm", { p_key: "user.manage" });

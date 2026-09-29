@@ -33,5 +33,8 @@ begin
     insert into app.profiles (id, company_id, username, email, full_name, role, tracks_attendance, must_change_password)
     values (v_user, v_company, 'ceo', 'ceo@oneteam.local', 'CEO', 'ceo', false, true);
   end if;
+  -- keep auth app_metadata in sync (admin-users does this for users it creates)
+  update auth.users set raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || jsonb_build_object('company_id', v_company, 'role', 'ceo')
+  where id = v_user;
   raise notice 'Seeded company % with CEO user %', v_company, v_user;
 end $$;
