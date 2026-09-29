@@ -9,7 +9,7 @@
 | RT-02 JWT hook | ✅ PASS | access token `alg: ES256`, exp − iat = **15 min**, `app_metadata.{company_id, role, is_active, must_change_password}` present |
 | RT-03 Exposed schema | ✅ PASS | anon → `401 permission denied for view profiles/bookings/customers`, `permission denied for function me/outbox_take` · `Accept-Profile: app` / `public` → `406 PGRST106 Only the following schemas are exposed: api` |
 | RT-04 admin-users | ✅ PASS (after B-M2-05) | create kim/dara/gm01/admin → 200 + 10-char temp password; duplicate username → **409 USERNAME_TAKEN**; reset_password → new temp; set_active off/on → 200; UI dialog validation + temp-password display verified in mock E2E |
-| RT-05 PWA on phone | ⏳ OWNER | needs a reachable HTTPS URL (Cloudflare Pages) or phone on the same Wi-Fi (`http://<PC-IP>:5173`) |
+| RT-05 PWA on phone | ⏳ OWNER | HTTPS URL now live: https://oneteam.bizdemo.app · manifest `One Team Service`, service worker registered, SPA deep links 200 (verified in Chrome desktop) — install + offline check on the phone by the owner |
 | RT-06 CI on GitHub | ✅ PASS | CI #4–#7 and Deploy DEV #2–#4 green (typecheck/lint/unit/build, SQL tests on postgres service, Deno, gitleaks; db push + 5 functions). CI #3 (owner's `.env.local` commit) failed — file untracked in `0edd77a` |
 | RT-07 telegram-webhook | ✅ PASS (owner) | `/start <code>` → "✅ ភ្ជាប់រួចរាល់ CEO" · group `/register` by CEO → "✅ ក្រុមនេះ…" · `telegram_group_chat_id` = −5338979048 · POST without secret from browser → blocked (no CORS on webhook by design) · forwarded-message case: not exercised (needs a forward from the owner's Telegram) |
 | RT-08 telegram-sender | ✅ PASS | assign BK-0001 (lead កីម, assistant ដារ៉ា, ឡាន 01) → `app.telegram_outbox` row → **status `sent`, attempts 1, sent_at 03:08:09Z** (≈ 3 s after assign, app-triggered flush) · cron ping every minute → **200** `{"taken":0,…}` after CRON_SECRET fix · technicians not linked → in-app notification only (`booking.assigned` for both) · blocked-bot (403) case: not exercised |
@@ -17,6 +17,15 @@
 | RT-10 Geolocation | ⏳ OWNER | phone over HTTPS |
 | RT-11 RLS via PostgREST | ✅ PASS | technician `kim`: `bookings` → only BK-0001 with customer name/phones + technicians JSON · `customers` → only the booking's customer · `catalog_items` → `sell_price`/`cost_price` **null** · `catalog_items_tech` ok · `profiles` → self only · `company_settings` → `[]` · `notifications` → own · `create_booking` → **403 FORBIDDEN** · `technician_availability` → null · `dara` sees BK-0001 (assistant) · GM sees both bookings, receives `booking.survey` notification for type B · Admin `assign_booking` on a survey booking → `BOOKING_LOCKED` |
 | RT-12 Functions self-auth | ✅ PASS | no Bearer: admin-users / resolve-maps-link / telegram-sender → **401 UNAUTHENTICATED** · login with bad credentials → 401 generic · sender with a valid user JWT → 200 |
+
+## Live site checks (11:20, after Cloudflare Pages deploy)
+| Check | Result |
+|---|---|
+| https://oneteam.bizdemo.app/login renders, title "One Team Service" | ✅ |
+| Login `admin` (temp password) → forced password change → dashboard; nav limited to Admin permissions | ✅ |
+| Board shows BK-0001 (assigned) + BK-0002 (survey) from the real DB | ✅ |
+| Security headers (ST-12) present — see PreDemo_Check_M2.md | ✅ |
+| `/manifest.webmanifest` + service worker registered | ✅ |
 
 ## Bugs found on the real backend (all fixed + deployed)
 | ID | Sev | Bug | Fix |

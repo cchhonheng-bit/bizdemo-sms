@@ -44,8 +44,11 @@ Supabase Free projects pause after 7 days without activity. Options (owner decis
 - **Pro plan ($25/month per project)** — no pausing, daily backups, 8 GB DB. Recommended for the paying customer's production project.
 - Free + keep-alive: the `telegram-sender` cron above already runs every minute → the project counts as active. Not guaranteed by Supabase; no backups beyond 1 day.
 
+## 1d. Web hosting (Cloudflare Pages) — live: https://oneteam.bizdemo.app
+`deploy-web.yml` builds `apps/web` and deploys to the Pages project `oneteam-sms` on every push to `main` (needs GitHub secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`); it also attaches the custom domain and creates the CNAME `oneteam → oneteam-sms.pages.dev` when missing (`scripts/cf_pages_domain.py`). Security headers come from `apps/web/public/_headers`, SPA routing from `_redirects`. App name/title come from `VITE_APP_NAME` / `VITE_APP_SHORT` in the workflow env.
+
 ## 2. GitHub
-- Private repo `bizdemo-sms` · Secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`.
+- Private repo `bizdemo-sms` · Secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
 - CI (`.github/workflows/ci.yml`): typecheck · lint · unit · build · migrations + RLS tests on PostgreSQL · Deno check · gitleaks.
 - `deploy-dev.yml` pushes migrations + functions to the dev project on `main` (paths `supabase/**`).
 
