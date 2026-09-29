@@ -15,6 +15,7 @@ step("Secret scan", `node scripts/secret-scan.mjs`);
 step("Typecheck (shared · server · web)", `${tool("pnpm")} -r typecheck`);
 step("Lint", `${tool("pnpm")} -r lint`);
 step("Unit tests (shared)", `${tool("pnpm")} --filter @sms/shared test`);
+step("owner-setup (fake PC + fake server: idempotent, no secrets in output/report)", `node --test deploy/test/owner-setup.test.mjs`);
 step("API tests: login · permissions · booking · Telegram routing · subscribe/consent · cross-company (PostgreSQL 16 embedded)", `${tool("pnpm")} --filter @sms/server test`);
 steps.print(steps.failed() ? "TESTS FAILED" : "ALL TESTS PASSED");
 process.exit(steps.failed() ? 1 : 0);
