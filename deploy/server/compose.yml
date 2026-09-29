@@ -35,7 +35,7 @@ services:
     mem_limit: 256m
     environment:
       APP_MODE: hub
-      NODE_OPTIONS: --max-old-space-size=160
+      NODE_OPTIONS: --max-old-space-size=160 --network-family-autoselection-attempt-timeout=2000   # RTT to Telegram ≈ 250 ms = Node default → IPv4 cancelled, IPv6 has no route (D-63)
       DATABASE_URL: postgres://hub:${DB_PASSWORD_HUB}@postgres:5432/hub
       PUBLIC_URL: https://${DOMAIN_HUB:?set in .env}
       SESSION_SECRET: ${SESSION_SECRET_HUB:?set in .env}
@@ -56,7 +56,7 @@ services:
     mem_limit: 448m
     environment:
       APP_MODE: shop
-      NODE_OPTIONS: --max-old-space-size=320
+      NODE_OPTIONS: --max-old-space-size=320 --network-family-autoselection-attempt-timeout=2000
       SHOP_CODE: ONETEAM
       APP_NAME: ${APP_NAME_ONETEAM:-One Team Service}
       FEATURES: ${FEATURES_ONETEAM:-subscribe}
