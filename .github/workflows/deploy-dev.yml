@@ -2,33 +2,40 @@ name: Deploy DEV (Supabase)
 on:
   push:
     branches: [main]
-    paths: ["supabase/**"]
+    paths: ["supabase/**", ".github/workflows/deploy-dev.yml"]
   workflow_dispatch:
 concurrency: deploy-dev
+env:
+  # Repository secrets: SUPABASE_ACCESS_TOKEN (supabase.com → Account → Access Tokens),
+  # SUPABASE_PROJECT_REF (e.g. terarlorrogcdksnratm), SUPABASE_DB_PASSWORD (project database password).
+  # Until they exist the job ends early with a notice instead of failing.
+  HAS_SECRETS: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' && secrets.SUPABASE_PROJECT_REF != '' && secrets.SUPABASE_DB_PASSWORD != '' }}
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment: dev
     steps:
+      - name: Secrets present?
+        if: env.HAS_SECRETS != 'true'
+        run: echo "::notice title=Deploy skipped::Set SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF, SUPABASE_DB_PASSWORD in Settings → Secrets → Actions (README §2)."
       - uses: actions/checkout@v4
+        if: env.HAS_SECRETS == 'true'
       - uses: supabase/setup-cli@v1
+        if: env.HAS_SECRETS == 'true'
         with: { version: latest }
       - name: Link project
+        if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
       - name: Push migrations
+        if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
         run: supabase db push
-      - name: Deploy Edge Functions
+      - name: Deploy Edge Functions (all verify their own JWT — D-27)
+        if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          supabase functions deploy login --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-          supabase functions deploy admin-users --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-          supabase functions deploy telegram-webhook --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-          supabase functions deploy telegram-sender --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
-          supabase functions deploy resolve-maps-link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy login admin-users telegram-webhook telegram-sender resolve-maps-link --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}

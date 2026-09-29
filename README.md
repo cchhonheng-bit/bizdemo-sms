@@ -12,15 +12,15 @@ Docs: `../Doc_Sup` (Requirements v1.2, Architecture v1.1, Security Review v1, UI
 
 ## 1. Supabase project (dev)
 1. supabase.com → New organization `BizDemo` → New project `bizdemo-dev`, region Singapore, strong DB password (password manager).
-2. Project Settings → API: copy **Project URL** and **anon public** key → `apps/web/.env.local` (see `.env.example`).
+2. Project Settings → **API Keys**: copy **Project URL** and the **publishable key** (`sb_publishable_…`) → `apps/web/.env.local` (see `.env.example`). Create one **secret key** (`sb_secret_…`, name `edge-functions`) for step 10 — never paste it in chat/docs.
 3. Project Settings → API → **Exposed schemas**: set to `api` only (remove `public`). Extra search path: `api`.
 4. Authentication → Providers → Email: enabled, *Confirm email OFF*. Authentication → Sign In: **Allow new users to sign up = OFF**.
 5. Authentication → Sessions: **Access token expiry = 900 s**.
 6. Run migrations: `npx supabase login` → `npx supabase link --project-ref <ref>` → `npx supabase db push`.
 7. Authentication → Hooks → **Custom Access Token** → enable → schema `public`, function `custom_access_token_hook`.
 8. Bootstrap: Authentication → Users → *Add user* `ceo@oneteam.local` (auto-confirm, temporary password) → SQL Editor → run `supabase/seed_dev.sql`.
-9. Deploy functions: `npx supabase functions deploy login --no-verify-jwt` · `npx supabase functions deploy admin-users` · `npx supabase functions deploy telegram-webhook --no-verify-jwt` · `npx supabase functions deploy telegram-sender --no-verify-jwt` · `npx supabase functions deploy resolve-maps-link`.
-10. Secrets: `npx supabase secrets set TELEGRAM_BOT_TOKEN=<NEW token from BotFather> TELEGRAM_BOT_USERNAME=Oneteam_app_bot TELEGRAM_WEBHOOK_SECRET=<random 32+> CRON_SECRET=<random 32+> ALLOWED_ORIGINS=http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app`
+9. Deploy functions (all with `--no-verify-jwt` — every function checks the user JWT itself, D-27): `npx supabase functions deploy login admin-users telegram-webhook telegram-sender resolve-maps-link --no-verify-jwt`.
+10. Secrets: `npx supabase secrets set SUPABASE_SECRET_KEY=<sb_secret_…> SUPABASE_PUBLISHABLE_KEY=<sb_publishable_…> TELEGRAM_BOT_TOKEN=<NEW token from BotFather> TELEGRAM_BOT_USERNAME=Oneteam_app_bot TELEGRAM_WEBHOOK_SECRET=<random 32+> CRON_SECRET=<random 32+> ALLOWED_ORIGINS=http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app`
     (random secret: `openssl rand -hex 32` or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
 
 ## 1b. Telegram (M2)
