@@ -65,7 +65,7 @@ SQL tests on a local PostgreSQL (optional): `PSQL="psql -U postgres" pnpm db:tes
 ```
 apps/web            React PWA (routes by role, i18n km/en, offline shell)
 packages/shared     zod schemas, permission keys, money helpers (+ vitest)
-supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox)
+supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox) · 0003_platform.sql (platform_admin, Support mode)
 supabase/functions  login · admin-users · telegram-webhook · telegram-sender · resolve-maps-link (Deno) · _shared
 supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.sh
 ```
@@ -73,6 +73,10 @@ supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.
 ## 5. Login (M1)
 Username / phone / email + password → Edge Function `login` (rate-limited, identical errors) → session.
 First login forces a password change. Users are created by CEO in **Settings → Users** (temporary password shown once).
+
+## 5b. Platform operator + Support mode (S-15)
+Role `platform_admin` lives in the fixed **platform** company and has no permissions in any tenant. Customer data becomes readable (never writable) only inside a **Support session**: `/platform` → company → *Support* → reason + ≤ 60 min. Each session is written to the customer's audit log (`support.start` / `support.end`), the customer CEO gets an in-app + Telegram notice, and the CEO sees the history in **Settings → Company**. Sessions expire automatically.
+Create the operator once per project: Dashboard → Authentication → Users → **Invite** the operator's e-mail (Site URL = the web app URL), then run `supabase/seed_platform.sql`; the operator sets a ≥ 12-character password from the invite link (`/first-login`). No password is ever typed by anyone else.
 
 ## 6. Booking flow (M2)
 Customers · Catalog · **Bookings** (board / list) · New booking (customer search, type A/B, category, schedule, location from a Google Maps link / "lat, lng" / GPS, vehicle) · Detail (team, timeline, Direction) · **Assign** (lead + assistants + vehicle + time, availability ±2h) → Telegram *Booking Confirmed* to the group + each linked technician (with 🗺 Direction button) + in-app notifications.

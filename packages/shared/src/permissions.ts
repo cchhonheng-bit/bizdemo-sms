@@ -1,7 +1,10 @@
 // Mirror of app.permission_keys() / app.default_permissions() in 0001_foundation.sql.
 // Keep in sync: the SQL seed is the source of truth at runtime; this file drives UI guards.
 export const ROLES = ["ceo", "cfo", "gm", "admin", "tech"] as const;
+/** Tenant roles (what a CEO can assign) */
 export type Role = (typeof ROLES)[number];
+/** Any profile role incl. the platform operator, which has no tenant permissions (S-15) */
+export type AnyRole = Role | "platform_admin";
 
 export const PERMISSION_KEYS = [
   "booking.create", "booking.assign", "quote.manage", "job.checkpoint", "job.review",

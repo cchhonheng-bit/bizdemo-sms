@@ -13,12 +13,16 @@ from urllib.parse import urlparse, parse_qs, unquote
 PORT = int(sys.argv[1]) if len(sys.argv) > 1 else 9999
 now = lambda: datetime.now(timezone.utc).isoformat()
 COMPANY = {"id": str(uuid.uuid4()), "name": "One Team Engineering", "slug": "oneteam", "timezone": "Asia/Phnom_Penh"}
+PLATFORM = {"id": "00000000-0000-4000-8000-000000000001", "name": "Platform", "slug": "platform", "timezone": "Asia/Phnom_Penh"}
+U_HENG = "77777777-7777-7777-7777-777777777777"
+SUPPORT = []  # support sessions (S-15)
 U_CEO, U_KIM, U_GM, U_ADMIN, U_DARA = ("11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222", "33333333-3333-3333-3333-333333333333", "55555555-5555-5555-5555-555555555555", "66666666-6666-6666-6666-666666666666")
 USERS = [
     {"id": U_CEO, "username": "ceo", "phone": "012000001", "email": "ceo@oneteam.local", "full_name": "CEO", "role": "ceo", "is_active": True, "telegram_linked": False, "tracks_attendance": False, "language": "km", "must_change_password": False},
     {"id": U_KIM, "username": "kim", "phone": "012000002", "email": None, "full_name": "គីម", "role": "tech", "is_active": True, "telegram_linked": True, "tracks_attendance": True, "language": "km", "must_change_password": True},
     {"id": U_GM, "username": "gm01", "phone": "012000003", "email": None, "full_name": "សំណាង", "role": "gm", "is_active": True, "telegram_linked": False, "tracks_attendance": True, "language": "km", "must_change_password": False},
     {"id": U_ADMIN, "username": "admin", "phone": "012000005", "email": None, "full_name": "Admin", "role": "admin", "is_active": True, "telegram_linked": False, "tracks_attendance": True, "language": "km", "must_change_password": False},
+    {"id": U_HENG, "username": "heng", "phone": None, "email": "heng@platform.local", "full_name": "Heng", "role": "platform_admin", "is_active": True, "telegram_linked": False, "tracks_attendance": False, "language": "km", "must_change_password": False},
     {"id": U_DARA, "username": "dara", "phone": "012000006", "email": None, "full_name": "ដារ៉ា", "role": "tech", "is_active": True, "telegram_linked": False, "tracks_attendance": True, "language": "km", "must_change_password": False},
 ]
 PERMS = {"ceo": ["booking.create","booking.assign","quote.manage","job.review","invoice.issue","payment.record","discount.give","discount.approve","void.request","void.approve","cancel.request","cancel.approve","leave.approve.tech","leave.approve.admin","leave.approve.gm","report.ops","report.finance","report.verify","audit.read","cost.read","catalog.manage","customer.manage","user.manage","settings.manage","fx.set"],
@@ -40,8 +44,18 @@ def jwt_for(user):
     p = base64.urlsafe_b64encode(json.dumps({"sub": user["id"], "role": "authenticated", "exp": int(time.time()) + 900, "app_metadata": {"company_id": COMPANY["id"], "role": user["role"], "must_change_password": user["must_change_password"]}}).encode()).decode().rstrip("=")
     return f"{h}.{p}.mock"
 
+def is_platform(): return CURRENT["user"]["role"] == "platform_admin"
+def active_support():
+    s = next((x for x in SUPPORT if x["admin_user_id"] == CURRENT["user"]["id"] and x["ended_at"] is None and x["expires_at"] > now()), None)
+    return s if is_platform() else None
+def in_support(): return active_support() is not None  # tenant rows visible read-only
+def tenant_users(): return [x for x in USERS if x["role"] != "platform_admin"]
+
 def me_payload(u):
-    return {**{k: u[k] for k in ("id","username","full_name","role","phone","email","language","must_change_password","telegram_linked")}, "company": COMPANY, "permissions": PERMS.get(u["role"], [])}
+    sup = active_support() if u["role"] == "platform_admin" else None
+    return {**{k: u[k] for k in ("id","username","full_name","role","phone","email","language","must_change_password","telegram_linked")},
+            "company": PLATFORM if u["role"] == "platform_admin" else COMPANY, "permissions": PERMS.get(u["role"], []),
+            "support": {"id": sup["id"], "company_id": sup["company_id"], "company_name": COMPANY["name"], "reason": sup["reason"], "expires_at": sup["expires_at"]} if sup else None}
 
 def can(key): return key in PERMS.get(CURRENT["user"]["role"], [])
 def is_tech(): return CURRENT["user"]["role"] == "tech"
@@ -61,10 +75,12 @@ def visible_bookings():
 
 def view(name):
     u = CURRENT["user"]
-    if name == "profiles": return USERS if can("user.manage") else [x for x in USERS if x["id"] == u["id"]]
+    if is_platform() and not in_support() and name not in ("profiles", "support_sessions", "notifications"): return []
+    if name == "support_sessions": return [{**x, "company_name": COMPANY["name"], "active": x["ended_at"] is None and x["expires_at"] > now()} for x in SUPPORT if x["admin_user_id"] == u["id"] or can("settings.manage")]
+    if name == "profiles": return [{**x, "company_id": COMPANY["id"]} for x in tenant_users()] if (can("user.manage") or in_support()) else [{**x, "company_id": PLATFORM["id"] if is_platform() else COMPANY["id"]} for x in USERS if x["id"] == u["id"]]
     if name == "company_settings": return [] if is_tech() else [SETTINGS]
     if name == "vehicles": return VEHICLES
-    if name == "users_basic": return [{"id": x["id"], "company_id": COMPANY["id"], "full_name": x["full_name"], "role": x["role"], "is_active": x["is_active"]} for x in USERS]
+    if name == "users_basic": return [{"id": x["id"], "company_id": COMPANY["id"], "full_name": x["full_name"], "role": x["role"], "is_active": x["is_active"]} for x in tenant_users()]
     if name == "customers":
         if not is_tech(): return CUSTOMERS
         mine = {r["customer_id"] for r in visible_bookings()}
@@ -209,6 +225,28 @@ def rpc(fn, body):
             if n["id"] == body["p_id"] and n["user_id"] == u["id"] and not n["read_at"]: n["read_at"] = now()
         return 204, None
     if fn == "create_telegram_link_code": return 200, uuid.uuid4().hex
+    # ---- platform / Support mode (S-15) ----
+    if fn == "platform_overview":
+        if not is_platform(): return 403, {"message": "FORBIDDEN"}
+        return 200, [{"id": COMPANY["id"], "name": COMPANY["name"], "slug": COMPANY["slug"], "plan": "starter", "is_active": True, "created_at": now(), "users": len(tenant_users()), "bookings": len(BOOKINGS), "last_activity": now(), "telegram_group": bool(SETTINGS["telegram_group_chat_id"])}]
+    if fn == "start_support_session":
+        if not is_platform(): return 403, {"message": "FORBIDDEN"}
+        mins = body.get("p_minutes") or 30
+        if mins < 5 or mins > 60: return 400, {"message": "INVALID_MINUTES"}
+        if len((body.get("p_reason") or "").strip()) < 5: return 400, {"message": "REASON_REQUIRED"}
+        if body.get("p_company") != COMPANY["id"]: return 404, {"message": "NOT_FOUND"}
+        for x in SUPPORT:
+            if x["admin_user_id"] == u["id"] and x["ended_at"] is None: x["ended_at"] = now()
+        exp = datetime.fromtimestamp(time.time() + mins * 60, timezone.utc).isoformat()
+        sess = {"id": str(uuid.uuid4()), "company_id": COMPANY["id"], "admin_user_id": u["id"], "admin_username": u["username"], "admin_name": u["full_name"], "reason": body["p_reason"].strip(), "started_at": now(), "expires_at": exp, "ended_at": None}
+        SUPPORT.append(sess)
+        for c in [x for x in USERS if x["role"] == "ceo"]:
+            NOTIFS.append({"id": len(NOTIFS) + 1, "user_id": c["id"], "kind": "support.start", "title": f"Support mode · {u['full_name']}", "body": sess["reason"], "link": "/settings/company", "read_at": None, "created_at": now()})
+        return 200, {"id": sess["id"], "company_id": COMPANY["id"], "company_name": COMPANY["name"], "expires_at": exp}
+    if fn == "end_support_session":
+        s_ = active_support()
+        if not s_: return 200, False
+        s_["ended_at"] = now(); return 200, True
     return 204, None
 
 class H(BaseHTTPRequestHandler):
@@ -243,7 +281,7 @@ class H(BaseHTTPRequestHandler):
             user = next((x for x in USERS if x["username"] == ident or x["phone"] == ident or (x["email"] or "") == ident), None)
             if not user or body.get("password") != "Passw0rd!": return self._send(401, {"error": "INVALID_CREDENTIALS"})
             CURRENT["user"] = user
-            return self._send(200, {"session": {"access_token": jwt_for(user), "refresh_token": "r", "expires_at": int(time.time()) + 900}, "must_change_password": user["must_change_password"], "company": COMPANY["slug"]})
+            return self._send(200, {"session": {"access_token": jwt_for(user), "refresh_token": "r", "expires_at": int(time.time()) + 900}, "must_change_password": user["must_change_password"], "company": PLATFORM["slug"] if user["role"] == "platform_admin" else COMPANY["slug"]})
         if u.path == "/functions/v1/admin-users":
             a = body.get("action")
             if a == "create":

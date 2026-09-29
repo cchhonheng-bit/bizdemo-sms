@@ -13,6 +13,12 @@ export function RequireAuth() {
   return <Outlet />;
 }
 
+/** platform_admin only (S-15) */
+export function RequirePlatform() {
+  const { me } = useAuth();
+  return me?.role === "platform_admin" ? <Outlet /> : <Navigate to="/" replace />;
+}
+
 export function RequirePerm({ perm }: { perm: PermissionKey }) {
   const { can } = useAuth();
   return can(perm) ? <Outlet /> : <Navigate to="/" replace />;
@@ -22,5 +28,5 @@ export function RequirePerm({ perm }: { perm: PermissionKey }) {
 export function Home() {
   const { me } = useAuth();
   if (!me) return <Navigate to="/login" replace />;
-  return <Navigate to={me.role === "tech" ? "/tech" : "/dashboard"} replace />;
+  return <Navigate to={me.role === "tech" ? "/tech" : me.role === "platform_admin" ? "/platform" : "/dashboard"} replace />;
 }

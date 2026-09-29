@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
 import { supabase } from "@/lib/supabase";
-import { Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState, Empty } from "@/components/ui";
+import { api, fmtDateTime } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null };
@@ -25,6 +26,8 @@ export default function CompanySettingsPage() {
     },
   });
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: async () => { const { data, error } = await supabase.from("vehicles").select("*").order("code"); if (error) throw error; return data as Vehicle[]; } });
+  // S-15 / S-26: every platform-operator Support session on this company is visible to the CEO
+  const sessions = useQuery({ queryKey: ["support_sessions"], queryFn: api.supportSessions });
   const users = useQuery({ queryKey: ["users_basic"], queryFn: async () => { const { data, error } = await supabase.from("users_basic").select("*").eq("is_active", true).order("full_name"); if (error) throw error; return data as UserBasic[]; } });
 
   const form = useForm<CompanySettingsInput>({ resolver: zodResolver(companySettingsSchema) });
@@ -127,6 +130,28 @@ export default function CompanySettingsPage() {
           <Field label={t("settings.owner")}><Select value={newV.owner} onChange={(e) => setNewV({ ...newV, owner: e.target.value })}><option value="">—</option>{(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
           <Button className="mb-3" disabled={!newV.code} loading={upsertVehicle.isPending} onClick={() => { upsertVehicle.mutate({ id: null, code: newV.code, plate: newV.plate, owner: newV.owner || null, active: true }); setNewV({ code: "", plate: "", owner: "" }); }}>{t("settings.add_vehicle")}</Button>
         </div>
+      </Card>
+
+      <Card title={t("platform.ceo_card")}>
+        <p className="text-sm text-muted mb-3">{t("platform.ceo_hint")}</p>
+        {sessions.isLoading ? <Skeleton rows={2} /> : (sessions.data ?? []).length === 0 ? <Empty text={t("platform.no_history")} /> : (
+          <div className="overflow-x-auto">
+            <table className="table" data-testid="support-history">
+              <thead><tr><th>{t("platform.admin")}</th><th>{t("platform.reason")}</th><th>{t("platform.started_at")}</th><th>{t("platform.expires_at")}</th><th>{t("platform.status")}</th></tr></thead>
+              <tbody>
+                {(sessions.data ?? []).map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.admin_name} <span className="text-xs text-muted font-mono">({s.admin_username})</span></td>
+                    <td className="text-sm">{s.reason}</td>
+                    <td className="text-sm tabular">{fmtDateTime(s.started_at)}</td>
+                    <td className="text-sm tabular">{fmtDateTime(s.ended_at ?? s.expires_at)}</td>
+                    <td>{s.active ? <Badge tone="danger">{t("platform.active")}</Badge> : <Badge tone="grey">{t("platform.closed")}</Badge>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
     </div>
   );

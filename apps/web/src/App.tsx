@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import Shell from "@/app/Shell";
-import { Home, RequireAuth, RequirePerm } from "@/app/guards";
+import { Home, RequireAuth, RequirePerm, RequirePlatform } from "@/app/guards";
 import LoginPage from "@/features/auth/LoginPage";
 import FirstLoginPage from "@/features/auth/FirstLoginPage";
 import UsersPage from "@/features/users/UsersPage";
@@ -17,6 +17,7 @@ import BookingFormPage from "@/features/bookings/BookingFormPage";
 import BookingDetailPage from "@/features/bookings/BookingDetailPage";
 import TechTodayPage, { TechJobPage } from "@/features/tech/TechTodayPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
+import PlatformPage from "@/features/platform/PlatformPage";
 import { Toaster } from "@/components/ui";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } } });
@@ -46,6 +47,7 @@ export default function App() {
               <Route path="/tech/job/:id" element={<TechJobPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/me" element={<MePage />} />
+              <Route element={<RequirePlatform />}><Route path="/platform" element={<PlatformPage />} /></Route>
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>
               <Route path="*" element={<Navigate to="/" replace />} />

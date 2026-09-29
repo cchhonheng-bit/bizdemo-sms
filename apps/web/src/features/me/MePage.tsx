@@ -30,7 +30,7 @@ export default function MePage() {
 
   const changePw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw.length < 8) return toast.error(t("auth.too_short"));
+    if (pw.length < (me?.role === "platform_admin" ? 12 : 8)) return toast.error(me?.role === "platform_admin" ? t("auth.too_short_12") : t("auth.too_short"));
     if (pw !== pw2) return toast.error(t("auth.mismatch"));
     setBusy(true);
     const { error } = await supabase.auth.updateUser({ password: pw });

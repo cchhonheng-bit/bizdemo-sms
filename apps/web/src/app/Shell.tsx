@@ -1,12 +1,13 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, CalendarClock, ClipboardList, LayoutDashboard, LifeBuoy, LogOut, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
 import { supabase } from "@/lib/supabase";
 import type { PermissionKey } from "@sms/shared";
 import { useUnreadCount } from "@/features/notifications/useUnreadCount";
+import { fmtTime } from "@/lib/api";
 
 type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[] };
 
@@ -28,6 +29,8 @@ export default function Shell() {
   const unread = useUnreadCount();
   if (!me) return null;
   const isTech = me.role === "tech";
+  const isPlatform = me.role === "platform_admin";
+  const support = me.support;
 
   const allDesktop: Item[] = [
     { to: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
@@ -46,7 +49,13 @@ export default function Shell() {
     { to: "/me", label: t("nav.me"), icon: User },
     { to: "/tech/attendance", label: t("nav.attendance"), icon: CalendarClock }, // M4
   ];
-  const items = isTech ? techItems : desktopItems;
+  // platform_admin (S-15): overview + Me; tenant pages only while a Support session is open
+  const platformItems: Item[] = [
+    { to: "/platform", label: t("nav.platform"), icon: LifeBuoy },
+    ...(support ? [{ to: "/bookings", label: t("nav.bookings"), icon: ClipboardList }] : []),
+    { to: "/me", label: t("nav.me"), icon: User },
+  ];
+  const items = isTech ? techItems : isPlatform ? platformItems : desktopItems;
 
   const langBtn = (
     <button className="text-xs px-2 py-1 rounded border border-grey-line hover:bg-grey-bg"
@@ -101,6 +110,13 @@ export default function Shell() {
           </div>
         </header>
 
+        {support && (
+          <div className="bg-danger text-white text-sm px-4 py-1.5 flex items-center gap-2" role="status" data-testid="support-banner">
+            <LifeBuoy size={14} />
+            <span className="truncate">{t("platform.active_banner", { company: support.company_name, until: fmtTime(support.expires_at) })}</span>
+            <NavLink to="/platform" className="ml-auto underline whitespace-nowrap">{t("platform.end")}</NavLink>
+          </div>
+        )}
         <main className="flex-1 p-4 pb-20 md:pb-6 max-w-[1360px] w-full mx-auto"><Outlet /></main>
 
         {/* Bottom nav (mobile) */}

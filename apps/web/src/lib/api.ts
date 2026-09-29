@@ -22,6 +22,9 @@ export type StatusLog = { id: number; booking_id: string; from_status: BookingSt
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
+export type PlatformCompany = { id: string; name: string; slug: string; plan: string; is_active: boolean; created_at: string; users: number; bookings: number; last_activity: string | null; telegram_group: boolean };
+export type SupportSession = { id: string; company_id: string; company_name: string | null; admin_username: string; admin_name: string; reason: string; started_at: string; expires_at: string; ended_at: string | null; active: boolean };
+export type ProfileRow = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; must_change_password: boolean };
 export type Availability = { user_id: string; full_name: string; role: string; busy: { number: string; scheduled_at: string }[] };
 
 function unwrap<T>(r: { data: T | null; error: { message: string } | null }): T {
@@ -76,6 +79,15 @@ export const api = {
   notifications: async () => unwrap<Notification[]>(await supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(50)),
   markRead: async (id: number) => unwrap(await supabase.rpc("mark_notification_read", { p_id: id })),
   telegramLinkCode: async () => unwrap<string>(await supabase.rpc("create_telegram_link_code")),
+
+  // ---- platform_admin / Support mode (S-15) ----
+  platformOverview: async () => unwrap<PlatformCompany[]>(await supabase.rpc("platform_overview")),
+  startSupport: async (v: { company_id: string; reason: string; minutes: number }) =>
+    unwrap<{ id: string; company_id: string; company_name: string; expires_at: string }>(await supabase.rpc("start_support_session", { p_company: v.company_id, p_reason: v.reason, p_minutes: v.minutes })),
+  endSupport: async () => unwrap<boolean>(await supabase.rpc("end_support_session")),
+  supportSessions: async () => unwrap<SupportSession[]>(await supabase.from("support_sessions").select("*").order("started_at", { ascending: false }).limit(50)),
+  /** read-only user list of the company in Support (RLS decides the rows) */
+  profilesOf: async (companyId: string) => unwrap<ProfileRow[]>(await supabase.from("profiles").select("id,username,phone,email,full_name,role,is_active,telegram_linked,must_change_password").eq("company_id", companyId).order("role").order("full_name")),
 
   /** fire-and-forget: deliver queued Telegram messages right away (cron is the backstop) */
   flushTelegram: () => { void callFunction("telegram-sender", {}); },
