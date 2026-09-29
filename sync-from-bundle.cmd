@@ -24,7 +24,9 @@ if not "%DIRTY%"=="0" (echo Saving your local changes in a commit first... & git
 git fetch -q "%BUNDLE%" main || (echo fetch failed & pause & exit /b 1)
 git merge -q --ff-only FETCH_HEAD 2>nul || (echo Histories diverged - resetting to the delivered version ^(your commit stays in 'git reflog'^) & git reset -q --hard FETCH_HEAD)
 :done
-for %%f in (v2-sync.cmd compose.yml) do if exist "%%f" del /q "%%f"
+rem leftovers of older deliveries that git does not track (Supabase era, v2 single box)
+for %%d in (supabase apps\web\mock apps\web\src\features\platform apps\web\dist-mock bizdemo-sms) do if exist "%%d" rd /s /q "%%d"
+for %%f in (v2-sync.cmd compose.yml environments.json prod.env.example test.env.example test-local.cmd SETUP_LOCAL.md .env.test.local .env.prod.local apps\web\.env.local scripts\pipeline.mjs scripts\db-test.mjs scripts\seed-test.mjs scripts\env-file.mjs scripts\init-local-git.cmd deploy\post-receive deploy\install.sh deploy\backup.sh deploy\restore.sh deploy\Caddyfile) do if exist "%%f" del /q "%%f"
 where pnpm >nul 2>nul && call pnpm.cmd install
 echo.
 echo Source is up to date. Next: test.cmd, then dev.cmd (local) or deploy.cmd all (server).
