@@ -107,7 +107,9 @@ fi
 say "6/6 public HTTPS check"
 ok=1
 for u in "${urls[@]}"; do
-  if out=$(curl -fsS --max-time 15 "$u" 2>&1); then echo "    $u → $out"; else echo "!! $u → $out"; ok=0; fi
+  # the VPS cannot reach its own public IP (no hairpin NAT) → same URL, TLS and Caddy, connected via 127.0.0.1
+  h=${u#https://}; h=${h%%/*}
+  if out=$(curl -fsS --max-time 15 --resolve "$h:443:127.0.0.1" "$u" 2>&1); then echo "    $u → $out"; else echo "!! $u → $out"; ok=0; fi
 done
 # the new deploy.sh becomes the installed one (atomic replace: the running stage-0 copy keeps its old inode)
 cp "$SRC/deploy/server/deploy.sh" "$ROOT/.deploy.sh.new" && sed -i 's/\r$//' "$ROOT/.deploy.sh.new" && chmod +x "$ROOT/.deploy.sh.new" && mv -f "$ROOT/.deploy.sh.new" "$ROOT/deploy.sh"

@@ -8,7 +8,7 @@ ROOT=/opt/hangkh; ENV="$ROOT/.env"; BIN="$ROOT/bin"
 want="${1:?usage: set-bot.sh <expected_bot_username> < token}"
 [[ "$want" =~ ^[A-Za-z0-9_]{5,32}$ ]] || { echo "bad username"; exit 2; }
 IFS= read -r new || true
-new="${new%$'\r'}"; new="${new//[[:space:]]/}"
+new="${new%$'\r'}"; new="${new#$'\xEF\xBB\xBF'}"; new="${new//[[:space:]]/}"   # Windows PowerShell may prepend a BOM
 [[ "$new" =~ ^[0-9]{6,12}:[A-Za-z0-9_-]{30,}$ ]] || { echo "the token does not look like a bot token"; exit 2; }
 
 # Bot API call with the token kept out of the process list (curl reads the URL from a config on stdin)
