@@ -11,7 +11,7 @@ import { handleUpdate, type Update } from "./router.js";
 import { authShop, logMessage } from "./shops.js";
 import { broadcastsOf, createBroadcast, subscribersOf } from "./subscribers.js";
 import { sendMessage } from "./telegram-api.js";
-import { botByPath, masterBot, shopBot } from "./bots.js";
+import { botByPath, invalidateBots, masterBot, shopBot } from "./bots.js";
 import { ALERT_KINDS, sendAlert } from "./alerts.js";
 import { platformRoutes } from "./platform.js";
 import { landingPage, legalPage } from "./pages.js";
@@ -53,12 +53,16 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
     });
   }
 
+  let lastReread = 0;
   // ---- Telegram → hub: one webhook path per bot (T2). The path names the bot (and so the shop); the bot's own secret
   //      header is checked first (wrong/missing ⇒ 403). Always 200 afterwards so Telegram does not retry forever. ----
   app.post("/tg/:path", async (req, reply) => {
     const path = String((req.params as { path?: string }).path ?? "");
-    const bot = /^[a-z0-9-]{2,30}$/.test(path) ? await botByPath(path) : null;
+    if (!/^[a-z0-9-]{2,30}$/.test(path)) return reply.status(403).send("forbidden");
     const given = String(req.headers["x-telegram-bot-api-secret-token"] ?? "");
+    let bot = await botByPath(path);
+    // a bot added/rotated by the CLI (another process) is not in this process' 30 s cache yet → re-read once
+    if ((!bot || !safeEqual(given, bot.secret)) && Date.now() - lastReread > 10_000) { lastReread = Date.now(); invalidateBots(); bot = await botByPath(path); } // ≤ 1 re-read / 10 s (no DB amplification from forged posts)
     if (!bot || bot.status !== "active" || !safeEqual(given, bot.secret)) return reply.status(403).send("forbidden");
     try {
       await handleUpdate(bot, (req.body ?? {}) as Update, req.log);
