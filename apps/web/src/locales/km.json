@@ -336,7 +336,8 @@
       "SUBSCRIBE_DISABLED": "សេវានេះមិនទាន់បើកសម្រាប់ហាង",
       "HUB_UNREACHABLE": "មិនអាចភ្ជាប់ HangKH hub ពេលនេះ",
       "HUB_NOT_CONFIGURED": "HangKH hub មិនទាន់កំណត់"
-    }
+    },
+    "when": "ពេលផ្ញើ"
   },
   "legal": {
     "terms": "លក្ខខណ្ឌប្រើប្រាស់",

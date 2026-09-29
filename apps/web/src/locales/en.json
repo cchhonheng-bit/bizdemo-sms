@@ -336,7 +336,8 @@
       "SUBSCRIBE_DISABLED": "This module is not enabled for the shop",
       "HUB_UNREACHABLE": "Cannot reach the HangKH hub right now",
       "HUB_NOT_CONFIGURED": "HangKH hub is not configured"
-    }
+    },
+    "when": "Sent at"
   },
   "legal": {
     "terms": "Terms of Service",

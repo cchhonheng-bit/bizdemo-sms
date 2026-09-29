@@ -87,7 +87,7 @@ export default function SubscribePage() {
       <Card title={t("subscribe.history")}>
         {!history.data?.length ? <Empty text="—" /> : (
           <table className="table">
-            <thead><tr><th>{t("subscribe.since")}</th><th>{t("subscribe.kind")}</th><th>{t("subscribe.text")}</th><th>{t("subscribe.by")}</th><th>{t("subscribe.result")}</th></tr></thead>
+            <thead><tr><th>{t("subscribe.when")}</th><th>{t("subscribe.kind")}</th><th>{t("subscribe.text")}</th><th>{t("subscribe.by")}</th><th>{t("subscribe.result")}</th></tr></thead>
             <tbody>{history.data.map((b) => (
               <tr key={b.id}><td className="whitespace-nowrap">{fmt(b.created_at)}</td><td><Badge tone={b.kind === "promo" ? "purple" : "blue"}>{b.kind === "promo" ? t("subscribe.promo_kind") : t("subscribe.service")}</Badge></td>
                 <td className="max-w-[340px] truncate" title={b.text}>{b.text}</td><td>{b.created_by_name ?? "—"}</td>

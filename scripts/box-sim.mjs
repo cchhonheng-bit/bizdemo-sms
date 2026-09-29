@@ -135,6 +135,11 @@ const rss = (p) => Number(readFileSync(`/proc/${p.pid}/status`, "utf8").match(/V
 const mem = `hub ${rss(hubP).toFixed(0)} MB · shop ${rss(shopP).toFixed(0)} MB`;
 check("memory after the flows within limits (hub < 256 MB, shop < 448 MB)", rss(hubP) < 256 && rss(shopP) < 448, mem);
 
+if (process.argv.includes("--serve")) {
+  steps.print("BOX SIMULATION (built bundles · separate DBs + roles · real HTTP)");
+  console.log(`\nserving: shop http://127.0.0.1:${SHOP} (ceo / Sim-Strong-Pass-26) · hub http://127.0.0.1:${HUB} — Ctrl+C to stop`);
+  await new Promise((r) => { process.on("SIGTERM", r); process.on("SIGINT", r); });
+}
 for (const p of procs) p.kill("SIGTERM");
 await sleep(800);
 await admin.end(); tg.close(); await pg.stop(); rmSync(dir, { recursive: true, force: true });
