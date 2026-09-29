@@ -7,22 +7,14 @@
     "node": ">=22"
   },
   "scripts": {
-    "dev": "pnpm --filter @sms/web dev",
+    "dev": "node scripts/dev.mjs",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
-    "test": "pnpm -r test",
-    "db:test": "node scripts/db-test.mjs",
-    "db:test:psql": "bash supabase/tests/run_local.sh",
-    "secret-scan": "node scripts/secret-scan.mjs",
-    "check": "node scripts/pipeline.mjs test --tests-only",
-    "functions:check": "cd supabase/functions && deno check login/index.ts admin-users/index.ts telegram-webhook/index.ts telegram-sender/index.ts resolve-maps-link/index.ts && deno lint"
+    "test": "node scripts/test.mjs",
+    "secret-scan": "node scripts/secret-scan.mjs"
   },
   "devDependencies": {
-    "deno": "2.9.6",
-    "embedded-postgres": "15.18.0-beta.17",
-    "pg": "8.23.0",
-    "supabase": "2.118.0",
-    "wrangler": "4.143.0"
+    "embedded-postgres": "16.14.0-beta.17"
   }
 }

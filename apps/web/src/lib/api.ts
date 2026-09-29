@@ -1,6 +1,6 @@
-// Typed data access for M2 (views + RPCs exposed in schema `api`).
+// Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
 import type { BookingStatus, BookingType, ServiceCategory, Zone } from "@sms/shared";
-import { callFunction, supabase } from "./supabase";
+import { ApiError, get, patch, post } from "./http";
 
 export type Customer = {
   id: string; company_id: string; name: string; phones: string[]; address: string | null; zone: Zone;
@@ -20,78 +20,84 @@ export type Booking = {
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
+export type UserRow = {
+  id: string; company_id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; language: string;
+  is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
+};
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
-export type PlatformCompany = { id: string; name: string; slug: string; plan: string; is_active: boolean; created_at: string; users: number; bookings: number; last_activity: string | null; telegram_group: boolean };
-export type SupportSession = { id: string; company_id: string; company_name: string | null; admin_username: string; admin_name: string; reason: string; started_at: string; expires_at: string; ended_at: string | null; active: boolean };
-export type ProfileRow = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; must_change_password: boolean };
 export type Availability = { user_id: string; full_name: string; role: string; busy: { number: string; scheduled_at: string }[] };
+export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
-function unwrap<T>(r: { data: T | null; error: { message: string } | null }): T {
-  if (r.error) throw new Error(r.error.message);
-  return r.data as T;
-}
-/** Postgres RAISE messages look like "FORBIDDEN" or "NOT_FOUND: …" → code */
+/** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
 export function errCode(e: unknown): string {
+  if (e instanceof ApiError) return e.code;
   const m = e instanceof Error ? e.message : String(e);
-  const code = m.match(/[A-Z][A-Z_]{3,}/)?.[0];
-  return code ?? "ERROR";
+  return m.match(/[A-Z][A-Z_]{3,}/)?.[0] ?? "ERROR";
 }
+
+const q = (o: Record<string, string | number | undefined>) => {
+  const p = new URLSearchParams();
+  for (const [k, v] of Object.entries(o)) if (v !== undefined && v !== "") p.set(k, String(v));
+  const s = p.toString();
+  return s ? `?${s}` : "";
+};
 
 export const api = {
-  customers: async (activeOnly = false) => {
-    let q = supabase.from("customers").select("*").order("name");
-    if (activeOnly) q = q.eq("is_active", true);
-    return unwrap<Customer[]>(await q);
-  },
+  config: () => get<{ appName: string; telegramBot: string | null }>("/api/config"),
+
+  customers: (activeOnly = false) => get<Customer[]>(`/api/customers${q({ active: activeOnly ? "true" : undefined })}`),
   upsertCustomer: async (v: { id?: string | null; name: string; phones: string[]; address?: string | null; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null }) =>
-    unwrap<string>(await supabase.rpc("upsert_customer", { p_id: v.id ?? null, p_name: v.name, p_phones: v.phones, p_address: v.address ?? null, p_zone: v.zone, p_lat: v.lat ?? null, p_lng: v.lng ?? null, p_notes: v.notes ?? null })),
-  setCustomerActive: async (id: string, active: boolean) => unwrap(await supabase.rpc("set_customer_active", { p_id: id, p_active: active })),
+    (await post<{ id: string }>("/api/customers", { id: v.id ?? null, name: v.name, phones: v.phones, address: v.address ?? "", zone: v.zone, lat: v.lat ?? null, lng: v.lng ?? null, notes: v.notes ?? "" })).id,
+  setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
-  catalog: async () => unwrap<CatalogItem[]>(await supabase.from("catalog_items").select("*").order("category").order("name_km")),
+  catalog: () => get<CatalogItem[]>("/api/catalog"),
   upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null }) =>
-    unwrap<string>(await supabase.rpc("upsert_catalog_item", { p_id: v.id ?? null, p_name_km: v.name_km, p_name_en: v.name_en ?? null, p_kind: v.kind, p_category: v.category, p_unit: v.unit ?? null, p_sell_price: v.sell_price, p_cost_price: v.cost_price ?? null })),
-  setCatalogActive: async (id: string, active: boolean) => unwrap(await supabase.rpc("set_catalog_active", { p_id: id, p_active: active })),
+    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null })).id,
+  setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
 
-  bookings: async (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) => {
-    let q = supabase.from("bookings").select("*").order("scheduled_at", { ascending: true, nullsFirst: false }).order("created_at", { ascending: false }).limit(300);
-    if (opts.statuses?.length) q = q.in("status", opts.statuses);
-    if (opts.from) q = q.gte("scheduled_at", opts.from);
-    if (opts.to) q = q.lt("scheduled_at", opts.to);
-    return unwrap<Booking[]>(await q);
+  bookings: (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) =>
+    get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
+  booking: (id: string) => get<Booking>(`/api/bookings/${id}`),
+  statusLog: (id: string) => get<StatusLog[]>(`/api/bookings/${id}/log`),
+  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; scheduled_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
+    post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, scheduled_at: v.scheduled_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
+  updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
+  assignBooking: (v: { id: string; lead: string; assistants: string[]; vehicle_id: string | null; scheduled_at: string }) =>
+    post<{ id: string; status: BookingStatus; conflicts: { user_id: string; number: string; scheduled_at: string }[] }>(`/api/bookings/${v.id}/assign`, { lead: v.lead, assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at }),
+  availability: (at: string) => get<Availability[]>(`/api/bookings/availability${q({ at })}`),
+
+  usersBasic: async () => (await get<UserBasic[]>("/api/users/basic")).filter((u) => u.is_active),
+  users: () => get<UserRow[]>("/api/users"),
+  createUser: (v: { username: string; full_name: string; role: string; phone?: string; email?: string; password?: string }) => post<{ id: string; temp_password?: string }>("/api/users", v),
+  updateUser: (id: string, patchBody: Record<string, unknown>) => patch<{ ok: true }>(`/api/users/${id}`, patchBody),
+  resetPassword: (id: string) => post<{ temp_password?: string }>(`/api/users/${id}/reset-password`, {}),
+
+  settings: () => get<CompanySettings | null>("/api/settings/company"),
+  updateSettings: (patchBody: Record<string, unknown>) => patch("/api/settings/company", patchBody),
+  setFx: (rate: number) => post("/api/settings/fx", { rate }),
+  vehicles: async (): Promise<Vehicle[]> => (await get<Vehicle[]>("/api/settings/vehicles")).filter((v) => v.is_active),
+  vehiclesAll: (): Promise<Vehicle[]> => get<Vehicle[]>("/api/settings/vehicles"),
+  upsertVehicle: (v: { id: string | null; code: string; plate: string | null; owner: string | null; active: boolean }) =>
+    post<{ id: string }>("/api/settings/vehicles", { id: v.id, code: v.code, plate: v.plate, owner_user_id: v.owner, is_active: v.active }),
+
+  notifications: () => get<Notification[]>("/api/notifications"),
+  unreadCount: async () => (await get<{ count: number }>("/api/notifications/unread-count")).count,
+  markRead: (id: number) => post(`/api/notifications/${id}/read`, {}),
+  telegramLinkCode: () => post<{ code: string; bot: string | null }>("/api/telegram/link-code", {}),
+
+  me: {
+    setLanguage: (language: "km" | "en") => post("/api/me/language", { language }),
+    changePassword: (new_password: string, current_password?: string) => post("/api/me/password", { new_password, current_password }),
+    updateName: (full_name: string) => patch("/api/me", { full_name }),
   },
-  booking: async (id: string) => unwrap<Booking>(await supabase.from("bookings").select("*").eq("id", id).single()),
-  statusLog: async (id: string) => unwrap<StatusLog[]>(await supabase.from("booking_status_log").select("*").eq("booking_id", id).order("at")),
-  createBooking: async (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; scheduled_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
-    unwrap<{ id: string; number: string; status: BookingStatus }>(await supabase.rpc("create_booking", {
-      p_customer_id: v.customer_id, p_type: v.type, p_category: v.category, p_service_text: v.service_text, p_scheduled_at: v.scheduled_at,
-      p_address: v.address, p_lat: v.lat, p_lng: v.lng, p_zone: v.zone, p_vehicle_id: v.vehicle_id, p_notes: v.notes,
-    })),
-  updateBooking: async (id: string, patch: Record<string, unknown>) => unwrap(await supabase.rpc("update_booking", { p_id: id, p_patch: patch })),
-  assignBooking: async (v: { id: string; lead: string; assistants: string[]; vehicle_id: string | null; scheduled_at: string }) =>
-    unwrap<{ id: string; status: BookingStatus; conflicts: { user_id: string; number: string; scheduled_at: string }[] }>(
-      await supabase.rpc("assign_booking", { p_id: v.id, p_lead: v.lead, p_assistants: v.assistants, p_vehicle_id: v.vehicle_id, p_scheduled_at: v.scheduled_at })),
-  availability: async (at: string) => unwrap<Availability[]>(await supabase.rpc("technician_availability", { p_at: at })),
-
-  usersBasic: async () => unwrap<UserBasic[]>(await supabase.from("users_basic").select("*").eq("is_active", true).order("full_name")),
-  vehicles: async () => unwrap<Vehicle[]>(await supabase.from("vehicles").select("*").eq("is_active", true).order("code")),
-
-  notifications: async () => unwrap<Notification[]>(await supabase.from("notifications").select("*").order("created_at", { ascending: false }).limit(50)),
-  markRead: async (id: number) => unwrap(await supabase.rpc("mark_notification_read", { p_id: id })),
-  telegramLinkCode: async () => unwrap<string>(await supabase.rpc("create_telegram_link_code")),
-
-  // ---- platform_admin / Support mode (S-15) ----
-  platformOverview: async () => unwrap<PlatformCompany[]>(await supabase.rpc("platform_overview")),
-  startSupport: async (v: { company_id: string; reason: string; minutes: number }) =>
-    unwrap<{ id: string; company_id: string; company_name: string; expires_at: string }>(await supabase.rpc("start_support_session", { p_company: v.company_id, p_reason: v.reason, p_minutes: v.minutes })),
-  endSupport: async () => unwrap<boolean>(await supabase.rpc("end_support_session")),
-  supportSessions: async () => unwrap<SupportSession[]>(await supabase.from("support_sessions").select("*").order("started_at", { ascending: false }).limit(50)),
-  /** read-only user list of the company in Support (RLS decides the rows) */
-  profilesOf: async (companyId: string) => unwrap<ProfileRow[]>(await supabase.from("profiles").select("id,username,phone,email,full_name,role,is_active,telegram_linked,must_change_password").eq("company_id", companyId).order("role").order("full_name")),
 
   /** fire-and-forget: deliver queued Telegram messages right away (cron is the backstop) */
-  flushTelegram: () => { void callFunction("telegram-sender", {}); },
-  resolveMapsLink: (url: string) => callFunction<{ lat: number; lng: number; resolved_url: string }>("resolve-maps-link", { url }),
+  flushTelegram: () => { void post("/api/telegram/flush", {}).catch(() => undefined); },
+  resolveMapsLink: async (url: string): Promise<{ data?: { lat: number; lng: number; resolved_url: string }; error?: string; status: number }> => {
+    try { return { data: await post<{ lat: number; lng: number; resolved_url: string }>("/api/maps/resolve", { url }), status: 200 }; }
+    catch (e) { return { error: errCode(e), status: e instanceof ApiError ? e.status : 0 }; }
+  },
 };
 
 // ---------- formatting ----------

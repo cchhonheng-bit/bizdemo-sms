@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
+import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -11,23 +11,24 @@ const COMMON = new Set(["12345678", "password", "password1", "qwerty123", "11111
 export default function FirstLoginPage() {
   const { t } = useTranslation();
   const nav = useNavigate();
-  const { load, me } = useAuth();
+  const { load } = useAuth();
   const [pw, setPw] = useState(""); const [pw2, setPw2] = useState("");
   const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault(); setErr(null);
-    // 05: platform_admin ≥ 12 characters (S-15), others ≥ 8
-    if (pw.length < (me?.role === "platform_admin" ? 12 : 8)) return setErr(me?.role === "platform_admin" ? t("auth.too_short_12") : t("auth.too_short"));
+    if (pw.length < 8) return setErr(t("auth.too_short"));
     if (COMMON.has(pw.toLowerCase()) || /^(.)\1+$/.test(pw)) return setErr(t("auth.too_common"));
     if (pw !== pw2) return setErr(t("auth.mismatch"));
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: pw });
-    if (error) { setBusy(false); return setErr(error.message.includes("weak") ? t("auth.too_common") : t("app.error")); }
-    const { error: e2 } = await supabase.rpc("mark_password_changed");
+    try {
+      await api.me.changePassword(pw);
+    } catch (e) {
+      setBusy(false);
+      const code = errCode(e);
+      return setErr(code === "PASSWORD_TOO_COMMON" ? t("auth.too_common") : code === "PASSWORD_TOO_SHORT" ? t("auth.too_short") : t("app.error"));
+    }
     setBusy(false);
-    if (e2) return setErr(t("app.error"));
-    await supabase.auth.refreshSession(); // new JWT without must_change_password
     await load();
     toast.success(t("auth.changed"));
     nav("/", { replace: true });

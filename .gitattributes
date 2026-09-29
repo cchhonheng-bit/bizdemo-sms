@@ -1,5 +1,0 @@
-# Windows batch files need CRLF; shell scripts and git hooks need LF
-*.cmd text eol=crlf
-*.bat text eol=crlf
-*.sh text eol=lf
-scripts/git-hooks/* text eol=lf

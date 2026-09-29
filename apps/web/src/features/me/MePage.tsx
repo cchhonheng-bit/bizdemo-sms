@@ -2,19 +2,18 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import { supabase } from "@/lib/supabase";
 import { setLanguage } from "@/lib/i18n";
 import { Badge, Button, Card, Field, Input } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { api, errCode } from "@/lib/api";
 import { Copy, Send } from "lucide-react";
 
-const BOT = (import.meta.env.VITE_TELEGRAM_BOT as string | undefined) ?? "Oneteam_app_bot";
 
 export default function MePage() {
   const { t, i18n } = useTranslation();
   const { me, logout, load } = useAuth();
   const nav = useNavigate();
+  const [pw0, setPw0] = useState("");
   const [pw, setPw] = useState(""); const [pw2, setPw2] = useState(""); const [busy, setBusy] = useState(false);
   const [tgLink, setTgLink] = useState<string | null>(null); const [tgBusy, setTgBusy] = useState(false);
   if (!me) return null;
@@ -22,25 +21,31 @@ export default function MePage() {
   const linkTelegram = async () => {
     setTgBusy(true);
     try {
-      const code = await api.telegramLinkCode();
-      setTgLink(`https://t.me/${BOT}?start=${code}`);
+      const r = await api.telegramLinkCode();
+      if (!r.bot) { toast.error(t("me.telegram_not_configured")); setTgBusy(false); return; }
+      setTgLink(`https://t.me/${r.bot}?start=${r.code}`);
     } catch (e) { toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
     setTgBusy(false);
   };
 
   const changePw = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pw.length < (me?.role === "platform_admin" ? 12 : 8)) return toast.error(me?.role === "platform_admin" ? t("auth.too_short_12") : t("auth.too_short"));
+    if (pw.length < 8) return toast.error(t("auth.too_short"));
     if (pw !== pw2) return toast.error(t("auth.mismatch"));
     setBusy(true);
-    const { error } = await supabase.auth.updateUser({ password: pw });
+    try {
+      await api.me.changePassword(pw, pw0);
+    } catch (e) {
+      setBusy(false);
+      const code = errCode(e);
+      return toast.error(code === "WRONG_PASSWORD" ? t("auth.wrong_current") : code === "PASSWORD_TOO_COMMON" ? t("auth.too_common") : t("app.error"));
+    }
     setBusy(false);
-    if (error) return toast.error(t("app.error"));
-    setPw(""); setPw2(""); toast.success(t("auth.changed"));
+    setPw0(""); setPw(""); setPw2(""); toast.success(t("auth.changed"));
   };
   const changeLang = async (lang: "km" | "en") => {
     setLanguage(lang);
-    await supabase.rpc("set_language", { p_lang: lang });
+    await api.me.setLanguage(lang).catch(() => undefined);
     await load();
   };
 
@@ -82,6 +87,7 @@ export default function MePage() {
       </Card>
       <Card title={t("me.change_password")}>
         <form onSubmit={changePw} className="max-w-sm">
+          <Field label={t("auth.current_password")}><Input type="password" autoComplete="current-password" value={pw0} onChange={(e) => setPw0(e.target.value)} /></Field>
           <Field label={t("auth.new_password")}><Input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
           <Field label={t("auth.confirm_password")}><Input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
           <Button type="submit" variant="primary" loading={busy}>{t("app.save")}</Button>

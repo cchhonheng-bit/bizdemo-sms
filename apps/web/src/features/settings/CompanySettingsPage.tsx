@@ -4,14 +4,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
-import { supabase } from "@/lib/supabase";
-import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState, Empty } from "@/components/ui";
-import { api, fmtDateTime } from "@/lib/api";
+import { Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
+import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
 type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null };
-type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
-type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
 
 export default function CompanySettingsPage() {
   const { t } = useTranslation();
@@ -19,16 +16,14 @@ export default function CompanySettingsPage() {
   const settings = useQuery({
     queryKey: ["company_settings"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("company_settings").select("*").single();
-      if (error) throw error;
-      const d = data as Settings & { discount_approval_limit: number };
+      const data = await api.settings();
+      if (!data) throw new Error("NOT_FOUND");
+      const d = data as unknown as Settings & { discount_approval_limit: number };
       return { ...d, work_start: String(d.work_start).slice(0, 5), work_end: String(d.work_end).slice(0, 5) };
     },
   });
-  const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: async () => { const { data, error } = await supabase.from("vehicles").select("*").order("code"); if (error) throw error; return data as Vehicle[]; } });
-  // S-15 / S-26: every platform-operator Support session on this company is visible to the CEO
-  const sessions = useQuery({ queryKey: ["support_sessions"], queryFn: api.supportSessions });
-  const users = useQuery({ queryKey: ["users_basic"], queryFn: async () => { const { data, error } = await supabase.from("users_basic").select("*").eq("is_active", true).order("full_name"); if (error) throw error; return data as UserBasic[]; } });
+  const vehicles = useQuery({ queryKey: ["vehicles", "all"], queryFn: api.vehiclesAll });
+  const users = useQuery({ queryKey: ["users_basic"], queryFn: api.usersBasic });
 
   const form = useForm<CompanySettingsInput>({ resolver: zodResolver(companySettingsSchema) });
   const { register, handleSubmit, reset, watch, setValue, formState: { errors, isSubmitting } } = form;
@@ -43,16 +38,16 @@ export default function CompanySettingsPage() {
   const workDays = watch("work_days") ?? [];
 
   const save = handleSubmit(async (v) => {
-    const { error } = await supabase.rpc("update_company_settings", { p_patch: { ...v, discount_approval_limit: toCents(v.discount_approval_limit), telegram_group_chat_id: v.telegram_group_chat_id || null } });
-    if (error) return toast.error(t("app.error"));
+    try {
+      await api.updateSettings({ ...v, discount_approval_limit: toCents(v.discount_approval_limit), telegram_group_chat_id: v.telegram_group_chat_id || null });
+    } catch (e) { return toast.error(errCode(e) === "FORBIDDEN" ? t("app.error") : t("app.error")); }
     toast.success(t("app.saved"));
     void qc.invalidateQueries({ queryKey: ["company_settings"] });
   });
 
   const upsertVehicle = useMutation({
     mutationFn: async (v: { id: string | null; code: string; plate: string; owner: string | null; active: boolean }) => {
-      const { error } = await supabase.rpc("upsert_vehicle", { p_id: v.id, p_code: v.code, p_plate: v.plate || null, p_owner: v.owner, p_active: v.active });
-      if (error) throw error;
+      await api.upsertVehicle({ id: v.id, code: v.code, plate: v.plate || null, owner: v.owner, active: v.active });
     },
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["vehicles"] }); toast.success(t("app.saved")); },
     onError: () => toast.error(t("app.error")),
@@ -132,27 +127,6 @@ export default function CompanySettingsPage() {
         </div>
       </Card>
 
-      <Card title={t("platform.ceo_card")}>
-        <p className="text-sm text-muted mb-3">{t("platform.ceo_hint")}</p>
-        {sessions.isLoading ? <Skeleton rows={2} /> : (sessions.data ?? []).length === 0 ? <Empty text={t("platform.no_history")} /> : (
-          <div className="overflow-x-auto">
-            <table className="table" data-testid="support-history">
-              <thead><tr><th>{t("platform.admin")}</th><th>{t("platform.reason")}</th><th>{t("platform.started_at")}</th><th>{t("platform.expires_at")}</th><th>{t("platform.status")}</th></tr></thead>
-              <tbody>
-                {(sessions.data ?? []).map((s) => (
-                  <tr key={s.id}>
-                    <td>{s.admin_name} <span className="text-xs text-muted font-mono">({s.admin_username})</span></td>
-                    <td className="text-sm">{s.reason}</td>
-                    <td className="text-sm tabular">{fmtDateTime(s.started_at)}</td>
-                    <td className="text-sm tabular">{fmtDateTime(s.ended_at ?? s.expires_at)}</td>
-                    <td>{s.active ? <Badge tone="danger">{t("platform.active")}</Badge> : <Badge tone="grey">{t("platform.closed")}</Badge>}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
     </div>
   );
 }

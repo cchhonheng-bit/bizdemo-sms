@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { createUserSchema, ROLES, type CreateUserInput } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
-import { callFunction, supabase } from "@/lib/supabase";
+import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -23,11 +23,7 @@ export default function UsersPage() {
 
   const users = useQuery({
     queryKey: ["profiles"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("profiles").select("*").order("role").order("full_name");
-      if (error) throw error;
-      return data as Profile[];
-    },
+    queryFn: async () => (await api.users()) as Profile[],
   });
 
   const filtered = useMemo(() => {
@@ -39,9 +35,9 @@ export default function UsersPage() {
 
   const act = useMutation({
     mutationFn: async (v: { action: string; id: string; is_active?: boolean }) => {
-      const r = await callFunction<{ temp_password?: string }>("admin-users", v);
-      if (r.error) throw new Error(r.error);
-      return r.data;
+      if (v.action === "reset_password") return api.resetPassword(v.id);
+      await api.updateUser(v.id, { is_active: v.is_active });
+      return {} as { temp_password?: string };
     },
     onSuccess: (data, v) => {
       void qc.invalidateQueries({ queryKey: ["profiles"] });
@@ -49,7 +45,7 @@ export default function UsersPage() {
       else toast.success(t("app.saved"));
       setConfirm(null);
     },
-    onError: (e: Error) => toast.error(errText(e.message)),
+    onError: (e: Error) => toast.error(errText(errCode(e))),
   });
 
   return (
@@ -120,22 +116,26 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
 
   const submit = handleSubmit(async (v) => {
     if (user) {
-      const r = await callFunction("admin-users", { action: "update", id: user.id, patch: { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks } });
-      if (r.error) { toast.error(errText(r.error) ?? t("app.error")); return; }
+      try {
+        await api.updateUser(user.id, { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks });
+      } catch (e) { toast.error(errText(errCode(e)) ?? t("app.error")); return; }
       toast.success(t("app.saved"));
       void qc.invalidateQueries({ queryKey: ["profiles"] });
       onClose();
     } else {
-      const r = await callFunction<{ id: string; temp_password?: string }>("admin-users", { action: "create", ...v, password: v.password || undefined });
-      if (r.error) {
-        const field = r.error === "USERNAME_TAKEN" || r.error === "INVALID_USERNAME" ? "username" : r.error === "PHONE_TAKEN" || r.error === "INVALID_PHONE" ? "phone" : r.error === "EMAIL_TAKEN" ? "email" : r.error.startsWith("PASSWORD") ? "password" : null;
-        if (field) setError(field, { message: r.error }); else toast.error(errText(r.error) ?? t("app.error"));
+      let r: { id: string; temp_password?: string };
+      try {
+        r = await api.createUser({ ...v, password: v.password || undefined });
+      } catch (e) {
+        const code = errCode(e);
+        const field = code === "USERNAME_TAKEN" || code === "INVALID_USERNAME" ? "username" : code === "PHONE_TAKEN" || code === "INVALID_PHONE" ? "phone" : code === "EMAIL_TAKEN" ? "email" : code.startsWith("PASSWORD") ? "password" : null;
+        if (field) setError(field, { message: code }); else toast.error(errText(code) ?? t("app.error"));
         return;
       }
-      if (!tracks && r.data?.id) await callFunction("admin-users", { action: "update", id: r.data.id, patch: { tracks_attendance: false } });
+      if (!tracks) await api.updateUser(r.id, { tracks_attendance: false });
       void qc.invalidateQueries({ queryKey: ["profiles"] });
       toast.success(t("app.saved"));
-      onCreated(v.username, r.data?.temp_password);
+      onCreated(v.username, r.temp_password);
     }
   });
 

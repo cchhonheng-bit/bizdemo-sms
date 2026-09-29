@@ -1,0 +1,110 @@
+// Fastify app factory: one process serves the web app, /api, the Telegram webhook and cron (Architecture v2 §2).
+import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
+import cookie from "@fastify/cookie";
+import fstatic from "@fastify/static";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { ZodError } from "zod";
+import type { PermissionKey } from "@sms/shared";
+import { config } from "./config.js";
+import { sql } from "./db.js";
+import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
+import { resolveSession, type SessionUser } from "./services/auth.js";
+import { permissionsFor } from "./services/permissions.js";
+import { authRoutes } from "./routes/auth.js";
+import { meRoutes } from "./routes/me.js";
+import { usersRoutes } from "./routes/users.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { customersRoutes } from "./routes/customers.js";
+import { catalogRoutes } from "./routes/catalog.js";
+import { bookingsRoutes } from "./routes/bookings.js";
+import { notificationsRoutes } from "./routes/notifications.js";
+import { telegramRoutes } from "./routes/telegram.js";
+import { mapsRoutes } from "./routes/maps.js";
+
+export const SESSION_COOKIE = "ots";
+
+declare module "fastify" {
+  interface FastifyRequest {
+    user: SessionUser | null;
+    perms: PermissionKey[];
+  }
+  interface FastifyInstance {
+    requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requirePerm: (key: PermissionKey) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+  }
+}
+
+/** routes a user may call while must_change_password is set (F-M2-14: enforced server-side in v2) */
+const PASSWORD_CHANGE_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/auth/logout", "/api/config"]);
+
+export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
+  const app = Fastify({
+    logger: opts.logger === false ? false : { level: config.logLevel },
+    trustProxy: config.trustProxy,
+    bodyLimit: 1_000_000,
+  });
+
+  app.register(cookie, { secret: config.sessionSecret });
+
+  // ---- auth decorators ------------------------------------------------------
+  app.decorateRequest("user", null);
+  app.decorateRequest("perms", null as unknown as PermissionKey[]);
+  app.decorate("requireAuth", async (req: FastifyRequest) => {
+    const token = req.cookies[SESSION_COOKIE];
+    const user = token ? await resolveSession(token) : null;
+    if (!user) throw unauthenticated();
+    req.user = user;
+    req.perms = await permissionsFor(sql, user.companyId, user.role);
+    if (user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(req.routeOptions.url ?? req.url.split("?")[0]!)) {
+      throw new AppError("PASSWORD_CHANGE_REQUIRED", 403);
+    }
+  });
+  app.decorate("requirePerm", (key: PermissionKey) => async (req: FastifyRequest, reply: FastifyReply) => {
+    await app.requireAuth(req, reply);
+    if (!req.perms.includes(key)) throw new AppError("FORBIDDEN", 403);
+  });
+
+  // ---- errors ----------------------------------------------------------------
+  app.setErrorHandler((err: unknown, req, reply) => {
+    if (err instanceof AppError) return reply.status(err.status).send({ error: err.code, details: err.details });
+    if (err instanceof ZodError) return reply.status(400).send({ error: err.issues[0]?.message ?? "INVALID_INPUT", details: err.issues.map((i) => ({ path: i.path.join("."), message: i.message })) });
+    const pg = fromPg(err);
+    if (pg) {
+      if (pg.code === "INVALID_VALUE") req.log.warn(err, "pg invalid value");
+      return reply.status(pg.status).send({ error: pg.code });
+    }
+    const e = err as { statusCode?: number; code?: string; message?: string };
+    if (e.statusCode && e.statusCode < 500) return reply.status(e.statusCode).send({ error: e.code ?? "BAD_REQUEST" });
+    req.log.error(err);
+    return reply.status(500).send({ error: "INTERNAL" });
+  });
+  const hasWeb = existsSync(join(config.webDist, "index.html"));
+  app.setNotFoundHandler((req, reply) => {
+    if (req.url.startsWith("/api/") || !hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
+    return reply.sendFile("index.html"); // SPA fallback
+  });
+
+  // ---- public ----------------------------------------------------------------
+  app.get("/healthz", async () => {
+    await sql`select 1`;
+    return { ok: true };
+  });
+  app.get("/api/config", async () => ({ appName: config.appName, telegramBot: config.telegram.botUsername || null }));
+
+  // ---- api -------------------------------------------------------------------
+  app.register(authRoutes, { prefix: "/api/auth" });
+  app.register(meRoutes, { prefix: "/api/me" });
+  app.register(usersRoutes, { prefix: "/api/users" });
+  app.register(settingsRoutes, { prefix: "/api/settings" });
+  app.register(customersRoutes, { prefix: "/api/customers" });
+  app.register(catalogRoutes, { prefix: "/api/catalog" });
+  app.register(bookingsRoutes, { prefix: "/api/bookings" });
+  app.register(notificationsRoutes, { prefix: "/api/notifications" });
+  app.register(telegramRoutes, { prefix: "/api/telegram" });
+  app.register(mapsRoutes, { prefix: "/api/maps" });
+
+  // ---- web app (static; SPA fallback in the not-found handler) ------------------
+  if (hasWeb) app.register(fstatic, { root: config.webDist, prefix: "/", wildcard: false, index: ["index.html"], maxAge: "1h" });
+  return app;
+}

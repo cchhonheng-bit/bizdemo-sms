@@ -7,7 +7,6 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui";
 import { setLanguage } from "@/lib/i18n";
-import { SUPABASE_CONFIGURED } from "@/lib/supabase";
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation();
@@ -32,7 +31,6 @@ export default function LoginPage() {
           <div><div className="text-navy font-bold text-lg">{t("app.name")}</div><h1 className="text-base font-normal text-muted">{t("auth.title")}</h1></div>
           <button type="button" className="text-xs px-2 py-1 rounded border border-grey-line" onClick={() => setLanguage(i18n.language === "km" ? "en" : "km")}>{i18n.language === "km" ? "EN" : "ខ្មែរ"}</button>
         </div>
-        {!SUPABASE_CONFIGURED && <p className="text-xs text-warning bg-warning-50 rounded p-2 mb-3">VITE_SUPABASE_URL / ANON_KEY not set (.env.local)</p>}
         <Field label={t("auth.identifier")} error={errors.identifier && t("app.required")} required>
           <Input autoComplete="username" autoFocus invalid={!!errors.identifier} {...register("identifier")} />
         </Field>

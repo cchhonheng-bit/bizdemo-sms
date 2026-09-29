@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Secret scan (replaces the gitleaks CI job — D-39). Fails if a tracked or staged file contains a
+// Secret scan (D-39, kept in v2). Fails if a tracked or staged file contains a
 // secret-looking value, or if a *.local env file is tracked by git.
 // Usage: node scripts/secret-scan.mjs            (all tracked files; or all files when there is no git repo)
 //        node scripts/secret-scan.mjs --staged   (git pre-commit hook: staged content only)
@@ -10,18 +10,17 @@ import { ROOT, capture, green, red } from "./lib/common.mjs";
 const staged = process.argv.includes("--staged");
 
 const RULES = [
-  { name: "Supabase secret key", re: /sb_secret_[A-Za-z0-9_-]{12,}/ },
-  { name: "Supabase access token", re: /\bsbp_[a-f0-9]{30,}\b/ },
   { name: "Telegram bot token", re: /\b\d{8,11}:AA[A-Za-z0-9_-]{30,40}\b/ },
   { name: "GitHub token", re: /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/ },
   { name: "Private key", re: /-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/ },
-  { name: "Postgres URL with password", re: /postgres(ql)?:\/\/[^:\s/]+:[^@\s]{6,}@/ },
+  // local dev/test URLs (postgres:postgres@127.0.0.1 / localhost) are not secrets
+  { name: "Postgres URL with password", re: /postgres(ql)?:\/\/[^:\s/]+:(?!postgres@(127\.0\.0\.1|localhost))[^@\s]{6,}@/ },
 ];
 // JWTs: only flag non-public roles (anon keys are public by design)
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.(eyJ[A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/g;
 // KEY=value assignments whose value looks real (env-style files)
 const ASSIGN = /^\s*(?:export\s+)?([A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY|SECRET_KEY)[A-Z0-9_]*)\s*=\s*["']?([^"'\s#]+)/;
-const PLACEHOLDER = /^(<.*>|\.\.\.|x+|changeme|your[_-].*|sb_secret_\.\.\.|\$\{.*\}|\$[A-Z_]+)$/i;
+const PLACEHOLDER = /^(<.*>|\.\.\.|x+|changeme|change[-_]?me.*|your[_-].*|\$\{.*\}|\$[A-Z_]+|dev-only-.*|postgres)$/i;
 const SKIP_EXT = /\.(png|jpe?g|gif|ico|ttf|woff2?|pdf|zip|bundle|lock|pyc)$/i;
 const SKIP_FILE = /(^|\/)(pnpm-lock\.yaml|deno\.lock)$/;
 
@@ -86,7 +85,7 @@ for (const f of files) {
 if (findings.length) {
   console.log(red(`SECRET SCAN FAILED — ${findings.length} finding(s):`));
   for (const x of findings) console.log("  " + x);
-  console.log("Move the value to .env.test.local / .env.prod.local (gitignored) or the Supabase dashboard, then rotate it if it was ever committed or shared.");
+  console.log("Move the value to the server .env (never in git), then rotate it if it was ever committed or shared.");
   process.exit(1);
 }
 console.log(green(`Secret scan OK (${files.length} files${staged ? ", staged" : ""})`));

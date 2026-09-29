@@ -33,16 +33,14 @@
     "me": "ខ្ញុំ",
     "today": "ថ្ងៃនេះ",
     "attendance": "វត្តមាន",
-    "notifications": "ជូនដំណឹង",
-    "platform": "Platform"
+    "notifications": "ជូនដំណឹង"
   },
   "roles": {
     "ceo": "CEO",
     "cfo": "CFO",
     "gm": "GM",
     "admin": "Admin + គណនេយ្យ",
-    "tech": "ជាង",
-    "platform_admin": "Platform"
+    "tech": "ជាង"
   },
   "auth": {
     "title": "ចូលប្រព័ន្ធ",
@@ -62,7 +60,7 @@
     "too_short": "យ៉ាងតិច 8 តួ",
     "too_common": "ពាក្យសម្ងាត់ងាយស្មានពេក",
     "changed": "ប្តូរពាក្យសម្ងាត់រួច",
-    "too_short_12": "ពាក្យសម្ងាត់ Platform ត្រូវមានយ៉ាងតិច 12 តួអក្សរ"
+    "wrong_current": "ពាក្យសម្ងាត់បច្ចុប្បន្នមិនត្រឹមត្រូវ"
   },
   "users": {
     "title": "អ្នកប្រើ",
@@ -142,7 +140,8 @@
     "telegram_link": "ភ្ជាប់ Telegram",
     "telegram_relink": "ភ្ជាប់ឡើងវិញ",
     "telegram_open": "បើកក្នុង Telegram",
-    "telegram_expires": "តំណនេះប្រើបានតែម្ដង ក្នុងរយៈពេល 10 នាទី"
+    "telegram_expires": "តំណនេះប្រើបានតែម្ដង ក្នុងរយៈពេល 10 នាទី",
+    "telegram_not_configured": "Telegram bot មិនទាន់កំណត់លើ server"
   },
   "dashboard": {
     "title": "ផ្ទាំងគ្រប់គ្រង",
@@ -295,40 +294,5 @@
     "upcoming": "ការងារខាងមុខ",
     "no_jobs": "គ្មានការងារថ្ងៃនេះ",
     "checkpoints_m3": "ប៊ូតុង ចេញដំណើរ / ដល់ / ចាប់ផ្តើម / រួច នឹងមាននៅ M3"
-  },
-  "platform": {
-    "title": "Platform · ក្រុមហ៊ុនអតិថិជន",
-    "subtitle": "អ្នកផ្តល់ប្រព័ន្ធមិនឃើញទិន្នន័យអតិថិជនតាមលំនាំដើម · បើក Support mode (អានបានតែប៉ុណ្ណោះ ≤ 60 នាទី) ដើម្បីជួយដោះស្រាយបញ្ហា — CEO អតិថិជននឹងទទួលការជូនដំណឹង និងកត់ក្នុង Audit។",
-    "company": "ក្រុមហ៊ុន",
-    "plan": "គម្រោង",
-    "users": "អ្នកប្រើ",
-    "bookings": "Bookings",
-    "last_activity": "សកម្មភាពចុងក្រោយ",
-    "telegram_group": "Telegram group",
-    "support": "Support",
-    "support_start": "បើក Support mode",
-    "reason": "មូលហេតុ (អតិថិជនឃើញ)",
-    "reason_hint": "ឧ. អតិថិជនរាយការណ៍ Telegram មិនផ្ញើ · 5–300 តួអក្សរ",
-    "minutes": "រយៈពេល (នាទី)",
-    "start": "ចាប់ផ្តើម",
-    "started": "Support mode បើករួច · CEO បានទទួលការជូនដំណឹង",
-    "ended": "Support mode បិទរួច",
-    "end": "បញ្ចប់ Support",
-    "active_banner": "Support mode · {{company}} · អានបានតែប៉ុណ្ណោះ · បញ្ចប់ {{until}}",
-    "view_bookings": "មើល Bookings",
-    "session_users": "អ្នកប្រើរបស់ក្រុមហ៊ុន (អានបានតែប៉ុណ្ណោះ)",
-    "session_settings": "ការកំណត់សំខាន់ៗ",
-    "history": "ប្រវត្តិ Support",
-    "admin": "អ្នកផ្តល់ប្រព័ន្ធ",
-    "started_at": "ចាប់ផ្តើម",
-    "expires_at": "បញ្ចប់",
-    "status": "ស្ថានភាព",
-    "active": "កំពុងបើក",
-    "closed": "បិទរួច",
-    "no_history": "មិនទាន់មាន Support session",
-    "no_group": "មិនទាន់កំណត់",
-    "set": "កំណត់រួច",
-    "ceo_card": "ការចូលមើលដោយអ្នកផ្តល់ប្រព័ន្ធ (Support mode)",
-    "ceo_hint": "អ្នកផ្តល់ប្រព័ន្ធអាចមើលទិន្នន័យក្រុមហ៊ុន (អានបានតែប៉ុណ្ណោះ, ≤ 60 នាទី) តែពេលបើក Support session ដែលមានមូលហេតុ · បង/CEO ទទួលការជូនដំណឹងគ្រប់ដង។"
   }
 }

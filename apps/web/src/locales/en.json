@@ -33,16 +33,14 @@
     "me": "Me",
     "today": "Today",
     "attendance": "Attendance",
-    "notifications": "Notifications",
-    "platform": "Platform"
+    "notifications": "Notifications"
   },
   "roles": {
     "ceo": "CEO",
     "cfo": "CFO",
     "gm": "GM",
     "admin": "Admin + Accounting",
-    "tech": "Technician",
-    "platform_admin": "Platform"
+    "tech": "Technician"
   },
   "auth": {
     "title": "Sign in",
@@ -62,7 +60,7 @@
     "too_short": "At least 8 characters",
     "too_common": "Password is too common",
     "changed": "Password changed",
-    "too_short_12": "Platform password needs at least 12 characters"
+    "wrong_current": "Current password is wrong"
   },
   "users": {
     "title": "Users",
@@ -142,7 +140,8 @@
     "telegram_link": "Link Telegram",
     "telegram_relink": "Re-link",
     "telegram_open": "Open in Telegram",
-    "telegram_expires": "Single use · valid 10 minutes"
+    "telegram_expires": "Single use · valid 10 minutes",
+    "telegram_not_configured": "Telegram bot is not configured on the server"
   },
   "dashboard": {
     "title": "Dashboard",
@@ -295,40 +294,5 @@
     "upcoming": "Upcoming",
     "no_jobs": "No jobs today",
     "checkpoints_m3": "Depart / Arrived / Start / Done buttons arrive in M3"
-  },
-  "platform": {
-    "title": "Platform · customer companies",
-    "subtitle": "The platform operator cannot see customer data by default. Open Support mode (read-only, ≤ 60 min) to help with an issue — the customer CEO is notified and it is written to their audit log.",
-    "company": "Company",
-    "plan": "Plan",
-    "users": "Users",
-    "bookings": "Bookings",
-    "last_activity": "Last activity",
-    "telegram_group": "Telegram group",
-    "support": "Support",
-    "support_start": "Open Support mode",
-    "reason": "Reason (visible to the customer)",
-    "reason_hint": "e.g. customer reports Telegram not sending · 5–300 characters",
-    "minutes": "Duration (minutes)",
-    "start": "Start",
-    "started": "Support mode started · CEO notified",
-    "ended": "Support mode ended",
-    "end": "End Support",
-    "active_banner": "Support mode · {{company}} · read-only · ends {{until}}",
-    "view_bookings": "View bookings",
-    "session_users": "Company users (read-only)",
-    "session_settings": "Key settings",
-    "history": "Support history",
-    "admin": "Operator",
-    "started_at": "Started",
-    "expires_at": "Ends",
-    "status": "Status",
-    "active": "Active",
-    "closed": "Closed",
-    "no_history": "No Support sessions yet",
-    "no_group": "Not set",
-    "set": "Set",
-    "ceo_card": "Platform operator access (Support mode)",
-    "ceo_hint": "The platform operator can view company data (read-only, ≤ 60 min) only inside a Support session with a stated reason · the CEO is notified every time."
   }
 }
