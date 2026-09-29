@@ -182,7 +182,7 @@ describe("Customer Subscribe A+B (A4) + Broadcast (A5)", () => {
   it("s-ONETEAM → consent text (3 purposes, privacy link) + one ☑ button; nothing stored before the tick", async () => {
     await privateMsg(800001, "/start s-ONETEAM");
     const prompt = sent.filter((x) => x.method === "sendMessage" && x.payload.chat_id === 800001).at(-1)!;
-    expect(prompt.payload.text).toContain("1️⃣"); expect(prompt.payload.text).toContain("2️⃣"); expect(prompt.payload.text).toContain("3️⃣");
+    expect(prompt.payload.text).toContain("1) "); expect(prompt.payload.text).toContain("2) "); expect(prompt.payload.text).toContain("3) HangKH");
     expect(prompt.payload.text).toContain("One Team Engineering");
     expect(prompt.payload.text).toContain("/privacy");
     expect(prompt.payload.reply_markup.inline_keyboard[0]).toHaveLength(1);
@@ -195,7 +195,7 @@ describe("Customer Subscribe A+B (A4) + Broadcast (A5)", () => {
     expect(lastText(800001)).toContain("✅");
     const log = await sql`select action, text_version, shop_code from hub_consent_log where telegram_user_id = 800001`;
     expect(log).toEqual([{ action: "subscribe", text_version: CONSENT_VERSION, shop_code: "ONETEAM" }]);
-    expect((await sql`select body_km from hub_consent_texts where version = ${CONSENT_VERSION}`)[0]!.body_km).toContain("3️⃣");
+    expect((await sql`select body_km from hub_consent_texts where version = ${CONSENT_VERSION}`)[0]!.body_km).toContain("3) HangKH");
     // old consent version or a shop without the module → nothing stored
     await tick(800009, "ONETEAM", "2020-01-01-v0");
     await privateMsg(800009, "/start s-NOSUB");
