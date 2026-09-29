@@ -18,7 +18,7 @@ field() { sed -n "s/.*\"$1\":\(\"[^\"]*\"\|[^,}]*\).*/\1/p" | head -1 | tr -d '"
 me=$(tg "$new" getMe) || { echo "Telegram not reachable"; exit 1; }
 echo "$me" | grep -q '"ok":true' || { echo "Telegram refused the new token (copied wrong?)"; exit 1; }
 user=$(echo "$me" | field username)
-[ "$user" = "$want" ] || { echo "the token belongs to @$user, not @$want — nothing changed"; exit 1; }
+[ "${user,,}" = "${want,,}" ] || { echo "the token belongs to @$user, not @$want — nothing changed"; exit 1; }
 echo "new bot: @$user (getMe ok · can_join_groups=$(echo "$me" | field can_join_groups) · can_read_all_group_messages=$(echo "$me" | field can_read_all_group_messages))"
 
 old=$(grep '^TELEGRAM_BOT_TOKEN=' "$ENV" | head -1 | cut -d= -f2- || true)
@@ -30,7 +30,7 @@ fi
 old=""
 
 printf '%s\n' "$new" | "$BIN/set-env.sh" TELEGRAM_BOT_TOKEN
-printf '%s\n' "$user" | "$BIN/set-env.sh" TELEGRAM_BOT_USERNAME
+printf '%s\n' "$want" | "$BIN/set-env.sh" TELEGRAM_BOT_USERNAME   # the spelling of the printed links/QR (Telegram ignores case)
 
 "$BIN/dc" up -d --force-recreate --no-deps app-hub app-oneteam >/dev/null 2>&1
 for s in app-hub app-oneteam; do
