@@ -81,7 +81,7 @@ function world(over = {}) {
       return { status, headers: { get: (h) => (h === "strict-transport-security" ? "max-age=31536000" : null) } };
     },
     resolve4: async () => [w.dns],
-    edit: (f) => { w.notepad++; w.notepadFile = f; w.files[f] += w.editorWrites; },
+    edit: async (f) => { w.notepad++; w.notepadFile = f; w.files[f] += w.editorWrites; return w.files[f]; },
     shred: (f) => { w.shredded = f; delete w.files[f]; },
     tmpFile: () => join(tmpdir(), "hangkh-token-test.txt"),
     openFile: () => undefined,
@@ -101,6 +101,14 @@ test("helpers: token extraction ignores comments, redact masks secrets, ssh pars
   const c1 = mergeSshConfig("Host *\n  ForwardAgent no\n", CFG, "C:/Users/h/.ssh/hangkh_ed25519");
   assert.ok(c1.indexOf("Host hangkh") < c1.indexOf("Host *"));
   assert.equal(mergeSshConfig(c1, CFG, "C:/Users/h/.ssh/hangkh_ed25519"), c1); // idempotent
+  // P5: global options at the top stay global; our block goes before the first Host
+  const c2 = mergeSshConfig("IdentityFile ~/.ssh/id_rsa\nUser git\n\nHost github.com\n  HostName github.com\n", CFG, "~/.ssh/hangkh_ed25519");
+  assert.ok(c2.startsWith("IdentityFile ~/.ssh/id_rsa\nUser git"));
+  assert.ok(c2.indexOf("Host hangkh") < c2.indexOf("Host github.com"));
+  assert.ok(mergeSshConfig("", CFG, "~/.ssh/k").startsWith("# >>> HangKH"));
+  // P3: a token that ends with "-" is kept whole
+  const t2 = "7123456789:AAHkq3-FakeTokenForTests_abcdefghijklm-";
+  assert.equal(extractToken(t2), t2);
 });
 
 test("first run: every step, password + sudo typed once, token via Notepad (shredded), deploy, accounts, verify", async () => {
@@ -145,6 +153,25 @@ test("wrong token three times → clear error, nothing stored", async () => {
   assert.equal(code, 1);
   assert.equal(w.notepad, 3); assert.equal(w.env.TELEGRAM_BOT_TOKEN, undefined);
   assert.ok(w.out.includes("ដោះស្រាយ"));
+});
+
+test("getMe unreachable → token NOT stored, clear error (P3)", async () => {
+  const w = world();
+  w.sys.fetch = async () => { throw new Error("offline"); };
+  assert.equal(await main([], w.sys), 1);
+  assert.equal(w.env.TELEGRAM_BOT_TOKEN, undefined);
+  assert.ok(w.out.includes("Internet"));
+});
+
+test("--reset-passwords on an existing box shows new passwords, report stays clean (P7)", async () => {
+  const w = world();
+  await main([], w.sys);
+  const calls = [];
+  const orig = w.sys.tee;
+  w.sys.tee = async (c, a) => { calls.push(a[a.length - 1]); if (a[a.length - 1].includes("reset-password")) w.out += "oneteam/ceo temp password: Qq1Ww2Ee3R\n"; return orig(c, a); };
+  assert.equal(await main(["--reset-passwords"], w.sys), 0);
+  assert.ok(calls.some((c) => c.includes("reset-password oneteam ceo")) && calls.some((c) => c.includes("hub-admin heng")));
+  assert.ok(!report(w).includes("Qq1Ww2Ee3R"));
 });
 
 test("server unreachable → Error ✗ with a fix, report written", async () => {

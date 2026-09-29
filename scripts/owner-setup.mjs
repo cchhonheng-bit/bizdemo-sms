@@ -8,14 +8,14 @@
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, openSync, writeSync, closeSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync, openSync, writeSync, closeSync, statSync } from "node:fs";
 import { homedir, hostname, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "..", "..");
-export const TOKEN_RE = /\b(\d{6,12}:[A-Za-z0-9_-]{30,60})\b/;
+export const TOKEN_RE = /(?<![\d])(\d{6,12}:[A-Za-z0-9_-]{30,60})(?![A-Za-z0-9_-])/;
 const EMAIL_RE = /^[A-Za-z0-9._+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 const CLOUDFLARE_PREFIXES = ["104.16.", "104.17.", "104.18.", "104.19.", "104.20.", "104.21.", "172.64.", "172.65.", "172.66.", "172.67.", "188.114."];
 
@@ -41,13 +41,17 @@ export function extractToken(text) {
 /** our block in ~/.ssh/config, replaced in place when it exists (idempotent) */
 export function mergeSshConfig(existing, cfg, keyPath) {
   const begin = "# >>> HangKH (owner-setup) >>>", end = "# <<< HangKH (owner-setup) <<<";
-  const block = [begin, `Host ${cfg.ssh}`, `  HostName ${cfg.host}`, `  User ${cfg.user}`, `  IdentityFile "${keyPath}"`, "  IdentitiesOnly yes",
+  const block = [begin, `Host ${cfg.ssh}`, `  HostName ${cfg.host}`, `  User ${cfg.user}`, `  IdentityFile ${keyPath}`, "  IdentitiesOnly yes",
     "  StrictHostKeyChecking accept-new", "  ServerAliveInterval 30", "  ConnectTimeout 15", end].join("\n");
   const text = existing ?? "";
   const re = new RegExp(`${begin.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}[\\s\\S]*?${end.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`);
   if (re.test(text)) return text.replace(re, block);
-  // our Host must come BEFORE any "Host *" so its settings win
-  return `${block}\n\n${text}`.replace(/\n{3,}/g, "\n\n");
+  // insert just before the first Host/Match section: global options at the top stay global (P5), and our
+  // Host comes before any "Host *" so its values win (ssh uses the first value it finds)
+  const lines = text.split(/\r?\n/);
+  const i = lines.findIndex((l) => /^\s*(Host|Match)\s/i.test(l));
+  if (i < 0) return `${text.replace(/\s*$/, "")}${text.trim() ? "\n\n" : ""}${block}\n`;
+  return [...lines.slice(0, i), block, "", ...lines.slice(i)].join("\n");
 }
 
 /** "Permission denied (publickey)" → password login is off; "(publickey,password)" → still on */
@@ -104,7 +108,20 @@ export function makeSys() {
     fetch: (url, init) => fetch(url, { ...init, signal: AbortSignal.timeout(15_000) }),
     async resolve4(name, servers) { const r = new Resolver(); r.setServers(servers); try { return await r.resolve4(name); } catch { return []; } },
     /** open the editor and wait until it is closed */
-    edit(file) { if (win) spawnSync("notepad.exe", [file], { stdio: "ignore" }); else spawnSync(process.env.EDITOR || "nano", [file], { stdio: "inherit" }); },
+    /** open the editor; resolves with the file text as soon as it contains a token (polling — Windows 11 Notepad returns at once) */
+    async edit(file, found, timeoutMs = 600_000) {
+      if (win) spawn("notepad.exe", [file], { stdio: "ignore", detached: true }).unref();
+      else spawnSync(process.env.EDITOR || "nano", [file], { stdio: "inherit" });
+      const t0 = Date.now();
+      for (;;) {
+        let text = "";
+        try { text = readFileSync(file, "utf8"); } catch { /* being saved */ }
+        if (found(text) || !win || Date.now() - t0 > timeoutMs) return text;
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+    },
+    /** delete token files left by an earlier run (e.g. Notepad saved the tab again after we shredded it) */
+    sweepTokenFiles() { let n = 0; try { for (const f of readdirSync(tmpdir())) if (/^hangkh-token-[a-f0-9]+\.txt$/.test(f)) { this.shred(join(tmpdir(), f)); n++; } } catch { /* ignore */ } return n; },
     shred(file) {
       try { const n = statSync(file).size; const fd = openSync(file, "r+"); writeSync(fd, Buffer.alloc(Math.max(n, 256))); closeSync(fd); } catch { /* gone */ }
       rmSync(file, { force: true });
@@ -159,7 +176,7 @@ export async function main(argv, sys = makeSys()) {
   head(`SSH alias «${cfg.ssh}» (%USERPROFILE%\\.ssh\\config)`);
   const confPath = join(sys.home, ".ssh", "config");
   const before = sys.exists(confPath) ? sys.read(confPath) : "";
-  const after = mergeSshConfig(before, cfg, keyPath.replace(/\\/g, "/"));
+  const after = mergeSshConfig(before, cfg, `~/.ssh/${cfg.key}`);
   if (after !== before) sys.write(confPath, after);
   ok("sshconfig", "SSH alias", after === before ? "មិនប្តូរ" : "បានសរសេរ");
 
@@ -170,7 +187,7 @@ export async function main(argv, sys = makeSys()) {
     const why = classifySshError(t.err);
     if (why !== "auth") return fail("login", "ចូល server", t.err.split("\n").pop() || why, FIX[why]);
     sys.out(col("33;1", "\n\n   ⌨  សូមវាយពាក្យសម្ងាត់ server របស់ user «ubuntu» (អក្សរមិនបង្ហាញពេលវាយ — ធម្មតា) រួច Enter:\n\n"));
-    const install = `umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF '${pub}' ~/.ssh/authorized_keys || echo '${pub}' >> ~/.ssh/authorized_keys) && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys && echo HANGKH_KEY_INSTALLED`;
+    const install = `umask 077; mkdir -p ~/.ssh && touch ~/.ssh/authorized_keys && (grep -qxF '${pub}' ~/.ssh/authorized_keys || { [ -s ~/.ssh/authorized_keys ] && [ -n "$(tail -c1 ~/.ssh/authorized_keys)" ] && echo >> ~/.ssh/authorized_keys; echo '${pub}' >> ~/.ssh/authorized_keys; }) && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys && echo HANGKH_KEY_INSTALLED`;
     const p = await sys.tee("ssh", ["-o", "PubkeyAuthentication=no", "-o", "PreferredAuthentications=keyboard-interactive,password", "-o", "StrictHostKeyChecking=accept-new", "-o", "NumberOfPasswordPrompts=3", `${cfg.user}@${cfg.host}`, install]);
     if (!p.out.includes("HANGKH_KEY_INSTALLED")) return fail("login", "ចូល server", "ដាក់ key មិនបាន (ពាក្យសម្ងាត់ខុស 3 ដង ឬ server បិទ password login)", FIX.auth);
     t = ssh("echo HANGKH_KEY_OK", { timeout: 30_000 });
@@ -219,31 +236,31 @@ export async function main(argv, sys = makeSys()) {
   // 8 ── Telegram bot token via Notepad (never chat, never the project folder)
   head("Telegram Bot Token (@BotFather → Notepad)");
   let bot = null;
+  sys.sweepTokenFiles?.();
   if (envHas("TELEGRAM_BOT_TOKEN") && !args.has("--new-token")) ok("token", "Bot token", "មានរួចលើ server (ប្តូរ: owner-setup.cmd --new-token)");
   else {
     sys.out("\n   1) ទូរស័ព្ទ/កុំព្យូទ័រ → Telegram → ស្វែងរក @BotFather → /newbot → ឈ្មោះ: HangKH → username: hangkh_bot (ឬឈ្មោះផ្សេងចប់ដោយ _bot)\n");
-    sys.out("   2) @BotFather ផ្ញើ Token (ឧ. 123456789:AA…) — ចម្លងវា\n   3) Notepad នឹងបើក → បិទភ្ជាប់ Token → Ctrl+S → បិទ Notepad\n\n");
+    sys.out("   2) @BotFather ផ្ញើ Token (ឧ. 123456789:AA…) — ចម្លងវា\n   3) Notepad នឹងបើក → បិទភ្ជាប់ Token → Ctrl+S (រង់ចាំ ≤ 10 នាទី)\n\n");
     let token = null;
     for (let i = 0; i < 3 && !bot; i++) {
       const f = sys.tmpFile("hangkh-token");
       try {
         sys.write(f, "# បិទភ្ជាប់ Token ពី @BotFather នៅបន្ទាត់ខាងក្រោម → Ctrl+S → បិទ Notepad (file នេះនឹងត្រូវលុបភ្លាម)\n# Paste the token from @BotFather on the line below, press Ctrl+S, close Notepad (this file is deleted right after)\n\n", { mode: 0o600 });
-        sys.edit(f);
-        token = extractToken(sys.read(f));
+        token = extractToken(await sys.edit(f, (text) => !!extractToken(text)));
       } finally { sys.shred(f); }
+      sys.out(col("33;1", "   → បិទ Notepad ឥឡូវ (បើវាសួរ Save — ចុច Don't save / មិនរក្សាទុក)\n"));
       if (!token) { sys.out(col("31;1", "   ✗ រកមិនឃើញ Token ក្នុង Notepad — សាកម្តងទៀត\n")); continue; }
-      try {
-        const r = await (await sys.fetch(`https://api.telegram.org/bot${token}/getMe`)).json();
-        if (r.ok) bot = r.result; else { sys.out(col("31;1", "   ✗ Telegram បដិសេធ Token នេះ (ចម្លងខុស?) — សាកម្តងទៀត\n")); token = null; }
-      } catch { bot = { username: null, offline: true }; }
+      let r;
+      try { r = await (await sys.fetch(`https://api.telegram.org/bot${token}/getMe`)).json(); }
+      catch { token = null; return fail("token", "Bot token", "ពិនិត្យ Token ជាមួយ Telegram មិនបាន (Internet?)", "ពិនិត្យ Internet របស់ PC → រត់ owner-setup.cmd ម្តងទៀត (Token មិនបានរក្សាទុក)"); }
+      if (r?.ok) bot = r.result; else { sys.out(col("31;1", "   ✗ Telegram បដិសេធ Token នេះ (ចម្លងខុស?) — សាកម្តងទៀត\n")); token = null; }
     }
     if (!token) return fail("token", "Bot token", "Token មិនត្រឹមត្រូវ 3 ដង", "@BotFather → /mybots → hangkh_bot → API Token → ចម្លងម្តងទៀត");
     const r = setEnv("TELEGRAM_BOT_TOKEN", token);
     token = null;
     if (r.code !== 0) return fail("token", "Bot token", r.out || r.err, FIX.other);
     if (bot?.username) setEnv("TELEGRAM_BOT_USERNAME", bot.username);
-    const notes = [bot?.username ? `@${bot.username}` : "(មិនអាចពិនិត្យ getMe — offline)"];
-    ok("token", "Bot token", `បានរក្សាលើ server (.env 600) · ${notes.join(" ")}`);
+    ok("token", "Bot token", `បានរក្សាលើ server (.env 600) · @${bot.username}`);
     if (bot?.can_read_all_group_messages) warn("privacy", "Bot privacy", "Privacy mode បិទ — bot អានសារទាំងអស់ក្នុង group", "@BotFather → /setprivacy → ជ្រើស bot → Enable");
     if (bot && bot.can_join_groups === false) warn("groups", "Bot groups", "Bot មិនអាចចូល group", "@BotFather → /setjoingroups → ជ្រើស bot → Enable");
   }
@@ -308,6 +325,12 @@ export async function main(argv, sys = makeSys()) {
   const notes = [];
   const nCompanies = q("shop_oneteam", "select count(*) from companies"), nAdmins = q("hub", "select count(*) from hub_admins");
   if (!/^\d+$/.test(nCompanies) || !/^\d+$/.test(nAdmins)) return fail("accounts", "គណនី", "អាន database មិនបាន", "ssh hangkh → /opt/hangkh/bin/dc ps (postgres ដំណើរការ?) · រត់ម្តងទៀត");
+  if (args.has("--reset-passwords") && nCompanies !== "0") {
+    sys.out(col("33;1", "\n   📝 ពាក្យសម្ងាត់ថ្មី (បង្ហាញតែម្តង — សរសេរលើក្រដាស):\n"));
+    await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-oneteam node dist/cli.mjs reset-password oneteam ceo`]);
+    await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-hub node dist/cli.mjs hub-admin heng`]);
+    notes.push("ពាក្យសម្ងាត់ ceo + heng បានប្តូរ");
+  }
   if (nCompanies === "0") {
     sys.out(col("33;1", "\n   📝 ពាក្យសម្ងាត់បណ្ដោះអាសន្នខាងក្រោម បង្ហាញតែម្តង — សរសេរលើក្រដាស (កុំថត/កុំផ្ញើក្នុងឆាត):\n"));
     const r = await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-oneteam node dist/cli.mjs create-company "One Team Engineering" oneteam`]);
@@ -401,7 +424,7 @@ function writeReport(sys, cfg, results, good) {
   const icon = { ok: "✓", warn: "⚠", fail: "✗" };
   const now = new Date().toLocaleString("en-GB", { timeZone: "Asia/Phnom_Penh" });
   const docDir = resolve(sys.cwd, "..", "Doc_Sup");
-  const dir = sys.exists(docDir) ? docDir : sys.cwd;
+  const dir = sys.exists(docDir) ? docDir : join(sys.home, "Documents"); // never inside the repo (P6)
   const next = good
     ? ["បើក https://oneteam.hangkh.com → Login ceo (ពាក្យសម្ងាត់លើក្រដាស) → ប្តូរពាក្យសម្ងាត់", "ខ្ញុំ → ភ្ជាប់ Telegram (ទូរស័ព្ទ) · ការកំណត់ → បង្កើតកូដ Group → /register ក្នុង Group", "ស្កេន QR (OneTeam_Subscribe_Guide_Customer_KM.pdf) ដោយទូរស័ព្ទទី 2 → ☑ យល់ព្រម", "ប្រាប់ក្រុម AI: «setup រួច» — 04 នឹងពិនិត្យពីខាងក្រៅម្តងទៀត"]
     : ["អានជួរ ✗ ខាងក្រោម → ធ្វើតាម «ដោះស្រាយ» → រត់ owner-setup.cmd ម្តងទៀត (ជំហានដែលរួចនឹងរំលង)"];
@@ -412,8 +435,9 @@ table{border-collapse:collapse;width:100%}td{border-bottom:1px solid #D5DAE8;pad
 tr.warn td:first-child{color:#B45309;font-weight:700}tr.fail td:first-child{color:#B42318;font-weight:700}tr.fail{background:#FEF3F2}.box{padding:12px 16px;border-radius:10px;background:${good ? "#E8F5EE" : "#FEF3F2"}}
 </style></head><body><h1>HangKH — របាយការណ៍ Setup</h1><p>${esc(now)} · ${esc(cfg.user)}@${esc(cfg.host)} · ${esc(cfg.domains.hub)} · ${esc(cfg.domains.oneteam)}</p>
 <div class="box"><b>${good ? "✓ រួចរាល់" : "✗ មិនទាន់រួច"}</b><ol>${next.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></div>
-<table>${rows}</table><p style="color:#6B7280;font-size:13px">គ្មាន password/token ក្នុងរបាយការណ៍នេះ។ រត់ម្តងទៀត: owner-setup.cmd · ពិនិត្យតែប៉ុណ្ណោះ: owner-setup.cmd --verify</p></body></html>`;
+<table>${rows}</table><p style="color:#6B7280;font-size:13px">⚠️ PC នេះមាន key ចូល Server (គ្មាន passphrase) — ដាក់ Windows password + screen lock · កុំឲ្យអ្នកផ្សេងប្រើ account Windows នេះ។ គ្មាន password/token ក្នុងរបាយការណ៍នេះ។ រត់ម្តងទៀត: owner-setup.cmd · ពិនិត្យតែប៉ុណ្ណោះ: owner-setup.cmd --verify</p></body></html>`;
   try {
+    sys.mkdir(dir);
     sys.write(join(dir, "SETUP_REPORT.html"), html);
     sys.write(join(dir, "SETUP_REPORT.json"), JSON.stringify({ at: new Date().toISOString(), good, results }, null, 1));
     sys.out(`\n${good ? "✓ រួចរាល់" : "✗ មិនទាន់រួច"} — របាយការណ៍: ${join(dir, "SETUP_REPORT.html")}\n`);

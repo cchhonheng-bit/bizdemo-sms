@@ -4,12 +4,19 @@ rem  Make Source identical to the delivered git history (Doc_Sup\06_Development\
 rem  Use it each time the AI team delivers a new bundle. Safe: your own uncommitted changes are
 rem  committed first ("local changes before sync"); if histories diverged they stay in git reflog.
 rem ===========================================================================
-setlocal
+setlocal EnableDelayedExpansion
 chcp 65001 >nul
-cd /d "%~dp0"
+rem git rewrites this very file below - run from a copy in %TEMP% (P1)
+if not defined HANGKH_SYNC_SRC (
+  set "HANGKH_SYNC_SRC=%~dp0"
+  copy /y "%~f0" "%TEMP%\hangkh-sync.cmd" >nul
+  call "%TEMP%\hangkh-sync.cmd" %*
+  exit /b !ERRORLEVEL!
+)
+cd /d "%HANGKH_SYNC_SRC%"
 title HangKH - sync from bundle
-set BUNDLE=%~dp0..\Doc_Sup\06_Development\bizdemo-sms.bundle
-if not exist "%BUNDLE%" (echo Bundle not found: %BUNDLE% & pause & exit /b 1)
+set "BUNDLE=%HANGKH_SYNC_SRC%..\Doc_Sup\06_Development\bizdemo-sms.bundle"
+if not exist "%BUNDLE%" (echo Bundle not found: %BUNDLE% & if /i not "%~1"=="/nopause" pause & exit /b 1)
 where git >nul 2>nul || (echo Git was not found. Install it from https://git-scm.com and run again. & pause & exit /b 1)
 if exist .git goto haverepo
 echo Source has no .git yet - creating it from the bundle...

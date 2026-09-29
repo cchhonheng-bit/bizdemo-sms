@@ -12,3 +12,5 @@ __pycache__/
 dev-dist/
 _gittmp/
 .local/
+SETUP_REPORT.*
+*token*.txt

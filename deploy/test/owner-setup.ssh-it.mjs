@@ -17,7 +17,7 @@ const results = []; const check = (n, ok, note = "") => { results.push([ok ? "PA
 
 // --- server side -----------------------------------------------------------------
 rmSync("/opt/hangkh", { recursive: true, force: true });
-sh(`echo 'ubuntu:${PW}' | chpasswd && rm -f /home/ubuntu/.ssh/authorized_keys /etc/ssh/sshd_config.d/00-hangkh.conf && mkdir -p /run/sshd`);
+sh(`echo 'ubuntu:${PW}' | chpasswd && rm -f /etc/ssh/sshd_config.d/00-hangkh.conf && mkdir -p /run/sshd /home/ubuntu/.ssh && printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIProviderKey provider' > /home/ubuntu/.ssh/authorized_keys && chown -R ubuntu:ubuntu /home/ubuntu/.ssh && chmod 600 /home/ubuntu/.ssh/authorized_keys`);
 const shims = "/usr/local/hangkh-shims"; mkdirSync(shims, { recursive: true });
 for (const [n, body] of Object.entries({
   "apt-get": "exit 0", ufw: 'echo "ufw $*" >> /tmp/hangkh-shim.log', timedatectl: "exit 0", fallocate: 'touch "${@: -1}"', mkswap: "exit 0",
@@ -48,11 +48,11 @@ let out = "", notepad = 0, pwPrompts = 0;
 const sys = { ...base, cwd: repo,
   out: (s) => { out += s; process.stdout.write(s); },
   ask: async (q) => (q.includes("អ៊ីមែល") ? "owner@example.com" : "s"),
-  edit: (f) => { notepad++; writeFileSync(f, readFileSync(f, "utf8") + TOKEN + "\n"); },
+  edit: async (f) => { notepad++; writeFileSync(f, readFileSync(f, "utf8") + TOKEN + "\n"); return readFileSync(f, "utf8"); },
   // passwords: the owner would type them; here sshpass types the server password
   tee: (cmd, args) => { if (args.includes("PubkeyAuthentication=no")) { pwPrompts++; return base.tee("sshpass", ["-p", PW, cmd, ...args]); } return base.tee(cmd, args); },
   run: (cmd, args, opts) => (cmd === process.execPath && String(args[0]).endsWith("deploy.mjs") ? { code: 1, out: "", err: "stopped by test" } : base.run(cmd, args, opts)),
-  fetch: async () => { throw new Error("offline in sandbox"); },
+  fetch: async () => ({ json: async () => ({ ok: true, result: { username: "hangkh_it_bot", can_join_groups: true, can_read_all_group_messages: false } }) }),
   resolve4: async () => [],
   openFile: () => undefined,
 };
@@ -63,6 +63,7 @@ check("run 1 stops only at deploy (expected here: no Docker Hub)", code1 === 1 &
 check("password typed once (key installed)", pwPrompts === 1);
 check("key login works; password login now OFF (real sshd)", sh(`ssh -o BatchMode=yes hangkh-it echo ok`).stdout.trim() === "ok" &&
   /Permission denied \(publickey\)/.test(sh(`ssh -o BatchMode=yes -o PubkeyAuthentication=no -o PreferredAuthentications=password ubuntu@127.0.0.1 true 2>&1`).stdout));
+check("existing provider key kept intact (no newline at end — P4)", readFileSync("/home/ubuntu/.ssh/authorized_keys", "utf8").split("\n").filter(Boolean).length === 2 && readFileSync("/home/ubuntu/.ssh/authorized_keys", "utf8").startsWith("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIProviderKey provider\n"));
 check(".env 600 owned by ubuntu, random secrets", envStat === "600 ubuntu" && /DB_PASSWORD_HUB=[a-f0-9]{48}/.test(env), envStat);
 check("token + e-mail written through stdin (set-env)", env.includes(`TELEGRAM_BOT_TOKEN=${TOKEN}`) && env.includes("ACME_EMAIL=owner@example.com"));
 check("token file shredded, token never printed", notepad === 1 && !out.includes(TOKEN) && !sh(`ls ${tmpdir()} | grep hangkh-token`).stdout.trim());
