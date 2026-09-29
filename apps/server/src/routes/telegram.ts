@@ -29,7 +29,7 @@ export const telegramRoutes: FastifyPluginAsync = async (app) => {
     if (!secret || !safeEqual(given, secret)) return reply.status(403).send("forbidden");
     const update = (req.body ?? {}) as Update;
     const msg = update.message;
-    if (!msg?.from || msg.from.is_bot || !msg.text) return "ok";
+    if (!msg?.from || !msg.chat || typeof msg.chat.id !== "number" || msg.from.is_bot || !msg.text) return "ok";
     if (msg.forward_origin || msg.forward_from || msg.forward_from_chat) return "ok"; // never act on forwarded text
     const c = command(msg.text, config.telegram.botUsername);
     if (!c) return "ok";

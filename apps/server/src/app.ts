@@ -41,7 +41,8 @@ const PASSWORD_CHANGE_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/au
 export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
     logger: opts.logger === false ? false : { level: config.logLevel },
-    trustProxy: config.trustProxy,
+    // trust exactly one hop (caddy in the same compose network); numeric hop counts are accepted at runtime but not typed
+    trustProxy: (config.trustProxy ? 1 : false) as unknown as boolean,
     bodyLimit: 1_000_000,
   });
 
@@ -82,6 +83,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const hasWeb = existsSync(join(config.webDist, "index.html"));
   app.setNotFoundHandler((req, reply) => {
     if (req.url.startsWith("/api/") || !hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
+    reply.header("Cache-Control", "no-cache");
     return reply.sendFile("index.html"); // SPA fallback
   });
 
@@ -105,6 +107,9 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(mapsRoutes, { prefix: "/api/maps" });
 
   // ---- web app (static; SPA fallback in the not-found handler) ------------------
-  if (hasWeb) app.register(fstatic, { root: config.webDist, prefix: "/", wildcard: false, index: ["index.html"], maxAge: "1h" });
+  if (hasWeb) app.register(fstatic, {
+    root: config.webDist, prefix: "/", wildcard: false, index: ["index.html"], maxAge: "1h",
+    setHeaders: (res, path) => { if (!/[\\/]assets[\\/]/.test(path)) res.setHeader("Cache-Control", "no-cache"); }, // index.html / sw.js / manifest always revalidate
+  });
   return app;
 }

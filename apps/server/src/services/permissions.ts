@@ -23,7 +23,9 @@ export async function matrix(db: Db, companyId: string) {
 
 export async function setPermission(db: Db, companyId: string, byUser: string, role: Role, key: PermissionKey, allowed: boolean): Promise<void> {
   if (!(ROLES as readonly string[]).includes(role) || !(PERMISSION_KEYS as readonly string[]).includes(key)) throw notFound();
+  await db`select 1 from role_permissions where company_id = ${companyId} and permission_key = ${key} for update`; // serialize concurrent edits
   // fixed rules (S-14)
+  if (role === "ceo" && (key === "settings.manage" || key === "user.manage") && !allowed) throw new AppError("FIXED_RULE", 400, { key }); // CEO can never lock themselves out
   if (role === "tech" && FIXED_DENY_TECH.includes(key) && allowed) throw new AppError("FIXED_RULE", 400, { key });
   if (MUST_HAVE_ONE_ROLE.includes(key) && !allowed) {
     const others = await db`select 1 from role_permissions where company_id = ${companyId} and permission_key = ${key} and allowed and role <> ${role}::user_role`;

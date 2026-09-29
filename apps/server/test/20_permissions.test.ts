@@ -92,5 +92,30 @@ describe("permissions in the API (rule 5)", () => {
     expect((await first.req("GET", "/api/me")).status).toBe(401); // reset ends sessions
     expect((await gm.req("POST", "/api/users", { username: "x1", full_name: "X", role: "tech" })).status).toBe(403);
     expect((await gm.req("GET", "/api/users/basic")).json.length).toBeGreaterThan(3);
+    expect((await kim.req("GET", "/api/users/basic")).status).toBe(403); // technicians: no user directory
+  });
+
+  it("role ceiling: a non-CEO with user.manage can never create, promote, deactivate or reset a CEO", async () => {
+    expect((await ceo.req("POST", "/api/settings/permissions", { role: "gm", key: "user.manage", allowed: true })).status).toBe(200);
+    const gm2 = await loginAs(app, "gm01"); // permissions are read per request, but re-login keeps it explicit
+    expect((await gm2.req("POST", "/api/users", { username: "boss2", full_name: "Boss", role: "ceo" })).status).toBe(403);
+    expect((await gm2.req("PATCH", `/api/users/${s.users.kim}`, { role: "ceo" })).status).toBe(403);
+    expect((await gm2.req("PATCH", `/api/users/${s.users.ceo}`, { is_active: false })).status).toBe(403);
+    expect((await gm2.req("POST", `/api/users/${s.users.ceo}/reset-password`, {})).status).toBe(403);
+    expect((await gm2.req("PATCH", `/api/users/${s.users.kim}`, { full_name: "Kim S." })).status).toBe(200); // normal user admin still works
+    expect((await ceo.req("POST", "/api/settings/permissions", { role: "gm", key: "user.manage", allowed: false })).status).toBe(200);
+    // CEO cannot lock themselves out
+    expect((await ceo.req("POST", "/api/settings/permissions", { role: "ceo", key: "settings.manage", allowed: false })).json.error).toBe("FIXED_RULE");
+    expect((await ceo.req("POST", "/api/settings/permissions", { role: "ceo", key: "user.manage", allowed: false })).json.error).toBe("FIXED_RULE");
+  });
+
+  it("invalid values give 400, never 500", async () => {
+    expect((await ceo.req("GET", "/api/bookings?from=abc")).status).toBe(400);
+    expect((await ceo.req("GET", "/api/bookings?limit=-1")).status).toBe(400);
+    expect((await ceo.req("PATCH", "/api/settings/company", { work_start: "99:99" })).status).toBe(400);
+    expect((await ceo.req("PATCH", "/api/settings/company", { holidays: ["2024-13-45"] })).status).toBe(400);
+    expect((await ceo.req("PATCH", "/api/settings/company", { holidays: ["2026-04-14", "2026-04-16"], work_days: [1, 2, 3, 4, 5] })).status).toBe(200);
+    const st = (await ceo.req("GET", "/api/settings/company")).json;
+    expect(st.work_days).toEqual([1, 2, 3, 4, 5]); expect(st.holidays.length).toBe(2);
   });
 });

@@ -1,9 +1,13 @@
 # One Team Service — the whole system: caddy (HTTPS) + app (TypeScript) + postgres. Nothing else (rule 1).
 # Config comes from /opt/oneteam/.env (see .env.example). Start: docker compose up -d --build
+x-logging: &logging
+  logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+
 services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    <<: *logging
     environment:
       POSTGRES_DB: oneteam
       POSTGRES_USER: oneteam
@@ -21,6 +25,7 @@ services:
   app:
     build: .
     restart: unless-stopped
+    <<: *logging
     env_file: .env
     environment:
       DATABASE_URL: postgres://oneteam:${DB_PASSWORD}@postgres:5432/oneteam
@@ -37,6 +42,7 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
+    <<: *logging
     ports:
       - "80:80"
       - "443:443"

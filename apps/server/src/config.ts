@@ -36,3 +36,6 @@ export const config = {
   cron: env("CRON", "true") === "true",
 };
 export type Config = typeof config;
+if (config.isProd && (config.sessionSecret.startsWith("dev-only-") || config.sessionSecret.length < 32)) {
+  throw new Error("SESSION_SECRET must be set (≥ 32 characters) in production");
+}

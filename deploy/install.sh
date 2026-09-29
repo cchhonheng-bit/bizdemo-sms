@@ -23,9 +23,9 @@ APP=/opt/oneteam; REPO=/opt/oneteam.git
 while read -r _old new ref; do
   [ "$ref" = "refs/heads/main" ] || continue
   git --work-tree="$APP" --git-dir="$REPO" checkout -f main
-  cd "$APP" && chmod +x deploy/*.sh deploy/post-receive && cp deploy/post-receive "$REPO/hooks/post-receive" && chmod +x "$REPO/hooks/post-receive"
+  cd "$APP" && chmod +x deploy/*.sh deploy/post-receive && cp deploy/post-receive "$REPO/hooks/post-receive.new" && chmod +x "$REPO/hooks/post-receive.new" && mv -f "$REPO/hooks/post-receive.new" "$REPO/hooks/post-receive"
   echo "==> first checkout done — running the real deploy hook"
-  echo "$_old $new $ref" | "$REPO/hooks/post-receive"
+  echo "$_old $new $ref" | exec "$REPO/hooks/post-receive"
 done
 HOOK
 chmod +x "$REPO/hooks/post-receive"
@@ -33,7 +33,7 @@ echo "==> .env"
 if [ ! -f "$APP/.env" ]; then
   cat > "$APP/.env" <<ENV
 DOMAIN=oneteam.bizdemo.app
-ACME_EMAIL=it@example.com
+ACME_EMAIL=
 APP_NAME=One Team Service
 DB_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-32)
 SESSION_SECRET=$(openssl rand -base64 48 | tr -d '/+=' | cut -c1-48)
@@ -42,10 +42,14 @@ TELEGRAM_BOT_USERNAME=Oneteam_app_bot
 TELEGRAM_WEBHOOK_SECRET=$(openssl rand -hex 24)
 ENV
   chmod 600 "$APP/.env"
-  echo "    created $APP/.env with random DB/session secrets — now add TELEGRAM_BOT_TOKEN and check DOMAIN:  nano $APP/.env"
+  echo "    created $APP/.env with random DB/session secrets — now set DOMAIN, ACME_EMAIL (real IT e-mail) and TELEGRAM_BOT_TOKEN:  nano $APP/.env"
 else
   echo "    $APP/.env exists — unchanged"
 fi
 echo "==> nightly backup 02:00"
-( crontab -l 2>/dev/null | grep -v 'oneteam/deploy/backup.sh' ; echo "0 2 * * * cd $APP && ./deploy/backup.sh >> $APP/backups/backup.log 2>&1" ) | crontab -
+cat > /etc/cron.d/oneteam <<CRON
+# One Team Service — nightly database backup (keeps 30 days)
+0 2 * * * root cd $APP && ./deploy/backup.sh >> $APP/backups/backup.log 2>&1
+CRON
+chmod 644 /etc/cron.d/oneteam
 echo "==> done. Next: from the PC run deploy.cmd (git push vps main)."

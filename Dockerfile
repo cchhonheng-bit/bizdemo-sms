@@ -25,6 +25,6 @@ RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 USER node
 ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 WEB_DIST=/app/web MIGRATIONS_DIR=/app/dist/migrations UPLOADS_DIR=/app/data/uploads
 EXPOSE 3000
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD wget -qO- http://localhost:3000/healthz || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
 ENTRYPOINT ["/sbin/tini", "--"]
 CMD ["node", "dist/index.mjs"]

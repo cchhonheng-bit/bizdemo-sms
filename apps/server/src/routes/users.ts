@@ -14,6 +14,7 @@ const USER_COLS = sql`id, company_id, username, phone, email, full_name, role, l
 export const usersRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/users/basic — every authenticated user (names for assign dialogs, vehicle owners)
   app.get("/basic", { preHandler: app.requireAuth }, async (req) => {
+    if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403); // technicians get names through their bookings only
     return sql`select id, company_id, full_name, role, is_active from users where company_id = ${req.user!.companyId} order by full_name`;
   });
 
@@ -24,6 +25,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
   // POST /api/users { username, full_name, role, phone?, email?, password? } → { id, temp_password? }
   app.post("/", { preHandler: app.requirePerm("user.manage") }, async (req) => {
     const b = createUserSchema.parse(req.body);
+    if (b.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403); // only a CEO may create a CEO
     let password = b.password || "";
     const generated = !password;
     if (generated) password = tempPassword();
@@ -46,9 +48,11 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const patch = updateUserSchema.extend({ is_active: z.boolean().optional() }).parse(req.body);
     if (id === req.user!.id && (patch.role !== undefined || patch.is_active !== undefined)) throw new AppError("CANNOT_CHANGE_SELF_ROLE", 400);
+    if (patch.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403);
     const result = await tx(req.user!.id, async (t) => {
       const old = (await t<Record<string, unknown>[]>`select ${USER_COLS} from users where id = ${id} and company_id = ${req.user!.companyId} for update`)[0];
       if (!old) throw notFound();
+      if (old.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403); // no one below the CEO may touch a CEO account
       const r = await t<Record<string, unknown>[]>`update users set
           full_name = coalesce(${patch.full_name ?? null}, full_name),
           username = coalesce(${patch.username ?? null}, username),
@@ -75,6 +79,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     if (generated) password = tempPassword();
     const pwErr = validatePassword(password);
     if (pwErr) throw bad(pwErr);
+    const target = (await sql<{ role: string }[]>`select role from users where id = ${id} and company_id = ${req.user!.companyId}`)[0];
+    if (!target) throw notFound();
+    if (target.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403);
     const r = await sql`update users set password_hash = ${await hashPassword(password)}, must_change_password = true
                         where id = ${id} and company_id = ${req.user!.companyId}`;
     if (r.count === 0) throw notFound();

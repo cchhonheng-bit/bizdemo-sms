@@ -11,7 +11,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireAuth);
 
   app.get("/", async (req) => {
-    const q = z.object({ status: z.string().optional(), from: z.string().optional(), to: z.string().optional(), limit: z.coerce.number().int().optional() }).parse(req.query ?? {});
+    const q = z.object({ status: z.string().max(300).optional(), from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query ?? {});
     const statuses = q.status ? q.status.split(",").filter((s) => (BOOKING_STATUSES as readonly string[]).includes(s)) as never[] : undefined;
     return listBookings(req.user!, { statuses, from: q.from, to: q.to, limit: q.limit });
   });
@@ -19,7 +19,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/bookings/availability?at=ISO — assigners only (F-M2-02)
   app.get("/availability", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
-    const { at } = z.object({ at: z.string().min(1) }).parse(req.query ?? {});
+    const { at } = z.object({ at: z.string().datetime({ offset: true }) }).parse(req.query ?? {});
     return availability(req.user!, at);
   });
 
@@ -37,7 +37,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch("/:id", async (req) => {
     if (!req.perms.includes("booking.create")) throw new AppError("FORBIDDEN", 403);
-    const patch = z.record(z.unknown()).parse(req.body ?? {});
+    const patch = bookingSchema.omit({ customer_id: true, type: true }).partial().strict().parse(req.body ?? {});
     await updateBooking(req.user!, req.ip, idParam.parse(req.params).id, patch);
     return { ok: true };
   });
@@ -45,7 +45,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/assign", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
     const a = assignSchema.parse(req.body);
-    const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at });
+    const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, { lead: a.lead, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // deliver right away; cron is the backstop (D-15)
     return r;
   });

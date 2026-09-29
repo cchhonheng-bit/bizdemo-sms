@@ -27,7 +27,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
       } else {
         const r = await t<{ id: string }[]>`update catalog_items set name_km = ${b.name_km}, name_en = ${b.name_en || null}, kind = ${b.kind}::item_kind, category = ${b.category}::service_category,
             unit = coalesce(${b.unit || null}, unit), sell_price = ${b.sell_price},
-            cost_price = case when ${withCost} then ${b.cost_price ?? null} else cost_price end
+            cost_price = case when ${withCost && b.cost_price !== undefined} then ${b.cost_price ?? null} else cost_price end
           where id = ${b.id} and company_id = ${req.user!.companyId} returning id`;
         if (!r[0]) throw notFound();
         id = r[0].id;

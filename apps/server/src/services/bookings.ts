@@ -45,12 +45,6 @@ export async function statusLog(user: SessionUser, id: string) {
   return sql`select id, booking_id, from_status, to_status, by, at, note from booking_status_log where booking_id = ${id} order by at`;
 }
 
-/** technicians may see the customer of their bookings only (D-18) */
-export async function customerVisibleToTech(user: SessionUser, customerId: string): Promise<boolean> {
-  const r = await sql`select 1 from bookings b join booking_technicians t on t.booking_id = b.id where b.customer_id = ${customerId} and b.company_id = ${user.companyId} and t.user_id = ${user.id} limit 1`;
-  return r.length > 0;
-}
-
 export type CreateInput = {
   customer_id: string; type: "A" | "B"; category: string; service_text: string; scheduled_at: string | null; address: string | null;
   lat: number | null; lng: number | null; zone: string | null; vehicle_id: string | null; notes: string | null;

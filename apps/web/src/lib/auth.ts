@@ -46,6 +46,8 @@ export const useAuth = create<State>((set, get_) => ({
   async logout() {
     await post("/api/auth/logout", {}).catch(() => undefined);
     try { localStorage.removeItem("sms-cache"); } catch { /* ignore */ }
+    // shared phone: never serve the previous user's cached API responses (service-worker runtime cache)
+    try { if ("caches" in window) await caches.delete("api"); } catch { /* ignore */ }
     set({ status: "anon", me: null });
   },
   can(key) {
