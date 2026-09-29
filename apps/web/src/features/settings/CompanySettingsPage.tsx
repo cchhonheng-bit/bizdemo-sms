@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
 import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
-import { Copy, Send } from "lucide-react";
+import { Copy, Plus, Send } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
@@ -75,7 +75,7 @@ export default function CompanySettingsPage() {
           <Field label={t("settings.work_days")} error={errors.work_days?.message}>
             <div className="flex flex-wrap gap-2">
               {[1, 2, 3, 4, 5, 6, 7].map((d) => (
-                <label key={d} className={`px-3 py-1.5 rounded-full border text-sm cursor-pointer ${workDays.includes(d) ? "bg-navy text-white border-navy" : "border-grey-line"}`}>
+                <label key={d} className={`px-3 min-h-[44px] min-w-[48px] justify-center inline-flex items-center rounded-full border text-sm cursor-pointer ${workDays.includes(d) ? "bg-navy text-white border-navy" : "border-grey-line"}`}>
                   <input type="checkbox" className="hidden" checked={workDays.includes(d)} onChange={(e) => setValue("work_days", e.target.checked ? [...workDays, d].sort() : workDays.filter((x) => x !== d), { shouldDirty: true })} />
                   {t(`settings.days.${d}`)}
                 </label>
@@ -119,7 +119,7 @@ export default function CompanySettingsPage() {
                     <option value="">—</option>{(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                   </Select>
                 </td>
-                <td><input type="checkbox" className="h-6 w-6" checked={v.is_active} onChange={(e) => upsertVehicle.mutate({ id: v.id, code: v.code, plate: v.plate ?? "", owner: v.owner_user_id, active: e.target.checked })} /></td>
+                <td><label className="tap-target !mb-0 cursor-pointer"><input type="checkbox" className="h-6 w-6" aria-label={t("app.active")} checked={v.is_active} onChange={(e) => upsertVehicle.mutate({ id: v.id, code: v.code, plate: v.plate ?? "", owner: v.owner_user_id, active: e.target.checked })} /></label></td>
               </tr>
             ))}
           </tbody>
@@ -128,7 +128,7 @@ export default function CompanySettingsPage() {
           <Field label={t("settings.vehicle_code")}><Input className="w-24" value={newV.code} onChange={(e) => setNewV({ ...newV, code: e.target.value })} /></Field>
           <Field label={t("settings.plate")}><Input className="w-36" value={newV.plate} onChange={(e) => setNewV({ ...newV, plate: e.target.value })} /></Field>
           <Field label={t("settings.owner")}><Select value={newV.owner} onChange={(e) => setNewV({ ...newV, owner: e.target.value })}><option value="">—</option>{(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
-          <Button className="mb-3" disabled={!newV.code} loading={upsertVehicle.isPending} onClick={() => { upsertVehicle.mutate({ id: null, code: newV.code, plate: newV.plate, owner: newV.owner || null, active: true }); setNewV({ code: "", plate: "", owner: "" }); }}>{t("settings.add_vehicle")}</Button>
+          <Button className="mb-3" disabled={!newV.code} loading={upsertVehicle.isPending} onClick={() => { upsertVehicle.mutate({ id: null, code: newV.code, plate: newV.plate, owner: newV.owner || null, active: true }); setNewV({ code: "", plate: "", owner: "" }); }}><Plus size={16} /> {t("settings.add_vehicle")}</Button>
         </div>
       </Card>
 

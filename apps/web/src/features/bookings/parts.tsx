@@ -84,8 +84,8 @@ export function LocationPicker({ value, onChange }: { value: LatLngValue; onChan
         {has ? (
           <>
             <span className="tabular text-muted" data-testid="latlng">{value.lat}, {value.lng}</span>
-            <a className="text-blue inline-flex items-center gap-1" href={pinUrl(value.lat!, value.lng!)} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> {t("booking.open_maps")}</a>
-            <button type="button" className="text-danger" onClick={() => onChange({ lat: null, lng: null })}>{t("booking.location_clear")}</button>
+            <a className="text-blue inline-flex items-center gap-1 min-h-[44px]" href={pinUrl(value.lat!, value.lng!)} target="_blank" rel="noopener noreferrer"><ExternalLink size={14} /> {t("booking.open_maps")}</a>
+            <button type="button" className="text-danger min-h-[44px] min-w-[44px] px-2" onClick={() => onChange({ lat: null, lng: null })}>{t("booking.location_clear")}</button>
           </>
         ) : <span className="text-muted">{t("booking.location_none")}</span>}
       </div>

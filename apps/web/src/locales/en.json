@@ -67,7 +67,7 @@
   },
   "users": {
     "title": "Users",
-    "new": "+ New user",
+    "new": "New user",
     "username": "Username",
     "full_name": "Full name",
     "role": "Role",
@@ -122,7 +122,7 @@
     "vehicle_code": "Code",
     "plate": "Plate",
     "owner": "Responsible",
-    "add_vehicle": "+ Vehicle",
+    "add_vehicle": "Vehicle",
     "days": {
       "1": "Mon",
       "2": "Tue",
@@ -194,7 +194,7 @@
   },
   "customers": {
     "title": "Customers",
-    "new": "+ New customer",
+    "new": "New customer",
     "name": "Name",
     "phones": "Phones",
     "phones_hint": "Several numbers separated by comma",
@@ -208,7 +208,7 @@
   },
   "catalog": {
     "title": "Products & Services",
-    "new": "+ New item",
+    "new": "New item",
     "name": "Name",
     "name_km": "Name (Khmer)",
     "name_en": "Name (English)",
@@ -228,7 +228,7 @@
   },
   "booking": {
     "title": "Jobs / Bookings",
-    "new": "+ New booking",
+    "new": "New booking",
     "create": "Create booking",
     "created": "{{number}} created",
     "empty": "No bookings yet · create the first one",

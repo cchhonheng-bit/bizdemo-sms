@@ -15,7 +15,7 @@ export default function LegalPage({ which }: { which: "terms" | "privacy" }) {
       <article className="max-w-3xl mx-auto bg-white rounded-lg border border-grey-line p-5 space-y-3" data-testid={`legal-${which}`}>
         <div className="flex justify-between items-center gap-3">
           <h1 className="text-xl font-bold text-navy">{doc.title}</h1>
-          <button className="text-xs px-2 py-1 rounded border border-grey-line" onClick={() => void i18n.changeLanguage(lang === "km" ? "en" : "km")}>{lang === "km" ? "EN" : "ខ្មែរ"}</button>
+          <button className="text-xs px-2 min-h-[44px] min-w-[44px] rounded border border-grey-line" onClick={() => void i18n.changeLanguage(lang === "km" ? "en" : "km")}>{lang === "km" ? "EN" : "ខ្មែរ"}</button>
         </div>
         <p>{fillCompany(doc.intro, company)}</p>
         {doc.sections.map((s) => (
@@ -25,7 +25,7 @@ export default function LegalPage({ which }: { which: "terms" | "privacy" }) {
           </section>
         ))}
         <p className="text-xs text-muted">{LEGAL_VERSION}</p>
-        <p className="text-sm"><Link className="text-blue underline" to={which === "terms" ? "/privacy" : "/terms"}>{t(which === "terms" ? "legal.privacy" : "legal.terms")}</Link> · <Link className="text-blue underline" to="/">{t("legal.back")}</Link></p>
+        <p className="text-sm"><Link className="text-blue underline inline-flex items-center min-h-[44px]" to={which === "terms" ? "/privacy" : "/terms"}>{t(which === "terms" ? "legal.privacy" : "legal.terms")}</Link> · <Link className="text-blue underline inline-flex items-center min-h-[44px]" to="/">{t("legal.back")}</Link></p>
       </article>
     </div>
   );

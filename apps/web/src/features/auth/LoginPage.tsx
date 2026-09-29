@@ -29,7 +29,7 @@ export default function LoginPage() {
       <form onSubmit={onSubmit} className="card w-full max-w-sm p-6" noValidate>
         <div className="flex items-center justify-between mb-4">
           <div><div className="text-navy font-bold text-lg">{t("app.name")}</div><h1 className="text-base font-normal text-muted">{t("auth.title")}</h1></div>
-          <button type="button" className="text-xs px-2 py-1 rounded border border-grey-line" onClick={() => setLanguage(i18n.language === "km" ? "en" : "km")}>{i18n.language === "km" ? "EN" : "ខ្មែរ"}</button>
+          <button type="button" className="text-xs px-2 min-h-[44px] min-w-[44px] rounded border border-grey-line" onClick={() => setLanguage(i18n.language === "km" ? "en" : "km")}>{i18n.language === "km" ? "EN" : "ខ្មែរ"}</button>
         </div>
         <Field label={t("auth.identifier")} error={errors.identifier && t("app.required")} required>
           <Input autoComplete="username" autoFocus invalid={!!errors.identifier} {...register("identifier")} />
@@ -41,7 +41,7 @@ export default function LoginPage() {
         {err && <p className="text-sm text-danger mb-3" role="alert">{err}</p>}
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={isSubmitting}>{t("auth.login")}</Button>
         <p className="text-xs text-muted mt-4 text-center">{t("auth.forgot")}</p>
-        <p className="text-xs text-muted mt-2 text-center"><Link to="/terms" className="underline">{t("legal.terms")}</Link> · <Link to="/privacy" className="underline">{t("legal.privacy")}</Link></p>
+        <p className="text-xs text-muted mt-2 text-center"><Link to="/terms" className="underline inline-flex items-center min-h-[44px] px-2">{t("legal.terms")}</Link> · <Link to="/privacy" className="underline inline-flex items-center min-h-[44px] px-2">{t("legal.privacy")}</Link></p>
       </form>
     </div>
   );

@@ -37,10 +37,10 @@ export default function DashboardPage() {
         {bookings.isLoading ? <Skeleton rows={3} /> : today.length === 0 ? <Empty text={t("tech.no_jobs")} /> : (
           <ul className="divide-y divide-grey-line">
             {today.map((b) => (
-              <li key={b.id}><Link to={`/bookings/${b.id}`} className="flex items-center gap-3 py-2 hover:bg-grey-bg -mx-2 px-2 rounded">
+              <li key={b.id}><Link to={`/bookings/${b.id}`} className="flex items-center gap-3 py-2 min-h-[48px] hover:bg-grey-bg -mx-2 px-2 rounded">
                 <span className="tabular font-bold shrink-0 whitespace-nowrap">{timeRange(b.scheduled_at, b.ends_at)}</span>
                 <span className="font-mono text-xs text-muted">{b.number}</span>
-                <span className="font-semibold truncate">{b.customer_name}</span>
+                <span className="font-semibold break-words min-w-0">{b.customer_name}</span>
                 <span className="text-sm text-muted truncate hidden sm:inline">{(b.technicians ?? []).map((x) => x.full_name).join(", ")}</span>
                 <span className="ml-auto"><StatusBadge status={b.status} /></span>
               </Link></li>

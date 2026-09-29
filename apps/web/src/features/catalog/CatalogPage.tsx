@@ -77,8 +77,8 @@ export default function CatalogPage() {
                     <td className="text-right tabular">{i.sell_price != null ? formatUsd(i.sell_price) : "—"}</td>
                     {showCost && <td className="text-right tabular text-muted">{i.cost_price != null ? formatUsd(i.cost_price) : "—"}</td>}
                     <td className="text-right whitespace-nowrap">
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(i)}><Pencil size={16} /></button>
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={i.is_active ? t("app.inactive") : t("app.active")} onClick={() => setToggle(i)}><Power size={16} /></button>
+                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(i)}><Pencil size={16} /></button>
+                      <button className="tap-target rounded hover:bg-grey-bg" title={i.is_active ? t("app.inactive") : t("app.active")} onClick={() => setToggle(i)}><Power size={16} /></button>
                     </td>
                   </tr>
                 ))}

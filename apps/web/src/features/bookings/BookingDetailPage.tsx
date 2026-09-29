@@ -169,12 +169,12 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
                 const on = crew.includes(p.user_id);
                 return (
                   <li key={p.user_id} className="flex items-center gap-3 px-3 min-h-[48px]">
-                    <label className="flex flex-1 items-center gap-3 !mb-0 !text-ink text-base py-2 cursor-pointer">
+                    <label className="flex flex-1 items-center gap-3 !mb-0 !text-ink text-base py-3 min-h-[48px] cursor-pointer">
                       <input type="checkbox" className="h-6 w-6 accent-navy" checked={on} onChange={(e) => setTeam((a) => e.target.checked ? [...a, p.user_id] : a.filter((x) => x !== p.user_id))} />
                       <span className="break-words">{p.full_name} <span className="text-xs text-muted">({t(`roles.${p.role}`)})</span></span>
                     </label>
                     {on && (
-                      <button type="button" className={`badge min-h-[36px] px-3 ${leadOk === p.user_id ? "bg-navy text-white" : "bg-[#EEF0F4] text-[#4B5263]"}`} onClick={() => setLead(leadOk === p.user_id ? "" : p.user_id)} aria-pressed={leadOk === p.user_id}>
+                      <button type="button" className={`badge min-h-[44px] px-4 ${leadOk === p.user_id ? "bg-navy text-white" : "bg-[#EEF0F4] text-[#4B5263]"}`} onClick={() => setLead(leadOk === p.user_id ? "" : p.user_id)} aria-pressed={leadOk === p.user_id}>
                         {t("booking.lead")}
                       </button>
                     )}

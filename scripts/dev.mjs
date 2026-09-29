@@ -13,7 +13,8 @@ const dir = join(ROOT, ".local", "pgdata");
 const fresh = !existsSync(dir);
 mkdirSync(join(ROOT, ".local"), { recursive: true });
 banner("One Team Service — local run");
-const pg = new EmbeddedPostgres({ databaseDir: dir, user: "postgres", password: "postgres", port: PORT_DB, persistent: true, onLog: () => undefined, onError: (e) => console.error(String(e)) });
+const pg = new EmbeddedPostgres({ databaseDir: dir, user: "postgres", password: "postgres", port: PORT_DB, persistent: true, initdbFlags: ["--encoding=UTF8", "--locale=C"], // Khmer data (Windows default WIN1252 fails)
+  onLog: () => undefined, onError: (e) => console.error(String(e)) });
 if (fresh) await pg.initialise();
 await pg.start();
 if (fresh) await pg.createDatabase("oneteam");

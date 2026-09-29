@@ -67,12 +67,12 @@ export function TechJobPage() {
   const bk = b.data;
   return (
     <div className="space-y-3 max-w-xl">
-      <div className="flex items-center gap-2"><Link to="/tech" className="p-1.5 rounded hover:bg-grey-bg" aria-label="back"><ArrowLeft size={18} /></Link><h1 className="font-mono">{bk.number}</h1><StatusBadge status={bk.status} /></div>
+      <div className="flex items-center gap-2"><Link to="/tech" className="tap-target rounded hover:bg-grey-bg" aria-label="back"><ArrowLeft size={18} /></Link><h1 className="font-mono">{bk.number}</h1><StatusBadge status={bk.status} /></div>
       <Card>
         <div className="text-2xl font-bold tabular">{bk.scheduled_at ? `${fmtDate(bk.scheduled_at)} · ${timeRange(bk.scheduled_at, bk.ends_at)}` : "—"}</div>
         {bk.status === "cancelled" && <div className="card border-danger bg-danger-50 p-3 mt-2 text-sm break-words" role="alert">❌ {bk.cancel_reason}</div>}
         <div className="font-semibold text-lg mt-2">{bk.customer_name}</div>
-        <div className="flex flex-wrap gap-2 mt-1">{bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary h-9"><Phone size={14} /> {p}</a>)}</div>
+        <div className="flex flex-wrap gap-2 mt-1">{bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary"><Phone size={16} /> {p}</a>)}</div>
         <div className="text-sm mt-2">{bk.address ?? "—"} <Badge tone={bk.zone === "inside" ? "green" : "grey"}>{t(`zone.${bk.zone}`)}</Badge></div>
         <div className="mt-3"><DirectionLink lat={bk.lat} lng={bk.lng} size="lg" /></div>
       </Card>

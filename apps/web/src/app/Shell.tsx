@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, Megaphone, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -49,7 +49,6 @@ export default function Shell() {
     { to: "/tech", label: t("nav.today"), icon: ClipboardList },
     { to: "/notifications", label: t("nav.notifications"), icon: Bell },
     { to: "/me", label: t("nav.me"), icon: User },
-    { to: "/tech/attendance", label: t("nav.attendance"), icon: CalendarClock }, // M4
   ];
   const items = isTech ? techItems : desktopItems;
   // phones: 4 items + «More» (every page stays reachable — the sidebar is desktop-only)
@@ -57,7 +56,7 @@ export default function Shell() {
   const mobileMore = items.length > 5 ? items.slice(4) : [];
 
   const langBtn = (
-    <button className="text-xs px-2 min-h-[36px] min-w-[44px] rounded border border-grey-line hover:bg-grey-bg"
+    <button className="text-xs px-2 min-h-[44px] min-w-[44px] rounded border border-grey-line hover:bg-grey-bg"
       onClick={() => {
         // B-M2-02: persist to the profile, otherwise load() restores the server language on next visit
         const lang = i18n.language === "km" ? "en" : "km";
@@ -100,7 +99,7 @@ export default function Shell() {
               <Bell size={18} />
               {unread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center" data-testid="unread-badge">{unread}</span>}
             </NavLink>
-            <NavLink to="/me" className="flex items-center gap-2 text-sm min-h-[44px]">
+            <NavLink to="/me" className="flex items-center gap-2 text-sm min-h-[44px] min-w-[44px] justify-center">
               <span className="h-8 w-8 rounded-full bg-blue-50 text-navy flex items-center justify-center font-bold">{me.full_name.slice(0, 1)}</span>
               <span className="hidden sm:inline">{me.full_name}</span>
               <span className="badge bg-[#EEF0F4] text-[#4B5263] hidden sm:inline-flex">{t(`roles.${me.role}`)}</span>
@@ -114,13 +113,13 @@ export default function Shell() {
         {/* Bottom nav (mobile) */}
         <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-grey-line flex justify-around items-stretch z-40 h-[calc(4rem+env(safe-area-inset-bottom))] pb-safe">
           {mobileMain.map((i) => (
-            <NavLink key={i.to} to={i.to} className={({ isActive }) => `relative flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight px-1 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
+            <NavLink key={i.to} to={i.to} className={({ isActive }) => `relative flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-[1.5] px-1 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
               <i.icon size={22} /> {i.label}
               {i.to === "/notifications" && unread > 0 && <span className="absolute top-1 right-[calc(50%-20px)] min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center">{unread}</span>}
             </NavLink>
           ))}
           {mobileMore.length > 0 && (
-            <button type="button" className="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight px-1 text-muted" onClick={() => setMore(true)} aria-label={t("nav.more")}>
+            <button type="button" className="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-[1.5] px-1 text-muted" onClick={() => setMore(true)} aria-label={t("nav.more")}>
               <Menu size={22} /> {t("nav.more")}
             </button>
           )}

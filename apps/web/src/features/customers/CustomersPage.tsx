@@ -39,7 +39,7 @@ export default function CustomersPage() {
       <Card>
         <div className="flex flex-wrap gap-3 items-center mb-3">
           <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-          <label className="flex items-center gap-2 text-sm !mb-0 !text-ink"><input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> {t("customers.show_inactive")}</label>
+          <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> {t("customers.show_inactive")}</label>
         </div>
         {customers.isLoading ? <Skeleton /> : customers.isError ? <ErrorState text={t("app.error")} onRetry={() => void customers.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
           <div className="overflow-x-auto -mx-4 px-4">

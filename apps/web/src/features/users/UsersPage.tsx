@@ -155,7 +155,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
         </div>
         <Field label={t("users.email")} error={errText(errors.email?.message)}><Input type="email" invalid={!!errors.email} {...register("email")} /></Field>
         {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><Input type="text" autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}
-        <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={tracks} onChange={(e) => setTracks(e.target.checked)} /> {t("users.tracks_attendance")}</label>
+        <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={tracks} onChange={(e) => setTracks(e.target.checked)} /> {t("users.tracks_attendance")}</label>
       </form>
     </Dialog>
   );
