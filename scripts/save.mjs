@@ -1,12 +1,12 @@
 #!/usr/bin/env node
-// save.cmd → commit every change in Source (D-37). Secret scan first (also enforced by the pre-commit hook).
+// save.cmd → commit every change in Source . Secret scan first (also enforced by the pre-commit hook).
 // Usage: node scripts/save.mjs "what changed"      (asks for a message when none is given)
 import { spawnSync } from "node:child_process";
 import { createInterface } from "node:readline/promises";
 import { ROOT, capture, green, red, run, yellow } from "./lib/common.mjs";
 
 if (capture("git rev-parse --is-inside-work-tree").out !== "true") {
-  console.log(red("Source is not a git repository yet — run scripts\\init-local-git.cmd once (SETUP_LOCAL.md step 3)."));
+  console.log(red("Source is not a git repository — clone it from Doc_Sup\\06_Development\\bizdemo-sms.bundle first."));
   process.exit(1);
 }
 const changes = capture("git status --porcelain").out;

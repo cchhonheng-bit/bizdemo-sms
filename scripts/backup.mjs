@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Backup (D-37): git bundle (full history, all branches + tags) + zip of the working tree
+// Backup : git bundle (full history, all branches + tags) + zip of the working tree
 // (tracked + untracked, but NOT gitignored files → no node_modules, no .env*.local secrets).
 // Then pushes to GitHub (backup remote) unless --no-push. Keeps the newest 30 of each file type.
 // Usage: node scripts/backup.mjs [--no-push] [--dir <folder>]     default folder: ..\Backup
@@ -16,7 +16,7 @@ const steps = new Steps();
 const ts = stamp();
 
 if (capture("git rev-parse --is-inside-work-tree").out !== "true") {
-  console.log(red("Source is not a git repository yet — run scripts\\init-local-git.cmd once (SETUP_LOCAL.md step 3)."));
+  console.log(red("Source is not a git repository — clone it from Doc_Sup\\06_Development\\bizdemo-sms.bundle first."));
   process.exit(1);
 }
 mkdirSync(OUT, { recursive: true });

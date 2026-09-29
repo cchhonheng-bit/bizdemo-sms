@@ -14,13 +14,13 @@ const RULES = [
   { name: "GitHub token", re: /\b(gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,})\b/ },
   { name: "Private key", re: /-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----/ },
   // local dev/test URLs (postgres:postgres@127.0.0.1 / localhost) are not secrets
-  { name: "Postgres URL with password", re: /postgres(ql)?:\/\/[^:\s/]+:(?!postgres@(127\.0\.0\.1|localhost))[^@\s]{6,}@/ },
+  { name: "Postgres URL with password", re: /postgres(ql)?:\/\/[^:\s/]+:(?!\$)(?!postgres@(127\.0\.0\.1|localhost))[^@\s]{6,}@/ },
 ];
 // JWTs: only flag non-public roles (anon keys are public by design)
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.(eyJ[A-Za-z0-9_-]{10,})\.[A-Za-z0-9_-]{10,}/g;
 // KEY=value assignments whose value looks real (env-style files)
 const ASSIGN = /^\s*(?:export\s+)?([A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY|SECRET_KEY)[A-Z0-9_]*)\s*=\s*["']?([^"'\s#]+)/;
-const PLACEHOLDER = /^(<.*>|\.\.\.|x+|changeme|change[-_]?me.*|your[_-].*|\$\{.*\}|\$[A-Z_]+|dev-only-.*|postgres)$/i;
+const PLACEHOLDER = /^(<.*>|\.\.\.|x+|changeme|change[-_]?me.*|your[_-].*|\$\{.*\}|\$[A-Z_]+|\$\(.*|dev-only-.*|postgres)$/i;
 const SKIP_EXT = /\.(png|jpe?g|gif|ico|ttf|woff2?|pdf|zip|bundle|lock|pyc)$/i;
 const SKIP_FILE = /(^|\/)(pnpm-lock\.yaml|deno\.lock)$/;
 

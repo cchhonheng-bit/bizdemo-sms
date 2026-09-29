@@ -8,7 +8,7 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 title One Team - BACKUP
-where node >nul 2>nul || (echo Node.js 22 was not found. See SETUP_LOCAL.md step 1. & pause & exit /b 1)
+where node >nul 2>nul || (echo Node.js 22 was not found. Install it from https://nodejs.org (LTS). & pause & exit /b 1)
 node scripts\backup.mjs %*
 set RC=%ERRORLEVEL%
 pause
