@@ -27,7 +27,7 @@ git branch -M main
 goto done
 :haverepo
 for /f %%c in ('git status --porcelain ^| find /c /v ""') do set DIRTY=%%c
-if not "%DIRTY%"=="0" (echo Saving your local changes in a commit first... & git add -A & git commit -q -m "local changes before sync")
+if not "%DIRTY%"=="0" (echo Saving your local changes in a commit first... & git add -A & git -c user.name="HangKH Owner" -c user.email=owner@hangkh.local commit -q -m "local changes before sync" || (echo Could not save local changes - resetting the index & git reset -q))
 git fetch -q "%BUNDLE%" main || (echo fetch failed & pause & exit /b 1)
 git merge -q --ff-only FETCH_HEAD 2>nul || (echo Histories diverged - resetting to the delivered version ^(your commit stays in 'git reflog'^) & git reset -q --hard FETCH_HEAD)
 :done

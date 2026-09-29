@@ -28,7 +28,9 @@ if (!msg) {
 if (run("node scripts/secret-scan.mjs") !== 0) process.exit(1);
 if (run("git add -A") !== 0) process.exit(1);
 // message passed as an argument array (no shell) → quotes / special characters are safe
-const r = spawnSync("git", ["commit", "-m", msg], { cwd: ROOT, stdio: "inherit" });
+// a fresh Windows PC often has no git identity → use a local one instead of failing
+const ident = capture("git config user.email").out ? [] : ["-c", "user.name=HangKH Owner", "-c", "user.email=owner@hangkh.local"];
+const r = spawnSync("git", [...ident, "commit", "-m", msg], { cwd: ROOT, stdio: "inherit" });
 if (r.status !== 0) {
   console.log(red("Commit failed — see above (the secret scan may have blocked it)."));
   process.exit(1);
