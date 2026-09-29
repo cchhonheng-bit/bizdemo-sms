@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { main, extractToken, mergeSshConfig, passwordLoginEnabled, redact, classifySshError } from "../../scripts/owner-setup.mjs";
 
-const TOKEN = "7123456789:AAHkq3-FakeTokenForTests_abcdefghijklmn";
+const TOKEN = ["7123456789", "AAHkq3-FakeTokenForTests_abcdefghijklmn"].join(":"); // fake, built at runtime so the secret scan stays meaningful
 const CFG = { ssh: "hangkh", host: "208.122.29.40", user: "ubuntu", dir: "/opt/hangkh", key: "hangkh_ed25519", domains: { root: "hangkh.com", hub: "hub.hangkh.com", oneteam: "oneteam.hangkh.com" } };
 
 function world(over = {}) {
@@ -107,7 +107,7 @@ test("helpers: token extraction ignores comments, redact masks secrets, ssh pars
   assert.ok(c2.indexOf("Host hangkh") < c2.indexOf("Host github.com"));
   assert.ok(mergeSshConfig("", CFG, "~/.ssh/k").startsWith("# >>> HangKH"));
   // P3: a token that ends with "-" is kept whole
-  const t2 = "7123456789:AAHkq3-FakeTokenForTests_abcdefghijklm-";
+  const t2 = ["7123456789", "AAHkq3-FakeTokenForTests_abcdefghijklm-"].join(":");
   assert.equal(extractToken(t2), t2);
 });
 

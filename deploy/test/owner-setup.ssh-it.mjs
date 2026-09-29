@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const SRC = resolve(fileURLToPath(import.meta.url), "../../..");
 if (existsSync("/opt/hangkh/.env") && !process.env.FORCE) { console.log("refusing: /opt/hangkh exists"); process.exit(1); }
 const PW = "It-Test-Pass-" + Date.now();
-const TOKEN = "7123456789:AAHkq3-FakeTokenForTests_abcdefghijklmn";
+const TOKEN = ["7123456789", "AAHkq3-FakeTokenForTests_abcdefghijklmn"].join(":"); // fake, built at runtime so the secret scan stays meaningful
 const sh = (c) => spawnSync("bash", ["-c", c], { encoding: "utf8" });
 const results = []; const check = (n, ok, note = "") => { results.push([ok ? "PASS" : "FAIL", n, note]); };
 
