@@ -54,20 +54,4 @@ jobs:
         env:
           CF_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CF_ACCOUNT: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          set -e
-          api() { curl -sS -H "Authorization: Bearer $CF_TOKEN" -H "Content-Type: application/json" "$@"; }
-          echo "== attach $CF_DOMAIN to Pages project $CF_PROJECT"
-          api -X POST "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$CF_PROJECT/domains" --data "{\"name\":\"$CF_DOMAIN\"}" \
-            | tee /tmp/domain.json | grep -Eo '"success":(true|false)|"message":"[^"]*"' | head -3 || true
-          echo "== DNS"
-          ZONE=$(api "https://api.cloudflare.com/client/v4/zones?name=$CF_ZONE" | python3 -c 'import sys,json; r=json.load(sys.stdin)["result"]; print(r[0]["id"] if r else "")')
-          if [ -z "$ZONE" ]; then echo "::warning::zone $CF_ZONE not visible to this token (DNS read) — add the CNAME oneteam → $CF_PROJECT.pages.dev manually"; exit 0; fi
-          EXISTING=$(api "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records?name=$CF_DOMAIN" | python3 -c 'import sys,json; r=json.load(sys.stdin)["result"]; print(";".join(f"{x[\"type\"]} {x[\"content\"]}" for x in r))')
-          echo "existing: ${EXISTING:-none}"
-          if [ -z "$EXISTING" ]; then
-            api -X POST "https://api.cloudflare.com/client/v4/zones/$ZONE/dns_records" --data "{\"type\":\"CNAME\",\"name\":\"oneteam\",\"content\":\"$CF_PROJECT.pages.dev\",\"proxied\":true,\"ttl\":1,\"comment\":\"Cloudflare Pages (bizdemo-sms)\"}" \
-              | grep -Eo '"success":(true|false)|"message":"[^"]*"' | head -3 || echo "::warning::could not create CNAME (token lacks DNS:Edit?) — create it manually: CNAME oneteam → $CF_PROJECT.pages.dev (proxied)"
-          fi
-          echo "== domain status"
-          api "https://api.cloudflare.com/client/v4/accounts/$CF_ACCOUNT/pages/projects/$CF_PROJECT/domains/$CF_DOMAIN" | python3 -c 'import sys,json; r=json.load(sys.stdin); print(json.dumps({k:r.get("result",{}).get(k) for k in ("name","status","verification_data","validation_data")}, ensure_ascii=False))' || true
+        run: python3 scripts/cf_pages_domain.py
