@@ -152,6 +152,20 @@ async function hubMain(cmd: string | undefined, a: string[]) {
       }
       break;
     }
+    case "hub-probe": {
+      // live self-test of one bot: POST /help from a fake chat through http://127.0.0.1:PORT/tg/<path> with the real secret,
+      // then print what the router logged (the reply to the fake chat fails with "chat not found" = Telegram was reached)
+      const code = (a[0] ?? "").toUpperCase();
+      const bot = (await listBots()).find((b) => b.code === code);
+      if (!bot) throw new Error("usage: hub-probe <CODE> (bot not found)");
+      const upd = { update_id: Date.now(), message: { message_id: 1, date: Math.floor(Date.now() / 1000), chat: { id: 1, type: "private" }, from: { id: 1, is_bot: false, first_name: "probe" }, text: "/help" } };
+      const r = await fetch(`http://127.0.0.1:${config.port}/tg/${bot.path}`, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": bot.secret }, body: JSON.stringify(upd) });
+      const bad = await fetch(`http://127.0.0.1:${config.port}/tg/${bot.path}`, { method: "POST", headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": "wrong" }, body: "{}" });
+      await new Promise((ok) => setTimeout(ok, 2500));
+      const log = await sql`select direction, bot, kind, ok, error from hub_message_log where chat_id = 1 order by id desc limit 2`;
+      console.log(JSON.stringify({ bot: `@${bot.username}`, webhook: r.status, wrongSecret: bad.status, log: log.reverse() }));
+      break;
+    }
     case "alert": {
       const kind = a[0] as AlertKind;
       if (!(ALERT_KINDS as readonly string[]).includes(kind)) throw new Error(`usage: alert <${ALERT_KINDS.join("|")}> <text>`);
