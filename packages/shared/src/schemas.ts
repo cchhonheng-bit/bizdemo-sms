@@ -67,6 +67,8 @@ export const catalogItemSchema = z.object({
   unit: z.string().trim().max(20).optional().or(z.literal("")),
   sell_price: z.number().int().min(0),
   cost_price: z.number().int().min(0).nullable().optional(),
+  /** Booking Rules v1.3 R3: default job length of a service (placeholder 120 min until One Team confirms) */
+  duration_min: z.number().int().min(15, "DURATION_RANGE").max(1440, "DURATION_RANGE").optional(),
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 
@@ -75,7 +77,11 @@ export const bookingSchema = z.object({
   type: z.enum(BOOKING_TYPES),
   category: z.enum(SERVICE_CATEGORIES),
   service_text: z.string().trim().min(1, "REQUIRED").max(1000, "TOO_LONG"),
+  /** optional catalog service → default duration (R3) */
+  service_item_id: z.string().uuid().optional().or(z.literal("")).nullable(),
   scheduled_at: z.string().optional().or(z.literal("")),
+  /** end of the job; empty = start + service duration (R3) */
+  ends_at: z.string().optional().or(z.literal("")),
   address: z.string().trim().max(300).optional().or(z.literal("")),
   lat: z.number().min(-90).max(90).nullable().optional(),
   lng: z.number().min(-180).max(180).nullable().optional(),
@@ -85,10 +91,18 @@ export const bookingSchema = z.object({
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 
+/** R5: lead technician (មេជាង) optional · at least ONE technician · crew 1..n */
 export const assignSchema = z.object({
-  lead: z.string().uuid("LEAD_REQUIRED"),
+  lead: z.string().uuid().optional().or(z.literal("")).nullable(),
   assistants: z.array(z.string().uuid()).max(10),
   vehicle_id: z.string().uuid().optional().or(z.literal("")),
   scheduled_at: z.string().min(1, "SCHEDULE_REQUIRED"),
-}).refine((v) => !v.assistants.includes(v.lead), { message: "LEAD_IN_ASSISTANTS", path: ["assistants"] });
+  ends_at: z.string().optional().or(z.literal("")),
+})
+  .refine((v) => !v.lead || !v.assistants.includes(v.lead), { message: "LEAD_IN_ASSISTANTS", path: ["assistants"] })
+  .refine((v) => !!v.lead || v.assistants.length > 0, { message: "TEAM_REQUIRED", path: ["assistants"] });
 export type AssignInput = z.infer<typeof assignSchema>;
+
+/** R4: cancel with a reason (CEO / GM / Admin) */
+export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG") }).strict();
+export type CancelInput = z.infer<typeof cancelSchema>;

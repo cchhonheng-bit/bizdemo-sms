@@ -24,6 +24,14 @@ export function fromPg(e: unknown): AppError | null {
     if (/vehicles_company_id_code/.test(c)) return new AppError("VEHICLE_CODE_TAKEN", 409);
     return new AppError("DUPLICATE", 409);
   }
+  // exclusion constraints (Booking Rules R2/R3): the database is the last line against double-booking
+  if (err.code === "23P01") {
+    const c = err.constraint_name ?? msg;
+    if (/vehicle/.test(c)) return new AppError("VEHICLE_UNAVAILABLE", 409);
+    if (/technicians/.test(c)) return new AppError("TECH_UNAVAILABLE", 409);
+    return new AppError("SCHEDULE_CONFLICT", 409);
+  }
+  if (err.code === "23514" && /bookings_time_order/.test(err.constraint_name ?? msg)) return new AppError("END_BEFORE_START", 400);
   if (err.code === "23514" || err.code === "23502") return new AppError("INVALID_VALUE", 400);
   if (err.code?.startsWith("22")) return new AppError("INVALID_VALUE", 400); // data exceptions: bad uuid/date/number
   if (err.code === "23503") return new AppError("NOT_FOUND", 404);

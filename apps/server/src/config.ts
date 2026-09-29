@@ -30,7 +30,7 @@ export const config = {
   /** Bot token + webhook secret live ONLY in the hub container; the shop needs the bot username for deep links. */
   telegram: {
     botToken: env("TELEGRAM_BOT_TOKEN", ""),
-    botUsername: env("TELEGRAM_BOT_USERNAME", "hangkh_bot"),
+    botUsername: env("TELEGRAM_BOT_USERNAME", ""), // shop: fallback only — the real username comes from the hub (T6)
     webhookSecret: env("TELEGRAM_WEBHOOK_SECRET", ""),
     /** Bot API base (a local mock in the box simulation; https://api.telegram.org in production) */
     apiBase: env("TELEGRAM_API_BASE", "https://api.telegram.org").replace(/\/$/, ""),
@@ -48,6 +48,10 @@ export const config = {
     migrationsDir: env("HUB_MIGRATIONS_DIR", resolve(here, "migrations_hub")),
     /** messages per second when flushing broadcasts (Telegram allows ~30/s per bot) */
     sendRate: Number(env("HUB_SEND_RATE", "20")),
+    /** AES-256-GCM key for bot tokens + webhook secrets at rest (T2): 32 bytes base64, generated on the server into .env */
+    tokenKey: env("HUB_TOKEN_KEY", ""),
+    /** username of the HangKH master bot (T4); a legacy TELEGRAM_BOT_TOKEN of this bot is imported once */
+    masterUsername: env("MASTER_BOT_USERNAME", "hangkh_bot"),
   },
   /** directory with the built web app (index.html, assets/) */
   webDist: env("WEB_DIST", resolve(here, "../../web/dist")),

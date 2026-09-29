@@ -43,19 +43,19 @@ export default function CustomersPage() {
         </div>
         {customers.isLoading ? <Skeleton /> : customers.isError ? <ErrorState text={t("app.error")} onRetry={() => void customers.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
           <div className="overflow-x-auto -mx-4 px-4">
-            <table className="table">
+            <table className="table table-stack">
               <thead><tr><th>{t("customers.name")}</th><th>{t("customers.phones")}</th><th>{t("customers.address")}</th><th>{t("customers.zone")}</th><th>{t("customers.location")}</th><th className="text-right">{t("app.actions")}</th></tr></thead>
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id} className={c.is_active ? "" : "opacity-60"}>
                     <td className="font-semibold">{c.name}{!c.is_active && <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
                     <td className="tabular whitespace-nowrap">{c.phones.join(", ") || "—"}</td>
-                    <td className="max-w-[320px] truncate" title={c.address ?? ""}>{c.address ?? "—"}</td>
+                    <td className="md:max-w-[320px] md:truncate" title={c.address ?? ""}>{c.address ?? "—"}</td>
                     <td><Badge tone={c.zone === "inside" ? "green" : "grey"}>{t(`zone.${c.zone}`)}</Badge></td>
                     <td>{c.lat != null ? <Badge tone="blue"><MapPin size={12} /> {t("customers.has_location")}</Badge> : <span className="text-muted">—</span>}</td>
-                    <td className="text-right whitespace-nowrap">
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(c)}><Pencil size={16} /></button>
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={c.is_active ? t("customers.deactivate") : t("customers.activate")} onClick={() => setToggle(c)}><Power size={16} /></button>
+                    <td className="text-right whitespace-nowrap cell-actions">
+                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(c)}><Pencil size={16} /></button>
+                      <button className="tap-target rounded hover:bg-grey-bg" title={c.is_active ? t("customers.deactivate") : t("customers.activate")} onClick={() => setToggle(c)}><Power size={16} /></button>
                     </td>
                   </tr>
                 ))}

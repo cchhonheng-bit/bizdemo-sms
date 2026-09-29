@@ -2,12 +2,11 @@
 // Subscribers live in the hub; the shop reads its own list and asks the hub to broadcast to it.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { deepLink, subscribePayload } from "@sms/shared";
-import { config } from "../config.js";
+import { deepLink, SUBSCRIBE_PAYLOAD } from "@sms/shared";
 import { sql } from "../db.js";
 import { AppError } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
-import { hubCall } from "../services/hub-client.js";
+import { hubCall, shopBotUsername } from "../services/hub-client.js";
 
 const broadcastSchema = z.object({
   kind: z.enum(["service", "promo"]),
@@ -24,7 +23,8 @@ export const subscribeRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { preHandler: guard }, async () => {
     const r = await hubCall("GET", "/internal/subscribers");
     if (r.status !== 200) passHubError(r);
-    return { link: deepLink(config.telegram.botUsername, subscribePayload(config.shop.code)), bot: config.telegram.botUsername, ...r.json };
+    const bot = await shopBotUsername(); // T3: Subscribe = t.me/<shop bot>?start=s
+    return { link: bot ? deepLink(bot, SUBSCRIBE_PAYLOAD) : null, bot, ...r.json };
   });
 
   app.get("/broadcasts", { preHandler: guard }, async () => {

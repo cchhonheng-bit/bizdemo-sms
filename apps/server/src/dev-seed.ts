@@ -26,8 +26,8 @@ async function main() {
       ["ដំឡើងកាមេរ៉ា", "Camera install", "service", "camera", "unit", 25000, 12000], ["ទុយោ PVC 1 អ៊ីញ", "PVC pipe 1in", "product", "mep", "m", 250, 120]];
     for (const [km, en, kind, cat, unit, sell, cost] of items) await t`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, created_by) values (${id}, ${km}, ${en}, ${kind}::item_kind, ${cat}::service_category, ${unit}, ${sell}, ${cost}, ${ceo})`;
     await t`insert into booking_counters (company_id, last_no) values (${id}, 1)`;
-    const bk = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, address, lat, lng, zone, created_by)
-      values (${id}, 'BK-0001', ${c1}, 'A', 'mep', 'new', 'ជួសជុលម៉ាស៊ីនត្រជាក់ 2 គ្រឿង', now() + interval '1 day', 'ផ្ទះ 12 ផ្លូវ 3 បុរីប៉េងហួត', 11.5512, 104.9312, 'inside', ${ceo}) returning id`)[0]!.id;
+    const bk = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, ends_at, address, lat, lng, zone, created_by)
+      values (${id}, 'BK-0001', ${c1}, 'A', 'mep', 'new', 'ជួសជុលម៉ាស៊ីនត្រជាក់ 2 គ្រឿង', now() + interval '1 day', now() + interval '1 day 2 hours', 'ផ្ទះ 12 ផ្លូវ 3 បុរីប៉េងហួត', 11.5512, 104.9312, 'inside', ${ceo}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${bk}, null, 'new', ${ceo})`;
   });
   console.log(`dev seed: company "oneteam" · users ceo/gm01/admin/kim/dara · password: ${PASSWORD}`);

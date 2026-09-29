@@ -6,22 +6,36 @@
 @font-face { font-family: 'Noto Sans Khmer'; src: url('/fonts/noto-sans-khmer-700.ttf') format('truetype'); font-weight: 700; font-display: swap; }
 
 @layer base {
-  html { font-size: 14px; }
-  body { @apply font-sans leading-[1.55] text-ink bg-grey-bg antialiased; }
+  html { font-size: 14px; -webkit-text-size-adjust: 100%; text-size-adjust: 100%; scroll-padding-bottom: calc(9rem + env(safe-area-inset-bottom)); }
+  /* Khmer: taller lines so stacked vowels / subscripts are never clipped (UI Design v1.1) */
+  body { @apply font-sans leading-[1.7] text-ink bg-grey-bg antialiased; overflow-x: hidden; overscroll-behavior-y: none; -webkit-tap-highlight-color: transparent; }
+  #root { overflow-x: clip; }
+  img, svg, video, iframe { max-width: 100%; }
+  input, select, textarea, button { font: inherit; }
   h1 { @apply text-xl font-bold; }
   h2 { @apply text-lg font-bold; }
   label { @apply block text-xs text-muted mb-1; }
   .tabular { font-variant-numeric: tabular-nums; }
   @media (max-width: 767px) { html { font-size: 16px; } }
+  /* focused fields stay above the keyboard + bottom bars */
+  input, select, textarea { scroll-margin-top: 5rem; scroll-margin-bottom: 9rem; }
 }
 
 @layer components {
-  .btn { @apply inline-flex items-center justify-center gap-2 h-10 px-4 rounded-md font-semibold text-sm border transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed select-none; }
+  /* ≥ 44 px tap targets on phones (UI Design v1.1) */
+  .btn { @apply inline-flex items-center justify-center gap-2 h-11 md:h-10 px-4 rounded-md font-semibold text-sm border transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed select-none whitespace-nowrap; touch-action: manipulation; }
   .btn-primary { @apply btn bg-navy text-white border-navy hover:bg-navy-700; }
   .btn-secondary { @apply btn bg-white text-ink border-grey-line hover:bg-grey-bg; }
   .btn-danger { @apply btn bg-white text-danger border-danger hover:bg-danger-50; }
   .btn-lg { @apply h-14 text-base rounded-lg; }
-  .input { @apply w-full h-10 px-3 rounded-sm border border-[#C9CDD6] bg-white text-ink placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue focus:border-blue disabled:bg-grey-bg; }
+  /* 16 px on phones = no iOS zoom on focus; 44 px high */
+  .input { @apply w-full h-11 md:h-10 px-3 rounded-sm border border-[#C9CDD6] bg-white text-ink text-base md:text-sm leading-normal placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-blue focus:border-blue disabled:bg-grey-bg; min-width: 0; }
+  textarea.input { @apply h-auto; }
+  .tap-target { @apply inline-flex items-center justify-center min-h-[44px] min-w-[44px]; }
+  /* sticky primary actions: above the mobile bottom nav + safe area, normal row on desktop */
+  .action-bar { @apply sticky z-30 -mx-4 px-4 py-3 bg-white/95 backdrop-blur border-t border-grey-line flex gap-2 justify-end md:static md:mx-0 md:px-0 md:bg-transparent md:border-0 md:backdrop-blur-none; bottom: calc(4rem + env(safe-area-inset-bottom)); }
+  @media (min-width: 768px) { .action-bar { bottom: auto; } }
+  .pb-safe { padding-bottom: env(safe-area-inset-bottom); }
   .input-error { @apply border-danger focus:ring-danger; }
   .field-error { @apply text-xs text-danger mt-1; }
   .card { @apply bg-white border border-grey-line rounded-md shadow-card; }
@@ -30,4 +44,13 @@
   .table th { @apply text-left text-xs font-semibold text-muted bg-grey-bg px-3 py-2 border-b border-grey-line; }
   .table td { @apply px-3 py-2.5 border-b border-[#F0F2F7] align-middle; }
   .table tr:nth-child(even) td { @apply bg-[#FAFBFD]; }
+  /* tables become stacked cards on phones (UI Design v1.1): first cell = title, the rest wraps, actions right */
+  @media (max-width: 767px) {
+    .table-stack, .table-stack tbody { display: block; width: 100%; }
+    .table-stack thead { display: none; }
+    .table-stack tr { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 0.75rem; padding: 0.75rem 0; border-bottom: 1px solid #E3E6EE; }
+    .table-stack td, .table-stack tr:nth-child(even) td { display: block; padding: 0; border: 0; background: transparent; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+    .table-stack td:first-child { width: 100%; }
+    .table-stack td.cell-actions { margin-left: auto; }
+  }
 }

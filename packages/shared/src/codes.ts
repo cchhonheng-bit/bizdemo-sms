@@ -39,3 +39,20 @@ export type FeatureFlag = (typeof FEATURE_FLAGS)[number];
 export function parseFeatures(v: string | undefined): FeatureFlag[] {
   return (v ?? "").split(",").map((x) => x.trim().toLowerCase()).filter((x): x is FeatureFlag => (FEATURE_FLAGS as readonly string[]).includes(x));
 }
+
+/** T3 (per-shop bot): staff link code = 8 characters (deep link, never typed), group code = 6 (typed after /register) */
+export const STAFF_CODE_LEN = 8, GROUP_CODE_LEN = 6;
+const PLAIN_CODE_RE = /^[A-HJ-NP-Z2-9]{6,8}$/;
+/**
+ * Code as received by a shop's own bot → the canonical stored code, or null.
+ * Accepts the plain code (T3) and, until they expire, old prefixed codes of THIS shop only (ONETEAM-S-XXXXXX).
+ */
+export function shopBotCode(input: string, shop: string, kind: "staff" | "group"): string | null {
+  const s = input.trim().toUpperCase();
+  const legacy = parseLinkCode(s);
+  if (legacy) return legacy.shop === shop && legacy.kind === kind ? legacy.code : null;
+  if (!PLAIN_CODE_RE.test(s)) return null;
+  return s.length === (kind === "staff" ? STAFF_CODE_LEN : GROUP_CODE_LEN) ? s : null;
+}
+/** T3: Subscribe deep link payload of a shop bot is just "s" (legacy "s-<SHOP>" still understood) */
+export const SUBSCRIBE_PAYLOAD = "s";

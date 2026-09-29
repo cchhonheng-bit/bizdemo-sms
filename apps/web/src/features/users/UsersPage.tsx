@@ -55,10 +55,10 @@ export default function UsersPage() {
         <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("users.new")}</Button>
       </div>
       <Card>
-        <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 max-w-xs" />
+        <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 w-full sm:max-w-xs" />
         {users.isLoading ? <Skeleton /> : users.isError ? <ErrorState text={t("app.error")} onRetry={() => void users.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
           <div className="overflow-x-auto -mx-4 px-4">
-            <table className="table">
+            <table className="table table-stack">
               <thead><tr><th>{t("users.full_name")}</th><th>{t("users.username")}</th><th>{t("users.role")}</th><th>{t("users.phone")}</th><th>{t("users.telegram")}</th><th>{t("users.status")}</th><th className="text-right">{t("app.actions")}</th></tr></thead>
               <tbody>
                 {filtered.map((u) => (
@@ -69,12 +69,12 @@ export default function UsersPage() {
                     <td className="tabular">{u.phone ?? "—"}</td>
                     <td>{u.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</td>
                     <td>{u.is_active ? <Badge tone="green">{t("app.active")}</Badge> : <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
-                    <td className="text-right whitespace-nowrap">
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(u)}><Pencil size={16} /></button>
-                      <button className="p-1.5 rounded hover:bg-grey-bg" title={t("users.reset_password")} onClick={() => setConfirm({ kind: "reset", u })}><KeyRound size={16} /></button>
+                    <td className="text-right whitespace-nowrap cell-actions">
+                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(u)}><Pencil size={16} /></button>
+                      <button className="tap-target rounded hover:bg-grey-bg" title={t("users.reset_password")} onClick={() => setConfirm({ kind: "reset", u })}><KeyRound size={16} /></button>
                       {u.id !== me?.id && (u.is_active
-                        ? <button className="p-1.5 rounded hover:bg-danger-50 text-danger" title={t("users.deactivate")} onClick={() => setConfirm({ kind: "deactivate", u })}><UserX size={16} /></button>
-                        : <button className="p-1.5 rounded hover:bg-success-50 text-success" title={t("users.activate")} onClick={() => setConfirm({ kind: "activate", u })}><UserCheck size={16} /></button>)}
+                        ? <button className="tap-target rounded hover:bg-danger-50 text-danger" title={t("users.deactivate")} onClick={() => setConfirm({ kind: "deactivate", u })}><UserX size={16} /></button>
+                        : <button className="tap-target rounded hover:bg-success-50 text-success" title={t("users.activate")} onClick={() => setConfirm({ kind: "activate", u })}><UserCheck size={16} /></button>)}
                     </td>
                   </tr>
                 ))}

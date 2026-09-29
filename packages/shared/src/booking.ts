@@ -26,3 +26,20 @@ export const BOARD_COLUMNS: { key: string; statuses: BookingStatus[] }[] = [
 /** statuses in which the booking form may still be edited / (re)assigned */
 export const EDITABLE_STATUSES: BookingStatus[] = ["new", "survey", "quoted", "assigned"];
 export const ASSIGNABLE_STATUSES: BookingStatus[] = ["new", "quoted", "assigned"];
+
+/** R4: a booking can be cancelled until the work is finished (never once completed / invoiced) */
+export const CANCELLABLE_STATUSES: BookingStatus[] = ["new", "survey", "quoted", "assigned", "en_route", "on_site", "working"];
+/** R3: default job length when no catalog service is chosen (placeholder — One Team confirms real numbers) */
+export const DEFAULT_DURATION_MIN = 120;
+/** R3: all schedule rules use this business time zone */
+export const BUSINESS_TZ = "Asia/Phnom_Penh";
+
+/** end = start + minutes (ISO strings) */
+export function addMinutesIso(startIso: string, minutes: number): string {
+  return new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString();
+}
+/** [aStart, aEnd) and [bStart, bEnd) overlap? — back-to-back (aEnd === bStart) does NOT overlap */
+export function rangesOverlap(aStart: string | Date, aEnd: string | Date, bStart: string | Date, bEnd: string | Date): boolean {
+  const t = (x: string | Date) => new Date(x).getTime();
+  return t(aStart) < t(bEnd) && t(bStart) < t(aEnd);
+}

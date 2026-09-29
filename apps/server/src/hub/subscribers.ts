@@ -5,7 +5,8 @@ import { config } from "../config.js";
 import { sql } from "../db.js";
 import { AppError } from "../lib/errors.js";
 import { getShop, logMessage, type Shop } from "./shops.js";
-import { sendMessage, telegramReady, type TgResult } from "./telegram-api.js";
+import { sendMessage, type BotRef, type TgResult } from "./telegram-api.js";
+import { shopBot } from "./bots.js";
 
 export const privacyUrl = () => `${config.publicUrl}/privacy`;
 
@@ -14,7 +15,13 @@ export async function ensureConsentText(): Promise<void> {
   await sql`insert into hub_consent_texts (version, body_km) values (${CONSENT_VERSION}, ${consentText("{{shop_name}}", privacyUrl())}) on conflict (version) do nothing`;
 }
 
-export const consentButton = (shop: string) => ({ inline_keyboard: [[{ text: "☑ យល់ព្រម / I agree", callback_data: `sub:${shop}:${CONSENT_VERSION}` }]] });
+/** T5: ONE tick for the three purposes (+ an optional "Follow HangKH" link to the master bot, not part of the consent) */
+export function consentMarkup(shop: string | null, masterUsername: string | null) {
+  const rows: unknown[][] = [];
+  if (shop) rows.push([{ text: "☑ យល់ព្រម / I agree", callback_data: `sub:${shop}:${CONSENT_VERSION}` }]);
+  if (masterUsername) rows.push([{ text: "⭐ Follow HangKH (ស្រេចចិត្ត)", url: `https://t.me/${masterUsername}?start=follow` }]);
+  return { inline_keyboard: rows };
+}
 
 export type TgFrom = { id: number; first_name?: string; username?: string; language_code?: string };
 
@@ -91,10 +98,14 @@ export async function broadcastsOf(shop: Shop) {
 }
 
 let flushing = false;
-/** deliver pending broadcast rows at ≤ HUB_SEND_RATE msg/s; Telegram 403 = the customer blocked the bot → mark + stop */
-export async function flushHubOutbox(limit = 100, send: (chat: number | string, text: string) => Promise<TgResult> = sendMessage, pace = true) {
+/**
+ * Deliver pending broadcast rows, each through its SHOP'S OWN bot (a bot can only message people who started it — T5),
+ * paced per bot (telegram-api). Telegram 403 = the customer blocked that bot → subscriber marked + no retry.
+ * A shop without an active bot keeps its rows pending (nothing is sent through another shop's bot — T7).
+ */
+export async function flushHubOutbox(limit = 100, send: (bot: BotRef, chat: number | string, text: string) => Promise<TgResult> = sendMessage) {
   const out = { taken: 0, sent: 0, failed: 0, retry: 0 };
-  if (flushing || (send === sendMessage && !telegramReady())) return out;
+  if (flushing) return out;
   flushing = true;
   try {
     const rows = await sql<{ id: number; chat_id: string; text: string; attempts: number; shop_code: string; subscriber_id: number | null }[]>`
@@ -102,27 +113,31 @@ export async function flushHubOutbox(limit = 100, send: (chat: number | string, 
       where o.id in (select id from hub_outbox where status = 'pending' and attempts < 5 order by created_at limit ${Math.max(1, Math.min(limit, 500))} for update skip locked)
       returning o.id, o.chat_id, o.text, o.attempts, o.shop_code, o.subscriber_id`;
     out.taken = rows.length;
-    const gap = pace ? Math.ceil(1000 / Math.max(1, config.hub.sendRate)) : 0;
+    const stopped = new Set<string>(); // shops whose bot said 429 in this run
     for (const r of rows) {
-      const res = await send(r.chat_id, r.text);
+      const bot = await shopBot(r.shop_code);
+      if (!bot || bot.status !== "active" || stopped.has(r.shop_code)) {
+        out.retry++;
+        await sql`update hub_outbox set attempts = greatest(attempts - 1, 0), last_error = ${bot ? "BOT_BUSY" : "NO_SHOP_BOT"} where id = ${r.id}`;
+        continue;
+      }
+      const res = await send(bot, r.chat_id, r.text);
       // metadata only: the text is kept once in hub_broadcasts (R5)
-      await logMessage({ direction: "out", shop: r.shop_code, chatId: r.chat_id, kind: "broadcast", text: null, ok: res.ok, error: res.ok ? null : res.error });
+      await logMessage({ direction: "out", bot: bot.code, shop: r.shop_code, chatId: r.chat_id, kind: "broadcast", text: null, ok: res.ok, error: res.ok ? null : res.error });
       if (res.ok) {
         out.sent++;
         await sql`update hub_outbox set status = 'sent', sent_at = now(), last_error = null where id = ${r.id}`;
       } else if (res.retryAfter && !res.permanent) {
-        // Telegram 429: not counted as an attempt; stop, the cron continues later (R8)
+        // Telegram 429 for this bot: not counted as an attempt; this bot waits for the next run, other bots continue (R8, T7)
         out.retry++;
-        const rest = rows.slice(rows.indexOf(r)).map((x) => x.id);
-        await sql`update hub_outbox set attempts = greatest(attempts - 1, 0), last_error = ${res.error} where id in ${sql(rest)}`;
-        break;
+        stopped.add(r.shop_code);
+        await sql`update hub_outbox set attempts = greatest(attempts - 1, 0), last_error = ${res.error} where id = ${r.id}`;
       } else {
         const failed = res.permanent || r.attempts >= 5;
         if (failed) out.failed++; else out.retry++;
         await sql`update hub_outbox set status = ${failed ? "failed" : "pending"}, last_error = ${res.error} where id = ${r.id}`;
         if (res.permanent && /^403/.test(res.error) && r.subscriber_id) await sql`update hub_subscribers set blocked_at = now() where id = ${r.subscriber_id}`;
       }
-      if (gap) await new Promise((ok) => setTimeout(ok, gap));
     }
   } finally {
     flushing = false;

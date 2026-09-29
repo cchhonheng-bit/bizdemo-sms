@@ -24,3 +24,16 @@ describe("telegram codes", () => {
     expect(parseFeatures(undefined)).toEqual([]);
   });
 });
+
+describe("per-shop bot codes (T3)", () => {
+  it("plain codes: 8 for staff, 6 for group; legacy prefixed codes only for the same shop and kind", async () => {
+    const { shopBotCode } = await import("./codes");
+    expect(shopBotCode("7kq2mxab", "ONETEAM", "staff")).toBe("7KQ2MXAB");
+    expect(shopBotCode("P4W9TD", "ONETEAM", "group")).toBe("P4W9TD");
+    expect(shopBotCode("P4W9TD", "ONETEAM", "staff")).toBeNull();
+    expect(shopBotCode("ONETEAM-G-P4W9TD", "ONETEAM", "group")).toBe("ONETEAM-G-P4W9TD");
+    expect(shopBotCode("SHOPB-G-P4W9TD", "ONETEAM", "group")).toBeNull();
+    expect(shopBotCode("ONETEAM-S-P4W9TD", "ONETEAM", "group")).toBeNull();
+    for (const bad of ["P4W9T0", "P4W9TDX", "", "s", "hello"]) expect(shopBotCode(bad, "ONETEAM", "group")).toBeNull();
+  });
+});

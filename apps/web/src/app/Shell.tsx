@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, Megaphone, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, Megaphone, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -8,6 +8,7 @@ import type { PermissionKey } from "@sms/shared";
 import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 import { api } from "@/lib/api";
 import { useFeature } from "@/lib/config";
+import { Dialog } from "@/components/ui";
 
 type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[]; hidden?: boolean };
 
@@ -28,6 +29,7 @@ export default function Shell() {
   const online = useOnline();
   const unread = useUnreadCount();
   const subscribeOn = useFeature("subscribe");
+  const [more, setMore] = useState(false);
   if (!me) return null;
   const isTech = me.role === "tech";
 
@@ -50,9 +52,12 @@ export default function Shell() {
     { to: "/tech/attendance", label: t("nav.attendance"), icon: CalendarClock }, // M4
   ];
   const items = isTech ? techItems : desktopItems;
+  // phones: 4 items + «More» (every page stays reachable — the sidebar is desktop-only)
+  const mobileMain = items.length > 5 ? items.slice(0, 4) : items;
+  const mobileMore = items.length > 5 ? items.slice(4) : [];
 
   const langBtn = (
-    <button className="text-xs px-2 py-1 rounded border border-grey-line hover:bg-grey-bg"
+    <button className="text-xs px-2 min-h-[36px] min-w-[44px] rounded border border-grey-line hover:bg-grey-bg"
       onClick={() => {
         // B-M2-02: persist to the profile, otherwise load() restores the server language on next visit
         const lang = i18n.language === "km" ? "en" : "km";
@@ -85,35 +90,49 @@ export default function Shell() {
 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Header */}
-        <header className="h-12 bg-white border-b border-grey-line flex items-center justify-between px-4 gap-3">
+        <header className="sticky top-0 z-30 bg-white border-b border-grey-line flex items-center justify-between px-4 gap-3 min-h-12 pt-[env(safe-area-inset-top)]">
           <div className="font-bold text-navy truncate md:hidden">{me.company.name}</div>
           <div className="hidden md:block text-sm text-muted">{me.company.name}</div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {!online && <span className="badge bg-warning-50 text-warning flex items-center gap-1"><WifiOff size={12} /> {t("app.offline")}</span>}
             {langBtn}
-            <NavLink to="/notifications" className="relative p-1.5 rounded hover:bg-grey-bg" aria-label={t("nav.notifications")}>
+            <NavLink to="/notifications" className="relative tap-target rounded hover:bg-grey-bg" aria-label={t("nav.notifications")}>
               <Bell size={18} />
               {unread > 0 && <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center" data-testid="unread-badge">{unread}</span>}
             </NavLink>
-            <NavLink to="/me" className="flex items-center gap-2 text-sm">
+            <NavLink to="/me" className="flex items-center gap-2 text-sm min-h-[44px]">
               <span className="h-8 w-8 rounded-full bg-blue-50 text-navy flex items-center justify-center font-bold">{me.full_name.slice(0, 1)}</span>
               <span className="hidden sm:inline">{me.full_name}</span>
-              <span className="badge bg-[#EEF0F4] text-[#4B5263]">{t(`roles.${me.role}`)}</span>
+              <span className="badge bg-[#EEF0F4] text-[#4B5263] hidden sm:inline-flex">{t(`roles.${me.role}`)}</span>
             </NavLink>
           </div>
         </header>
 
-        <main className="flex-1 p-4 pb-20 md:pb-6 max-w-[1360px] w-full mx-auto"><Outlet /></main>
+        {/* bottom padding = bottom nav + safe area, so the last button is never under the nav */}
+        <main className="flex-1 p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))] md:pb-6 max-w-[1360px] w-full min-w-0 mx-auto"><Outlet /></main>
 
         {/* Bottom nav (mobile) */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 h-16 bg-white border-t border-grey-line flex justify-around items-center z-40">
-          {items.slice(0, 4).map((i) => (
-            <NavLink key={i.to} to={i.to} className={({ isActive }) => `relative flex flex-col items-center gap-0.5 text-[11px] px-2 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
+        <nav className="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-grey-line flex justify-around items-stretch z-40 h-[calc(4rem+env(safe-area-inset-bottom))] pb-safe">
+          {mobileMain.map((i) => (
+            <NavLink key={i.to} to={i.to} className={({ isActive }) => `relative flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight px-1 ${isActive ? "text-navy font-bold" : "text-muted"}`}>
               <i.icon size={22} /> {i.label}
-              {i.to === "/notifications" && unread > 0 && <span className="absolute top-0 right-0 min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center">{unread}</span>}
+              {i.to === "/notifications" && unread > 0 && <span className="absolute top-1 right-[calc(50%-20px)] min-w-[16px] h-4 px-1 rounded-full bg-danger text-white text-[10px] font-bold flex items-center justify-center">{unread}</span>}
             </NavLink>
           ))}
+          {mobileMore.length > 0 && (
+            <button type="button" className="flex-1 min-w-0 flex flex-col items-center justify-center gap-0.5 text-[11px] leading-tight px-1 text-muted" onClick={() => setMore(true)} aria-label={t("nav.more")}>
+              <Menu size={22} /> {t("nav.more")}
+            </button>
+          )}
         </nav>
+        <Dialog open={more} onClose={() => setMore(false)} title={t("nav.more")}>
+          <ul className="divide-y divide-grey-line -my-2">
+            {mobileMore.map((i) => (
+              <li key={i.to}><NavLink to={i.to} onClick={() => setMore(false)} className="flex items-center gap-3 py-3 min-h-[48px] text-base"><i.icon size={20} /> {i.label}</NavLink></li>
+            ))}
+            <li><button className="flex items-center gap-3 py-3 min-h-[48px] text-base text-danger w-full" onClick={() => void logout().then(() => nav("/login"))}><LogOut size={20} /> {t("app.logout")}</button></li>
+          </ul>
+        </Dialog>
       </div>
     </div>
   );

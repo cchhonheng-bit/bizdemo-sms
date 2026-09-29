@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { ZodError } from "zod";
 import { parseFeatures, type FeatureFlag, type PermissionKey } from "@sms/shared";
 import { config } from "./config.js";
+import { hubAlert, shopBotUsername } from "./services/hub-client.js";
 import { sql } from "./db.js";
 import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
 import { resolveSession, type SessionUser } from "./services/auth.js";
@@ -89,6 +90,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     const e = err as { statusCode?: number; code?: string; message?: string };
     if (e.statusCode && e.statusCode < 500) return reply.status(e.statusCode).send({ error: e.code ?? "BAD_REQUEST" });
     req.log.error(err);
+    hubAlert("error", `${req.method} ${req.url.split("?")[0]}: ${(err as Error)?.message ?? "error"}`);
     return reply.status(500).send({ error: "INTERNAL" });
   });
   const hasWeb = existsSync(join(config.webDist, "index.html"));
@@ -106,7 +108,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.get("/api/config", async () => {
     // one company per shop box → its public name fills {{company_name}} in /terms and /privacy (A7)
     const c = (await sql<{ name: string }[]>`select name from companies where is_active order by created_at limit 1`)[0];
-    return { appName: config.appName, companyName: c?.name ?? config.appName, telegramBot: config.telegram.botUsername || null, shopCode: config.shop.code, features: features() };
+    return { appName: config.appName, companyName: c?.name ?? config.appName, telegramBot: await shopBotUsername(), shopCode: config.shop.code, features: features() };
   });
 
   // ---- api -------------------------------------------------------------------

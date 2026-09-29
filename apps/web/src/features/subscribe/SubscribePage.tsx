@@ -40,7 +40,7 @@ export default function SubscribePage() {
     if (!w || !qr) return;
     w.document.title = "QR";
     const img = w.document.createElement("img"); img.src = qr; img.style.width = "80%";
-    const p = w.document.createElement("p"); p.textContent = d.link; p.style.fontFamily = "sans-serif";
+    const p = w.document.createElement("p"); p.textContent = d.link ?? ""; p.style.fontFamily = "sans-serif";
     w.document.body.style.textAlign = "center"; w.document.body.append(img, p);
     img.onload = () => w.print();
   };
@@ -53,8 +53,8 @@ export default function SubscribePage() {
       <div className="grid md:grid-cols-3 gap-4">
         <Card title={t("subscribe.link")}>
           {qr && <img src={qr} alt="QR" className="w-48 h-48 mx-auto" data-testid="sub-qr" />}
-          <p className="text-xs break-all text-center mt-2" data-testid="sub-link">{d.link}</p>
-          <div className="flex justify-center mt-3"><Button onClick={printQr}><Printer size={16} /> {t("subscribe.print")}</Button></div>
+          {d.link ? <p className="text-xs break-all text-center mt-2" data-testid="sub-link">{d.link}</p> : <p className="text-sm text-danger text-center">{t("me.telegram_not_configured")}</p>}
+          {d.link && <div className="flex justify-center mt-3"><Button onClick={printQr}><Printer size={16} /> {t("subscribe.print")}</Button></div>}
         </Card>
         <Card className="md:col-span-2" title={t("subscribe.total")}>
           <div className="grid grid-cols-3 gap-3 text-center">
@@ -86,11 +86,11 @@ export default function SubscribePage() {
 
       <Card title={t("subscribe.history")}>
         {!history.data?.length ? <Empty text="—" /> : (
-          <table className="table">
+          <table className="table table-stack">
             <thead><tr><th>{t("subscribe.when")}</th><th>{t("subscribe.kind")}</th><th>{t("subscribe.text")}</th><th>{t("subscribe.by")}</th><th>{t("subscribe.result")}</th></tr></thead>
             <tbody>{history.data.map((b) => (
               <tr key={b.id}><td className="whitespace-nowrap">{fmt(b.created_at)}</td><td><Badge tone={b.kind === "promo" ? "purple" : "blue"}>{b.kind === "promo" ? t("subscribe.promo_kind") : t("subscribe.service")}</Badge></td>
-                <td className="max-w-[340px] truncate" title={b.text}>{b.text}</td><td>{b.created_by_name ?? "—"}</td>
+                <td className="md:max-w-[340px] md:truncate" title={b.text}>{b.text}</td><td>{b.created_by_name ?? "—"}</td>
                 <td className="whitespace-nowrap">✅ {b.sent} / {b.recipients}{b.failed ? <span className="text-danger"> · ❌ {b.failed}</span> : null}{b.pending ? <span className="text-muted"> · ⏳ {b.pending}</span> : null}</td></tr>))}
             </tbody>
           </table>
@@ -99,7 +99,7 @@ export default function SubscribePage() {
 
       <Card title={t("subscribe.list")}>
         {d.subscribers.length === 0 ? <Empty text={t("subscribe.empty")} /> : (
-          <table className="table" data-testid="sub-list">
+          <table className="table table-stack" data-testid="sub-list">
             <thead><tr><th>{t("subscribe.name")}</th><th>{t("subscribe.since")}</th><th>{t("subscribe.status")}</th></tr></thead>
             <tbody>{d.subscribers.map((x, i) => (
               <tr key={i}><td>{x.first_name ?? "—"}{x.username ? <span className="text-muted"> @{x.username}</span> : null}</td><td>{fmt(x.subscribed_at)}</td>

@@ -7,6 +7,9 @@
 //   node dist/cli.mjs hub-admin <username>          → platform owner login, temp password printed once
 //   node dist/cli.mjs list-shops                    → registry + subscriber counts
 //   node dist/cli.mjs end-shop <CODE>               → broadcasts stop; subscriber/consent records stay (A4)
+//   node dist/cli.mjs hub-bot-set <CODE|HANGKH> < token   → add/replace a shop bot (or the master bot); token from STDIN only, stored encrypted
+//   node dist/cli.mjs hub-bots                      → bots + webhook status (never tokens)
+//   node dist/cli.mjs alert <deploy|backup|outbox|error|test> <text…>   → message to the owner through the master bot (T4)
 import { config } from "./config.js";
 import { migrate, sql, tx } from "./db.js";
 import { hashPassword, tempPassword } from "./lib/password.js";
@@ -14,6 +17,8 @@ import { audit } from "./services/audit.js";
 import { seedPermissions } from "./services/permissions.js";
 import { createHubAdmin } from "./hub/platform.js";
 import { syncShops } from "./hub/shops.js";
+import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
+import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -85,8 +90,8 @@ async function seedDemo(slug: string) {
       for (const [no, ci, cat, text, when] of bks) {
         const cust = customers[ci]!;
         const cr = (await t<{ address: string | null; zone: string; lat: number | null; lng: number | null }[]>`select address, zone, lat, lng from customers where id = ${cust.id}`)[0]!;
-        const bk = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, address, lat, lng, zone, notes, created_by)
-          values (${id}, ${no}, ${cust.id}, 'A', ${cat}::service_category, 'new', ${text}, date_trunc('hour', now()) + ${when}::interval, ${cr.address}, ${cr.lat}, ${cr.lng}, ${cr.zone}::zone, 'DEMO', ${ceo}) returning id`)[0]!.id;
+        const bk = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, ends_at, address, lat, lng, zone, notes, created_by)
+          values (${id}, ${no}, ${cust.id}, 'A', ${cat}::service_category, 'new', ${text}, date_trunc('hour', now()) + ${when}::interval, date_trunc('hour', now()) + ${when}::interval + interval '2 hours', ${cr.address}, ${cr.lat}, ${cr.lng}, ${cr.zone}::zone, 'DEMO', ${ceo}) returning id`)[0]!.id;
         await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${bk}, null, 'new', ${ceo})`;
       }
       await t`insert into booking_counters (company_id, last_no) values (${id}, 2) on conflict (company_id) do update set last_no = greatest(booking_counters.last_no, 2)`;
@@ -130,8 +135,31 @@ async function hubMain(cmd: string | undefined, a: string[]) {
       console.log(r.length ? `${code} ended — subscriber and consent records are kept (A4).` : "shop not found or already ended");
       break;
     }
+    case "hub-bot-set": {
+      const code = (a[0] ?? "").toUpperCase();
+      if (!/^[A-Z0-9]{2,20}$/.test(code)) throw new Error("usage: hub-bot-set <SHOP_CODE|HANGKH> < token-file");
+      let token = "";
+      for await (const chunk of process.stdin) token += chunk;
+      const r = await setBot(code, token.split(/\r?\n/)[0] ?? "");
+      token = "";
+      console.log(`bot ${r.code}: @${r.username} → /tg/${r.path} · webhook ${r.webhook.ok ? "ok" : `FAILED (${(r.webhook as { error: string }).error})`}`);
+      break;
+    }
+    case "hub-bots": {
+      for (const b of await listBots()) {
+        const w = await webhookInfo(b);
+        console.log(JSON.stringify({ ...publicBot(b), webhook_ok: w.ok, pending: w.pending, last_error: w.last_error }));
+      }
+      break;
+    }
+    case "alert": {
+      const kind = a[0] as AlertKind;
+      if (!(ALERT_KINDS as readonly string[]).includes(kind)) throw new Error(`usage: alert <${ALERT_KINDS.join("|")}> <text>`);
+      console.log(`alert sent to ${await sendAlert(kind, a.slice(1).join(" ") || "(no text)", { force: true })} admin(s)`);
+      break;
+    }
     default:
-      console.log("hub commands: hub-admin <username>, list-shops, end-shop <CODE>");
+      console.log("hub commands: hub-admin <username>, list-shops, end-shop <CODE>, hub-bot-set <CODE> < token, hub-bots, alert <kind> <text>");
   }
   await sql.end({ timeout: 3 });
 }

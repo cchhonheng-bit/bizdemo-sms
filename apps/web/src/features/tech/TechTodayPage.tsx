@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Clock, MapPin, Phone } from "lucide-react";
-import { api, fmtDate, fmtDateTime, fmtTime, type Booking } from "@/lib/api";
+import { api, fmtDate, type Booking } from "@/lib/api";
+import { timeRange } from "@/features/bookings/time";
 import { useAuth } from "@/lib/auth";
 import { Badge, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge } from "@/features/bookings/parts";
@@ -47,7 +48,7 @@ function JobCard({ b }: { b: Booking }) {
   return (
     <Link to={`/tech/job/${b.id}`} className="block card p-3 hover:border-blue" data-testid="job-card">
       <div className="flex items-center justify-between">
-        <span className="font-bold text-lg tabular inline-flex items-center gap-1"><Clock size={16} /> {fmtTime(b.scheduled_at)}</span>
+        <span className="font-bold text-lg tabular inline-flex items-center gap-1"><Clock size={16} /> {timeRange(b.scheduled_at, b.ends_at)}</span>
         <div className="flex gap-1">{isLead && <Badge tone="navy">{t("booking.lead")}</Badge>}<StatusBadge status={b.status} /></div>
       </div>
       <div className="font-semibold mt-1">{b.customer_name}</div>
@@ -68,7 +69,8 @@ export function TechJobPage() {
     <div className="space-y-3 max-w-xl">
       <div className="flex items-center gap-2"><Link to="/tech" className="p-1.5 rounded hover:bg-grey-bg" aria-label="back"><ArrowLeft size={18} /></Link><h1 className="font-mono">{bk.number}</h1><StatusBadge status={bk.status} /></div>
       <Card>
-        <div className="text-2xl font-bold tabular">{fmtDateTime(bk.scheduled_at)}</div>
+        <div className="text-2xl font-bold tabular">{bk.scheduled_at ? `${fmtDate(bk.scheduled_at)} · ${timeRange(bk.scheduled_at, bk.ends_at)}` : "—"}</div>
+        {bk.status === "cancelled" && <div className="card border-danger bg-danger-50 p-3 mt-2 text-sm break-words" role="alert">❌ {bk.cancel_reason}</div>}
         <div className="font-semibold text-lg mt-2">{bk.customer_name}</div>
         <div className="flex flex-wrap gap-2 mt-1">{bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary h-9"><Phone size={14} /> {p}</a>)}</div>
         <div className="text-sm mt-2">{bk.address ?? "—"} <Badge tone={bk.zone === "inside" ? "green" : "grey"}>{t(`zone.${bk.zone}`)}</Badge></div>

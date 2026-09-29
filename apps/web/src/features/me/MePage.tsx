@@ -23,7 +23,7 @@ export default function MePage() {
     try {
       const r = await api.telegramLinkCode();
       if (!r.bot) { toast.error(t("me.telegram_not_configured")); setTgBusy(false); return; }
-      setTgLink(r.link); // t.me/hangkh_bot?start=ONETEAM-S-XXXXXX (10 min, single use)
+      setTgLink(r.link); // t.me/<shop bot>?start=XXXXXXXX (10 min, single use — T3)
     } catch (e) { toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
     setTgBusy(false);
   };

@@ -107,7 +107,7 @@ export default function CompanySettingsPage() {
       <TelegramGroupCard current={settings.data} />
 
       <Card title={t("settings.vehicles")}>
-        <table className="table mb-3">
+        <table className="table table-stack mb-3">
           <thead><tr><th>{t("settings.vehicle_code")}</th><th>{t("settings.plate")}</th><th>{t("settings.owner")}</th><th>{t("app.active")}</th></tr></thead>
           <tbody>
             {(vehicles.data ?? []).map((v) => (
@@ -119,7 +119,7 @@ export default function CompanySettingsPage() {
                     <option value="">—</option>{(users.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
                   </Select>
                 </td>
-                <td><input type="checkbox" checked={v.is_active} onChange={(e) => upsertVehicle.mutate({ id: v.id, code: v.code, plate: v.plate ?? "", owner: v.owner_user_id, active: e.target.checked })} /></td>
+                <td><input type="checkbox" className="h-6 w-6" checked={v.is_active} onChange={(e) => upsertVehicle.mutate({ id: v.id, code: v.code, plate: v.plate ?? "", owner: v.owner_user_id, active: e.target.checked })} /></td>
               </tr>
             ))}
           </tbody>
@@ -151,7 +151,7 @@ function TelegramGroupCard({ current }: { current?: { telegram_group_chat_id: nu
       <p className="text-sm mb-3">{t("settings.tg_current")}: {set ? <Badge tone="green">{current?.telegram_group_title || String(current?.telegram_group_chat_id)}</Badge> : <Badge>{t("settings.tg_none")}</Badge>}</p>
       {code ? (
         <div className="space-y-2" data-testid="tg-group-code">
-          <p className="text-sm text-muted">{t("settings.tg_steps", { bot: code.bot ?? "hangkh_bot" })}</p>
+          <p className="text-sm text-muted">{t("settings.tg_steps", { bot: code.bot ?? "—" })}</p>
           <div className="flex gap-2 items-center flex-wrap">
             <code className="px-3 py-2 rounded bg-grey-bg border border-grey-line text-base font-semibold select-all">{code.command}</code>
             <Button onClick={() => void copy()}><Copy size={16} /> {t("settings.copy")}</Button>

@@ -4,7 +4,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BOARD_COLUMNS, type BookingStatus } from "@sms/shared";
 import { Clock, MapPin, Plus, Users } from "lucide-react";
-import { api, fmtDateTime, type Booking } from "@/lib/api";
+import { api, fmtDate, type Booking } from "@/lib/api";
+import { timeRange } from "./time";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Empty, ErrorState, Input, Skeleton } from "@/components/ui";
 import { CategoryBadge, StatusBadge, TypeBadge } from "./parts";
@@ -17,26 +18,28 @@ export default function BookingsPage() {
   const [view, setView] = useState<"board" | "list">(() => (window.innerWidth < 768 ? "list" : "board"));
   const [q, setQ] = useState("");
   const [hideClosed, setHideClosed] = useState(true);
+  const [showCancelled, setShowCancelled] = useState(false); // R4: cancelled bookings are kept, shown on demand
   const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 60_000 });
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (bookings.data ?? []).filter((b) => (!hideClosed || !["closed", "cancelled"].includes(b.status)) &&
+    return (bookings.data ?? []).filter((b) => (b.status === "cancelled" ? showCancelled : !hideClosed || b.status !== "closed") &&
       (!s || b.number.toLowerCase().includes(s) || b.customer_name.toLowerCase().includes(s) || b.service_text.toLowerCase().includes(s) || (b.technicians ?? []).some((x) => x.full_name.toLowerCase().includes(s))));
-  }, [bookings.data, q, hideClosed]);
+  }, [bookings.data, q, hideClosed, showCancelled]);
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 gap-3">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
         <h1>{t("booking.title")}</h1>
         {can("booking.create") && <Button variant="primary" onClick={() => nav("/bookings/new")}><Plus size={16} /> {t("booking.new")}</Button>}
       </div>
       <div className="flex flex-wrap items-center gap-3 mb-3">
-        <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
-        <label className="flex items-center gap-2 text-sm !mb-0 !text-ink"><input type="checkbox" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} /> {t("booking.hide_closed")}</label>
+        <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
+        <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} /> {t("booking.hide_closed")}</label>
+        <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} data-testid="show-cancelled" /> {t("booking.show_cancelled")}</label>
         <div className="ml-auto flex rounded-md border border-grey-line overflow-hidden text-sm">
-          <button className={`px-3 py-1.5 ${view === "board" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("board")}>{t("booking.view_board")}</button>
-          <button className={`px-3 py-1.5 ${view === "list" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("list")}>{t("booking.view_list")}</button>
+          <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "board" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("board")}>{t("booking.view_board")}</button>
+          <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "list" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("list")}>{t("booking.view_list")}</button>
         </div>
       </div>
       {bookings.isLoading ? <Skeleton /> : bookings.isError ? <ErrorState text={t("app.error")} onRetry={() => void bookings.refetch()} /> : rows.length === 0 ? (
@@ -47,18 +50,19 @@ export default function BookingsPage() {
 }
 
 function BookingCard({ b }: { b: Booking }) {
-  const lead = b.technicians?.find((x) => x.role === "lead");
+  const { t } = useTranslation();
+  const lead = b.technicians?.find((x) => x.role === "lead") ?? b.technicians?.[0];
   return (
-    <Link to={`/bookings/${b.id}`} className="block card p-3 hover:border-blue transition-colors" data-testid="booking-card">
+    <Link to={`/bookings/${b.id}`} className={`block card p-3 hover:border-blue transition-colors ${b.status === "cancelled" ? "opacity-70" : ""}`} data-testid="booking-card">
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="font-mono text-xs text-muted">{b.number}</span>
         <TypeBadge type={b.type} />
       </div>
-      <div className="font-semibold truncate">{b.customer_name}</div>
+      <div className="font-semibold break-words">{b.customer_name}</div>
       <div className="text-sm text-ink line-clamp-2">{b.service_text}</div>
       <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted">
-        <span className="inline-flex items-center gap-1"><Clock size={12} /> {fmtDateTime(b.scheduled_at)}</span>
-        {b.zone === "inside" && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {b.zone === "inside" ? "ក្នុងបុរី" : ""}</span>}
+        <span className="inline-flex items-center gap-1 tabular"><Clock size={12} /> {b.scheduled_at ? `${fmtDate(b.scheduled_at)} · ${timeRange(b.scheduled_at, b.ends_at)}` : "—"}</span>
+        {b.zone === "inside" && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {t("zone.inside")}</span>}
         {lead && <span className="inline-flex items-center gap-1"><Users size={12} /> {lead.full_name}{(b.technicians?.length ?? 0) > 1 ? ` +${(b.technicians!.length - 1)}` : ""}</span>}
       </div>
       <div className="mt-2 flex gap-1"><CategoryBadge category={b.category} /><StatusBadge status={b.status} /></div>
@@ -98,7 +102,7 @@ function List({ rows }: { rows: Booking[] }) {
                   <td className="font-mono text-xs"><Link className="text-blue" to={`/bookings/${b.id}`}>{b.number}</Link> <TypeBadge type={b.type} /></td>
                   <td className="font-semibold">{b.customer_name}</td>
                   <td className="max-w-[320px] truncate" title={b.service_text}>{b.service_text}</td>
-                  <td className="tabular whitespace-nowrap">{fmtDateTime(b.scheduled_at)}</td>
+                  <td className="tabular whitespace-nowrap">{b.scheduled_at ? `${fmtDate(b.scheduled_at)} · ${timeRange(b.scheduled_at, b.ends_at)}` : "—"}</td>
                   <td className="text-sm">{(b.technicians ?? []).map((x) => x.full_name).join(", ") || "—"}</td>
                   <td><StatusBadge status={b.status} /></td>
                 </tr>

@@ -6,6 +6,7 @@ import { config } from "../config.js";
 import { sql } from "../db.js";
 import { AppError } from "../lib/errors.js";
 import { safeEqual } from "../lib/secure.js";
+import { shopBotCode } from "@sms/shared";
 import { consumeGroupCode, consumeLinkCode } from "../services/telegram.js";
 
 const tgSchema = z.object({
@@ -24,8 +25,9 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
 
   app.post("/telegram", async (req) => {
     const b = tgSchema.parse(req.body);
-    if (!b.code.toUpperCase().startsWith(`${config.shop.code}-`)) return { ok: false, error: "WRONG_SHOP", reply: "❌ កូដនេះមិនមែនសម្រាប់ហាងនេះទេ។" };
-    const code = b.code.toUpperCase();
+    // T3: plain codes from this shop's own bot; old prefixed codes only when they carry THIS shop's prefix
+    const code = shopBotCode(b.code, config.shop.code, b.kind === "link" ? "staff" : "group");
+    if (!code) return { ok: false, error: "WRONG_SHOP", reply: "❌ កូដនេះមិនមែនសម្រាប់ហាងនេះទេ។" };
     return b.kind === "link" ? consumeLinkCode(code, b.tg_user, b.chat_id) : consumeGroupCode(code, b.chat_id, b.chat_title.slice(0, 120));
   });
 

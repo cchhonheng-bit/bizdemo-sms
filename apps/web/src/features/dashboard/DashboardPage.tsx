@@ -3,7 +3,8 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { api, fmtDate, fmtTime } from "@/lib/api";
+import { api, fmtDate } from "@/lib/api";
+import { timeRange } from "@/features/bookings/time";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Empty, Skeleton } from "@/components/ui";
 import { StatusBadge } from "@/features/bookings/parts";
@@ -37,7 +38,7 @@ export default function DashboardPage() {
           <ul className="divide-y divide-grey-line">
             {today.map((b) => (
               <li key={b.id}><Link to={`/bookings/${b.id}`} className="flex items-center gap-3 py-2 hover:bg-grey-bg -mx-2 px-2 rounded">
-                <span className="tabular font-bold w-14">{fmtTime(b.scheduled_at)}</span>
+                <span className="tabular font-bold shrink-0 whitespace-nowrap">{timeRange(b.scheduled_at, b.ends_at)}</span>
                 <span className="font-mono text-xs text-muted">{b.number}</span>
                 <span className="font-semibold truncate">{b.customer_name}</span>
                 <span className="text-sm text-muted truncate hidden sm:inline">{(b.technicians ?? []).map((x) => x.full_name).join(", ")}</span>

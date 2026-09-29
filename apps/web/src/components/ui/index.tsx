@@ -1,4 +1,4 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef } from "react";
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { X } from "lucide-react";
 import { useToast } from "@/lib/toast";
@@ -58,18 +58,31 @@ export function Badge({ tone = "grey", children }: { tone?: keyof typeof BADGE; 
   return <span className={`badge ${BADGE[tone]}`}>{children}</span>;
 }
 
-// ---------- Dialog ----------
+// ---------- ActionBar (sticky primary actions on phones) ----------
+export function ActionBar({ children }: { children: ReactNode }) {
+  return <div className="action-bar">{children}</div>;
+}
+
+// ---------- Dialog: bottom sheet on phones (fits the visible screen, body scrolls, header + footer stay) ----------
 export function Dialog({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden"; // no background scroll behind the sheet
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener("keydown", onKey); };
+  }, [open, onClose]);
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose} role="presentation">
-      <div className="card w-full sm:max-w-lg max-h-[92vh] overflow-auto rounded-b-none sm:rounded-md" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
-        <header className="flex items-center justify-between px-4 py-3 border-b border-grey-line">
-          <h2 className="text-base">{title}</h2>
-          <button className="p-1 rounded hover:bg-grey-bg" onClick={onClose} aria-label="close"><X size={18} /></button>
+      <div className="card w-full sm:max-w-lg max-h-[92dvh] flex flex-col rounded-b-none sm:rounded-md" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+        <header className="flex items-center justify-between gap-2 pl-4 pr-1 py-1 border-b border-grey-line shrink-0">
+          <h2 className="text-base min-w-0 break-words py-2">{title}</h2>
+          <button className="tap-target rounded hover:bg-grey-bg" onClick={onClose} aria-label="close"><X size={20} /></button>
         </header>
-        <div className="p-4">{children}</div>
-        {footer && <footer className="px-4 py-3 border-t border-grey-line flex justify-end gap-2">{footer}</footer>}
+        <div className="p-4 overflow-y-auto overscroll-contain min-h-0">{children}</div>
+        {footer && <footer className="px-4 py-3 border-t border-grey-line flex flex-wrap justify-end gap-2 shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</footer>}
       </div>
     </div>
   );
@@ -104,10 +117,10 @@ export function Toaster() {
   const { toasts, remove } = useToast();
   const tone = { success: "bg-success text-white", error: "bg-danger text-white", info: "bg-navy text-white" };
   return (
-    <div className="fixed bottom-20 sm:bottom-4 right-4 z-[60] space-y-2" aria-live="polite">
+    <div className="fixed inset-x-4 sm:inset-x-auto bottom-[calc(5rem+env(safe-area-inset-bottom))] sm:bottom-4 sm:right-4 z-[60] space-y-2" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.id} className={`${tone[t.kind]} rounded-md px-4 py-2 shadow-drawer text-sm flex items-center gap-3`}>
-          <span>{t.text}</span><button onClick={() => remove(t.id)} aria-label="dismiss"><X size={14} /></button>
+          <span className="flex-1 break-words">{t.text}</span><button className="tap-target -my-2 -mr-2" onClick={() => remove(t.id)} aria-label="dismiss"><X size={16} /></button>
         </div>
       ))}
     </div>

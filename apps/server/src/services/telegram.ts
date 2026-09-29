@@ -1,12 +1,11 @@
 // Telegram (shop side, v2.1): outbox (queue in DB, retry ≤ 5, blocked chat → failed at once — D-15) delivered
 // THROUGH THE HUB (the shop has no bot token — D-51), "Booking Confirmed" text (Architecture §8.1),
 // staff/group codes ONETEAM-S-xxxxxx / ONETEAM-G-xxxxxx (A3, S-11) validated when the hub forwards them.
-import { deepLink } from "@sms/shared";
-import { config } from "../config.js";
+import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN } from "@sms/shared";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
 import { audit } from "./audit.js";
-import { hubCall, hubConfigured, sendViaHub } from "./hub-client.js";
+import { hubCall, hubConfigured, sendViaHub, shopBotUsername } from "./hub-client.js";
 
 export type SendResult = { ok: true } | { ok: false; error: string; permanent: boolean; retryAfter?: number };
 
@@ -56,15 +55,16 @@ export async function flushOutbox(limit = 20, send: (chatId: number | string, te
 // ---------- Booking Confirmed text -----------------------------------------------------
 export async function bookingConfirmedText(db: Db, bookingId: string): Promise<{ text: string; markup: unknown | null; companyId: string; number: string }> {
   const b = (await db<{
-    number: string; service_text: string; scheduled_at: Date | null; address: string | null; zone: string; notes: string | null; lat: number | null; lng: number | null;
+    number: string; service_text: string; scheduled_at: Date | null; ends_at: Date | null; address: string | null; zone: string; notes: string | null; lat: number | null; lng: number | null;
     cname: string; phones: string[]; vcode: string | null; timezone: string; company_id: string;
-  }[]>`select bk.number, bk.service_text, bk.scheduled_at, bk.address, bk.zone, bk.notes, bk.lat, bk.lng, bk.company_id,
+  }[]>`select bk.number, bk.service_text, bk.scheduled_at, bk.ends_at, bk.address, bk.zone, bk.notes, bk.lat, bk.lng, bk.company_id,
               c.name as cname, c.phones, v.code as vcode, co.timezone
        from bookings bk join customers c on c.id = bk.customer_id left join vehicles v on v.id = bk.vehicle_id join companies co on co.id = bk.company_id
        where bk.id = ${bookingId}`)[0]!;
   const techs = await db<{ full_name: string; role: string }[]>`select u.full_name, t.role from booking_technicians t join users u on u.id = t.user_id
        where t.booking_id = ${bookingId} order by t.role, u.full_name`;
-  const dt = b.scheduled_at ? fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh") : "—";
+  const tz = b.timezone || "Asia/Phnom_Penh";
+  const dt = b.scheduled_at ? fmtLocal(b.scheduled_at, tz) + (b.ends_at ? `–${fmtLocal(b.ends_at, tz).slice(-5)}` : "") : "—";
   const techLine = techs.length ? techs.map((t, i) => `${i + 1}. ${t.full_name}${t.role === "lead" ? " (មេជាង)" : ""}`).join("  ") : "—";
   const text = [
     `✅ Booking Confirmed (${b.number})`,
@@ -100,6 +100,28 @@ export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason:
   }
 }
 
+/** R4: the group + every linked technician of the (former) team get a cancel notice; technicians an in-app notification. */
+export async function enqueueBookingCancelled(db: Db, bookingId: string, reason: string): Promise<void> {
+  const b = (await db<{ number: string; company_id: string; scheduled_at: Date | null; cname: string; timezone: string }[]>`
+    select bk.number, bk.company_id, bk.scheduled_at, c.name as cname, co.timezone from bookings bk join customers c on c.id = bk.customer_id join companies co on co.id = bk.company_id
+    where bk.id = ${bookingId}`)[0]!;
+  const text = [
+    `❌ Booking Cancelled (${b.number})`,
+    `📅 ${b.scheduled_at ? fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh") : "—"}`,
+    `👤 អតិថិជន: ${b.cname}`,
+    `📝 មូលហេតុ: ${reason}`,
+    "ការងារនេះត្រូវបានលុបចោល — មិនចាំបាច់ចុះទីតាំងទេ។",
+  ].join("\n");
+  const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
+  if (group) await enqueue(db, b.company_id, group, text, null, `cancel:${bookingId}:group`);
+  const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
+  for (const m of team) {
+    await db`insert into notifications (company_id, user_id, kind, title, body, link)
+             values (${b.company_id}, ${m.id}, 'booking.cancelled', ${b.number + " · បានលុបចោល"}, ${reason.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, null, `cancel:${bookingId}:${m.id}`);
+  }
+}
+
 // ---------- codes (A3 · S-11) ---------------------------------------------------------------
 const STAFF_TTL = "10 minutes", GROUP_TTL = "24 hours";
 
@@ -109,7 +131,8 @@ async function newCode(kind: "staff" | "group", companyId: string, createdBy: st
     if (kind === "staff") await t`delete from telegram_link_codes where (kind = 'staff' and user_id = ${userId} and used_at is null) or expires_at < now() - interval '1 day'`;
     else await t`delete from telegram_link_codes where (kind = 'group' and company_id = ${companyId} and used_at is null) or expires_at < now() - interval '1 day'`;
     for (let i = 0; i < 5; i++) {
-      const code = `${config.shop.code}-${kind === "staff" ? "S" : "G"}-${randomCode()}`;
+      // T3: plain random codes inside the shop's own bot (staff 8 chars in a deep link, group 6 chars typed after /register)
+      const code = randomCode(kind === "staff" ? STAFF_CODE_LEN : GROUP_CODE_LEN);
       const r = await t<{ expires_at: Date }[]>`insert into telegram_link_codes (code, kind, company_id, user_id, created_by, expires_at)
         values (${code}, ${kind}, ${companyId}, ${userId}, ${createdBy}, now() + ${kind === "staff" ? STAFF_TTL : GROUP_TTL}::interval)
         on conflict (code) do nothing returning expires_at`;
@@ -119,22 +142,24 @@ async function newCode(kind: "staff" | "group", companyId: string, createdBy: st
   }) as Promise<{ code: string; expires_at: Date }>;
 }
 
-/** App button «ភ្ជាប់ Telegram» → deep link t.me/hangkh_bot?start=ONETEAM-S-XXXXXX (10 min, single use). */
-export async function createLinkCode(userId: string, companyId: string): Promise<{ code: string; link: string; expires_at: Date }> {
+/** App button «ភ្ជាប់ Telegram» → deep link t.me/<shop bot>?start=XXXXXXXX (10 min, single use — T3). */
+export async function createLinkCode(userId: string, companyId: string): Promise<{ code: string; link: string | null; expires_at: Date; bot: string | null }> {
+  const bot = await shopBotUsername();
   const c = await newCode("staff", companyId, userId, userId);
-  return { ...c, link: deepLink(config.telegram.botUsername, c.code) };
+  return { ...c, bot, link: bot ? deepLink(bot, c.code) : null };
 }
 
-/** Settings → group code for "/register ONETEAM-G-XXXXXX" in the company's Telegram group (24 h, single use). */
-export async function createGroupCode(userId: string, companyId: string): Promise<{ code: string; command: string; expires_at: Date }> {
+/** Settings → group code for "/register XXXXXX" in the company's Telegram group, typed to the shop's own bot (24 h, single use). */
+export async function createGroupCode(userId: string, companyId: string): Promise<{ code: string; command: string; expires_at: Date; bot: string | null }> {
+  const bot = await shopBotUsername();
   const c = await newCode("group", companyId, userId, null);
   await audit(sql, { companyId, userId, action: "telegram.group_code", table: "telegram_link_codes", new: { expires_at: c.expires_at } });
-  return { ...c, command: `/register ${c.code}` };
+  return { ...c, bot, command: `/register ${c.code}` };
 }
 
 type Consumed = { ok: true; reply: string } | { ok: false; reply: string; error: string };
 
-/** Hub forwards "/start ONETEAM-S-XXXXXX" from a private chat. A Telegram account links to one user of this shop (F-M2-03). */
+/** Hub forwards "/start XXXXXXXX" (sent to this shop's bot) from a private chat. A Telegram account links to one user of this shop (F-M2-03). */
 export async function consumeLinkCode(code: string, tgUser: number, chatId: number): Promise<Consumed> {
   const forgetLater: string[] = [];
   const result = await sql.begin(async (t) => {
@@ -161,7 +186,7 @@ export async function hubForgetChat(chatId: string | number): Promise<void> {
   await hubCall("POST", "/internal/chat-forget", { chat_id: String(chatId) }).catch(() => undefined);
 }
 
-/** Hub forwards "/register ONETEAM-G-XXXXXX" from a group/supergroup → the company's work group. */
+/** Hub forwards "/register XXXXXX" (sent to this shop's bot) from a group/supergroup → the company's work group. */
 export async function consumeGroupCode(code: string, chatId: number, title: string): Promise<Consumed> {
   return sql.begin(async (t) => {
     const row = (await t<{ company_id: string; created_by: string }[]>`select company_id, created_by from telegram_link_codes

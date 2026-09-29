@@ -1,26 +1,31 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { assignSchema, bookingSchema, BOOKING_STATUSES } from "@sms/shared";
+import { assignSchema, bookingSchema, cancelSchema, BOOKING_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
-import { assignBooking, availability, createBooking, getBooking, listBookings, statusLog, updateBooking } from "../services/bookings.js";
+import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
 
 const idParam = z.object({ id: z.string().uuid() });
+const iso = z.string().datetime({ offset: true });
 
 export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireAuth);
 
   app.get("/", async (req) => {
-    const q = z.object({ status: z.string().max(300).optional(), from: z.string().datetime({ offset: true }).optional(), to: z.string().datetime({ offset: true }).optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query ?? {});
+    const q = z.object({ status: z.string().max(300).optional(), from: iso.optional(), to: iso.optional(), limit: z.coerce.number().int().min(1).max(1000).optional() }).parse(req.query ?? {});
     const statuses = q.status ? q.status.split(",").filter((s) => (BOOKING_STATUSES as readonly string[]).includes(s)) as never[] : undefined;
     return listBookings(req.user!, { statuses, from: q.from, to: q.to, limit: q.limit });
   });
 
-  // GET /api/bookings/availability?at=ISO — assigners only (F-M2-02)
+  // R1: GET /api/bookings/availability?from=ISO&to=ISO[&exclude=<booking id>] — assigners only (F-M2-02)
+  //     (legacy ?at=ISO = a 2-hour window from that time)
   app.get("/availability", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
-    const { at } = z.object({ at: z.string().datetime({ offset: true }) }).parse(req.query ?? {});
-    return availability(req.user!, at);
+    const q = z.object({ from: iso.optional(), to: iso.optional(), at: iso.optional(), exclude: z.string().uuid().optional() }).parse(req.query ?? {});
+    const from = q.from ?? q.at;
+    if (!from) throw new AppError("SCHEDULE_REQUIRED", 400);
+    const to = q.to ?? new Date(new Date(from).getTime() + 2 * 3600_000).toISOString();
+    return availability(req.user!, from, to, q.exclude ?? null);
   });
 
   app.get("/:id", async (req) => getBooking(req.user!, idParam.parse(req.params).id));
@@ -30,7 +35,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     if (!req.perms.includes("booking.create")) throw new AppError("FORBIDDEN", 403);
     const b = bookingSchema.parse(req.body);
     return createBooking(req.user!, req.ip, {
-      customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, scheduled_at: b.scheduled_at || null,
+      customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, service_item_id: b.service_item_id || null,
+      scheduled_at: b.scheduled_at || null, ends_at: b.ends_at || null,
       address: b.address || null, lat: b.lat ?? null, lng: b.lng ?? null, zone: b.zone, vehicle_id: b.vehicle_id || null, notes: b.notes || null,
     });
   });
@@ -45,8 +51,19 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/assign", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
     const a = assignSchema.parse(req.body);
-    const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, { lead: a.lead, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at });
+    const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, {
+      lead: a.lead || null, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at, ends_at: a.ends_at || null,
+    });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // deliver right away; cron is the backstop (D-15)
+    return r;
+  });
+
+  // R4: CEO / GM / Admin (permission cancel.request — all three by default), reason required
+  app.post("/:id/cancel", async (req) => {
+    if (!req.perms.includes("cancel.request")) throw new AppError("FORBIDDEN", 403);
+    const { reason } = cancelSchema.parse(req.body ?? {});
+    const r = await cancelBooking(req.user!, req.ip, idParam.parse(req.params).id, reason);
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
   });
 };

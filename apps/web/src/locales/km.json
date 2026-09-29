@@ -21,7 +21,8 @@
     "language": "ភាសា",
     "logout": "ចាកចេញ",
     "active": "សកម្ម",
-    "inactive": "បិទ"
+    "inactive": "បិទ",
+    "back": "ត្រឡប់"
   },
   "nav": {
     "dashboard": "ផ្ទាំងគ្រប់គ្រង",
@@ -34,7 +35,8 @@
     "today": "ថ្ងៃនេះ",
     "attendance": "វត្តមាន",
     "notifications": "ជូនដំណឹង",
-    "subscribe": "អតិថិជន Telegram"
+    "subscribe": "អតិថិជន Telegram",
+    "more": "ច្រើនទៀត"
   },
   "roles": {
     "ceo": "CEO",
@@ -220,7 +222,9 @@
     "all_categories": "គ្រប់ក្រុម",
     "deactivate": "បិទធាតុ",
     "activate": "បើកធាតុ",
-    "err_price": "តម្លៃមិនត្រឹមត្រូវ"
+    "err_price": "តម្លៃមិនត្រឹមត្រូវ",
+    "duration": "រយៈពេលការងារ (នាទី)",
+    "duration_hint": "ពេលវេលាធម្មតាដែលជាងត្រូវការ — ម៉ោងបញ្ចប់ Booking គិតពីនេះ (កែបានតាម Booking)។"
   },
   "booking": {
     "title": "ការងារ / Booking",
@@ -294,8 +298,45 @@
       "HOST_NOT_ALLOWED": "គាំទ្រតែតំណ Google Maps",
       "NO_COORDINATES": "តំណនេះគ្មានកូអរដោនេ",
       "NETWORK": "មិនអាចភ្ជាប់ Server",
-      "UNAUTHENTICATED": "សូមចូលប្រព័ន្ធម្ដងទៀត"
-    }
+      "UNAUTHENTICATED": "សូមចូលប្រព័ន្ធម្ដងទៀត",
+      "START_IN_PAST": "ម៉ោងចាប់ផ្តើមបានកន្លងហើយ",
+      "END_BEFORE_START": "ម៉ោងបញ្ចប់ត្រូវក្រោយម៉ោងចាប់ផ្តើម",
+      "START_REQUIRED": "សូមកំណត់ម៉ោងចាប់ផ្តើម",
+      "DATE_REQUIRED": "សូមកំណត់ថ្ងៃជាមុន",
+      "TECH_UNAVAILABLE": "ជាងម្នាក់មានការងារផ្សេងនៅម៉ោងនេះរួចហើយ",
+      "VEHICLE_UNAVAILABLE": "ឡាននេះកំពុងប្រើនៅម៉ោងនេះ",
+      "TEAM_REQUIRED": "សូមជ្រើសជាងយ៉ាងតិច 1 នាក់",
+      "BOOKING_NOT_CANCELLABLE": "Booking នេះមិនអាចលុបចោលបានទៀតទេ (រួចរាល់ ឬចេញវិក្កយបត្ររួច)",
+      "REASON_REQUIRED": "សូមបញ្ចូលមូលហេតុ",
+      "SERVICE_NOT_FOUND": "រកមិនឃើញសេវាកម្ម",
+      "SCHEDULE_CONFLICT": "ម៉ោងជាន់គ្នា",
+      "DURATION_RANGE": "15–1440 នាទី"
+    },
+    "service_item": "សេវាកម្ម (ពីបញ្ជី)",
+    "service_item_hint": "កំណត់រយៈពេល: {{minutes}} នាទី",
+    "service_item_none": "— គ្មាន (2 ម៉ោង) —",
+    "date": "ថ្ងៃ",
+    "start": "ចាប់ផ្តើម",
+    "end": "បញ្ចប់",
+    "vehicle_hint": "ឡានដែលកំពុងប្រើនៅម៉ោងនេះ នឹងត្រូវបដិសេធ",
+    "crew": "ជាង (យ៉ាងតិច 1 នាក់)",
+    "crew_hint": "បង្ហាញតែអ្នកទំនេរនៅម៉ោងនេះ · ចុច «មេជាង» ដើម្បីកំណត់មេជាង (ស្រេចចិត្ត)",
+    "nobody_free": "គ្មានជាងទំនេរនៅម៉ោងនេះទេ — សូមជ្រើសម៉ោងផ្សេង",
+    "not_available": "{{n}} នាក់មិនទំនេរ — ហេតុអ្វី?",
+    "reason": {
+      "BUSY": "មានការងារផ្សេង",
+      "LEAVE": "ច្បាប់ឈប់សម្រាក",
+      "ABSENT": "អវត្តមាន"
+    },
+    "vehicles_busy_hidden": "ឡានដែលកំពុងប្រើនៅម៉ោងនេះ ត្រូវបានលាក់",
+    "cancel": "លុបចោល Booking",
+    "cancel_confirm": "លុបចោល Booking នេះ",
+    "cancel_warning": "Booking នៅក្នុងប្រវត្តិជា «បានលុបចោល»។ ជាង និងឡាន ទំនេរវិញ ហើយក្រុម + Group Telegram ទទួលដំណឹង។",
+    "cancel_reason": "មូលហេតុ",
+    "cancel_reason_hint": "ចាំបាច់ · ក្រុមការងារមើលឃើញ",
+    "cancelled_ok": "{{number}} បានលុបចោល",
+    "cancelled_banner": "បានលុបចោល",
+    "show_cancelled": "បង្ហាញដែលបានលុបចោល"
   },
   "tech": {
     "hello": "សួស្ដី {{name}}",

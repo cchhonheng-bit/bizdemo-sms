@@ -25,7 +25,11 @@ while [ $# -gt 0 ]; do
 done
 [[ "$ref" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "bad ref"; exit 1; }
 
-stop() { echo; echo "!! DEPLOY STOPPED — $*"; echo "!! The running version keeps running."; exit 1; }
+# T4: tell the owner through the master bot (best effort; the hub throttles nothing for deploy alerts)
+alert() { "$ROOT/bin/dc" exec -T app-hub node dist/cli.mjs alert "$1" "$2" >/dev/null 2>&1 || true; }
+stop() { echo; echo "!! DEPLOY STOPPED — $*"; echo "!! The running version keeps running."; [ "${HANGKH_DEPLOY_STAGE:-0}" = 1 ] && [ "${target:-}" != test ] && alert deploy "❌ deploy ${target:-?} STOPPED — $* (the running version keeps running)"; exit 1; }
+# secrets the new version needs are generated here, on the server, never shown (D-68: bot-token encryption key)
+ensure_secret() { grep -q "^$1=" "$ROOT/.env" || { (umask 077; printf '%s=%s\n' "$1" "$(openssl rand -base64 32)" >> "$ROOT/.env"); echo "    generated $1 in .env (not shown)"; }; }
 say() { echo; echo "==> $*"; }
 
 # ---- stage 0 (the installed copy): lock, pull, then hand over to the pulled copy of this script ----
@@ -98,9 +102,11 @@ else
 fi
 rm -rf "$BUILD"
 
+ensure_secret HUB_TOKEN_KEY
 say "5/6 switch + restart + health (unhealthy ⇒ automatic rollback)"
 if ! bash "$ROOT/.incoming/bin/remote-deploy.sh" "$target" "$tag"; then
   echo "$(date '+%F %T') FAIL+ROLLBACK $target $image" >> "$ROOT/deploys.log"
+  alert deploy "❌ deploy $target $image FAILED health — previous version put back automatically"
   echo; echo "!! DEPLOY FAILED — the new version was not healthy; the previous version was put back (see above)."; exit 1
 fi
 
@@ -116,6 +122,7 @@ cp "$SRC/deploy/server/deploy.sh" "$ROOT/.deploy.sh.new" && sed -i 's/\r$//' "$R
 if [ $ok = 1 ]; then
   echo "$(date '+%F %T') OK $target $image $(git -C "$SRC" log -1 --format=%s | cut -c1-80)" >> "$ROOT/deploys.log"
   echo; echo "DEPLOYED $image → $target  ($(git -C "$SRC" log -1 --format='%h %s' | cut -c1-80))"
+  alert deploy "✅ deployed $target $image — $(git -C "$SRC" log -1 --format=%s | cut -c1-120)"
 else
   echo "$(date '+%F %T') WARN-HTTPS $target $image" >> "$ROOT/deploys.log"
   echo; echo "!! containers are healthy but the public HTTPS check failed — check Caddy / DNS"; exit 2

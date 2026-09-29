@@ -8,14 +8,14 @@ export type Customer = {
 };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
-  sell_price: number | null; cost_price: number | null; is_active: boolean;
+  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean;
 };
 export type Technician = { user_id: string; role: "lead" | "assistant"; full_name: string };
 export type Booking = {
   id: string; number: string; customer_id: string; customer_name: string; customer_phones: string[];
-  type: BookingType; category: ServiceCategory; status: BookingStatus; service_text: string; scheduled_at: string | null;
+  type: BookingType; category: ServiceCategory; status: BookingStatus; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null;
   address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; vehicle_code: string | null;
-  notes: string | null; cancel_reason: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
+  notes: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
   technicians: Technician[] | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
@@ -26,7 +26,13 @@ export type UserRow = {
 };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
-export type Availability = { user_id: string; full_name: string; role: string; busy: { number: string; scheduled_at: string }[] };
+export type Busy = { number: string; scheduled_at: string; ends_at: string };
+/** R1: who and what is free for a time window (reason BUSY today; leave/absence with M4) */
+export type Availability = {
+  people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[] }[];
+  vehicles: { id: string; code: string; plate: string | null; available: boolean; reason: string | null; busy: Busy[] }[];
+};
+export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
 /** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
@@ -44,7 +50,7 @@ const q = (o: Record<string, string | number | undefined>) => {
 };
 
 export type AppConfig = { appName: string; companyName: string; telegramBot: string | null; shopCode: string; features: FeatureFlag[] };
-export type SubscribeInfo = { link: string; bot: string; shop: string; enabled: boolean; total: number; promo: number; stopped: number;
+export type SubscribeInfo = { link: string | null; bot: string | null; shop: string; enabled: boolean; total: number; promo: number; stopped: number;
   subscribers: { first_name: string | null; username: string | null; subscribed_at: string; promo: boolean; stopped: boolean }[] };
 export type BroadcastRow = { id: number; kind: "service" | "promo"; text: string; created_by_name: string | null; recipients: number; created_at: string; sent: number; failed: number; pending: number };
 
@@ -57,20 +63,21 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
-  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null }) =>
-    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null })).id,
+  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number }) =>
+    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
 
   bookings: (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) =>
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
   booking: (id: string) => get<Booking>(`/api/bookings/${id}`),
   statusLog: (id: string) => get<StatusLog[]>(`/api/bookings/${id}/log`),
-  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; scheduled_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
-    post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, scheduled_at: v.scheduled_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
+  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
+    post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
-  assignBooking: (v: { id: string; lead: string; assistants: string[]; vehicle_id: string | null; scheduled_at: string }) =>
-    post<{ id: string; status: BookingStatus; conflicts: { user_id: string; number: string; scheduled_at: string }[] }>(`/api/bookings/${v.id}/assign`, { lead: v.lead, assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at }),
-  availability: (at: string) => get<Availability[]>(`/api/bookings/availability${q({ at })}`),
+  assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string; ends_at: string | null }) =>
+    post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at, ends_at: v.ends_at ?? "" }),
+  availability: (from: string, to: string, exclude?: string) => get<Availability>(`/api/bookings/availability${q({ from, to, exclude })}`),
+  cancelBooking: (id: string, reason: string) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason }),
 
   usersBasic: async () => (await get<UserBasic[]>("/api/users/basic")).filter((u) => u.is_active),
   users: () => get<UserRow[]>("/api/users"),
@@ -89,7 +96,7 @@ export const api = {
   notifications: () => get<Notification[]>("/api/notifications"),
   unreadCount: async () => (await get<{ count: number }>("/api/notifications/unread-count")).count,
   markRead: (id: number) => post(`/api/notifications/${id}/read`, {}),
-  telegramLinkCode: () => post<{ code: string; link: string; bot: string | null; expires_at: string }>("/api/telegram/link-code", {}),
+  telegramLinkCode: () => post<{ code: string; link: string | null; bot: string | null; expires_at: string }>("/api/telegram/link-code", {}),
   telegramGroupCode: () => post<{ code: string; command: string; bot: string | null; expires_at: string }>("/api/telegram/group-code", {}),
 
   subscribe: {

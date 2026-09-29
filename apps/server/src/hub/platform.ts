@@ -8,6 +8,10 @@ import { checkRate } from "../lib/rate-limit.js";
 import { sha256 } from "../lib/secure.js";
 import { esc, layout } from "./pages.js";
 import { callShop, type Shop } from "./shops.js";
+import { AppError } from "../lib/errors.js";
+import { disableBot, enableBot, listBots, MASTER_CODE, rotateSecret, setBot, webhookInfo, type Bot } from "./bots.js";
+import { createAdminLinkCode, sendAlert } from "./alerts.js";
+import { sendMessage } from "./telegram-api.js";
 
 const COOKIE = "hks";
 
@@ -91,6 +95,91 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       <div class="grid"><div class="card"><div class="muted">ហាង</div><div class="num">${shops.length}</div></div><div class="card"><div class="muted">អ្នកចុះឈ្មោះ Telegram</div><div class="num">${subscribers}</div></div>
       <div class="card"><div class="muted">សារចេញ 7 ថ្ងៃ</div><div class="num">${msgs.out_ok}</div><div class="${msgs.out_fail ? "bad" : "muted"}">បរាជ័យ ${msgs.out_fail}</div></div><div class="card"><div class="muted">Commands ចូល 7 ថ្ងៃ</div><div class="num">${msgs.inbound}</div></div></div>
       <div class="card"><table><tr><th>ហាង</th><th>ស្ថានភាព</th><th>បុគ្គលិក / អតិថិជន</th><th>Booking</th><th>Subscribers</th></tr>${rows}</table>
-      <p class="muted">ស្ថិតិសរុបប៉ុណ្ណោះ — Platform មិនបង្ហាញទិន្នន័យបុគ្គលរបស់អតិថិជនហាងទេ (A4)។</p></div>`));
+      <p class="muted">ស្ថិតិសរុបប៉ុណ្ណោះ — Platform មិនបង្ហាញទិន្នន័យបុគ្គលរបស់អតិថិជនហាងទេ (A4)។</p></div>
+      ${flash(req)}${await botsSection(shops, admin.id)}`));
+  });
+  // ---- bots (T6): add / replace / disable / enable / rotate secret / test message. Tokens are pasted here by the owner
+  //      over HTTPS, stored encrypted, and never shown again (only the username). ----
+  const back = (reply: FastifyReply, msg: string) => reply.redirect(`/platform?msg=${encodeURIComponent(msg)}`, 303);
+  const guard = async (req: FastifyRequest, reply: FastifyReply) => {
+    if (!sameOrigin(req)) { reply.status(403).send("forbidden"); return null; }
+    const admin = await adminFrom(req);
+    if (!admin) { reply.redirect("/platform/login", 303); return null; }
+    return admin;
+  };
+  const errText = (e: unknown) => (e instanceof AppError ? e.code : "ERROR");
+
+  app.post("/bots/set", async (req, reply) => {
+    const admin = await guard(req, reply); if (!admin) return reply;
+    const b = (req.body ?? {}) as Record<string, string>;
+    const code = String(b.code ?? "").toUpperCase().slice(0, 20);
+    try {
+      const r = await setBot(code, String(b.token ?? "").slice(0, 200), req.log);
+      req.log.info({ admin: admin.username, bot: r.code, username: r.username }, "platform: bot set");
+      return back(reply, `${r.code}: @${r.username} saved · webhook ${r.webhook.ok ? "OK" : "NOT set"}`);
+    } catch (e) { return back(reply, `${code}: ${errText(e)}`); }
+  });
+  for (const action of ["disable", "enable", "rotate", "test"] as const) {
+    app.post(`/bots/:code/${action}`, async (req, reply) => {
+      const admin = await guard(req, reply); if (!admin) return reply;
+      const code = String((req.params as { code: string }).code).toUpperCase();
+      try {
+        if (action === "disable") await disableBot(code);
+        if (action === "enable") await enableBot(code);
+        if (action === "rotate") await rotateSecret(code);
+        if (action === "test") {
+          const bot = (await listBots()).find((x) => x.code === code);
+          const chat = (await sql<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from hub_admins where id = ${admin.id}`)[0]?.telegram_chat_id;
+          if (!bot) throw new AppError("NOT_FOUND", 404);
+          if (!chat) throw new AppError("LINK_YOUR_TELEGRAM_FIRST", 400);
+          const r = await sendMessage(bot, chat, `🧪 Test from @${bot.username} (${bot.code}) · ${new Date().toISOString()}`);
+          if (!r.ok) throw new AppError(/^40[03]/.test(r.error) ? "OPEN_THE_BOT_AND_PRESS_START_FIRST" : "SEND_FAILED", 400);
+        }
+        req.log.info({ admin: admin.username, bot: code, action }, "platform: bot action");
+        return back(reply, `${code}: ${action} OK`);
+      } catch (e) { return back(reply, `${code}: ${action} failed — ${errText(e)}`); }
+    });
+  }
+  // T4: link the owner's Telegram to the master bot for alerts (deep link, 10 min, single use)
+  app.post("/alerts/link", async (req, reply) => {
+    const admin = await guard(req, reply); if (!admin) return reply;
+    const master = (await listBots()).find((b) => b.code === MASTER_CODE && b.status === "active");
+    if (!master) return back(reply, "Add the master bot (HANGKH) first");
+    const code = await createAdminLinkCode(admin.id);
+    const link = `https://t.me/${master.username}?start=a-${code}`;
+    return noStore(reply).send(layout("Alerts · HangKH", `<div class="card"><h1>Telegram alerts</h1><p>Open this link on your phone within 10 minutes and press Start:</p>
+      <p><a href="${esc(link)}">${esc(link)}</a></p><p><a href="/platform">← Platform</a></p></div>`));
+  });
+  app.post("/alerts/test", async (req, reply) => {
+    const admin = await guard(req, reply); if (!admin) return reply;
+    const n = await sendAlert("test", `Test alert requested by ${admin.username}`, { force: true });
+    return back(reply, n ? `Test alert sent (${n})` : "No alert sent — link your Telegram and add the master bot first");
   });
 };
+
+function flash(req: FastifyRequest): string {
+  const m = (req.query as { msg?: string }).msg;
+  return m ? `<div class="card"><b>${esc(String(m).slice(0, 300))}</b></div>` : "";
+}
+
+async function botsSection(shops: Shop[], adminId: string): Promise<string> {
+  const bots = await listBots();
+  const info = await Promise.all(bots.map((b) => webhookInfo(b).catch(() => null)));
+  const linked = (await sql<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from hub_admins where id = ${adminId}`)[0]?.telegram_chat_id;
+  const act = (b: Bot, a: string, label: string) => `<form class="inline" method="post" action="/platform/bots/${esc(b.code)}/${a}"><button>${label}</button></form>`;
+  const rows = bots.map((b, i) => {
+    const w = info[i];
+    const hook = b.status !== "active" ? '<span class="muted">disabled</span>' : w?.ok ? `<span class="ok">● webhook OK</span>${w.pending ? ` <span class="muted">(pending ${w.pending})</span>` : ""}` : `<span class="bad">● webhook problem</span> <span class="muted">${esc(w?.last_error ?? "")}</span>`;
+    return `<tr><td><b>${esc(b.code)}</b><br><span class="muted">${b.kind === "master" ? "master" : "shop"}</span></td><td>@${esc(b.username)}<br><span class="muted">/tg/${esc(b.path)}</span></td><td>${hook}</td>
+      <td>${act(b, "test", "Test")} ${act(b, "rotate", "Rotate secret")} ${b.status === "active" ? act(b, "disable", "Disable") : act(b, "enable", "Enable")}</td></tr>`;
+  }).join("");
+  const options = [`<option value="${MASTER_CODE}">${MASTER_CODE} — master bot</option>`, ...shops.map((s) => `<option value="${esc(s.code)}">${esc(s.code)} — ${esc(s.name)}</option>`)].join("");
+  return `<div class="card"><h2>Telegram bots</h2>
+    <table><tr><th>Code</th><th>Bot</th><th>Webhook</th><th></th></tr>${rows || '<tr><td colspan="4" class="muted">No bot yet</td></tr>'}</table>
+    <h2>Add / replace a bot</h2><p class="muted">@BotFather → /newbot (or /mybots → API Token) → paste the token here. It is stored encrypted and never shown again.</p>
+    <form method="post" action="/platform/bots/set"><p><select name="code" style="width:100%;padding:10px">${options}</select></p>
+    <p><input name="token" type="password" autocomplete="off" placeholder="123456789:AA…" required></p><p><button>Save bot</button></p></form></div>
+    <div class="card"><h2>Alerts to my Telegram</h2><p>${linked ? '<span class="ok">● linked</span>' : '<span class="muted">not linked</span>'}</p>
+    <form class="inline" method="post" action="/platform/alerts/link"><button>Link my Telegram</button></form>
+    <form class="inline" method="post" action="/platform/alerts/test"><button>Send test alert</button></form></div>`;
+}

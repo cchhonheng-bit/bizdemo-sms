@@ -8,7 +8,9 @@ cd /opt/hangkh
 mkdir -p backups
 DBS=("$@"); [ ${#DBS[@]} -gt 0 ] || DBS=(hub shop_oneteam)
 tmp=""
-trap '[ -n "$tmp" ] && rm -f "$tmp"' EXIT
+# T4: any failure → alert to the owner through the master bot (best effort)
+on_exit() { rc=$?; [ -n "$tmp" ] && rm -f "$tmp"; if [ $rc -ne 0 ]; then "$DC" exec -T app-hub node dist/cli.mjs alert backup "❌ backup FAILED on $(hostname) ($*) — see /opt/hangkh/backups/backup.log" >/dev/null 2>&1 || true; fi; }
+trap on_exit EXIT
 if ! docker volume inspect hangkh_pgdata >/dev/null 2>&1; then echo "backup: no database yet (first install) — skipped."; exit 0; fi
 if [ ! -f compose.yml ] || [ -z "$("$DC" ps -q --status running postgres 2>/dev/null)" ]; then
   echo "backup: postgres is NOT running but its data exists — FAILED (start it: /opt/hangkh/bin/dc up -d postgres)"; exit 1

@@ -72,7 +72,7 @@ export async function callShop(shop: Shop, method: "GET" | "POST", path: string,
 }
 
 // ---------- audit of every message (A3) --------------------------------------------------
-export async function logMessage(e: { direction: "in" | "out"; shop?: string | null; chatId?: number | string | null; tgUser?: number | null; kind: string; text?: string | null; ok?: boolean | null; error?: string | null }): Promise<void> {
-  await sql`insert into hub_message_log (direction, shop_code, chat_id, tg_user, kind, text, ok, error)
-            values (${e.direction}, ${e.shop ?? null}, ${e.chatId == null ? null : String(e.chatId)}::bigint, ${e.tgUser ?? null}, ${e.kind}, ${e.text ?? null}, ${e.ok ?? null}, ${e.error ?? null})`;
+export async function logMessage(e: { direction: "in" | "out"; bot?: string | null; shop?: string | null; chatId?: number | string | null; tgUser?: number | null; kind: string; text?: string | null; ok?: boolean | null; error?: string | null }): Promise<void> {
+  await sql`insert into hub_message_log (direction, bot, shop_code, chat_id, tg_user, kind, text, ok, error)
+            values (${e.direction}, ${e.bot ?? null}, ${e.shop ?? null}, ${e.chatId == null ? null : String(e.chatId)}::bigint, ${e.tgUser ?? null}, ${e.kind}, ${e.text ?? null}, ${e.ok ?? null}, ${e.error ?? null})`;
 }

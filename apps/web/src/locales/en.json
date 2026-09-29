@@ -21,7 +21,8 @@
     "language": "Language",
     "logout": "Log out",
     "active": "Active",
-    "inactive": "Inactive"
+    "inactive": "Inactive",
+    "back": "Back"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -34,7 +35,8 @@
     "today": "Today",
     "attendance": "Attendance",
     "notifications": "Notifications",
-    "subscribe": "Telegram customers"
+    "subscribe": "Telegram customers",
+    "more": "More"
   },
   "roles": {
     "ceo": "CEO",
@@ -220,7 +222,9 @@
     "all_categories": "All categories",
     "deactivate": "Deactivate item",
     "activate": "Activate item",
-    "err_price": "Invalid price"
+    "err_price": "Invalid price",
+    "duration": "Job length (minutes)",
+    "duration_hint": "Default time a technician needs — the booking end time starts from it (can be changed per booking)."
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -294,8 +298,45 @@
       "HOST_NOT_ALLOWED": "Only Google Maps links are supported",
       "NO_COORDINATES": "That link has no coordinates",
       "NETWORK": "Cannot reach the server",
-      "UNAUTHENTICATED": "Please sign in again"
-    }
+      "UNAUTHENTICATED": "Please sign in again",
+      "START_IN_PAST": "The start time is in the past",
+      "END_BEFORE_START": "The end must be after the start",
+      "START_REQUIRED": "Set a start time",
+      "DATE_REQUIRED": "Set the date first",
+      "TECH_UNAVAILABLE": "A technician is already on another job at this time",
+      "VEHICLE_UNAVAILABLE": "The vehicle is already used at this time",
+      "TEAM_REQUIRED": "Pick at least one technician",
+      "BOOKING_NOT_CANCELLABLE": "This booking can no longer be cancelled (finished or invoiced)",
+      "REASON_REQUIRED": "Please give a reason",
+      "SERVICE_NOT_FOUND": "Service not found",
+      "SCHEDULE_CONFLICT": "Time conflict",
+      "DURATION_RANGE": "15–1440 minutes"
+    },
+    "service_item": "Service (from catalog)",
+    "service_item_hint": "Sets the job length: {{minutes}} min",
+    "service_item_none": "— none (2 h) —",
+    "date": "Date",
+    "start": "Start",
+    "end": "End",
+    "vehicle_hint": "A vehicle already used at this time is refused",
+    "crew": "Technicians (at least 1)",
+    "crew_hint": "Only people free for this time are listed · tap «Lead» to mark the lead technician (optional)",
+    "nobody_free": "Nobody is free for this time — pick another time",
+    "not_available": "{{n}} not available — why?",
+    "reason": {
+      "BUSY": "on another job",
+      "LEAVE": "on leave",
+      "ABSENT": "absent"
+    },
+    "vehicles_busy_hidden": "Vehicles in use at this time are hidden",
+    "cancel": "Cancel booking",
+    "cancel_confirm": "Cancel this booking",
+    "cancel_warning": "The booking stays in the history as «Cancelled». Technicians and vehicle become free, and the team + Telegram group get a notice.",
+    "cancel_reason": "Reason",
+    "cancel_reason_hint": "Required · the team sees it",
+    "cancelled_ok": "{{number}} cancelled",
+    "cancelled_banner": "Cancelled",
+    "show_cancelled": "Show cancelled"
   },
   "tech": {
     "hello": "Hello {{name}}",

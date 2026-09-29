@@ -10,7 +10,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { preHandler: app.requireAuth }, async (req) => {
     const isTech = req.user!.role === "tech";
     const withCost = req.perms.includes("cost.read");
-    const rows = await sql<Record<string, unknown>[]>`select id, company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, is_active, created_at, updated_at
+    const rows = await sql<Record<string, unknown>[]>`select id, company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, is_active, created_at, updated_at
       from catalog_items where company_id = ${req.user!.companyId} ${isTech ? sql`and is_active` : sql``} order by category, name_km`;
     return rows.map((r) => ({ ...r, sell_price: isTech ? null : r.sell_price, cost_price: withCost ? r.cost_price : null }));
   });
@@ -22,11 +22,11 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     const id = await tx(req.user!.id, async (t) => {
       let id: string;
       if (!b.id) {
-        id = (await t<{ id: string }[]>`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, created_by)
-          values (${req.user!.companyId}, ${b.name_km}, ${b.name_en || null}, ${b.kind}::item_kind, ${b.category}::service_category, ${b.unit || "unit"}, ${b.sell_price}, ${b.cost_price ?? null}, ${req.user!.id}) returning id`)[0]!.id;
+        id = (await t<{ id: string }[]>`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, created_by)
+          values (${req.user!.companyId}, ${b.name_km}, ${b.name_en || null}, ${b.kind}::item_kind, ${b.category}::service_category, ${b.unit || "unit"}, ${b.sell_price}, ${b.cost_price ?? null}, ${b.duration_min ?? 120}, ${req.user!.id}) returning id`)[0]!.id;
       } else {
         const r = await t<{ id: string }[]>`update catalog_items set name_km = ${b.name_km}, name_en = ${b.name_en || null}, kind = ${b.kind}::item_kind, category = ${b.category}::service_category,
-            unit = coalesce(${b.unit || null}, unit), sell_price = ${b.sell_price},
+            unit = coalesce(${b.unit || null}, unit), sell_price = ${b.sell_price}, duration_min = coalesce(${b.duration_min ?? null}, duration_min),
             cost_price = case when ${withCost && b.cost_price !== undefined} then ${b.cost_price ?? null} else cost_price end
           where id = ${b.id} and company_id = ${req.user!.companyId} returning id`;
         if (!r[0]) throw notFound();
