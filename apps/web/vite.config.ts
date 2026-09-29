@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import { fileURLToPath, URL } from "node:url";
 
+const APP_NAME = process.env.VITE_APP_NAME ?? "BizDemo Service Manager";
+const APP_SHORT = process.env.VITE_APP_SHORT ?? "BizDemo";
+
 export default defineConfig({
   plugins: [
     react(),
@@ -10,8 +13,8 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
       manifest: {
-        name: "BizDemo Service Manager",
-        short_name: "BizDemo",
+        name: APP_NAME,
+        short_name: APP_SHORT,
         description: "ប្រព័ន្ធគ្រប់គ្រងសេវាកម្ម",
         lang: "km",
         theme_color: "#2E3A78",
@@ -24,7 +27,7 @@ export default defineConfig({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,svg,png,woff2}"],
+        globPatterns: ["**/*.{js,css,html,svg,png,woff2,ttf}"],
         navigateFallbackDenylist: [/^\/functions\//, /^\/rest\//, /^\/auth\//],
         runtimeCaching: [
           {
