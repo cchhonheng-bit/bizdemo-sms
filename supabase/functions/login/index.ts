@@ -39,6 +39,7 @@ Deno.serve(async (req) => {
     return error(req, GENERIC, 401);
   }
   const candidates = ((data ?? []) as Identity[]).filter((c) => c.is_active);
+  if (candidates.length === 0) console.error("login: no active candidate for identifier");
 
   // Up to 2 candidates (username collision across companies). Password decides; no enumeration.
   for (const c of candidates) {
@@ -47,7 +48,12 @@ Deno.serve(async (req) => {
       email: c.auth_email,
       password,
     });
-    if (signErr || !signIn.session) continue;
+    if (signErr || !signIn.session) {
+      // server-side diagnostics only (never returned to the client): GoTrue reason, e.g. "Invalid login credentials",
+      // "Email not confirmed", "Error running hook …"
+      console.error("signIn failed:", signErr?.message ?? "no session");
+      continue;
+    }
     const meta = (signIn.user?.app_metadata ?? {}) as Record<string, unknown>;
     return json(req, {
       session: {
