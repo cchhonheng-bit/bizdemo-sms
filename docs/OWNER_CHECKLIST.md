@@ -5,7 +5,7 @@
 ## A. ថ្ងៃនេះ — PC បង (≈ 40 នាទី)
 | ☐ | # | កន្លែង | ចុច / ធ្វើ | ត្រូវឃើញ |
 |---|---|---|---|---|
-| ☐ | A1 | File Explorer → `D:\Claude Project\AI Business Factory\Oneteam_Engineering\Source` | ចុចពីរដង **`sync-from-bundle.cmd`** | `Source is up to date` + commit ចុងក្រោយ `sync-from-bundle.cmd: remove leftovers…` ឬក្រោយ |
+| ☐ | A1 | File Explorer → `D:\Claude Project\AI Business Factory\Oneteam_Engineering\Source` | ចុចពីរដង **`sync-from-bundle.cmd`** | `Source is up to date` + commit ចុងក្រោយ `docs: MORNING_REPORT + OWNER_CHECKLIST (C6)` |
 | ☐ | A2 | Folder ដដែល | ចុចពីរដង **`test.cmd`** (លើកដំបូង ≈ 3 នាទី ដំឡើង packages) | `ALL TESTS PASSED` (API 47) — **RT-v21-09** |
 | ☐ | A3 | https://www.docker.com/products/docker-desktop → **Download for Windows** | ដំឡើង → Restart បើសួរ → បើក Docker Desktop → Accept → **Skip** sign-in | ជ្រុងឆ្វេងក្រោម: **Engine running** (ពណ៌បៃតង) |
 | ☐ | A4 | អាន `Doc_Sup\03_Architecture\HangKH_Architecture_Phase1_v2.1.pdf` + `Doc_Sup\02_Requirements\Module_Catalog.md` | ការសម្រេចខុសពីចិត្តបង? → ប្រាប់ “02: កែ …” | — |
