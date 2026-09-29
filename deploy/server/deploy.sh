@@ -12,7 +12,7 @@ ROOT=/opt/hangkh; SRC="$ROOT/src"; BUILD="$ROOT/.build"; REPO="git@github.com:cc
 TEST_IMAGE=node:22-bookworm-slim
 
 target="${1:-}"
-case "$target" in oneteam|hub|all) ;; *) echo "usage: deploy.sh oneteam | hub | all [--skip-tests] [--ref <branch|sha>]"; exit 1 ;; esac
+case "$target" in oneteam|hub|all|test) ;; *) echo "usage: deploy.sh oneteam | hub | all | test [--skip-tests] [--ref <branch|sha>]   (test = run the tests only, deploy nothing)"; exit 1 ;; esac
 shift
 skip_tests=0; ref=main
 while [ $# -gt 0 ]; do
@@ -57,7 +57,8 @@ cd "$ROOT"
 sha=$(git -C "$SRC" rev-parse --short=10 HEAD); tag=$(echo "$sha" | tr 'A-Z' 'a-z'); image="hangkh/app:$tag"
 case "$target" in oneteam) dbs=(shop_oneteam); urls=("https://oneteam.hangkh.com/healthz") ;;
                   hub) dbs=(hub); urls=("https://hub.hangkh.com/healthz") ;;
-                  all) dbs=(hub shop_oneteam); urls=("https://hub.hangkh.com/healthz" "https://oneteam.hangkh.com/healthz") ;; esac
+                  all|test) dbs=(hub shop_oneteam); urls=("https://hub.hangkh.com/healthz" "https://oneteam.hangkh.com/healthz") ;; esac
+[ "$target" = test ] && skip_tests=0
 echo "HangKH deploy $target · $image · $(date '+%Y-%m-%d %H:%M:%S')"
 
 say "1/6 source → $BUILD (committed files only)"
@@ -81,6 +82,7 @@ else
   # node_modules from the test run must not reach the image build context (.dockerignore excludes them anyway)
   find "$BUILD" -name node_modules -type d -prune -exec rm -rf {} + 2>/dev/null || true
 fi
+if [ "$target" = test ]; then rm -rf "$BUILD"; echo; echo "TESTS PASSED ($image) — nothing deployed"; exit 0; fi
 
 say "3/6 server files staged + backup BEFORE any change (pg_dump ${dbs[*]})"
 rm -rf "$ROOT/.incoming"; cp -r "$BUILD/deploy/server" "$ROOT/.incoming"
