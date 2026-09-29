@@ -54,7 +54,14 @@ Deno.serve(async (req) => {
       console.error("signIn failed:", signErr?.message ?? "no session");
       continue;
     }
-    const meta = (signIn.user?.app_metadata ?? {}) as Record<string, unknown>;
+    // B-M2-06: must_change_password lives on the profile → read the hook claims of the issued token,
+    // not the stored auth app_metadata (which does not carry it).
+    let claimMeta: Record<string, unknown> = {};
+    try {
+      const part = signIn.session.access_token.split(".")[1] ?? "";
+      claimMeta = (JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/"))).app_metadata ?? {}) as Record<string, unknown>;
+    } catch { /* keep empty */ }
+    const meta = { ...(signIn.user?.app_metadata ?? {}), ...claimMeta } as Record<string, unknown>;
     return json(req, {
       session: {
         access_token: signIn.session.access_token,
