@@ -1,31 +1,43 @@
 # BizDemo Service Manager (One Team Engineering — Phase 1)
 
 Multi-tenant service-management PWA · React + TypeScript + Vite · Supabase Cloud (PostgreSQL/RLS, Auth, Edge Functions) · Cloudflare Pages.
-Docs: `../Doc_Sup` (Requirements v1.2, Architecture v1.1, Security Review v1, UI Design v1).
+Docs: `../Doc_Sup` (Requirements v1.2, Architecture v1.1, Security Review v1, UI Design v1) · decisions: `docs/DECISIONS.md`.
 
-## 0. Prerequisites (once)
-- **Node.js 22 LTS** → https://nodejs.org · `node -v`
-- **pnpm** → `npm i -g pnpm` · `pnpm -v`
-- **Git** → https://git-scm.com
-- **2FA ON** for GitHub (Settings → Password and authentication) and Supabase (Account → Security). Never paste tokens in chat/docs/Git.
-- Docker is *not* required (dev uses a Supabase Cloud project + local PostgreSQL for SQL tests, optional).
+## 0. Environments & workflow (D-37 — no GitHub Actions, no staging server)
+| | **Local = TEST** | **PRODUCTION** |
+|---|---|---|
+| Web | http://localhost:5173 (`pnpm dev` on the owner's PC) | https://oneteam.bizdemo.app (Cloudflare Pages `oneteam-sms`) |
+| Supabase | project **bizdemo-test** (Free) · seed data + test accounts | `terarlorrogcdksnratm` · real customer data |
+| Config | `.env.test.local` (gitignored · template `test.env.example`) | `environments.json` (public values) + optional `.env.prod.local` (template `prod.env.example`) |
+| Command | `test-local.cmd` | `deploy.cmd` |
 
-## 1. Supabase project (dev)
-1. supabase.com → New organization `BizDemo` → New project `bizdemo-dev`, region Singapore, strong DB password (password manager).
-2. Project Settings → **API Keys**: copy **Project URL** and the **publishable key** (`sb_publishable_…`) → `apps/web/.env.local` (see `.env.example`). Create one **secret key** (`sb_secret_…`, name `edge-functions`) for step 10 — never paste it in chat/docs.
-3. Project Settings → API → **Exposed schemas**: set to `api` only (remove `public`). Extra search path: `api`.
-4. Authentication → Providers → Email: enabled, *Confirm email OFF*. Authentication → Sign In: **Allow new users to sign up = OFF**.
-5. Authentication → Sessions: **Access token expiry = 900 s**.
-6. Run migrations: `npx supabase login` → `npx supabase link --project-ref <ref>` → `npx supabase db push`.
-7. Authentication → Hooks → **Custom Access Token** → enable → schema `public`, function `custom_access_token_hook`.
-8. Bootstrap: Authentication → Users → *Add user* `ceo@oneteam.local` (auto-confirm, temporary password) → SQL Editor → run `supabase/seed_dev.sql`.
-9. Deploy functions (all with `--no-verify-jwt` — every function checks the user JWT itself, D-27): `npx supabase functions deploy login admin-users telegram-webhook telegram-sender resolve-maps-link --no-verify-jwt`.
-10. Secrets: `npx supabase secrets set SB_SECRET_KEY=<sb_secret_…> SB_PUBLISHABLE_KEY=<sb_publishable_…> TELEGRAM_BOT_TOKEN=<NEW token from BotFather> TELEGRAM_BOT_USERNAME=Oneteam_app_bot TELEGRAM_WEBHOOK_SECRET=<random 32+> CRON_SECRET=<random 32+> ALLOWED_ORIGINS=http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app`
-    (random secret: `openssl rand -hex 32` or `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`)
+Local never connects to production: `pnpm dev` (vite.config.ts), `test-local.cmd` and `scripts/seed-test.mjs` refuse any production ref/key (D-40).
+**Setup on a new PC: [`SETUP_LOCAL.md`](SETUP_LOCAL.md)** (Node 22, pnpm, git; Supabase CLI, Wrangler and Deno come with `pnpm install`).
+
+| Script (double-click in `Source\`) | What it does |
+|---|---|
+| `test-local.cmd` | checks → DB migrations + Edge Functions → TEST → seed → web on :5173 · `test-local.cmd dev` = web only · `test-local.cmd tests` = checks only |
+| `deploy.cmd` | checks → **stop if any fails** → DB migrations + Edge Functions → PROD → build → verify bundle points at PROD → Cloudflare Pages → git tag `deploy-prod-…` (committed code only, asks `Y`) |
+| `save.cmd "msg"` | secret scan → `git add -A` → `git commit` |
+| `backup.cmd` | git bundle (full history) + zip (no `node_modules`, no `.env*.local`) → `..\Backup` (keeps 30) → push to GitHub (backup remote only) |
+| `scripts\init-local-git.cmd` | once: turns `Source` into the git working copy from `Doc_Sup\06_Development\bizdemo-sms.bundle` |
+
+Checks (same list for both targets, `scripts/pipeline.mjs`): secret scan · shared `maps.ts` in sync · typecheck · lint · unit (vitest) · **RLS/SQL tests** on an embedded PostgreSQL 15 (`scripts/db-test.mjs`, no Docker/psql) · Edge Functions `deno check` + `deno lint` (Deno pinned as a devDependency).
+Secrets: `.env.test.local` / `.env.prod.local` (gitignored, excluded from backups, user-only ACL) · CLI logins (`pnpm exec supabase login`, `pnpm exec wrangler login`) · Edge Function secrets in each project's dashboard. Never in git, chat or docs.
+
+## 1. Supabase project settings (TEST and PRODUCTION — once per project)
+Step-by-step for the TEST project: SETUP_LOCAL.md steps 6–7. Production is already configured. For any new project:
+1. Project Settings → **API Keys**: publishable key (`sb_publishable_…`) + a secret key `edge-functions` (`sb_secret_…`) for the function secrets. Never paste keys in chat/docs.
+2. Migrations + functions: `test-local.cmd` / `deploy.cmd` (`supabase db push --project-ref …` and `supabase functions deploy … --no-verify-jwt --use-api` — every function checks the user JWT itself, D-27).
+3. Data API → **Exposed schemas**: `api` only (remove `public`). Extra search path: `api`.
+4. Authentication → Email: *Confirm email OFF* · **Allow new users to sign up = OFF** · Sessions: **Access token expiry = 900 s** · URL Configuration: Site URL = the web URL.
+5. Authentication → Hooks → **Custom Access Token** → schema `public`, function `custom_access_token_hook`.
+6. Edge Functions → Secrets: `SB_SECRET_KEY`, `SB_PUBLISHABLE_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`, `CRON_SECRET`, `ALLOWED_ORIGINS` (PROD: `https://oneteam.bizdemo.app` · TEST: `http://localhost:5173`) — see `.env.example`.
+7. Bootstrap data: TEST → `scripts/seed-test.mjs` (run by `test-local.cmd`). PRODUCTION → first CEO via Authentication → Users + `supabase/seed_dev.sql` (already done).
 
 ## 1b. Telegram (M2)
-1. **Revoke the old bot token** (it was pasted in chat): @BotFather → /mybots → Oneteam_app_bot → API Token → Revoke → use the new token in step 10 above.
-2. Webhook (run once, from your PC — replace the 3 values):
+1. **Revoke the old bot token** (it was pasted in chat): @BotFather → /mybots → Oneteam_app_bot → API Token → Revoke → put the new token in the Edge Function secret `TELEGRAM_BOT_TOKEN` (§1 step 6).
+2. Webhook (run once per project, from your PC — replace the 3 values; TEST uses its own bot + ref):
    `curl "https://api.telegram.org/bot<TOKEN>/setWebhook" -d url=https://<ref>.supabase.co/functions/v1/telegram-webhook -d secret_token=<TELEGRAM_WEBHOOK_SECRET> -d "allowed_updates=[\"message\"]"`
    Check: `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`
 3. @BotFather → /setprivacy → Oneteam_app_bot → **Disable** (so the bot sees `/register` in groups). Add the bot to the One Team job group.
@@ -45,32 +57,31 @@ Supabase Free projects pause after 7 days without activity. Options (owner decis
 - Free + keep-alive: the `telegram-sender` cron above already runs every minute → the project counts as active. Not guaranteed by Supabase; no backups beyond 1 day.
 
 ## 1d. Web hosting (Cloudflare Pages) — live: https://oneteam.bizdemo.app
-`deploy-web.yml` builds `apps/web` and deploys to the Pages project `oneteam-sms` on every push to `main` (needs GitHub secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`); it also attaches the custom domain and creates the CNAME `oneteam → oneteam-sms.pages.dev` when missing (`scripts/cf_pages_domain.py`). Security headers come from `apps/web/public/_headers`, SPA routing from `_redirects`. App name/title come from `VITE_APP_NAME` / `VITE_APP_SHORT` in the workflow env.
+`deploy.cmd` builds `apps/web` with the production values from `environments.json` and runs `wrangler pages deploy apps/web/dist --project-name=oneteam-sms --branch=main`. The custom domain `oneteam.bizdemo.app` and its CNAME are already attached (one-time, D-31). Security headers: `apps/web/public/_headers` · SPA routing: `_redirects`. Rollback: Cloudflare → Pages → oneteam-sms → Deployments → *Rollback*.
 
-## 2. GitHub — branches & environments (D-34)
-- `main` → **production** (Supabase `terarlorrogcdksnratm`, https://oneteam.bizdemo.app) · `develop` → **staging** (second Supabase project, https://staging.bizdemo.app). Setup: `docs/STAGING_SETUP.md`.
-- Secrets: `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (shared) · `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` (production) · `SUPABASE_PROJECT_REF_STAGING`, `SUPABASE_DB_PASSWORD_STAGING`, `SB_SECRET_KEY_STAGING`, `STAGING_TEST_PASSWORD` (staging) · Variables: `STAGING_SUPABASE_URL`, `STAGING_SUPABASE_PUBLISHABLE_KEY`, `STAGING_TELEGRAM_BOT`.
-- CI (`.github/workflows/ci.yml`, on both branches + PRs): typecheck · lint · unit · build · migrations + RLS tests on PostgreSQL · Deno check · gitleaks.
-- `deploy-dev.yml` pushes migrations + functions to the project of the branch (paths `supabase/**`); on `develop` it also runs `scripts/seed_staging.py` (test company + accounts). `deploy-web.yml` builds and deploys the Pages project of the branch.
+## 2. Git & GitHub (D-37)
+- Working copy = `Oneteam_Engineering\Source` (git local, branch `main`). Commit every change (`save.cmd`); a pre-commit hook runs the secret scan (`scripts/git-hooks`).
+- GitHub `cchhonheng-bit/bizdemo-sms` = **backup only** (`backup.cmd` pushes). Actions disabled, no GitHub secrets, no `develop` branch.
 
-## 3. Run locally
+## 3. Developer commands
 ```bash
-pnpm install
-cp .env.example apps/web/.env.local   # fill VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY
-pnpm dev                              # http://localhost:5173
-pnpm -r typecheck && pnpm -r lint && pnpm -r test && pnpm -r build
+pnpm install --frozen-lockfile
+pnpm dev                    # http://localhost:5173 — reads ../../.env.test.local, refuses production
+pnpm check                  # all checks, nothing deployed (= test-local.cmd tests)
+pnpm db:test                # RLS/SQL tests only (embedded PostgreSQL 15)
+pnpm secret-scan
 ```
-SQL tests on a local PostgreSQL (optional): `PSQL="psql -U postgres" pnpm db:test`
 
 ## 4. Layout
 ```
 apps/web            React PWA (routes by role, i18n km/en, offline shell)
 packages/shared     zod schemas, permission keys, money helpers (+ vitest)
 supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox) · 0003_platform.sql (platform_admin, Support mode) · 0004_seed_helpers.sql
-scripts             cf_pages_domain.py (Cloudflare domain/CNAME) · seed_staging.py (staging test data)
-docs                STAGING_SETUP.md
+scripts            pipeline.mjs (deploy/test-local) · db-test.mjs (RLS on embedded PG) · seed-test.mjs · secret-scan.mjs · backup.mjs · save.mjs · init-local-git.cmd · git-hooks/
+environments.json  public production values (single source for deploy + guards)
+docs               DECISIONS.md · MORNING_REPORT.md
 supabase/functions  login · admin-users · telegram-webhook · telegram-sender · resolve-maps-link (Deno) · _shared
-supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.sh
+supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.sh (psql variant)
 ```
 
 ## 5. Login (M1)

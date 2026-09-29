@@ -16,7 +16,7 @@ major_version = 15
 [auth]
 enabled = true
 site_url = "http://localhost:5173"
-additional_redirect_urls = ["https://oneteam.bizdemo.app", "https://staging.bizdemo.app"]
+additional_redirect_urls = ["https://oneteam.bizdemo.app"]
 # S-05: short access tokens; refresh tokens rotate
 jwt_expiry = 900
 enable_refresh_token_rotation = true

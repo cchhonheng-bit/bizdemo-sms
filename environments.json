@@ -1,0 +1,21 @@
+{
+  "_readme": "PUBLIC values only (safe in git). Secrets: .env.prod.local / .env.test.local (gitignored) + `supabase login` / `wrangler login` on the owner's PC (D-37).",
+  "prod": {
+    "label": "PRODUCTION",
+    "projectRef": "terarlorrogcdksnratm",
+    "supabaseUrl": "https://terarlorrogcdksnratm.supabase.co",
+    "publishableKey": "sb_publishable_5t4VEKMboyl-IjHRThhKuA_UFEc2IXr",
+    "telegramBot": "Oneteam_app_bot",
+    "appName": "One Team Service",
+    "appShort": "One Team",
+    "pagesProject": "oneteam-sms",
+    "siteUrl": "https://oneteam.bizdemo.app"
+  },
+  "test": {
+    "label": "TEST",
+    "appName": "One Team Service (TEST)",
+    "appShort": "OT Test",
+    "localUrl": "http://localhost:5173"
+  },
+  "functions": ["login", "admin-users", "telegram-webhook", "telegram-sender", "resolve-maps-link"]
+}

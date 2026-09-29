@@ -1,0 +1,3 @@
+#!/bin/sh
+# D-39: block commits that contain secrets (replaces the gitleaks CI job)
+exec node scripts/secret-scan.mjs --staged

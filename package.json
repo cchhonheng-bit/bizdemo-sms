@@ -3,16 +3,26 @@
   "private": true,
   "version": "0.1.0",
   "packageManager": "pnpm@9.12.0",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "dev": "pnpm --filter @sms/web dev",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
-    "db:test": "bash supabase/tests/run_local.sh",
-    "db:push": "supabase db push",
-    "functions:check": "cd supabase/functions && deno check login/index.ts admin-users/index.ts telegram-webhook/index.ts telegram-sender/index.ts resolve-maps-link/index.ts",
-    "check:shared-sync": "cmp packages/shared/src/maps.ts supabase/functions/_shared/maps.ts && echo 'maps.ts in sync'"
+    "db:test": "node scripts/db-test.mjs",
+    "db:test:psql": "bash supabase/tests/run_local.sh",
+    "secret-scan": "node scripts/secret-scan.mjs",
+    "check": "node scripts/pipeline.mjs test --tests-only",
+    "functions:check": "cd supabase/functions && deno check login/index.ts admin-users/index.ts telegram-webhook/index.ts telegram-sender/index.ts resolve-maps-link/index.ts && deno lint"
+  },
+  "devDependencies": {
+    "deno": "2.9.6",
+    "embedded-postgres": "15.18.0-beta.17",
+    "pg": "8.23.0",
+    "supabase": "2.118.0",
+    "wrangler": "4.143.0"
   }
 }

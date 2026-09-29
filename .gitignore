@@ -10,3 +10,7 @@ supabase/.branches/
 .vite/
 coverage/
 dist-mock
+__pycache__/
+*.pyc
+dev-dist/
+_gittmp/

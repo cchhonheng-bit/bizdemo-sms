@@ -1,6 +1,6 @@
 // Shared HTTP helpers for Edge Functions (Deno).
 const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ??
-  "http://localhost:5173,https://oneteam.bizdemo.app,https://staging.bizdemo.app").split(",");
+  "http://localhost:5173,https://oneteam.bizdemo.app").split(",");
 
 export function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("origin") ?? "";
