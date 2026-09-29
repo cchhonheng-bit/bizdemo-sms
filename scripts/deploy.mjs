@@ -3,6 +3,8 @@
 //   1 git clean on main   2 tests   3 server config files   4 pg_dump on the server   5 docker build on this PC
 //   6 docker save | gzip | ssh | docker load   7 switch tag + restart + health (bad health ⇒ previous image back)   8 git tag
 // Needs: Docker Desktop running, SSH alias "hangkh" (owner-setup.cmd). Options: --skip-tests
+//   --build-on-server (D-61): Docker Desktop not running on this PC → git archive HEAD | ssh → docker build on the server
+//   (automatic fallback; slower, uses the server's 2 GB RAM + swap for a few minutes while nothing else is deployed)
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -34,7 +36,11 @@ if (!args.includes("--skip-tests")) {
 } else console.log(yellow("tests skipped (--skip-tests)"));
 
 // tools
-if (capture("docker version --format {{.Server.Version}}").code !== 0) stop("Docker Desktop is not running on this PC (start it and wait for 'Engine running').");
+let onServer = args.includes("--build-on-server");
+if (!onServer && capture("docker version --format {{.Server.Version}}").code !== 0) {
+  onServer = true;
+  console.log(yellow("Docker Desktop is not running on this PC → the image is built on the server instead (D-61)."));
+}
 if (run(`ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH} "test -f ${cfg.dir}/.env && echo server-ready"`) !== 0)
   stop(`SSH key login to ${cfg.host} failed, or the server is not initialised — run owner-setup.cmd first.`);
 
@@ -48,7 +54,22 @@ if (run(`ssh ${SSH} "rm -rf ${cfg.dir}/.incoming"`) !== 0 || run(`scp -q -r depl
 console.log("\n==> backup on the server (pg_dump)");
 if (run(`ssh ${SSH} "bash ${cfg.dir}/.incoming/bin/backup.sh ${TARGETS[target].join(" ")}"`) !== 0) stop("server backup failed.");
 
-// 5) build on this PC (the 2 GB server never builds)
+if (onServer) {
+  // 5+6 on the server: committed code only (git archive HEAD) → /opt/hangkh/.build → docker build → build dir removed
+  console.log(`\n==> build ${image} ON THE SERVER (git archive | ssh | docker build)`);
+  const B = `${cfg.dir}/.build`;
+  const built = await new Promise((resolve) => {
+    const tar = spawn("git", ["archive", "--format=tar", "HEAD"], { stdio: ["ignore", "pipe", "inherit"] });
+    const ssh = spawn("ssh", [SSH, `set -e; rm -rf ${B}; mkdir -p ${B}; tar -x -C ${B}; cd ${B}; docker build -t ${image} . ; cd /; rm -rf ${B}`], { stdio: ["pipe", "inherit", "inherit"] });
+    tar.stdout.pipe(ssh.stdin);
+    let tarCode = null;
+    tar.on("exit", (c) => { tarCode = c; });
+    ssh.on("exit", (c) => resolve(c === 0 && tarCode === 0));
+    tar.on("error", () => resolve(false)); ssh.on("error", () => resolve(false));
+  });
+  if (!built) stop("docker build on the server failed.");
+} else {
+// 5) build on this PC (preferred: the 2 GB server does not build)
 console.log(`\n==> docker build ${image}`);
 if (run(`docker build --platform linux/amd64 -t ${image} .`) !== 0) stop("docker build failed.");
 
@@ -67,6 +88,7 @@ const sent = await new Promise((resolve) => {
   save.on("error", () => resolve(false)); ssh.on("error", () => resolve(false));
 });
 if (!sent) stop("sending the image failed.");
+}
 
 // 7) switch + restart + health (automatic rollback on the server if unhealthy)
 console.log("\n==> restart");

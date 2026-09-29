@@ -1,6 +1,7 @@
 // Operator CLI (runs inside the app container):
 //   node dist/cli.mjs create-company "One Team Engineering" oneteam        → CEO `ceo` + support `support` (Admin), temp passwords printed once
 //   node dist/cli.mjs reset-password oneteam ceo                           → new temp password for a user
+//   node dist/cli.mjs seed-demo [oneteam]                                  → demo users gm01/admin/kim/dara + 3 customers, 4 services, BK-0001/0002 (idempotent)
 //   node dist/cli.mjs list-companies
 // Hub container (MODE=hub):
 //   node dist/cli.mjs hub-admin <username>          → platform owner login, temp password printed once
@@ -39,6 +40,61 @@ async function createCompany(name: string, slug: string, opts: { ceoName?: strin
   console.log(`  ceo      temp password: ${pwCeo}`);
   if (opts.support !== false) console.log(`  support  temp password: ${pwSupport}`);
   console.log("Both must be changed at first login. This is the only time they are shown.\n");
+}
+
+// Demo accounts + data for the owner's demo (29-09, D-62). Idempotent: every part is skipped when already present.
+// Prints "DEMO_ACCOUNT <username> <role> <temp password>" lines — owner-setup writes them to Doc_Sup\_demo_accounts.txt.
+async function seedDemo(slug: string) {
+  const c = (await sql<{ id: string }[]>`select id from companies where slug = ${slug}`)[0];
+  if (!c) throw new Error(`company "${slug}" not found — run create-company first`);
+  const id = c.id;
+  const out: string[] = [];
+  await tx(null, async (t) => {
+    const ceo = (await t<{ id: string }[]>`select id from users where company_id = ${id} and username = 'ceo'`)[0]?.id ?? null;
+    const staff: [string, string, string][] = [["gm01", "GM (Demo)", "gm"], ["admin", "Admin (Demo)", "admin"], ["kim", "គីម (Demo)", "tech"], ["dara", "ដារ៉ា (Demo)", "tech"]];
+    for (const [u, name, role] of staff) {
+      if ((await t`select 1 from users where company_id = ${id} and username = ${u}`).length) { out.push(`DEMO_EXISTS ${u}`); continue; }
+      const pw = tempPassword();
+      const uid = (await t<{ id: string }[]>`insert into users (company_id, username, full_name, role, password_hash, must_change_password, tracks_attendance)
+        values (${id}, ${u}, ${name}, ${role}::user_role, ${await hashPassword(pw)}, true, ${role !== "gm"}) returning id`)[0]!.id;
+      await audit(t, { companyId: id, userId: null, action: "user.create", source: "system", table: "users", rowId: uid, new: { username: u, role, demo: true } });
+      out.push(`DEMO_ACCOUNT ${u} ${role} ${pw}`);
+    }
+    let customers = await t<{ id: string; name: string }[]>`select id, name from customers where company_id = ${id} and notes = 'DEMO' order by created_at`;
+    if (customers.length === 0) {
+      const rows: [string, string, string, "inside" | "outside", number | null, number | null][] = [
+        ["លោក សុខា (Demo)", "012345678", "ផ្ទះ 12 ផ្លូវ 3 បុរីប៉េងហួត", "inside", 11.5512, 104.9312],
+        ["Sok Dara (Demo)", "098765432", "Chbar Ampov", "outside", null, null],
+        ["អ្នកស្រី ចាន់ថា (Demo)", "011222333", "បុរីប៉េងហួតបឹងស្នោរ", "inside", 11.5231, 104.9512]];
+      for (const [name, phone, address, zone, lat, lng] of rows)
+        await t`insert into customers (company_id, name, phones, address, zone, lat, lng, notes, created_by) values (${id}, ${name}, ${t.array([phone])}, ${address}, ${zone}::zone, ${lat}, ${lng}, 'DEMO', ${ceo})`;
+      customers = await t<{ id: string; name: string }[]>`select id, name from customers where company_id = ${id} and notes = 'DEMO' order by created_at`;
+      out.push("DEMO_DATA customers 3");
+    }
+    if (!(await t`select 1 from catalog_items where company_id = ${id}`).length) {
+      const items: [string, string, string, number, number][] = [
+        ["ដំឡើងម៉ាស៊ីនត្រជាក់", "AC install", "mep", 4500, 2000], ["ជួសជុលម៉ាស៊ីនត្រជាក់", "AC repair", "mep", 18000, 9500],
+        ["ដំឡើងកាមេរ៉ា", "Camera install", "camera", 25000, 12000], ["ជួសជុលប្រព័ន្ធភ្លើង", "Electrical repair", "mep", 15000, 7000]];
+      for (const [km, en, cat, sell, cost] of items)
+        await t`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, created_by) values (${id}, ${km}, ${en}, 'service', ${cat}::service_category, 'unit', ${sell}, ${cost}, ${ceo})`;
+      out.push("DEMO_DATA services 4");
+    }
+    if (!(await t`select 1 from bookings where company_id = ${id}`).length && customers.length >= 2) {
+      const bks: [string, number, string, string, string][] = [
+        ["BK-0001", 0, "mep", "ជួសជុលម៉ាស៊ីនត្រជាក់ 2 គ្រឿង", "1 day"], ["BK-0002", 1, "camera", "ដំឡើងកាមេរ៉ា 4 គ្រឿង", "2 days"]];
+      for (const [no, ci, cat, text, when] of bks) {
+        const cust = customers[ci]!;
+        const cr = (await t<{ address: string | null; zone: string; lat: number | null; lng: number | null }[]>`select address, zone, lat, lng from customers where id = ${cust.id}`)[0]!;
+        const bk = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, address, lat, lng, zone, notes, created_by)
+          values (${id}, ${no}, ${cust.id}, 'A', ${cat}::service_category, 'new', ${text}, date_trunc('hour', now()) + ${when}::interval, ${cr.address}, ${cr.lat}, ${cr.lng}, ${cr.zone}::zone, 'DEMO', ${ceo}) returning id`)[0]!.id;
+        await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${bk}, null, 'new', ${ceo})`;
+      }
+      await t`insert into booking_counters (company_id, last_no) values (${id}, 2) on conflict (company_id) do update set last_no = greatest(booking_counters.last_no, 2)`;
+      out.push("DEMO_DATA bookings BK-0001 BK-0002");
+    }
+    await audit(t, { companyId: id, userId: null, action: "demo.seed", source: "system", table: "companies", rowId: id, new: { result: out.map((l) => l.split(" ").slice(0, 2).join(" ")) } });
+  });
+  for (const l of out) console.log(l);
 }
 
 async function resetPassword(slug: string, username: string) {
@@ -95,13 +151,16 @@ async function main() {
       if (!a[0] || !a[1]) throw new Error("usage: reset-password <slug> <username>");
       await resetPassword(a[0], a[1]);
       break;
+    case "seed-demo":
+      await seedDemo(a[0] ?? "oneteam");
+      break;
     case "list-companies": {
       const rows = await sql`select c.slug, c.name, c.is_active, (select count(*) from users u where u.company_id = c.id) as users, (select count(*) from bookings b where b.company_id = c.id) as bookings from companies c order by c.created_at`;
       console.table(rows.map((r) => ({ ...r })));
       break;
     }
     default:
-      console.log("commands: create-company, reset-password, list-companies");
+      console.log("commands: create-company, reset-password, seed-demo, list-companies");
   }
   await sql.end({ timeout: 3 });
 }

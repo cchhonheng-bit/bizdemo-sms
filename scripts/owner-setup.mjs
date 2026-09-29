@@ -4,7 +4,7 @@
 // and stops only where the owner must type something: the server password (once, for the SSH key), the sudo password
 // (only if the server asks), the bot token (in Notepad — never in chat), an e-mail address.
 // Secrets never go to the screen, to a file in the project, or to the report. Report: ..\Doc_Sup\SETUP_REPORT.html
-// Usage: node scripts/owner-setup.mjs [--verify] [--new-token] [--redeploy] [--skip-tests]
+// Usage: node scripts/owner-setup.mjs [--verify] [--new-token] [--redeploy] [--skip-tests] [--reset-passwords] [--build-on-server] [--no-demo]
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { Resolver } from "node:dns/promises";
@@ -283,17 +283,20 @@ export async function main(argv, sys = makeSys()) {
     sys.out("   ពិនិត្យម្តងទៀត … ");
   }
 
-  // 10 ── Docker Desktop
+  // 10 ── Docker Desktop (preferred) · not running → the image is built on the server instead (D-61)
   head("Docker Desktop (build image លើ PC នេះ)");
   const dockerUp = () => sys.run("docker", ["info", "--format", "{{.ServerVersion}}"], { timeout: 20_000 }).code === 0;
-  if (!dockerUp()) {
-    if (sys.run("docker", ["--version"]).code === 127) return fail("docker", "Docker Desktop", "មិនទាន់ដំឡើង", "owner-setup.cmd នឹងសួរដំឡើង (winget) · ឬ https://www.docker.com/products/docker-desktop → Download for Windows → ដំឡើង → Restart PC → រត់ owner-setup.cmd ម្តងទៀត (ជំហានដែលរួចនឹងរំលង)");
+  let buildOnServer = args.has("--build-on-server");
+  if (!buildOnServer && !dockerUp()) {
     const exe = "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe";
-    if (sys.win && sys.exists(exe)) { sys.out("\n   កំពុងបើក Docker Desktop (រង់ចាំ ≤ 3 នាទី)…"); spawnSync("cmd", ["/c", "start", "", exe], { stdio: "ignore" }); }
-    for (let i = 0; i < 36 && !dockerUp(); i++) await sys.sleep(5000);
-    if (!dockerUp()) return fail("docker", "Docker Desktop", "Docker Engine មិនដំណើរការ", "បើក Docker Desktop → Accept → រង់ចាំ «Engine running» (បៃតង) → បើសួរ WSL: ចុច Restart → រត់ owner-setup.cmd ម្តងទៀត");
+    if (sys.run("docker", ["--version"]).code !== 127) {
+      if (sys.win && sys.exists(exe)) { sys.out("\n   កំពុងបើក Docker Desktop (រង់ចាំ ≤ 3 នាទី)…"); spawnSync("cmd", ["/c", "start", "", exe], { stdio: "ignore" }); }
+      for (let i = 0; i < 36 && !dockerUp(); i++) await sys.sleep(5000);
+    }
+    if (!dockerUp()) buildOnServer = true;
   }
-  ok("docker", "Docker Desktop", "Engine running");
+  if (buildOnServer) warn("docker", "Docker Desktop", "Engine មិនដំណើរការលើ PC នេះ → build image លើ Server ជំនួស (យឺតជាង ~5–10 នាទី · ដំណើរការដូចគ្នា)", "ពេលក្រោយ: បើក Docker Desktop រង់ចាំ «Engine running» → deploy.cmd all នឹង build លើ PC វិញ");
+  else ok("docker", "Docker Desktop", "Engine running");
 
   // 11 ── tests + deploy (skip when the server already runs this exact version)
   head("តេស្ត + Deploy (tests → backup → build → ផ្ញើ → start → health)");
@@ -314,34 +317,54 @@ export async function main(argv, sys = makeSys()) {
       if (tr.code !== 0) return fail("deploy", "តេស្ត", "test.cmd បរាជ័យ — មិន deploy", "ផ្ញើរូបអេក្រង់តារាង FAIL មកក្រុម AI");
     }
     sys.out("\n");
-    const dr = sys.run(process.execPath, [join("scripts", "deploy.mjs"), "all", "--skip-tests"], { inherit: true });
+    const dr = sys.run(process.execPath, [join("scripts", "deploy.mjs"), "all", "--skip-tests", ...(buildOnServer ? ["--build-on-server"] : [])], { inherit: true });
     if (dr.code !== 0) return fail("deploy", "Deploy", "deploy.cmd all បរាជ័យ (server នៅកំណែចាស់)", "មើលសារ «DEPLOY STOPPED/FAILED» ខាងលើ · រត់ owner-setup.cmd ម្តងទៀត");
     ok("deploy", "Deploy", `hangkh/app:${sha} → hub + oneteam`);
   }
 
-  // 12 ── accounts (shown on screen ONCE, never saved)
-  head("គណនីដំបូង (CEO/support One Team · Platform owner)");
+  // 12 ── accounts + demo data (D-62). Temp passwords are NOT shown on screen: owner's decision 29-09 → Doc_Sup\_demo_accounts.txt
+  //       (outside git; every account must change its password at first login; delete the file after handing them out)
+  head("គណនី + ទិន្នន័យ Demo (ceo · gm01 · admin · kim · dara · platform heng)");
   const q = (db, sql) => ssh(`${cfg.dir}/bin/dc exec -T postgres psql -U postgres -d ${db} -tAc "${sql}"`).out.trim();
+  const cli = (app, cmd) => sys.run("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T ${app} node dist/cli.mjs ${cmd}`], { timeout: 120_000 });
+  const creds = [];
+  const grab = (r, where) => {
+    for (const m of r.out.matchAll(/^\s*(?:\S+\/)?([a-z0-9._-]+)\s+temp password: (\S+)\s*$/gm)) creds.push([where, m[1], m[2]]);
+    for (const m of r.out.matchAll(/Platform admin "([^"]+)" — password: (\S+)/g)) creds.push(["hub", m[1], m[2]]);
+    for (const m of r.out.matchAll(/^DEMO_ACCOUNT (\S+) (\S+) (\S+)$/gm)) creds.push([where, m[1], m[3], m[2]]);
+  };
   const notes = [];
   const nCompanies = q("shop_oneteam", "select count(*) from companies"), nAdmins = q("hub", "select count(*) from hub_admins");
   if (!/^\d+$/.test(nCompanies) || !/^\d+$/.test(nAdmins)) return fail("accounts", "គណនី", "អាន database មិនបាន", "ssh hangkh → /opt/hangkh/bin/dc ps (postgres ដំណើរការ?) · រត់ម្តងទៀត");
   if (args.has("--reset-passwords") && nCompanies !== "0") {
-    sys.out(col("33;1", "\n   📝 ពាក្យសម្ងាត់ថ្មី (បង្ហាញតែម្តង — សរសេរលើក្រដាស):\n"));
-    await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-oneteam node dist/cli.mjs reset-password oneteam ceo`]);
-    await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-hub node dist/cli.mjs hub-admin heng`]);
+    grab(cli("app-oneteam", "reset-password oneteam ceo"), "oneteam");
+    grab(cli("app-hub", "hub-admin heng"), "hub");
     notes.push("ពាក្យសម្ងាត់ ceo + heng បានប្តូរ");
   }
   if (nCompanies === "0") {
-    sys.out(col("33;1", "\n   📝 ពាក្យសម្ងាត់បណ្ដោះអាសន្នខាងក្រោម បង្ហាញតែម្តង — សរសេរលើក្រដាស (កុំថត/កុំផ្ញើក្នុងឆាត):\n"));
-    const r = await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-oneteam node dist/cli.mjs create-company "One Team Engineering" oneteam`]);
+    const r = cli("app-oneteam", `create-company "One Team Engineering" oneteam`);
     if (r.code !== 0) return fail("accounts", "គណនី", "create-company បរាជ័យ", FIX.other);
+    grab(r, "oneteam");
     notes.push("ceo + support បានបង្កើត");
   } else notes.push("One Team មានរួច");
   if (nAdmins === "0") {
-    const r = await sys.tee("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T app-hub node dist/cli.mjs hub-admin heng`]);
+    const r = cli("app-hub", "hub-admin heng");
     if (r.code !== 0) return fail("accounts", "គណនី", "hub-admin បរាជ័យ", FIX.other);
+    grab(r, "hub");
     notes.push("platform: heng បានបង្កើត");
   } else notes.push("platform admin មានរួច");
+  if (!args.has("--no-demo")) {
+    const r = cli("app-oneteam", "seed-demo oneteam");
+    if (r.code !== 0) return fail("accounts", "Demo", "seed-demo បរាជ័យ", FIX.other);
+    grab(r, "oneteam");
+    const made = [...r.out.matchAll(/^DEMO_DATA (.+)$/gm)].map((m) => m[1]);
+    notes.push(made.length ? `demo: ${made.join(" · ")}` : "demo មានរួច");
+  }
+  if (creds.length) {
+    const f = saveAccounts(sys, cfg, creds);
+    notes.push(`ពាក្យសម្ងាត់ ${creds.length} គណនី → ${f ?? "(សរសេរ file មិនបាន)"}`);
+    sys.out(col("33;1", `\n   📝 ពាក្យសម្ងាត់បណ្ដោះអាសន្ន ${creds.length} គណនី → ${f} (មិនបង្ហាញលើអេក្រង់ · ត្រូវប្តូរពេលចូលដំបូង · លុប file ក្រោយចែក)\n`));
+  }
   ok("accounts", "គណនី", notes.join(" · "));
 
   await verify(sys, cfg, results, head, ok, warn, fail, ssh, dnsOk);
@@ -416,6 +439,31 @@ async function verify(sys, cfg, results, head, ok, warn, fail, ssh, dnsKnownOk) 
     return used && total ? { status: used / total < 0.85 ? "ok" : "warn", note: `ប្រើ ${used}/${total} MB`, fix: used / total < 0.85 ? undefined : "Upgrade 4 GB" } : { status: "warn", note: "មិនអាចអាន" };
   });
   return !results.some((r) => r.status === "fail");
+}
+
+// --------------------------------------------------------------------------------------------------------------- demo accounts file (owner's decision, D-62)
+export function accountsText(cfg, creds, now) {
+  const role = { ceo: "CEO", support: "Admin (support)", gm: "GM", admin: "Admin", tech: "Technician" };
+  const lines = creds.map(([where, user, pw, r]) => {
+    const url = where === "hub" ? `https://${cfg.domains.hub}/platform` : `https://${cfg.domains.oneteam}`;
+    const rl = where === "hub" ? "Platform owner" : role[r ?? user] ?? r ?? "";
+    return `${user.padEnd(10)} ${pw.padEnd(16)} ${rl.padEnd(16)} ${url}`;
+  });
+  return [`# ${now} — HangKH គណនីថ្មី (ពាក្យសម្ងាត់បណ្ដោះអាសន្ន · ត្រូវប្តូរពេលចូលដំបូង)`,
+    "# ⚠️ កុំផ្ញើ file នេះក្នុង Telegram/ឆាត · ប្រគល់ផ្ទាល់ដៃ · លុប file ក្រោយគ្រប់គ្នាប្តូររួច",
+    `# username   password         role             URL`, ...lines, "", ""].join("\n");
+}
+function saveAccounts(sys, cfg, creds) {
+  const docDir = resolve(sys.cwd, "..", "Doc_Sup");
+  const dir = sys.exists(docDir) ? docDir : join(sys.home, "Documents"); // never inside the repo
+  const f = join(dir, "_demo_accounts.txt");
+  const now = new Date().toLocaleString("en-GB", { timeZone: "Asia/Phnom_Penh" });
+  try {
+    sys.mkdir(dir);
+    const prev = sys.exists(f) ? sys.read(f) : "";
+    sys.write(f, accountsText(cfg, creds, now) + prev, { mode: 0o600 });
+    return f;
+  } catch { return null; }
 }
 
 // --------------------------------------------------------------------------------------------------------------- report (no secrets)

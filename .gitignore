@@ -14,3 +14,4 @@ _gittmp/
 .local/
 SETUP_REPORT.*
 *token*.txt
+_demo_accounts.txt

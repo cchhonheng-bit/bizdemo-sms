@@ -32,6 +32,14 @@ function world(over = {}) {
     if (g) return { code: 0, out: w.env[g[1]] ? "YES" : "NO", err: "" };
     if (cmd.startsWith("cat /opt/hangkh/images.env")) return { code: 0, out: w.images, err: "" };
     if (cmd.includes("force-recreate")) { w.recreated = true; return { code: 0, out: "OK", err: "" }; }
+    if (cmd.includes("dist/cli.mjs create-company")) { w.companies = 1; return { code: 0, out: "\nCompany created.\n  ceo      temp password: Xy7pQ2mN8k\n  support  temp password: Ss5Tt6Uu7V\n", err: "" }; }
+    if (cmd.includes("dist/cli.mjs hub-admin")) { w.admins = 1; return { code: 0, out: "\nPlatform admin \"heng\" — password: Zz9Yy8Xx7Ww6\nShown once.", err: "" }; }
+    if (cmd.includes("dist/cli.mjs reset-password")) return { code: 0, out: "\noneteam/ceo temp password: Qq1Ww2Ee3R\n", err: "" };
+    if (cmd.includes("dist/cli.mjs seed-demo")) {
+      if (w.demo) return { code: 0, out: "DEMO_EXISTS gm01\nDEMO_EXISTS admin\nDEMO_EXISTS kim\nDEMO_EXISTS dara", err: "" };
+      w.demo = true;
+      return { code: 0, out: "DEMO_ACCOUNT gm01 gm Gg1Mm2Nn3P\nDEMO_ACCOUNT admin admin Aa4Dd5Mm6N\nDEMO_ACCOUNT kim tech Kk7Ii8Mm9Q\nDEMO_ACCOUNT dara tech Dd2Rr3Aa4S\nDEMO_DATA customers 3\nDEMO_DATA services 4\nDEMO_DATA bookings BK-0001 BK-0002", err: "" };
+    }
     if (cmd.includes("from companies")) return { code: 0, out: String(w.companies), err: "" };
     if (cmd.includes("from hub_admins")) return { code: 0, out: String(w.admins), err: "" };
     if (cmd.includes("dc ps --format")) return { code: 0, out: "caddy=running\npostgres=running\napp-hub=running\napp-oneteam=running", err: "" };
@@ -57,7 +65,7 @@ function world(over = {}) {
       if (cmd === "docker") return { code: w.docker ? 0 : 1, out: "29", err: "" };
       if (cmd === process.execPath) {
         if (args[0].endsWith("test.mjs")) { w.tested = true; return { code: w.testsPass ? 0 : 1, out: "", err: "" }; }
-        if (args[0].endsWith("deploy.mjs")) { w.deployed = true; if (w.deployPass) w.images = "IMAGE_HUB=hangkh/app:abcdef1234\nIMAGE_ONETEAM=hangkh/app:abcdef1234"; return { code: w.deployPass ? 0 : 1, out: "", err: "" }; }
+        if (args[0].endsWith("deploy.mjs")) { w.deployed = true; w.deployArgs = args; if (w.deployPass) w.images = "IMAGE_HUB=hangkh/app:abcdef1234\nIMAGE_ONETEAM=hangkh/app:abcdef1234"; return { code: w.deployPass ? 0 : 1, out: "", err: "" }; }
       }
       return { code: 0, out: "v", err: "" };
     },
@@ -65,8 +73,6 @@ function world(over = {}) {
       const c = args[args.length - 1];
       if (c.includes("HANGKH_KEY_INSTALLED")) { w.passwordTyped++; w.keyOnServer = true; return { code: 0, out: "HANGKH_KEY_INSTALLED" }; }
       if (c.includes("hangkh-server-init.sh")) { w.sudoTyped++; w.initDone = true; w.pwLogin = false; return { code: 0, out: "...\nHANGKH_INIT_OK" }; }
-      if (c.includes("create-company")) { w.companies = 1; w.out += "  ceo      temp password: Xy7pQ2mN8k\n"; return { code: 0, out: "" }; }
-      if (c.includes("hub-admin")) { w.admins = 1; w.out += "Platform admin \"heng\" — password: Zz9Yy8Xx7Ww6\n"; return { code: 0, out: "" }; }
       return { code: 0, out: "" };
     },
     exists: (p) => p in w.files,
@@ -88,6 +94,8 @@ function world(over = {}) {
   };
   return w;
 }
+const PASSWORDS = ["Xy7pQ2mN8k", "Ss5Tt6Uu7V", "Zz9Yy8Xx7Ww6", "Gg1Mm2Nn3P", "Aa4Dd5Mm6N", "Kk7Ii8Mm9Q", "Dd2Rr3Aa4S"];
+const accountsFile = (w) => Object.entries(w.files).find(([k]) => k.endsWith("_demo_accounts.txt"))?.[1] ?? "";
 const report = (w) => Object.entries(w.files).filter(([k]) => k.includes("SETUP_REPORT")).map(([, v]) => v).join("\n");
 
 test("helpers: token extraction ignores comments, redact masks secrets, ssh parsing", () => {
@@ -124,7 +132,12 @@ test("first run: every step, password + sudo typed once, token via Notepad (shre
   assert.ok(!w.out.includes(TOKEN), "token never on screen");
   const r = report(w);
   assert.ok(r.includes("រួចរាល់"));
-  for (const secret of [TOKEN, "Xy7pQ2mN8k", "Zz9Yy8Xx7Ww6"]) assert.ok(!r.includes(secret), `report leaks ${secret}`);
+  for (const secret of [TOKEN, ...PASSWORDS]) assert.ok(!r.includes(secret), `report leaks ${secret}`);
+  // D-62: temp passwords go to _demo_accounts.txt (owner's decision), never to the screen
+  for (const pw of PASSWORDS) { assert.ok(!w.out.includes(pw), `screen shows ${pw}`); assert.ok(accountsFile(w).includes(pw), `file misses ${pw}`); }
+  for (const u of ["ceo", "support", "heng", "gm01", "admin", "kim", "dara"]) assert.match(accountsFile(w), new RegExp(`^${u} `, "m"));
+  assert.match(accountsFile(w), /heng .*https:\/\/hub\.hangkh\.com\/platform/);
+  assert.match(w.out, /BK-0001 BK-0002/);
   assert.ok((w.out.match(/រួច ✓/g) ?? []).length >= 12);
 });
 
@@ -137,6 +150,15 @@ test("second run: nothing to type, nothing redeployed (idempotent)", async () =>
   assert.equal(w.passwordTyped + w.sudoTyped + w.notepad, 0);
   assert.equal(w.tested || w.deployed, false);
   assert.ok(w.out.includes("រំលង"));
+  assert.ok(w.out.includes("demo មានរួច"));
+  assert.equal((accountsFile(w).match(/^# .*HangKH/gm) ?? []).length, 1, "no new passwords on a re-run");
+});
+
+test("Docker Desktop not running → warning, image built on the server (D-61), rest continues", async () => {
+  const w = world({ docker: false });
+  assert.equal(await main([], w.sys), 0, w.out);
+  assert.ok(w.deployArgs.includes("--build-on-server"));
+  assert.ok(w.out.includes("build image លើ Server"));
 });
 
 test("--new-token on a running box: Notepad again, apps recreated with the new .env", async () => {
@@ -163,15 +185,16 @@ test("getMe unreachable → token NOT stored, clear error (P3)", async () => {
   assert.ok(w.out.includes("Internet"));
 });
 
-test("--reset-passwords on an existing box shows new passwords, report stays clean (P7)", async () => {
+test("--reset-passwords on an existing box writes new passwords to the accounts file, report stays clean (P7)", async () => {
   const w = world();
   await main([], w.sys);
   const calls = [];
-  const orig = w.sys.tee;
-  w.sys.tee = async (c, a) => { calls.push(a[a.length - 1]); if (a[a.length - 1].includes("reset-password")) w.out += "oneteam/ceo temp password: Qq1Ww2Ee3R\n"; return orig(c, a); };
+  const orig = w.sys.run;
+  w.sys.run = (c, a, o) => { if (c === "ssh") calls.push(a[a.length - 1]); return orig(c, a, o); };
   assert.equal(await main(["--reset-passwords"], w.sys), 0);
   assert.ok(calls.some((c) => c.includes("reset-password oneteam ceo")) && calls.some((c) => c.includes("hub-admin heng")));
-  assert.ok(!report(w).includes("Qq1Ww2Ee3R"));
+  assert.ok(!report(w).includes("Qq1Ww2Ee3R") && !w.out.includes("Qq1Ww2Ee3R"));
+  assert.ok(accountsFile(w).includes("Qq1Ww2Ee3R"));
 });
 
 test("server unreachable → Error ✗ with a fix, report written", async () => {
