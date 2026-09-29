@@ -195,5 +195,21 @@ set local role service_role;
 select pg_temp.expect_error(format($$select api.admin_create_profile('99999999-9999-9999-9999-999999999999', %L, 'x', null, null, 'X', 'platform_admin', null)$$, :'a'), 'FORBIDDEN', 'T9 admin_create_profile refuses platform_admin');
 reset role;
 
+-- ---------- T10: admin_seed_profile (service role, 0004) ----------
+insert into auth.users (id, email) values ('99999999-9999-9999-9999-999999999999', 'seed@staging.local');
+set local role service_role;
+select pg_temp.assert(api.admin_seed_profile('99999999-9999-9999-9999-999999999999', :'a', 'seeded', '012000099', 'seed@staging.local', 'Seeded', 'gm', false), 'T10 seed creates');
+select pg_temp.assert(not api.admin_seed_profile('99999999-9999-9999-9999-999999999999', :'a', 'seeded', null, null, 'Seeded', 'gm', false), 'T10 idempotent');
+select pg_temp.assert((select must_change_password = false and tracks_attendance from app.profiles where id = '99999999-9999-9999-9999-999999999999'), 'T10 flags');
+select pg_temp.assert((select raw_app_meta_data ->> 'role' from auth.users where id = '99999999-9999-9999-9999-999999999999') = 'gm', 'T10 auth metadata synced');
+select pg_temp.assert((select count(*) from app.audit_log where row_id = '99999999-9999-9999-9999-999999999999' and action = 'user.create' and source = 'system') = 1, 'T10 audited');
+select pg_temp.expect_error(format($$select api.admin_seed_profile('99999999-9999-9999-9999-999999999998', %L, 'x', null, null, 'X', 'platform_admin', false)$$, :'a'), 'ROLE_COMPANY_MISMATCH', 'T10 platform_admin not in tenant');
+select pg_temp.expect_error(format($$select api.admin_seed_profile('99999999-9999-9999-9999-999999999998', %L, 'x', null, null, 'X', 'ceo', false)$$, :'platform'), 'ROLE_COMPANY_MISMATCH', 'T10 tenant role not in platform');
+select pg_temp.expect_error(format($$select api.admin_seed_profile('99999999-9999-9999-9999-999999999998', %L, 'x', null, null, 'X', 'ceo', false)$$, :'a'), 'AUTH_USER_NOT_FOUND', 'T10 needs auth user');
+reset role;
+select pg_temp.login('11111111-1111-1111-1111-111111111111', :'a', 'ceo');
+select pg_temp.expect_error($$select api.admin_seed_profile('99999999-9999-9999-9999-999999999998', '00000000-0000-0000-0000-000000000000', 'x', null, null, 'X', 'ceo', false)$$, 'permission denied', 'T10 not callable by clients');
+select pg_temp.logout();
+
 select 'ALL PLATFORM TESTS PASSED' as result;
 rollback;

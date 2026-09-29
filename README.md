@@ -47,10 +47,11 @@ Supabase Free projects pause after 7 days without activity. Options (owner decis
 ## 1d. Web hosting (Cloudflare Pages) — live: https://oneteam.bizdemo.app
 `deploy-web.yml` builds `apps/web` and deploys to the Pages project `oneteam-sms` on every push to `main` (needs GitHub secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`); it also attaches the custom domain and creates the CNAME `oneteam → oneteam-sms.pages.dev` when missing (`scripts/cf_pages_domain.py`). Security headers come from `apps/web/public/_headers`, SPA routing from `_redirects`. App name/title come from `VITE_APP_NAME` / `VITE_APP_SHORT` in the workflow env.
 
-## 2. GitHub
-- Private repo `bizdemo-sms` · Secrets: `SUPABASE_ACCESS_TOKEN`, `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`.
-- CI (`.github/workflows/ci.yml`): typecheck · lint · unit · build · migrations + RLS tests on PostgreSQL · Deno check · gitleaks.
-- `deploy-dev.yml` pushes migrations + functions to the dev project on `main` (paths `supabase/**`).
+## 2. GitHub — branches & environments (D-34)
+- `main` → **production** (Supabase `terarlorrogcdksnratm`, https://oneteam.bizdemo.app) · `develop` → **staging** (second Supabase project, https://staging.bizdemo.app). Setup: `docs/STAGING_SETUP.md`.
+- Secrets: `SUPABASE_ACCESS_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` (shared) · `SUPABASE_PROJECT_REF`, `SUPABASE_DB_PASSWORD` (production) · `SUPABASE_PROJECT_REF_STAGING`, `SUPABASE_DB_PASSWORD_STAGING`, `SB_SECRET_KEY_STAGING`, `STAGING_TEST_PASSWORD` (staging) · Variables: `STAGING_SUPABASE_URL`, `STAGING_SUPABASE_PUBLISHABLE_KEY`, `STAGING_TELEGRAM_BOT`.
+- CI (`.github/workflows/ci.yml`, on both branches + PRs): typecheck · lint · unit · build · migrations + RLS tests on PostgreSQL · Deno check · gitleaks.
+- `deploy-dev.yml` pushes migrations + functions to the project of the branch (paths `supabase/**`); on `develop` it also runs `scripts/seed_staging.py` (test company + accounts). `deploy-web.yml` builds and deploys the Pages project of the branch.
 
 ## 3. Run locally
 ```bash
@@ -65,7 +66,9 @@ SQL tests on a local PostgreSQL (optional): `PSQL="psql -U postgres" pnpm db:tes
 ```
 apps/web            React PWA (routes by role, i18n km/en, offline shell)
 packages/shared     zod schemas, permission keys, money helpers (+ vitest)
-supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox) · 0003_platform.sql (platform_admin, Support mode)
+supabase/migrations 0001_foundation.sql (schemas app/api, RLS, RPC, JWT hook) · 0002_booking.sql (customers, catalog, bookings, assign, outbox) · 0003_platform.sql (platform_admin, Support mode) · 0004_seed_helpers.sql
+scripts             cf_pages_domain.py (Cloudflare domain/CNAME) · seed_staging.py (staging test data)
+docs                STAGING_SETUP.md
 supabase/functions  login · admin-users · telegram-webhook · telegram-sender · resolve-maps-link (Deno) · _shared
 supabase/tests      00_shim.sql (Supabase emulation) · *_test.sql · run_local.sh
 ```

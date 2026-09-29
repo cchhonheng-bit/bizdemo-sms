@@ -1,41 +1,55 @@
-name: Deploy DEV (Supabase)
+name: Deploy DB + Functions (Supabase)
+# main → PRODUCTION project · develop → STAGING project (D-34)
 on:
   push:
-    branches: [main]
-    paths: ["supabase/**", ".github/workflows/deploy-dev.yml"]
+    branches: [main, develop]
+    paths: ["supabase/**", "scripts/seed_staging.py", ".github/workflows/deploy-dev.yml"]
   workflow_dispatch:
-concurrency: deploy-dev
+concurrency: deploy-db-${{ github.ref_name }}
 env:
-  # Repository secrets: SUPABASE_ACCESS_TOKEN (supabase.com → Account → Access Tokens),
-  # SUPABASE_PROJECT_REF (e.g. terarlorrogcdksnratm), SUPABASE_DB_PASSWORD (project database password).
-  # Until they exist the job ends early with a notice instead of failing.
-  HAS_SECRETS: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' && secrets.SUPABASE_PROJECT_REF != '' && secrets.SUPABASE_DB_PASSWORD != '' }}
+  IS_PROD: ${{ github.ref_name == 'main' }}
+  # Repository secrets (Settings → Secrets → Actions):
+  #   shared:      SUPABASE_ACCESS_TOKEN (supabase.com → Account → Access Tokens)
+  #   production:  SUPABASE_PROJECT_REF, SUPABASE_DB_PASSWORD
+  #   staging:     SUPABASE_PROJECT_REF_STAGING, SUPABASE_DB_PASSWORD_STAGING, SB_SECRET_KEY_STAGING, STAGING_TEST_PASSWORD
+  PROJECT_REF: ${{ github.ref_name == 'main' && secrets.SUPABASE_PROJECT_REF || secrets.SUPABASE_PROJECT_REF_STAGING }}
+  HAS_SECRETS: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' && (github.ref_name == 'main' && secrets.SUPABASE_PROJECT_REF != '' && secrets.SUPABASE_DB_PASSWORD != '' || github.ref_name != 'main' && secrets.SUPABASE_PROJECT_REF_STAGING != '' && secrets.SUPABASE_DB_PASSWORD_STAGING != '') }}
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
       - name: Secrets present?
         if: env.HAS_SECRETS != 'true'
-        run: echo "::notice title=Deploy skipped::Set SUPABASE_ACCESS_TOKEN, SUPABASE_PROJECT_REF, SUPABASE_DB_PASSWORD in Settings → Secrets → Actions (README §2)."
+        run: echo "::notice title=Deploy skipped (${{ github.ref_name }})::Set SUPABASE_ACCESS_TOKEN + SUPABASE_PROJECT_REF[_STAGING] + SUPABASE_DB_PASSWORD[_STAGING] in Settings → Secrets → Actions (README §2, docs/STAGING_SETUP.md)."
       - uses: actions/checkout@v4
         if: env.HAS_SECRETS == 'true'
       - uses: supabase/setup-cli@v1
         if: env.HAS_SECRETS == 'true'
         with: { version: latest }
-      - name: Link project
+      - name: Link project (${{ github.ref_name == 'main' && 'production' || 'staging' }})
         if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
-        run: supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+          SUPABASE_DB_PASSWORD: ${{ github.ref_name == 'main' && secrets.SUPABASE_DB_PASSWORD || secrets.SUPABASE_DB_PASSWORD_STAGING }}
+        run: supabase link --project-ref "$PROJECT_REF"
       - name: Push migrations
         if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_DB_PASSWORD: ${{ github.ref_name == 'main' && secrets.SUPABASE_DB_PASSWORD || secrets.SUPABASE_DB_PASSWORD_STAGING }}
         run: supabase db push
       - name: Deploy Edge Functions (all verify their own JWT — D-27)
         if: env.HAS_SECRETS == 'true'
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: supabase functions deploy login admin-users telegram-webhook telegram-sender resolve-maps-link --no-verify-jwt --project-ref ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy login admin-users telegram-webhook telegram-sender resolve-maps-link --no-verify-jwt --project-ref "$PROJECT_REF"
+      - name: Seed staging (test company + accounts, idempotent)
+        if: env.HAS_SECRETS == 'true' && env.IS_PROD != 'true' && secrets.SB_SECRET_KEY_STAGING != '' && secrets.STAGING_TEST_PASSWORD != ''
+        env:
+          SUPABASE_URL: https://${{ secrets.SUPABASE_PROJECT_REF_STAGING }}.supabase.co
+          SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY_STAGING }}
+          STAGING_TEST_PASSWORD: ${{ secrets.STAGING_TEST_PASSWORD }}
+        run: python3 scripts/seed_staging.py
+      - name: Seed skipped?
+        if: env.HAS_SECRETS == 'true' && env.IS_PROD != 'true' && (secrets.SB_SECRET_KEY_STAGING == '' || secrets.STAGING_TEST_PASSWORD == '')
+        run: echo "::notice title=Staging seed skipped::Set SB_SECRET_KEY_STAGING and STAGING_TEST_PASSWORD to create the test accounts (docs/STAGING_SETUP.md)."
