@@ -5,7 +5,7 @@ import { join, resolve } from "node:path";
 import { ROOT, capture, green, red, run } from "./lib/common.mjs";
 
 const cfg = JSON.parse(readFileSync(join(ROOT, "deploy", "target.json"), "utf8"));
-const SSH = `${cfg.user}@${cfg.host}`;
+const SSH = cfg.ssh; // alias from owner-setup.cmd
 const OUT = resolve(ROOT, "..", "Backup", "db");
 mkdirSync(OUT, { recursive: true });
 let ok = 0;

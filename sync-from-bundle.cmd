@@ -27,8 +27,9 @@ git merge -q --ff-only FETCH_HEAD 2>nul || (echo Histories diverged - resetting 
 rem leftovers of older deliveries that git does not track (Supabase era, v2 single box)
 for %%d in (supabase apps\web\mock apps\web\src\features\platform apps\web\dist-mock bizdemo-sms) do if exist "%%d" rd /s /q "%%d"
 for %%f in (v2-sync.cmd compose.yml environments.json prod.env.example test.env.example test-local.cmd SETUP_LOCAL.md .env.test.local .env.prod.local apps\web\.env.local scripts\pipeline.mjs scripts\db-test.mjs scripts\seed-test.mjs scripts\env-file.mjs scripts\init-local-git.cmd deploy\post-receive deploy\install.sh deploy\backup.sh deploy\restore.sh deploy\Caddyfile) do if exist "%%f" del /q "%%f"
+if /i "%~1"=="/nopause" (git log --oneline -1 & exit /b 0)
 where pnpm >nul 2>nul && call pnpm.cmd install
 echo.
-echo Source is up to date. Next: test.cmd, then dev.cmd (local) or deploy.cmd all (server).
+echo Source is up to date. Next: owner-setup.cmd (server + deploy) or test.cmd / dev.cmd.
 git log --oneline -3
 pause

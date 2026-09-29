@@ -1,1 +1,2 @@
-{ "host": "208.122.29.40", "user": "root", "dir": "/opt/hangkh" }
+{ "ssh": "hangkh", "host": "208.122.29.40", "user": "ubuntu", "dir": "/opt/hangkh", "key": "hangkh_ed25519",
+  "domains": { "root": "hangkh.com", "hub": "hub.hangkh.com", "oneteam": "oneteam.hangkh.com" } }

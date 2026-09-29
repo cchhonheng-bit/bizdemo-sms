@@ -16,7 +16,7 @@ case "$target" in
   all)     services=(app-hub app-oneteam); vars=(IMAGE_HUB IMAGE_ONETEAM) ;;
   *) echo "target must be oneteam | hub | all"; exit 1 ;;
 esac
-FILES=(compose.yml Caddyfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh)
+FILES=(compose.yml Caddyfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh bin/set-env.sh)
 
 # 1) server files: keep the running ones in .prev, install the new ones
 rm -rf "$PREV"; mkdir -p "$PREV/bin" bin

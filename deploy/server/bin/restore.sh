@@ -8,7 +8,7 @@ cd /opt/hangkh
 f="${1:?usage: restore.sh <backups/<db>-DATE.sql.gz>}"
 [ -f "$f" ] || { echo "file not found: $f"; exit 1; }
 db=$(basename "$f" | sed -E 's/-[0-9]{4}-[0-9]{2}-[0-9]{2}_[0-9]{4}\.sql\.gz$//')
-case "$db" in hub) app=app-hub; owner=hub ;; shop_*) app="app-${db#shop_}"; owner="${db#shop_}" ;; *) echo "unknown database in file name: $db"; exit 1 ;; esac
+case "$db" in hub) app="app-hub"; owner="hub" ;; shop_*) app="app-${db#shop_}"; owner="${db#shop_}" ;; *) echo "unknown database in file name: $db"; exit 1 ;; esac
 [[ "$db" =~ ^[a-z_]+$ ]] || { echo "bad name"; exit 1; }
 gzip -t "$f" || { echo "backup file is corrupt"; exit 1; }
 read -r -p "Restore $f into $db ($app restarts, current data kept as ${db}_before_*)? type YES: " ok; [ "$ok" = "YES" ] || exit 1

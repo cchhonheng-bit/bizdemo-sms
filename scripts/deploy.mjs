@@ -2,7 +2,7 @@
 // deploy.cmd oneteam | hub | all   (MASTER PLAN v2.1 rule B — any failure stops, nothing half-deployed)
 //   1 git clean on main   2 tests   3 server config files   4 pg_dump on the server   5 docker build on this PC
 //   6 docker save | gzip | ssh | docker load   7 switch tag + restart + health (bad health ⇒ previous image back)   8 git tag
-// Needs: Docker Desktop running, SSH key login to the server (SERVER_SETUP.md). Options: --skip-tests
+// Needs: Docker Desktop running, SSH alias "hangkh" (owner-setup.cmd). Options: --skip-tests
 import { spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,7 +14,8 @@ const target = args.find((a) => !a.startsWith("-"));
 const TARGETS = { oneteam: ["shop_oneteam"], hub: ["hub"], all: ["hub", "shop_oneteam"] };
 if (!TARGETS[target]) { console.log(red("usage: deploy.cmd oneteam | hub | all")); process.exit(1); }
 const cfg = JSON.parse(readFileSync(join(ROOT, "deploy", "target.json"), "utf8"));
-const SSH = `${cfg.user}@${cfg.host}`;
+// "hangkh" = Host alias in %USERPROFILE%\.ssh\config written by owner-setup.cmd (user ubuntu, key hangkh_ed25519)
+const SSH = cfg.ssh;
 const stop = (msg) => { console.log(red(`\nDEPLOY STOPPED — ${msg}\nNothing was changed on the server after this point; the running version keeps running.`)); process.exit(1); };
 banner(`HangKH — DEPLOY ${target} → ${cfg.host}`);
 
@@ -35,7 +36,7 @@ if (!args.includes("--skip-tests")) {
 // tools
 if (capture("docker version --format {{.Server.Version}}").code !== 0) stop("Docker Desktop is not running on this PC (start it and wait for 'Engine running').");
 if (run(`ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH} "test -f ${cfg.dir}/.env && echo server-ready"`) !== 0)
-  stop(`SSH key login to ${cfg.host} failed, or the server is not initialised (SERVER_SETUP.md steps 1–3).`);
+  stop(`SSH key login to ${cfg.host} failed, or the server is not initialised — run owner-setup.cmd first.`);
 
 // 3) server files → /opt/hangkh/.incoming only (installed by remote-deploy.sh after the image is loaded; rolled back with it — R10)
 console.log("\n==> server files (staged)");
