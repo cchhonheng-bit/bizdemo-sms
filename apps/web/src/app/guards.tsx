@@ -1,6 +1,7 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
-import type { PermissionKey } from "@sms/shared";
+import type { FeatureFlag, PermissionKey } from "@sms/shared";
+import { useAppConfig } from "@/lib/config";
 import { useTranslation } from "react-i18next";
 
 export function RequireAuth() {
@@ -16,6 +17,14 @@ export function RequireAuth() {
 export function RequirePerm({ perm }: { perm: PermissionKey }) {
   const { can } = useAuth();
   return can(perm) ? <Outlet /> : <Navigate to="/" replace />;
+}
+
+/** Module switched off for this shop (A6) → the page does not exist */
+export function RequireFeature({ flag }: { flag: FeatureFlag }) {
+  const cfg = useAppConfig();
+  const { t } = useTranslation();
+  if (cfg.isLoading) return <div className="p-8 text-center text-muted">{t("app.loading")}</div>;
+  return cfg.data?.features.includes(flag) ? <Outlet /> : <Navigate to="/" replace />;
 }
 
 /** Landing route by role */

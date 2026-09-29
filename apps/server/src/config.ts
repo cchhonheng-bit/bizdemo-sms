@@ -32,6 +32,8 @@ export const config = {
     botToken: env("TELEGRAM_BOT_TOKEN", ""),
     botUsername: env("TELEGRAM_BOT_USERNAME", "hangkh_bot"),
     webhookSecret: env("TELEGRAM_WEBHOOK_SECRET", ""),
+    /** Bot API base (a local mock in the box simulation; https://api.telegram.org in production) */
+    apiBase: env("TELEGRAM_API_BASE", "https://api.telegram.org").replace(/\/$/, ""),
   },
   /** shop mode: who am I, where is the hub, which modules are on (A6) */
   shop: {

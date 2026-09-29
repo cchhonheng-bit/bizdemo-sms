@@ -1,9 +1,9 @@
-# Caddy: automatic HTTPS (Let's Encrypt), HTTP→HTTPS, security headers (S-16/ST-12), reverse proxy to the app.
+# Caddy: automatic HTTPS (Let's Encrypt) for every HangKH domain, HTTP→HTTPS, security headers, /internal/* closed.
 {
 	email {$ACME_EMAIL}
 }
 
-{$DOMAIN} {
+(common) {
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
@@ -14,5 +14,20 @@
 		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; worker-src 'self'; frame-src https://maps.google.com https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
-	reverse_proxy app:3000
+	# hub ⇄ shop API is for the internal network only (D-51)
+	respond /internal/* 404
+}
+
+{$DOMAIN_HUB} {
+	import common
+	reverse_proxy app-hub:3000
+}
+
+{$DOMAIN_ONETEAM} {
+	import common
+	reverse_proxy app-oneteam:3000
+}
+
+{$DOMAIN_ROOT}, www.{$DOMAIN_ROOT} {
+	redir https://{$DOMAIN_HUB}{uri} 302
 }

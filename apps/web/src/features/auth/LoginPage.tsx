@@ -2,7 +2,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { loginSchema, type LoginInput } from "@sms/shared";
 import { useTranslation } from "react-i18next";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, useLocation, Link } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui";
@@ -41,6 +41,7 @@ export default function LoginPage() {
         {err && <p className="text-sm text-danger mb-3" role="alert">{err}</p>}
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={isSubmitting}>{t("auth.login")}</Button>
         <p className="text-xs text-muted mt-4 text-center">{t("auth.forgot")}</p>
+        <p className="text-xs text-muted mt-2 text-center"><Link to="/terms" className="underline">{t("legal.terms")}</Link> · <Link to="/privacy" className="underline">{t("legal.privacy")}</Link></p>
       </form>
     </div>
   );

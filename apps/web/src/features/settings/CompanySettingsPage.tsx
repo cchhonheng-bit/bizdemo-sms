@@ -4,11 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
-import { Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
+import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
+import { Copy, Send } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
-type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null };
+type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null; telegram_group_title?: string | null };
 
 export default function CompanySettingsPage() {
   const { t } = useTranslation();
@@ -32,14 +33,17 @@ export default function CompanySettingsPage() {
       const d = settings.data;
       reset({ work_start: d.work_start, work_end: d.work_end, work_days: d.work_days, office_lat: d.office_lat, office_lng: d.office_lng,
         geofence_m: d.geofence_m, out_of_range_m: d.out_of_range_m, fx_rate_khr: Number(d.fx_rate_khr), discount_approval_limit: d.discount_approval_limit / 100,
-        late_alert_min: d.late_alert_min, telegram_group_chat_id: d.telegram_group_chat_id == null ? "" : String(d.telegram_group_chat_id), invoice_prefix: d.invoice_prefix });
+        late_alert_min: d.late_alert_min, invoice_prefix: d.invoice_prefix });
     }
   }, [settings.data, reset]);
   const workDays = watch("work_days") ?? [];
 
   const save = handleSubmit(async (v) => {
     try {
-      await api.updateSettings({ ...v, discount_approval_limit: toCents(v.discount_approval_limit), telegram_group_chat_id: v.telegram_group_chat_id || null });
+      // the work group is set only through /register <code> in Telegram (v2.1) — never overwritten from this form
+      const rest: Partial<CompanySettingsInput> = { ...v };
+      delete rest.telegram_group_chat_id;
+      await api.updateSettings({ ...rest, discount_approval_limit: toCents(v.discount_approval_limit) });
     } catch (e) { return toast.error(errCode(e) === "FORBIDDEN" ? t("app.error") : t("app.error")); }
     toast.success(t("app.saved"));
     void qc.invalidateQueries({ queryKey: ["company_settings"] });
@@ -95,11 +99,12 @@ export default function CompanySettingsPage() {
             <Field label={t("settings.fx")} error={errors.fx_rate_khr?.message}><Input type="number" {...num("fx_rate_khr")} /></Field>
             <Field label={t("settings.discount_limit")} error={errors.discount_approval_limit?.message}><Input type="number" step="0.01" {...num("discount_approval_limit")} /></Field>
             <Field label={t("settings.invoice_prefix")} error={errors.invoice_prefix?.message}><Input {...register("invoice_prefix")} /></Field>
-            <Field label={t("settings.telegram_group")} error={errors.telegram_group_chat_id?.message} hint="M2"><Input placeholder="-100…" {...register("telegram_group_chat_id")} /></Field>
           </div>
         </Card>
         <div className="flex justify-end"><Button type="submit" variant="primary" loading={isSubmitting}>{t("app.save")}</Button></div>
       </form>
+
+      <TelegramGroupCard current={settings.data} />
 
       <Card title={t("settings.vehicles")}>
         <table className="table mb-3">
@@ -128,5 +133,34 @@ export default function CompanySettingsPage() {
       </Card>
 
     </div>
+  );
+}
+
+/** v2.1 (A3): the work group is registered with "/register ONETEAM-G-XXXXXX" (24 h, single use) — no chat ids typed by hand */
+function TelegramGroupCard({ current }: { current?: { telegram_group_chat_id: number | null; telegram_group_title?: string | null } }) {
+  const { t } = useTranslation();
+  const [code, setCode] = useState<{ command: string; bot: string | null; expires_at: string } | null>(null);
+  const make = useMutation({ mutationFn: api.telegramGroupCode, onSuccess: setCode, onError: () => toast.error(t("app.error")) });
+  const copy = async () => {
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code.command); toast.success(t("settings.copied")); } catch { /* clipboard blocked: the text stays selectable */ }
+  };
+  const set = current?.telegram_group_chat_id != null;
+  return (
+    <Card title={t("settings.tg_title")}>
+      <p className="text-sm mb-3">{t("settings.tg_current")}: {set ? <Badge tone="green">{current?.telegram_group_title || String(current?.telegram_group_chat_id)}</Badge> : <Badge>{t("settings.tg_none")}</Badge>}</p>
+      {code ? (
+        <div className="space-y-2" data-testid="tg-group-code">
+          <p className="text-sm text-muted">{t("settings.tg_steps", { bot: code.bot ?? "hangkh_bot" })}</p>
+          <div className="flex gap-2 items-center flex-wrap">
+            <code className="px-3 py-2 rounded bg-grey-bg border border-grey-line text-base font-semibold select-all">{code.command}</code>
+            <Button onClick={() => void copy()}><Copy size={16} /> {t("settings.copy")}</Button>
+          </div>
+          <p className="text-xs text-muted">{t("settings.tg_expires")}: {new Date(code.expires_at).toLocaleString("en-GB")}</p>
+        </div>
+      ) : (
+        <Button variant="primary" onClick={() => make.mutate()} loading={make.isPending} data-testid="tg-group-make"><Send size={16} /> {t("settings.tg_make_code")}</Button>
+      )}
+    </Card>
   );
 }

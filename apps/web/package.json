@@ -12,11 +12,12 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.9.1",
     "@sms/shared": "workspace:*",
     "@tanstack/react-query": "^5.59.16",
-    "@hookform/resolvers": "^3.9.1",
     "i18next": "^23.16.4",
     "lucide-react": "^0.454.0",
+    "qrcode": "^1.5.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-hook-form": "^7.53.1",
@@ -27,6 +28,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "@types/qrcode": "^1.5.5",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",

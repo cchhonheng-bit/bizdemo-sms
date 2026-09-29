@@ -17,6 +17,9 @@ import BookingFormPage from "@/features/bookings/BookingFormPage";
 import BookingDetailPage from "@/features/bookings/BookingDetailPage";
 import TechTodayPage, { TechJobPage } from "@/features/tech/TechTodayPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
+import SubscribePage from "@/features/subscribe/SubscribePage";
+import LegalPage from "@/features/legal/LegalPage";
+import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
 
 const qc = new QueryClient({ defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } } });
@@ -29,6 +32,8 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/terms" element={<LegalPage which="terms" />} />
+          <Route path="/privacy" element={<LegalPage which="privacy" />} />
           <Route element={<RequireAuth />}>
             <Route path="/first-login" element={<FirstLoginPage />} />
             <Route element={<Shell />}>
@@ -42,6 +47,7 @@ export default function App() {
               <Route path="/bookings/:id" element={<BookingDetailPage />} />
               <Route element={<RequirePerm perm="customer.manage" />}><Route path="/customers" element={<CustomersPage />} /></Route>
               <Route element={<RequirePerm perm="catalog.manage" />}><Route path="/catalog" element={<CatalogPage />} /></Route>
+              <Route element={<RequireFeature flag="subscribe" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/subscribe" element={<SubscribePage />} /></Route></Route>
               <Route path="/tech" element={<TechTodayPage />} />
               <Route path="/tech/job/:id" element={<TechJobPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />

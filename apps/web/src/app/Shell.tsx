@@ -1,14 +1,15 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, Megaphone, CalendarClock, ClipboardList, LayoutDashboard, LogOut, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
 import type { PermissionKey } from "@sms/shared";
 import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 import { api } from "@/lib/api";
+import { useFeature } from "@/lib/config";
 
-type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[] };
+type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[]; hidden?: boolean };
 
 function useOnline() {
   const [online, setOnline] = useState(navigator.onLine);
@@ -26,6 +27,7 @@ export default function Shell() {
   const nav = useNavigate();
   const online = useOnline();
   const unread = useUnreadCount();
+  const subscribeOn = useFeature("subscribe");
   if (!me) return null;
   const isTech = me.role === "tech";
 
@@ -34,11 +36,12 @@ export default function Shell() {
     { to: "/bookings", label: t("nav.bookings"), icon: ClipboardList },
     { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
+    { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
     { to: "/me", label: t("nav.me"), icon: User },
   ];
-  const desktopItems = allDesktop.filter((i) => !i.perm || can(i.perm));
+  const desktopItems = allDesktop.filter((i) => !i.hidden && (!i.perm || can(i.perm)));
 
   const techItems: Item[] = [
     { to: "/tech", label: t("nav.today"), icon: ClipboardList },

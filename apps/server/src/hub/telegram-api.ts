@@ -10,7 +10,7 @@ const httpTransport: TgTransport = async (method, payload) => {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 10_000);
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    const res = await fetch(`${config.telegram.apiBase}/bot${token}/${method}`, {
       method: "POST", headers: { "content-type": "application/json" }, signal: ctrl.signal, body: JSON.stringify(payload),
     });
     const json = (await res.json().catch(() => ({}))) as { ok?: boolean; result?: unknown; description?: string; parameters?: { retry_after?: number } };

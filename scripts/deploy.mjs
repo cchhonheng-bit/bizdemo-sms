@@ -1,47 +1,81 @@
 #!/usr/bin/env node
-// deploy.cmd = one click (rule 4): tests → git push to the VPS → server hook: backup → build → restart → health.
-// First run: asks for the server address, installs the server (deploy/install.sh over ssh) and adds the `vps` git remote.
-// Usage: node scripts/deploy.mjs [--skip-tests] [--setup]
-import { createInterface } from "node:readline/promises";
+// deploy.cmd oneteam | hub | all   (MASTER PLAN v2.1 rule B — any failure stops, nothing half-deployed)
+//   1 git clean on main   2 tests   3 server config files   4 pg_dump on the server   5 docker build on this PC
+//   6 docker save | gzip | ssh | docker load   7 switch tag + restart + health (bad health ⇒ previous image back)   8 git tag
+// Needs: Docker Desktop running, SSH key login to the server (SERVER_SETUP.md). Options: --skip-tests
+import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createGzip } from "node:zlib";
 import { ROOT, banner, capture, green, red, run, stamp, yellow } from "./lib/common.mjs";
 
 const args = process.argv.slice(2);
-const ask = async (q) => { const rl = createInterface({ input: process.stdin, output: process.stdout }); const a = (await rl.question(q)).trim(); rl.close(); return a; };
-banner("One Team Service — DEPLOY to the VPS");
+const target = args.find((a) => !a.startsWith("-"));
+const TARGETS = { oneteam: ["shop_oneteam"], hub: ["hub"], all: ["hub", "shop_oneteam"] };
+if (!TARGETS[target]) { console.log(red("usage: deploy.cmd oneteam | hub | all")); process.exit(1); }
+const cfg = JSON.parse(readFileSync(join(ROOT, "deploy", "target.json"), "utf8"));
+const SSH = `${cfg.user}@${cfg.host}`;
+const stop = (msg) => { console.log(red(`\nDEPLOY STOPPED — ${msg}\nNothing was changed on the server after this point; the running version keeps running.`)); process.exit(1); };
+banner(`HangKH — DEPLOY ${target} → ${cfg.host}`);
 
-if (capture("git rev-parse --is-inside-work-tree").out !== "true") { console.log(red("Source is not a git repository.")); process.exit(1); }
+// 1) only committed code on main goes to production
+if (capture("git rev-parse --is-inside-work-tree").out !== "true") stop("Source is not a git repository.");
 const branch = capture("git rev-parse --abbrev-ref HEAD").out;
-if (branch !== "main") { console.log(red(`You are on branch "${branch}" — deploy only from main.`)); process.exit(1); }
-if (capture("git status --porcelain").out) { console.log(red("Uncommitted changes — run save.cmd first (production runs committed code only).")); process.exit(1); }
+if (branch !== "main") stop(`you are on branch "${branch}" — deploy only from main.`);
+if (capture("git status --porcelain").out) stop("uncommitted changes — run save.cmd first.");
+const sha = capture("git rev-parse --short=10 HEAD").out;
+const tag = `${sha}`.toLowerCase();
+const image = `hangkh/app:${tag}`;
 
-// server remote
-let remote = capture("git remote get-url vps").out;
-if (!remote || args.includes("--setup")) {
-  const host = await ask(yellow("Server address (e.g. 157.10.72.80): "));
-  if (!/^[a-zA-Z0-9.-]+$/.test(host)) { console.log(red("invalid address")); process.exit(1); }
-  console.log("\nChecking SSH access (needs your public key in /root/.ssh/authorized_keys on the server)…");
-  if (run(`ssh -o BatchMode=yes -o ConnectTimeout=10 root@${host} "echo ssh-ok"`) !== 0) {
-    console.log(red(`\nSSH key login failed. On this PC run once:\n  ssh-keygen -t ed25519    (Enter, Enter, Enter)\n  type %USERPROFILE%\\.ssh\\id_ed25519.pub | ssh root@${host} "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"\nthen run deploy.cmd again.`));
-    process.exit(1);
-  }
-  console.log("\nInstalling the server (docker, firewall, swap, git target, .env, nightly backup)…");
-  if (run(`ssh root@${host} "bash -s" < deploy/install.sh`) !== 0) { console.log(red("server install failed")); process.exit(1); }
-  if (remote) run(`git remote set-url vps root@${host}:/opt/oneteam.git`); else run(`git remote add vps root@${host}:/opt/oneteam.git`);
-  remote = `root@${host}:/opt/oneteam.git`;
-  console.log(green(`\nServer ready. Before the first deploy, on the server:  nano /opt/oneteam/.env  → TELEGRAM_BOT_TOKEN + DOMAIN.\n`));
-  if ((await ask("Continue with the deploy now? (y/N): ")).toLowerCase() !== "y") process.exit(0);
-}
-
-// tests
+// 2) tests
 if (!args.includes("--skip-tests")) {
-  if (run("node scripts/test.mjs") !== 0) { console.log(red("\nTests failed — nothing was deployed.")); process.exit(1); }
+  if (run("node scripts/test.mjs") !== 0) stop("tests failed.");
 } else console.log(yellow("tests skipped (--skip-tests)"));
 
-// push → server hook does backup → build → restart → health check (output streams below)
-const sha = capture("git rev-parse --short HEAD").out;
-console.log(`\nDeploying ${sha} → ${remote}\n`);
-const code = run("git push vps main");
-if (code !== 0) { console.log(red("\nDEPLOY FAILED — see the server output above. The previous version keeps running if the backup or build failed.")); process.exit(1); }
-const tag = `deploy-${stamp().slice(0, 13)}`;
-run(`git tag -f ${tag}`);
-console.log(green(`\nDEPLOYED ${sha} · tag ${tag}\nRollback: git push vps <older-tag>:main --force`));
+// tools
+if (capture("docker version --format {{.Server.Version}}").code !== 0) stop("Docker Desktop is not running on this PC (start it and wait for 'Engine running').");
+if (run(`ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH} "test -f ${cfg.dir}/.env && echo server-ready"`) !== 0)
+  stop(`SSH key login to ${cfg.host} failed, or the server is not initialised (SERVER_SETUP.md steps 1–3).`);
+
+// 3) server files (compose, Caddyfile, scripts) — takes effect at the restart below
+console.log("\n==> server files");
+if (run(`ssh ${SSH} "rm -rf ${cfg.dir}/.incoming"`) !== 0 || run(`scp -q -r deploy/server ${SSH}:${cfg.dir}/.incoming`) !== 0 ||
+    run(`ssh ${SSH} "cd ${cfg.dir} && cp .incoming/compose.yml .incoming/Caddyfile .incoming/pg-init.sh . && cp .incoming/bin/* bin/ && chmod +x bin/* pg-init.sh && sed -i 's/\\r$//' bin/* pg-init.sh && rm -rf .incoming"`) !== 0)
+  stop("copying server files failed.");
+
+// 4) backup BEFORE anything changes (owner condition 1: backup fail = stop)
+console.log("\n==> backup on the server (pg_dump)");
+if (run(`ssh ${SSH} "${cfg.dir}/bin/backup.sh ${TARGETS[target].join(" ")}"`) !== 0) stop("server backup failed.");
+
+// 5) build on this PC (the 2 GB server never builds)
+console.log(`\n==> docker build ${image}`);
+if (run(`docker build --platform linux/amd64 -t ${image} .`) !== 0) stop("docker build failed.");
+
+// 6) ship: docker save | gzip | ssh "gunzip | docker load"
+console.log("\n==> sending the image to the server (docker save | ssh | docker load)");
+const sent = await new Promise((resolve) => {
+  const save = spawn("docker", ["save", image], { stdio: ["ignore", "pipe", "inherit"] });
+  const ssh = spawn("ssh", [SSH, "gunzip | docker load"], { stdio: ["pipe", "inherit", "inherit"] });
+  let bytes = 0;
+  const gz = createGzip({ level: 6 });
+  save.stdout.on("data", (b) => { bytes += b.length; });
+  save.stdout.pipe(gz).pipe(ssh.stdin);
+  let saveCode = null;
+  save.on("exit", (c) => { saveCode = c; });
+  ssh.on("exit", (c) => { console.log(`    ${(bytes / 1048576).toFixed(0)} MB image`); resolve(c === 0 && saveCode === 0); });
+  save.on("error", () => resolve(false)); ssh.on("error", () => resolve(false));
+});
+if (!sent) stop("sending the image failed.");
+
+// 7) switch + restart + health (automatic rollback on the server if unhealthy)
+console.log("\n==> restart");
+if (run(`ssh ${SSH} "${cfg.dir}/bin/remote-deploy.sh ${target} ${tag}"`) !== 0) {
+  console.log(red("\nDEPLOY FAILED — the new version was not healthy; the server put the previous version back (see the log above)."));
+  process.exit(1);
+}
+
+// 8) remember what runs where
+const gitTag = `deploy-${target}-${stamp().slice(0, 13)}`;
+run(`git tag -f ${gitTag}`);
+console.log(green(`\nDEPLOYED ${image} → ${target} · git tag ${gitTag}`));
+console.log(`Rollback: deploy.cmd ${target} from an older commit (git checkout <tag>), or on the server: bin/remote-deploy.sh ${target} <older-tag>`);

@@ -1,0 +1,98 @@
+# HangKH platform box (Architecture v2.1 "B + Hub", D-50/D-51) — the whole system, nothing else (rule B):
+#   caddy (HTTPS) · postgres (one instance, one DB per shop + hub) · app-hub · app-oneteam (same image, APP_MODE differs)
+# Images are built on the owner's PC and loaded with docker load (the server never builds). Tags come from images.env.
+# Run through /opt/hangkh/bin/dc (= docker compose --env-file .env --env-file images.env -f compose.yml).
+x-logging: &logging
+  logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    <<: *logging
+    mem_limit: 512m
+    command: ["postgres", "-c", "shared_buffers=128MB", "-c", "max_connections=40", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=64MB"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C.UTF-8"
+      DB_PASSWORD_HUB: ${DB_PASSWORD_HUB:?set in .env}
+      DB_PASSWORD_ONETEAM: ${DB_PASSWORD_ONETEAM:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./pg-init.sh:/docker-entrypoint-initdb.d/10-hangkh.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # no "ports": reachable only from the app containers
+
+  app-hub:
+    image: ${IMAGE_HUB:?deploy the hub first (deploy.cmd hub)}
+    restart: unless-stopped
+    <<: *logging
+    mem_limit: 256m
+    environment:
+      APP_MODE: hub
+      NODE_OPTIONS: --max-old-space-size=160
+      DATABASE_URL: postgres://hub:${DB_PASSWORD_HUB}@postgres:5432/hub
+      PUBLIC_URL: https://${DOMAIN_HUB:?set in .env}
+      SESSION_SECRET: ${SESSION_SECRET_HUB:?set in .env}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-hangkh_bot}
+      TELEGRAM_WEBHOOK_SECRET: ${TELEGRAM_WEBHOOK_SECRET:?set in .env}
+      HUB_SHOPS: "ONETEAM|${NAME_ONETEAM:-One Team Engineering}|http://app-oneteam:3000|${FEATURES_ONETEAM:-subscribe}"
+      HUB_KEY_ONETEAM: ${HUB_KEY_ONETEAM:?set in .env}
+      TRUST_PROXY: "true"
+      CRON: "true"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  app-oneteam:
+    image: ${IMAGE_ONETEAM:?deploy the shop first (deploy.cmd oneteam)}
+    restart: unless-stopped
+    <<: *logging
+    mem_limit: 448m
+    environment:
+      APP_MODE: shop
+      NODE_OPTIONS: --max-old-space-size=320
+      SHOP_CODE: ONETEAM
+      APP_NAME: ${APP_NAME_ONETEAM:-One Team Service}
+      FEATURES: ${FEATURES_ONETEAM:-subscribe}
+      DATABASE_URL: postgres://oneteam:${DB_PASSWORD_ONETEAM}@postgres:5432/shop_oneteam
+      PUBLIC_URL: https://${DOMAIN_ONETEAM:?set in .env}
+      SESSION_SECRET: ${SESSION_SECRET_ONETEAM:?set in .env}
+      TELEGRAM_BOT_USERNAME: ${TELEGRAM_BOT_USERNAME:-hangkh_bot}
+      HUB_URL: http://app-hub:3000
+      HUB_KEY: ${HUB_KEY_ONETEAM}
+      TRUST_PROXY: "true"
+      CRON: "true"
+    volumes:
+      - uploads_oneteam:/app/data/uploads
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    <<: *logging
+    mem_limit: 128m
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN_ROOT: ${DOMAIN_ROOT:-hangkh.com}
+      DOMAIN_HUB: ${DOMAIN_HUB}
+      DOMAIN_ONETEAM: ${DOMAIN_ONETEAM}
+      ACME_EMAIL: ${ACME_EMAIL:?set a real mailbox in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  pgdata:
+  uploads_oneteam:
+  caddy_data:
+  caddy_config:

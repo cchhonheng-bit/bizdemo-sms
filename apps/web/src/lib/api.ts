@@ -1,5 +1,5 @@
 // Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
-import type { BookingStatus, BookingType, ServiceCategory, Zone } from "@sms/shared";
+import type { BookingStatus, BookingType, FeatureFlag, ServiceCategory, Zone } from "@sms/shared";
 import { ApiError, get, patch, post } from "./http";
 
 export type Customer = {
@@ -43,8 +43,13 @@ const q = (o: Record<string, string | number | undefined>) => {
   return s ? `?${s}` : "";
 };
 
+export type AppConfig = { appName: string; companyName: string; telegramBot: string | null; shopCode: string; features: FeatureFlag[] };
+export type SubscribeInfo = { link: string; bot: string; shop: string; enabled: boolean; total: number; promo: number; stopped: number;
+  subscribers: { first_name: string | null; username: string | null; subscribed_at: string; promo: boolean; stopped: boolean }[] };
+export type BroadcastRow = { id: number; kind: "service" | "promo"; text: string; created_by_name: string | null; recipients: number; created_at: string; sent: number; failed: number; pending: number };
+
 export const api = {
-  config: () => get<{ appName: string; telegramBot: string | null }>("/api/config"),
+  config: () => get<AppConfig>("/api/config"),
 
   customers: (activeOnly = false) => get<Customer[]>(`/api/customers${q({ active: activeOnly ? "true" : undefined })}`),
   upsertCustomer: async (v: { id?: string | null; name: string; phones: string[]; address?: string | null; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null }) =>
@@ -84,7 +89,14 @@ export const api = {
   notifications: () => get<Notification[]>("/api/notifications"),
   unreadCount: async () => (await get<{ count: number }>("/api/notifications/unread-count")).count,
   markRead: (id: number) => post(`/api/notifications/${id}/read`, {}),
-  telegramLinkCode: () => post<{ code: string; bot: string | null }>("/api/telegram/link-code", {}),
+  telegramLinkCode: () => post<{ code: string; link: string; bot: string | null; expires_at: string }>("/api/telegram/link-code", {}),
+  telegramGroupCode: () => post<{ code: string; command: string; bot: string | null; expires_at: string }>("/api/telegram/group-code", {}),
+
+  subscribe: {
+    info: () => get<SubscribeInfo>("/api/subscribe"),
+    broadcasts: () => get<BroadcastRow[]>("/api/subscribe/broadcasts"),
+    send: (kind: "service" | "promo", text: string) => post<{ id: number; recipients: number }>("/api/subscribe/broadcast", { kind, text }),
+  },
 
   me: {
     setLanguage: (language: "km" | "en") => post("/api/me/language", { language }),

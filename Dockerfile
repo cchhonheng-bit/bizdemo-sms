@@ -1,4 +1,4 @@
-# One Team Service — single app image (web static + API + Telegram + cron). Architecture v2 rule 1/2.
+# HangKH app image — ONE image, two modes (APP_MODE=hub | shop). Architecture v2.1. Built on the owner's PC (deploy.cmd).
 # Build stage: install all workspace deps, build web (vite) + server (esbuild bundle incl. @sms/shared).
 FROM node:22-alpine AS build
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
@@ -23,7 +23,7 @@ COPY --from=build --chown=node:node /src/apps/server/dist ./dist
 COPY --from=build --chown=node:node /src/apps/web/dist ./web
 RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 USER node
-ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 WEB_DIST=/app/web MIGRATIONS_DIR=/app/dist/migrations UPLOADS_DIR=/app/data/uploads
+ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 WEB_DIST=/app/web MIGRATIONS_DIR=/app/dist/migrations HUB_MIGRATIONS_DIR=/app/dist/migrations_hub UPLOADS_DIR=/app/data/uploads
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
 ENTRYPOINT ["/sbin/tini", "--"]
