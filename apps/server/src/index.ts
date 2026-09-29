@@ -22,8 +22,13 @@ async function main() {
   if (config.cron) (hub ? startHubCron : startCron)(app.log);
   if (hub) {
     if (config.telegram.botToken && config.telegram.webhookSecret && config.publicUrl.startsWith("https://")) {
-      const r = await setWebhook(config.publicUrl, config.telegram.webhookSecret);
-      app.log.info({ ok: r.ok, error: r.ok ? undefined : r.error }, "telegram setWebhook");
+      // 3 attempts: right after a deploy both apps boot at once and the first Telegram call can time out (D-63)
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const r = await setWebhook(config.publicUrl, config.telegram.webhookSecret);
+        app.log.info({ ok: r.ok, attempt, error: r.ok ? undefined : r.error }, "telegram setWebhook");
+        if (r.ok || (!r.ok && r.permanent)) break;
+        await new Promise((res) => setTimeout(res, 5_000 * attempt));
+      }
       await setCommands().catch(() => undefined);
     } else {
       app.log.warn("telegram webhook not registered (needs TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET and an https PUBLIC_URL)");
