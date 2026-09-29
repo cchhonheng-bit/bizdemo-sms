@@ -10,7 +10,12 @@ const env = (k: string, def?: string): string => {
   throw new Error(`Missing environment variable ${k}`);
 };
 
+const mode = env("APP_MODE", "shop");
+if (mode !== "shop" && mode !== "hub") throw new Error("APP_MODE must be shop or hub");
+
 export const config = {
+  /** v2.1 (D-50): one codebase, two modes — "hub" (hub.hangkh.com) or "shop" (<shop>.hangkh.com) */
+  mode: mode as "shop" | "hub",
   nodeEnv: env("NODE_ENV", "development"),
   isProd: env("NODE_ENV", "development") === "production",
   port: Number(env("PORT", "3000")),
@@ -22,10 +27,25 @@ export const config = {
   /** public https URL of the app — Telegram webhook + secure cookies */
   publicUrl: env("PUBLIC_URL", "http://localhost:3000").replace(/\/$/, ""),
   appName: env("APP_NAME", "One Team Service"),
+  /** Bot token + webhook secret live ONLY in the hub container; the shop needs the bot username for deep links. */
   telegram: {
     botToken: env("TELEGRAM_BOT_TOKEN", ""),
-    botUsername: env("TELEGRAM_BOT_USERNAME", ""),
+    botUsername: env("TELEGRAM_BOT_USERNAME", "hangkh_bot"),
     webhookSecret: env("TELEGRAM_WEBHOOK_SECRET", ""),
+  },
+  /** shop mode: who am I, where is the hub, which modules are on (A6) */
+  shop: {
+    code: env("SHOP_CODE", "ONETEAM").toUpperCase(),
+    hubUrl: env("HUB_URL", "").replace(/\/$/, ""),
+    hubKey: env("HUB_KEY", ""),
+    features: env("FEATURES", ""),
+  },
+  /** hub mode: registry of shops "CODE|Name|internal url|flags;…" (keys come from HUB_KEY_<CODE>) */
+  hub: {
+    shops: env("HUB_SHOPS", ""),
+    migrationsDir: env("HUB_MIGRATIONS_DIR", resolve(here, "migrations_hub")),
+    /** messages per second when flushing broadcasts (Telegram allows ~30/s per bot) */
+    sendRate: Number(env("HUB_SEND_RATE", "20")),
   },
   /** directory with the built web app (index.html, assets/) */
   webDist: env("WEB_DIST", resolve(here, "../../web/dist")),

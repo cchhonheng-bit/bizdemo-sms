@@ -1,46 +1,14 @@
-// Telegram: Bot API client, outbox (queue in DB, retry ≤ 5, blocked chat → failed at once — D-15),
-// "Booking Confirmed" message text (Architecture §8.1), link codes (S-11), group registration.
-import { randomBytes, timingSafeEqual } from "node:crypto";
+// Telegram (shop side, v2.1): outbox (queue in DB, retry ≤ 5, blocked chat → failed at once — D-15) delivered
+// THROUGH THE HUB (the shop has no bot token — D-51), "Booking Confirmed" text (Architecture §8.1),
+// staff/group codes ONETEAM-S-xxxxxx / ONETEAM-G-xxxxxx (A3, S-11) validated when the hub forwards them.
+import { deepLink } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
+import { randomCode } from "../lib/secure.js";
 import { audit } from "./audit.js";
+import { hubConfigured, sendViaHub } from "./hub-client.js";
 
-// ---------- Bot API ------------------------------------------------------------
 export type SendResult = { ok: true } | { ok: false; error: string; permanent: boolean; retryAfter?: number };
-
-export async function sendMessage(chatId: number | string, text: string, replyMarkup?: unknown, token = config.telegram.botToken): Promise<SendResult> {
-  if (!token) return { ok: false, error: "NO_BOT_TOKEN", permanent: false };
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 10_000);
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST", headers: { "content-type": "application/json" }, signal: ctrl.signal,
-      body: JSON.stringify({ chat_id: chatId, text, reply_markup: replyMarkup ?? undefined, disable_web_page_preview: true }),
-    });
-    const json = (await res.json().catch(() => ({}))) as { ok?: boolean; description?: string; parameters?: { retry_after?: number } };
-    if (res.ok && json.ok) return { ok: true };
-    // 400 (chat not found / bot was blocked) and 403 (forbidden) never succeed on retry
-    return { ok: false, error: `${res.status} ${json.description ?? ""}`.trim(), permanent: res.status === 400 || res.status === 403, retryAfter: json.parameters?.retry_after };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message, permanent: false };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function setWebhook(publicUrl: string, secret: string, token = config.telegram.botToken): Promise<{ ok: boolean; description?: string }> {
-  if (!token || !secret) return { ok: false, description: "missing token/secret" };
-  const res = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
-    method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ url: `${publicUrl}/api/telegram/webhook`, secret_token: secret, allowed_updates: ["message"], drop_pending_updates: false }),
-  });
-  return (await res.json().catch(() => ({ ok: false }))) as { ok: boolean; description?: string };
-}
-
-export function safeEqual(a: string, b: string): boolean {
-  const ba = Buffer.from(a), bb = Buffer.from(b);
-  return ba.length === bb.length && timingSafeEqual(ba, bb);
-}
 
 // ---------- outbox --------------------------------------------------------------
 export async function enqueue(db: Db, companyId: string, chatId: number | string, text: string, replyMarkup: unknown, dedupeKey: string): Promise<void> {
@@ -51,9 +19,9 @@ export async function enqueue(db: Db, companyId: string, chatId: number | string
 
 let flushing = false;
 /** Deliver pending outbox rows (called after assign and by the cron every 30 s). Returns counts. */
-export async function flushOutbox(limit = 20, send: typeof sendMessage = sendMessage): Promise<{ taken: number; sent: number; failed: number; retry: number }> {
+export async function flushOutbox(limit = 20, send: (chatId: number | string, text: string, markup?: unknown) => Promise<SendResult> = sendViaHub): Promise<{ taken: number; sent: number; failed: number; retry: number }> {
   if (flushing) return { taken: 0, sent: 0, failed: 0, retry: 0 };
-  if (send === sendMessage && !config.telegram.botToken) return { taken: 0, sent: 0, failed: 0, retry: 0 }; // no bot configured → keep rows pending
+  if (send === sendViaHub && !hubConfigured()) return { taken: 0, sent: 0, failed: 0, retry: 0 }; // no hub configured → keep rows pending
   flushing = true;
   const out = { taken: 0, sent: 0, failed: 0, retry: 0 };
   try {
@@ -127,36 +95,72 @@ export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason:
   }
 }
 
-// ---------- link codes (S-11) ---------------------------------------------------------------
-export async function createLinkCode(userId: string): Promise<string> {
-  const code = randomBytes(16).toString("hex");
-  await sql`delete from telegram_link_codes where user_id = ${userId} or expires_at < now()`;
-  await sql`insert into telegram_link_codes (code, user_id, expires_at) values (${code}, ${userId}, now() + interval '10 minutes')`;
-  return code;
+// ---------- codes (A3 · S-11) ---------------------------------------------------------------
+const STAFF_TTL = "10 minutes", GROUP_TTL = "24 hours";
+
+async function newCode(kind: "staff" | "group", companyId: string, createdBy: string, userId: string | null): Promise<{ code: string; expires_at: Date }> {
+  return sql.begin(async (t) => {
+    // one live code per user (staff) / per company (group); expired rows are swept here too
+    if (kind === "staff") await t`delete from telegram_link_codes where (kind = 'staff' and user_id = ${userId} and used_at is null) or expires_at < now() - interval '1 day'`;
+    else await t`delete from telegram_link_codes where (kind = 'group' and company_id = ${companyId} and used_at is null) or expires_at < now() - interval '1 day'`;
+    for (let i = 0; i < 5; i++) {
+      const code = `${config.shop.code}-${kind === "staff" ? "S" : "G"}-${randomCode()}`;
+      const r = await t<{ expires_at: Date }[]>`insert into telegram_link_codes (code, kind, company_id, user_id, created_by, expires_at)
+        values (${code}, ${kind}, ${companyId}, ${userId}, ${createdBy}, now() + ${kind === "staff" ? STAFF_TTL : GROUP_TTL}::interval)
+        on conflict (code) do nothing returning expires_at`;
+      if (r[0]) return { code, expires_at: r[0].expires_at };
+    }
+    throw new Error("could not allocate a code");
+  }) as Promise<{ code: string; expires_at: Date }>;
 }
 
-/** /start <code> in a private chat → link. A Telegram account can be linked to one user only (F-M2-03). */
-export async function consumeLinkCode(code: string, tgUser: number, chatId: number): Promise<{ ok: true; fullName: string } | { ok: false; error: string }> {
+/** App button «ភ្ជាប់ Telegram» → deep link t.me/hangkh_bot?start=ONETEAM-S-XXXXXX (10 min, single use). */
+export async function createLinkCode(userId: string, companyId: string): Promise<{ code: string; link: string; expires_at: Date }> {
+  const c = await newCode("staff", companyId, userId, userId);
+  return { ...c, link: deepLink(config.telegram.botUsername, c.code) };
+}
+
+/** Settings → group code for "/register ONETEAM-G-XXXXXX" in the company's Telegram group (24 h, single use). */
+export async function createGroupCode(userId: string, companyId: string): Promise<{ code: string; command: string; expires_at: Date }> {
+  const c = await newCode("group", companyId, userId, null);
+  await audit(sql, { companyId, userId, action: "telegram.group_code", table: "telegram_link_codes", new: { expires_at: c.expires_at } });
+  return { ...c, command: `/register ${c.code}` };
+}
+
+type Consumed = { ok: true; reply: string } | { ok: false; reply: string; error: string };
+
+/** Hub forwards "/start ONETEAM-S-XXXXXX" from a private chat. A Telegram account links to one user of this shop (F-M2-03). */
+export async function consumeLinkCode(code: string, tgUser: number, chatId: number): Promise<Consumed> {
   return sql.begin(async (t) => {
-    const row = (await t<{ user_id: string }[]>`select user_id from telegram_link_codes where code = ${code} and used_at is null and expires_at > now() for update`)[0];
-    if (!row) return { ok: false as const, error: "INVALID_CODE" };
+    const row = (await t<{ user_id: string; company_id: string }[]>`select user_id, company_id from telegram_link_codes
+      where code = ${code} and kind = 'staff' and used_at is null and expires_at > now() for update`)[0];
+    if (!row) return { ok: false as const, error: "INVALID_CODE", reply: "❌ កូដមិនត្រឹមត្រូវ ឬផុតកំណត់ (10 នាទី)។ សូមចុច «ភ្ជាប់ Telegram» ម្ដងទៀតក្នុងកម្មវិធី។" };
     await t`update telegram_link_codes set used_at = now() where code = ${code}`;
     const prev = await t<{ id: string; company_id: string }[]>`update users set telegram_user_id = null, telegram_chat_id = null where telegram_user_id = ${tgUser} and id <> ${row.user_id} returning id, company_id`;
     for (const p of prev) await audit(t, { companyId: p.company_id, userId: p.id, action: "telegram.unlink", source: "telegram", table: "users", rowId: p.id, new: { reason: "relinked_to_other_user" } });
-    const u = (await t<{ full_name: string; company_id: string }[]>`update users set telegram_user_id = ${tgUser}, telegram_chat_id = ${chatId} where id = ${row.user_id} returning full_name, company_id`)[0]!;
-    await audit(t, { companyId: u.company_id, userId: row.user_id, action: "telegram.link", source: "telegram", table: "users", rowId: row.user_id, new: { telegram_user_id: tgUser } });
-    await t`insert into notifications (company_id, user_id, kind, title) values (${u.company_id}, ${row.user_id}, 'telegram.linked', 'Telegram ភ្ជាប់រួច')`;
-    return { ok: true as const, fullName: u.full_name };
-  }) as Promise<{ ok: true; fullName: string } | { ok: false; error: string }>;
+    const u = (await t<{ full_name: string; is_active: boolean }[]>`update users set telegram_user_id = ${tgUser}, telegram_chat_id = ${chatId} where id = ${row.user_id} returning full_name, is_active`)[0]!;
+    await audit(t, { companyId: row.company_id, userId: row.user_id, action: "telegram.link", source: "telegram", table: "users", rowId: row.user_id, new: { telegram_user_id: tgUser } });
+    await t`insert into notifications (company_id, user_id, kind, title) values (${row.company_id}, ${row.user_id}, 'telegram.linked', 'Telegram ភ្ជាប់រួច')`;
+    return { ok: true as const, reply: `✅ ភ្ជាប់រួចរាល់ ${u.full_name}។ អ្នកនឹងទទួលការងារថ្មីនៅទីនេះ។` };
+  }) as Promise<Consumed>;
 }
 
-/** /register in a group by a linked user with settings.manage → company group. */
-export async function registerGroup(tgUser: number, chatId: number, title: string): Promise<{ ok: boolean; error?: string }> {
-  const u = (await sql<{ id: string; company_id: string; role: string }[]>`select id, company_id, role from users where telegram_user_id = ${tgUser} and is_active`)[0];
-  if (!u) return { ok: false, error: "NOT_LINKED" };
-  const allowed = await sql`select 1 from role_permissions where company_id = ${u.company_id} and role = ${u.role}::user_role and permission_key = 'settings.manage' and allowed`;
-  if (allowed.length === 0) return { ok: false, error: "FORBIDDEN" };
-  await sql`update company_settings set telegram_group_chat_id = ${chatId}, updated_by = ${u.id} where company_id = ${u.company_id}`;
-  await audit(sql, { companyId: u.company_id, userId: u.id, action: "telegram.group_registered", source: "telegram", table: "company_settings", rowId: u.company_id, new: { chat_id: chatId, title } });
-  return { ok: true };
+/** Hub forwards "/register ONETEAM-G-XXXXXX" from a group/supergroup → the company's work group. */
+export async function consumeGroupCode(code: string, chatId: number, title: string): Promise<Consumed> {
+  return sql.begin(async (t) => {
+    const row = (await t<{ company_id: string; created_by: string }[]>`select company_id, created_by from telegram_link_codes
+      where code = ${code} and kind = 'group' and used_at is null and expires_at > now() for update`)[0];
+    if (!row) return { ok: false as const, error: "INVALID_CODE", reply: "❌ កូដក្រុមមិនត្រឹមត្រូវ ឬផុតកំណត់ (24 ម៉ោង)។ សូមបង្កើតកូដថ្មីក្នុង ការកំណត់ → Telegram។" };
+    // the creator must still hold settings.manage (permissions may have changed since the code was made)
+    const allowed = await t`select 1 from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role and rp.permission_key = 'settings.manage' and rp.allowed
+                            where u.id = ${row.created_by} and u.is_active`;
+    if (allowed.length === 0) return { ok: false as const, error: "FORBIDDEN", reply: "❌ អ្នកបង្កើតកូដនេះលែងមានសិទ្ធិ។ សូមបង្កើតកូដថ្មី។" };
+    await t`update telegram_link_codes set used_at = now() where code = ${code}`;
+    const old = (await t<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${row.company_id}`)[0];
+    await t`update company_settings set telegram_group_chat_id = ${chatId}, telegram_group_title = ${title || null}, updated_by = ${row.created_by} where company_id = ${row.company_id}`;
+    await audit(t, { companyId: row.company_id, userId: row.created_by, action: "telegram.group_registered", source: "telegram", table: "company_settings", rowId: row.company_id,
+      old: { chat_id: old?.telegram_group_chat_id ?? null }, new: { chat_id: chatId, title } });
+    await t`insert into notifications (company_id, user_id, kind, title, body) values (${row.company_id}, ${row.created_by}, 'telegram.group', 'Group Telegram កំណត់រួច', ${title || null})`;
+    return { ok: true as const, reply: "✅ ក្រុមនេះត្រូវបានកំណត់ជាបណ្ដាញការងាររបស់ក្រុមហ៊ុន។ Booking ថ្មីនឹងផ្ញើមកទីនេះ។" };
+  }) as Promise<Consumed>;
 }

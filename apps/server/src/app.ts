@@ -5,7 +5,7 @@ import fstatic from "@fastify/static";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ZodError } from "zod";
-import type { PermissionKey } from "@sms/shared";
+import { parseFeatures, type FeatureFlag, type PermissionKey } from "@sms/shared";
 import { config } from "./config.js";
 import { sql } from "./db.js";
 import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
@@ -21,6 +21,8 @@ import { bookingsRoutes } from "./routes/bookings.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { telegramRoutes } from "./routes/telegram.js";
 import { mapsRoutes } from "./routes/maps.js";
+import { internalRoutes } from "./routes/internal.js";
+import { subscribeRoutes } from "./routes/subscribe.js";
 
 export const SESSION_COOKIE = "ots";
 
@@ -32,11 +34,15 @@ declare module "fastify" {
   interface FastifyInstance {
     requireAuth: (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
     requirePerm: (key: PermissionKey) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
+    requireFeature: (flag: FeatureFlag) => (req: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
 
 /** routes a user may call while must_change_password is set (F-M2-14: enforced server-side in v2) */
 const PASSWORD_CHANGE_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/auth/logout", "/api/config"]);
+
+/** read per call so tests (and a restart after changing FEATURES) see the current value */
+export const features = (): FeatureFlag[] => parseFeatures(config.shop.features);
 
 export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
@@ -66,6 +72,11 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     if (!req.perms.includes(key)) throw new AppError("FORBIDDEN", 403);
   });
 
+  // feature flags per shop (A6): a module that is off does not exist (404), whoever asks
+  app.decorate("requireFeature", (flag: FeatureFlag) => async () => {
+    if (!features().includes(flag)) throw new AppError("NOT_FOUND", 404);
+  });
+
   // ---- errors ----------------------------------------------------------------
   app.setErrorHandler((err: unknown, req, reply) => {
     if (err instanceof AppError) return reply.status(err.status).send({ error: err.code, details: err.details });
@@ -82,7 +93,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   });
   const hasWeb = existsSync(join(config.webDist, "index.html"));
   app.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith("/api/") || !hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
+    if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || !hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
     reply.header("Cache-Control", "no-cache");
     return reply.sendFile("index.html"); // SPA fallback
   });
@@ -92,7 +103,11 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     await sql`select 1`;
     return { ok: true };
   });
-  app.get("/api/config", async () => ({ appName: config.appName, telegramBot: config.telegram.botUsername || null }));
+  app.get("/api/config", async () => {
+    // one company per shop box → its public name fills {{company_name}} in /terms and /privacy (A7)
+    const c = (await sql<{ name: string }[]>`select name from companies where is_active order by created_at limit 1`)[0];
+    return { appName: config.appName, companyName: c?.name ?? config.appName, telegramBot: config.telegram.botUsername || null, shopCode: config.shop.code, features: features() };
+  });
 
   // ---- api -------------------------------------------------------------------
   app.register(authRoutes, { prefix: "/api/auth" });
@@ -105,6 +120,9 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(notificationsRoutes, { prefix: "/api/notifications" });
   app.register(telegramRoutes, { prefix: "/api/telegram" });
   app.register(mapsRoutes, { prefix: "/api/maps" });
+  app.register(subscribeRoutes, { prefix: "/api/subscribe" });
+  // hub → shop (compose network only; caddy blocks /internal/* from the internet)
+  app.register(internalRoutes, { prefix: "/internal" });
 
   // ---- web app (static; SPA fallback in the not-found handler) ------------------
   if (hasWeb) app.register(fstatic, {

@@ -12,6 +12,7 @@ export const PW = "Passw0rd!x";
 export async function resetDb(): Promise<void> {
   await sql.unsafe("drop schema public cascade; create schema public;");
   await migrate(sql, config.migrationsDir);
+  await migrate(sql, config.hub.migrationsDir); // hub_ tables live side by side in tests (separate DB in production)
   resetRateLimits();
 }
 

@@ -16,7 +16,7 @@ beforeAll(async () => {
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100123" });
   // kim linked to Telegram (chat 900002)
   const code = (await kim.req("POST", "/api/telegram/link-code")).json.code;
-  expect(await consumeLinkCode(code, 900002, 900002)).toMatchObject({ ok: true, fullName: "Kim" });
+  expect(await consumeLinkCode(code, 900002, 900002)).toMatchObject({ ok: true, reply: expect.stringContaining("Kim") });
 });
 afterAll(async () => { await app.close(); });
 
@@ -118,29 +118,28 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     for (const a of ["customer.create", "booking.create", "booking.assign", "booking.update", "telegram.link", "settings.update"]) expect(audit).toContain(a);
   });
 
-  it("telegram: link code single use + expiry, relink moves the account (F-M2-03), /register only by settings.manage, webhook secret", async () => {
-    const c1 = (await dara.req("POST", "/api/telegram/link-code")).json.code;
-    expect(c1).toMatch(/^[a-f0-9]{32}$/);
+  it("telegram codes (v2.1): ONETEAM-S format, replaced + single use, relink moves the account (F-M2-03), group code needs settings.manage", async () => {
+    const r1 = (await dara.req("POST", "/api/telegram/link-code")).json;
+    expect(r1.code).toMatch(/^ONETEAM-S-[A-HJ-NP-Z2-9]{6}$/);
+    expect(r1.link).toBe(`https://t.me/hangkh_bot?start=${r1.code}`);
     const c2 = (await dara.req("POST", "/api/telegram/link-code")).json.code; // replaces c1
-    expect((await consumeLinkCode(c1, 900006, 900006)).ok).toBe(false);
+    expect((await consumeLinkCode(r1.code, 900006, 900006)).ok).toBe(false);
     expect(await consumeLinkCode(c2, 900002, 900002)).toMatchObject({ ok: true }); // same Telegram account as kim → moves
     expect((await sql`select telegram_user_id from users where id = ${s.users.kim!}`)[0]!.telegram_user_id).toBeNull();
     expect((await consumeLinkCode(c2, 900002, 900002)).ok).toBe(false); // single use
-    // webhook
-    const noSecret = await app.inject({ method: "POST", url: "/api/telegram/webhook", payload: { update_id: 1, message: { message_id: 1, chat: { id: 5, type: "private" }, from: { id: 5 }, text: "/start x" } } });
-    expect(noSecret.statusCode).toBe(403);
-    process.env.TELEGRAM_WEBHOOK_SECRET = "s3cret";
-    const { config } = await import("../src/config.js");
-    (config.telegram as any).webhookSecret = "s3cret";
-    (config.telegram as any).botUsername = "Oneteam_app_bot";
-    const reg = await app.inject({ method: "POST", url: "/api/telegram/webhook", headers: { "x-telegram-bot-api-secret-token": "s3cret" },
-      payload: { update_id: 2, message: { message_id: 2, chat: { id: -100999, type: "group", title: "Test group" }, from: { id: 900002 }, text: "/register" } } });
-    expect(reg.statusCode).toBe(200); // dara (tech) → FORBIDDEN reply, group unchanged
-    expect(String((await ceo.req("GET", "/api/settings/company")).json.telegram_group_chat_id)).toBe("-100123");
-    const ceoCode = (await ceo.req("POST", "/api/telegram/link-code")).json.code;
-    await consumeLinkCode(ceoCode, 900001, 900001);
-    await app.inject({ method: "POST", url: "/api/telegram/webhook", headers: { "x-telegram-bot-api-secret-token": "s3cret" },
-      payload: { update_id: 3, message: { message_id: 3, chat: { id: -100999, type: "supergroup", title: "Test group" }, from: { id: 900001 }, text: "/register@Oneteam_app_bot" } } });
-    expect(String((await ceo.req("GET", "/api/settings/company")).json.telegram_group_chat_id)).toBe("-100999");
+    // expiry: 10 minutes
+    const c3 = (await dara.req("POST", "/api/telegram/link-code")).json.code;
+    await sql`update telegram_link_codes set expires_at = now() - interval '1 second' where code = ${c3}`;
+    expect((await consumeLinkCode(c3, 900002, 900002)).ok).toBe(false);
+    // group code: settings.manage only, 24 h
+    expect((await gm.req("POST", "/api/telegram/group-code")).status).toBe(403);
+    expect((await dara.req("POST", "/api/telegram/group-code")).status).toBe(403);
+    const g = (await ceo.req("POST", "/api/telegram/group-code")).json;
+    expect(g.code).toMatch(/^ONETEAM-G-[A-HJ-NP-Z2-9]{6}$/);
+    expect(g.command).toBe(`/register ${g.code}`);
+    const hours = (new Date(g.expires_at).getTime() - Date.now()) / 3600_000;
+    expect(hours).toBeGreaterThan(23.9); expect(hours).toBeLessThanOrEqual(24);
+    // the shop has no webhook any more (the hub receives Telegram)
+    expect((await app.inject({ method: "POST", url: "/api/telegram/webhook", payload: {} })).statusCode).toBe(404);
   });
 });

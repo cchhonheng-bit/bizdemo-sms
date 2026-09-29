@@ -22,3 +22,10 @@ export function checkRate(key: string, limit: number, windowSec: number, now = D
 export function resetRateLimits(): void {
   buckets.clear();
 }
+
+/** true while the key is still under its limit in the current window (does not count a hit) */
+export function underLimit(key: string, limit: number, windowSec: number, now = Date.now()): boolean {
+  const windowStart = Math.floor(now / 1000 / windowSec) * windowSec * 1000;
+  const b = buckets.get(key);
+  return !b || b.windowStart !== windowStart || b.count < limit;
+}

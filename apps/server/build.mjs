@@ -11,3 +11,5 @@ await build({
 });
 mkdirSync("dist/migrations", { recursive: true });
 cpSync("src/migrations", "dist/migrations", { recursive: true });
+mkdirSync("dist/migrations_hub", { recursive: true });
+cpSync("src/migrations_hub", "dist/migrations_hub", { recursive: true });
