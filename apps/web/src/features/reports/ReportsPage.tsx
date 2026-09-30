@@ -5,35 +5,36 @@ import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd } from "@sms/shared";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Download } from "lucide-react";
 import { api, errCode, type VerifyItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Empty, ErrorState, Input, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
 import RangePicker from "./RangePicker";
+import CashClose from "./CashClose";
 import { presetRange, type Range } from "./range";
 
-type Tab = "summary" | "verify" | "audit";
+type Tab = "summary" | "cash" | "verify" | "audit";
 const dt = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Phnom_Penh" });
 
 export default function ReportsPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const [sp] = useSearchParams();
-  const tabs: Tab[] = ["summary", ...(can("report.verify") ? ["verify" as const] : []), ...(can("audit.read") ? ["audit" as const] : [])];
+  const tabs: Tab[] = ["summary", ...(can("payment.record") || can("report.verify") ? ["cash" as const] : []), ...(can("report.verify") ? ["verify" as const] : []), ...(can("audit.read") ? ["audit" as const] : [])];
   const [tab, setTab] = useState<Tab>("summary");
   const [range, setRange] = useState<Range>(() => sp.get("from") && sp.get("to") ? [sp.get("from")!, sp.get("to")!] : presetRange("today", todayLocal()));
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("reports.title")}</h1>
       {tabs.length > 1 && (
-        <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
-          {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`reports.tab.${k}`)}</button>)}
+        <div className="flex rounded-md border border-grey-line overflow-x-auto text-sm" role="tablist">
+          {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`reports.tab.${k}`)}</button>)}
         </div>
       )}
       {tab !== "audit" && <Card><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></Card>}
-      {tab === "summary" ? <Summary range={range} /> : tab === "verify" ? <Verification range={range} /> : <Audit />}
+      {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} /> : <Audit />}
     </div>
   );
 }
@@ -83,6 +84,28 @@ function Summary({ range }: { range: Range }) {
         <Row label={t("reports.cancels")} value={s.jobs.cancelled} />
         <Row label={t("status.pending_review")} value={s.jobs.pending_review} />
         <Row label={t("board.in_progress")} value={s.jobs.in_progress} />
+      </Card>
+      {s.techs.length > 0 && (
+        <Card title={t("reports.tech_perf")}>
+          <div className="grid grid-cols-[1fr_repeat(4,auto)] gap-x-3 gap-y-1 text-sm" data-testid="tech-perf">
+            <span className="text-xs text-muted" /><span className="text-xs text-muted text-right">{t("reports.jobs")}</span><span className="text-xs text-muted text-right">{t("reports.hours")}</span>
+            <span className="text-xs text-muted text-right">{t("reports.revisions")}</span><span className="text-xs text-muted text-right">{t("attendance.s.late")}</span>
+            {s.techs.map((x) => [
+              <span key={x.user_id + "n"} className="min-w-0 break-words">{x.full_name}</span>,
+              <span key={x.user_id + "j"} className="text-right tabular">{x.jobs}</span>,
+              <span key={x.user_id + "h"} className="text-right tabular">{(x.work_min / 60).toFixed(1)}</span>,
+              <span key={x.user_id + "r"} className={`text-right tabular ${x.revisions ? "text-warning" : ""}`}>{x.revisions}</span>,
+              <span key={x.user_id + "l"} className={`text-right tabular ${x.late ? "text-danger" : ""}`}>{x.late}</span>,
+            ])}
+          </div>
+        </Card>
+      )}
+      <Card title={t("reports.excel")}>
+        <div className="flex flex-wrap gap-2">
+          {(s.revenue ? (["invoices", "payments", "jobs", "attendance"] as const) : (["jobs", "attendance"] as const)).map((k) => (
+            <a key={k} className="btn-secondary" href={api.reports.exportUrl(k, range[0], range[1])} download data-testid={`export-${k}`}><Download size={16} /> {t(`reports.export.${k}`)}</a>
+          ))}
+        </div>
       </Card>
       {s.attendance && (
         <Card title={t("attendance.title")}>

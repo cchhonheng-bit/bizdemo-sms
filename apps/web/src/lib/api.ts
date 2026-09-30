@@ -70,7 +70,10 @@ export type AttendanceCheck = { kind: "in" | "out"; at: string; distance_m: numb
 export type AttendanceDay = { date: string; status: "present" | "late" | "absent" | "leave" | "holiday" | "off" | "pending" | "none"; in?: string; out?: string | null; late_min?: number; ot_min?: number;
   out_of_range?: boolean; no_gps?: boolean; distance_in?: number | null; distance_out?: number | null; leave_part?: "full" | "am" | "pm" | null; missing_out?: boolean; marked?: boolean };
 export type AttendancePerson = { user_id: string; full_name: string; role: string; since: string; days: AttendanceDay[]; present: number; late_count: number; late_min: number; absent: number; leave: number; ot_min: number; out_of_range: number };
+export type CashClose = { day: string; expected_usd: number; expected_khr: number; counted_usd: number | null; counted_khr: number | null; diff_usd: number | null; diff_khr: number | null;
+  note: string | null; closed: boolean; closed_at: string | null; closed_by_name: string | null; verified_at: string | null; verified_by_name: string | null };
 export type ReportSummary = { from: string; to: string; cancels: number;
+  techs: { user_id: string; full_name: string; jobs: number; work_min: number; revisions: number; late: number }[];
   jobs: { created: number; finished: number; cancelled: number; pending_review: number; in_progress: number };
   attendance?: { people: number; present: number; late: number; absent: number; leave: number; out_of_range: number };
   revenue?: { total: number; invoices: number; inside: number; outside: number; by_category: Record<string, number> };
@@ -185,6 +188,10 @@ export const api = {
     dashboard: () => get<Dashboard>("/api/reports/dashboard"),
     verification: (from: string, to: string, unverified: boolean) => get<VerifyItem[]>(`/api/reports/verification?from=${from}&to=${to}${unverified ? "&unverified=1" : ""}`),
     verify: (type: VerifyItem["type"], id: string, note = "") => post("/api/reports/verify", { type, id, note }),
+    cash: (from: string, to: string) => get<CashClose[]>(`/api/reports/cash-close?from=${from}&to=${to}`),
+    closeCash: (v: { day: string; counted_usd: number; counted_khr: number; note: string }) => post<{ diff_usd: number; diff_khr: number }>("/api/reports/cash-close", v),
+    verifyCash: (day: string) => post(`/api/reports/cash-close/${day}/verify`, {}),
+    exportUrl: (kind: "invoices" | "payments" | "jobs" | "attendance", from: string, to: string) => `/api/reports/export?kind=${kind}&from=${from}&to=${to}`,
     audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),

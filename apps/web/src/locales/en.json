@@ -776,7 +776,8 @@
     "tab": {
       "summary": "Summary",
       "verify": "Verification",
-      "audit": "Audit log"
+      "audit": "Audit log",
+      "cash": "Cash"
     },
     "revenue": "Revenue (invoiced)",
     "received": "Received",
@@ -809,7 +810,30 @@
     "err": {
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "At most 92 days",
-      "FORBIDDEN": "Not allowed"
-    }
+      "FORBIDDEN": "Not allowed",
+      "CASH_VERIFIED": "Verified by the CFO — locked",
+      "NOT_CLOSED": "Not closed yet",
+      "BAD_DATE": "Future date"
+    },
+    "tech_perf": "Technician performance",
+    "hours": "Hours",
+    "revisions": "Revisions",
+    "excel": "Download Excel",
+    "none": "No data",
+    "export": {
+      "invoices": "Invoices",
+      "payments": "Payments",
+      "jobs": "Jobs",
+      "attendance": "Attendance"
+    },
+    "cash_expected": "Expected (system)",
+    "cash_counted": "Counted",
+    "cash_diff": "Difference",
+    "cash_count_usd": "Counted $",
+    "cash_count_khr": "Counted ៛",
+    "cash_save": "Close cash",
+    "cash_saved": "Saved · difference {{usd}} · {{khr}}",
+    "cash_waiting": "Waiting for CFO",
+    "cash_by": "Closed by {{name}}"
   }
 }

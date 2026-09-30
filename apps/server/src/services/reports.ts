@@ -3,20 +3,16 @@
 // else the customer (AC-13). Money figures only for report.finance (CEO, CFO); operations for report.ops.
 import { formatKhr, formatUsd } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
-import { AppError, notFound } from "../lib/errors.js";
+import { notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { report as attendanceReport } from "./attendance.js";
 import { notifyUser } from "./telegram.js";
+import { checkRange, techPerformance } from "./reports-extra.js";
 
-const MAX_DAYS = 92;
 const tzOf = async (db: Db, companyId: string) => (await db<{ tz: string }[]>`select timezone as tz from companies where id = ${companyId}`)[0]?.tz ?? "Asia/Phnom_Penh";
 const localDay = (col: ReturnType<typeof sql>, tz: string) => sql`(${col} at time zone ${tz})::date`;
 
-function checkRange(from: string, to: string) {
-  if (Number.isNaN(Date.parse(from)) || Number.isNaN(Date.parse(to)) || from > to) throw new AppError("BAD_RANGE", 400);
-  if ((Date.parse(to) - Date.parse(from)) / 86_400_000 + 1 > MAX_DAYS) throw new AppError("RANGE_TOO_LONG", 400);
-}
 
 /** issued invoices with total and paid (all payments to date) */
 const INV = (companyId: string) => sql`
@@ -36,7 +32,7 @@ export async function summaryData(companyId: string, from: string, to: string, f
       (select count(*)::int from bookings where company_id = ${companyId} and status = 'cancelled' and ${inRange(sql`cancelled_at`)}) as cancelled,
       (select count(*)::int from bookings where company_id = ${companyId} and status = 'pending_review') as pending_review,
       (select count(*)::int from bookings where company_id = ${companyId} and status in ('en_route', 'on_site', 'working')) as in_progress`)[0]!;
-  const out: Record<string, unknown> = { from, to, jobs, cancels: jobs.cancelled };
+  const out: Record<string, unknown> = { from, to, jobs, cancels: jobs.cancelled, techs: await techPerformance(companyId, from, to) };
   if (from === to) { // the day's attendance line (daily report / summary)
     const a = await attendanceReport({ companyId } as SessionUser, from, to);
     const day = a.users.map((u) => u.days[0]!).filter((d) => d.status !== "none");

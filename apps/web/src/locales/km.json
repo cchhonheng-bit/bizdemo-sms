@@ -776,7 +776,8 @@
     "tab": {
       "summary": "សង្ខេប",
       "verify": "ផ្ទៀងផ្ទាត់",
-      "audit": "Audit Log"
+      "audit": "Audit Log",
+      "cash": "សាច់ប្រាក់"
     },
     "revenue": "ចំណូល (វិក្កយបត្រ)",
     "received": "ប្រាក់ទទួលបាន",
@@ -809,7 +810,30 @@
     "err": {
       "BAD_RANGE": "ចន្លោះថ្ងៃមិនត្រឹមត្រូវ",
       "RANGE_TOO_LONG": "យូរបំផុត 92 ថ្ងៃ",
-      "FORBIDDEN": "គ្មានសិទ្ធិ"
-    }
+      "FORBIDDEN": "គ្មានសិទ្ធិ",
+      "CASH_VERIFIED": "CFO បានផ្ទៀងផ្ទាត់ហើយ — មិនអាចកែ",
+      "NOT_CLOSED": "មិនទាន់បិទបញ្ជី",
+      "BAD_DATE": "ថ្ងៃនាពេលអនាគត"
+    },
+    "tech_perf": "សមិទ្ធផលជាង",
+    "hours": "ម៉ោង",
+    "revisions": "ឲ្យកែ",
+    "excel": "ទាញយក Excel",
+    "none": "គ្មានទិន្នន័យ",
+    "export": {
+      "invoices": "វិក្កយបត្រ",
+      "payments": "ការទទួលប្រាក់",
+      "jobs": "ការងារ",
+      "attendance": "វត្តមាន"
+    },
+    "cash_expected": "ត្រូវមាន (តាមប្រព័ន្ធ)",
+    "cash_counted": "រាប់បាន",
+    "cash_diff": "ខុសគ្នា",
+    "cash_count_usd": "រាប់បាន $",
+    "cash_count_khr": "រាប់បាន ៛",
+    "cash_save": "បិទបញ្ជីសាច់ប្រាក់",
+    "cash_saved": "បានកត់ · ខុសគ្នា {{usd}} · {{khr}}",
+    "cash_waiting": "រង់ចាំ CFO",
+    "cash_by": "បិទដោយ {{name}}"
   }
 }
