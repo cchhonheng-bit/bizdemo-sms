@@ -1,6 +1,7 @@
 // Subscribe + Broadcast (A4/A5 · flag "subscribe" · customer.manage): link + QR, own subscribers, broadcast, history.
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { Megaphone, Printer } from "lucide-react";
@@ -35,15 +36,6 @@ export default function SubscribePage() {
   const d = info.data!;
   const recipients = kind === "promo" ? d.promo : d.total;
 
-  const printQr = () => {
-    const w = window.open("", "_blank", "noopener=no,width=600,height=800");
-    if (!w || !qr) return;
-    w.document.title = "QR";
-    const img = w.document.createElement("img"); img.src = qr; img.style.width = "80%";
-    const p = w.document.createElement("p"); p.textContent = d.link ?? ""; p.style.fontFamily = "sans-serif";
-    w.document.body.style.textAlign = "center"; w.document.body.append(img, p);
-    img.onload = () => w.print();
-  };
 
   return (
     <div className="space-y-4 max-w-5xl">
@@ -54,7 +46,7 @@ export default function SubscribePage() {
         <Card title={t("subscribe.link")}>
           {qr && <img src={qr} alt="QR" className="w-48 h-48 mx-auto" data-testid="sub-qr" />}
           {d.link ? <p className="text-xs break-all text-center mt-2" data-testid="sub-link">{d.link}</p> : <p className="text-sm text-danger text-center">{t("me.telegram_not_configured")}</p>}
-          {d.link && <div className="flex justify-center mt-3"><Button onClick={printQr}><Printer size={16} /> {t("subscribe.print")}</Button></div>}
+          {d.link && <div className="flex justify-center mt-3"><Link className="btn-secondary" to="/subscribe/print" data-testid="sub-poster-link"><Printer size={16} /> {t("subscribe.print")}</Link></div>}
         </Card>
         <Card className="md:col-span-2" title={t("subscribe.total")}>
           <div className="grid grid-cols-3 gap-3 text-center">

@@ -97,6 +97,20 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
     return r.ok ? { ok: true } : { ok: false, error: r.error, permanent: r.permanent, retry_after: r.retryAfter };
   });
 
+  /** A2: a service reminder to ONE subscriber of this shop — only while that subscription is active with service messages on */
+  app.post("/internal/notify-subscriber", async (req) => {
+    const shop = await authShop(req);
+    const b = z.object({ subscriber_id: z.number().int().positive(), text: z.string().min(1).max(1000) }).strict().parse(req.body);
+    const sub = (await sql<{ chat_id: string }[]>`select u.chat_id::text from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id
+      where s.shop_code = ${shop.code} and s.subscriber_id = ${b.subscriber_id} and s.stopped_at is null and s.service and u.blocked_at is null`)[0];
+    if (!sub) return { ok: false, error: "NOT_SUBSCRIBED" };
+    const bot = await shopBot(shop.code);
+    if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
+    const r = await sendMessage(bot, Number(sub.chat_id), b.text);
+    await logMessage({ direction: "out", bot: bot.code, shop: shop.code, chatId: Number(sub.chat_id), kind: "reminder", text: `[${b.text.length} chars]`, ok: r.ok, error: r.ok ? null : r.error });
+    return r.ok ? { ok: true } : { ok: false, error: r.error };
+  });
+
   /** the shop's own bot username (deep links, QR) — so a new or replaced shop bot needs no shop redeploy (T6) */
   app.get("/internal/bot", async (req) => {
     const shop = await authShop(req);

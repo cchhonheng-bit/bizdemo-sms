@@ -85,6 +85,12 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
       const master = await masterBot();
       return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null));
     }
+    const cust = c.arg.match(/^s_([A-HJ-NP-Z2-9]{8})$/i); // A2: the customer's own subscribe link (service reminders)
+    if (cust) {
+      if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", shop.code, "subscribe.unavailable");
+      const master = await masterBot();
+      return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null, cust[1]!.toUpperCase()));
+    }
     return forwardCode(bot, "link", c.arg, msg, log);
   }
   if (isPrivate && c.cmd === "stop") {
@@ -192,7 +198,10 @@ async function onCallback(bot: Bot, q: CallbackQuery): Promise<void> {
     // keep only the optional "Follow HangKH" link after the tick
     const master = await masterBot();
     await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: q.message!.message_id, reply_markup: consentMarkup(null, master?.status === "active" ? master.username : null) });
-    await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»។\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok");
+    // A2: came through the customer's own link → the shop links this subscriber to that customer (service reminders)
+    let linked = false;
+    if (p?.code) { const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId }); linked = !!(x && x.status === 200 && x.json?.ok); }
+    await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»${linked ? " (រួមទាំងការរំលឹកថែទាំ)" : ""}។\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok");
   } else {
     await reply(bot, chat.id, r.error === "OLD_CONSENT" ? "⚠️ អត្ថបទយល់ព្រមនេះចាស់ហើយ។ សូមបើកតំណរបស់ហាងម្ដងទៀត។" : "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", m[1]!, "subscribe.fail");
   }

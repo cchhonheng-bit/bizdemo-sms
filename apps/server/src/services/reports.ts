@@ -8,6 +8,7 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { report as attendanceReport } from "./attendance.js";
 import { notifyUser } from "./telegram.js";
+import { uninvoiced } from "./invoices.js";
 import { checkRange, techPerformance } from "./reports-extra.js";
 
 const tzOf = async (db: Db, companyId: string) => (await db<{ tz: string }[]>`select timezone as tz from companies where id = ${companyId}`)[0]?.tz ?? "Asia/Phnom_Penh";
@@ -159,6 +160,8 @@ export async function dashboard(user: SessionUser, perms: string[]) {
     Object.assign(out.today as object, { revenue: d.revenue.total, received: d.payments.total });
     out.month = { revenue: m.revenue.total, received: m.payments.total };
     out.debts = { total: debt[0]!.total, d60_plus: debt[0]!.d60 };
+    const u = await uninvoiced(c); // A1: finished jobs still waiting for an invoice
+    out.uninvoiced = { count: u.length, estimate: u.reduce((s, x) => s + x.estimate, 0) };
   }
   return out;
 }

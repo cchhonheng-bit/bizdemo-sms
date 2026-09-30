@@ -22,7 +22,7 @@ if (fresh) await pg.createDatabase("oneteam");
 try { await pg.createDatabase("hub"); } catch { /* exists */ }
 const DEV_KEY = "dev-only-hub-key";
 const env = { ...process.env, APP_MODE: "shop", DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${PORT_DB}/oneteam`, NODE_ENV: "development", PORT: "3000", PUBLIC_URL: "http://localhost:5173", CRON: "true",
-  SHOP_CODE: "ONETEAM", HUB_URL: "http://127.0.0.1:3001", HUB_KEY: DEV_KEY, FEATURES: "subscribe", TELEGRAM_BOT_USERNAME: "hangkh_bot" };
+  SHOP_CODE: "ONETEAM", HUB_URL: "http://127.0.0.1:3001", HUB_KEY: DEV_KEY, FEATURES: "subscribe,reminders,inventory,accounting", TELEGRAM_BOT_USERNAME: "hangkh_bot" };
 const hubEnv = { ...process.env, APP_MODE: "hub", DATABASE_URL: `postgres://postgres:postgres@127.0.0.1:${PORT_DB}/hub`, NODE_ENV: "development", PORT: "3001", PUBLIC_URL: "http://localhost:3001", CRON: "true",
   HUB_SHOPS: "ONETEAM|One Team Engineering (DEV)|http://127.0.0.1:3000|subscribe", HUB_KEY_ONETEAM: DEV_KEY, TELEGRAM_BOT_USERNAME: "hangkh_bot" };
 const pnpm = tool("pnpm").replace(/"/g, "");

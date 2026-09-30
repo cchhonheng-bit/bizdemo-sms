@@ -16,20 +16,21 @@ export async function ensureConsentText(): Promise<void> {
 }
 
 /** T5: ONE tick for the three purposes (+ an optional "Follow HangKH" link to the master bot, not part of the consent) */
-export function consentMarkup(shop: string | null, masterUsername: string | null) {
+/** customerCode (A2): the customer came through their own link s_<code> — after the tick the hub tells the shop which customer it was */
+export function consentMarkup(shop: string | null, masterUsername: string | null, customerCode?: string) {
   const rows: unknown[][] = [];
-  if (shop) rows.push([{ text: "☑ យល់ព្រម / I agree", callback_data: `sub:${shop}:${CONSENT_VERSION}` }]);
+  if (shop) rows.push([{ text: "☑ យល់ព្រម / I agree", callback_data: `sub:${shop}:${CONSENT_VERSION}${customerCode ? `:${customerCode}` : ""}` }]);
   if (masterUsername) rows.push([{ text: "⭐ Follow HangKH (ស្រេចចិត្ត)", url: `https://t.me/${masterUsername}?start=follow` }]);
   return { inline_keyboard: rows };
 }
 
 export type TgFrom = { id: number; first_name?: string; username?: string; language_code?: string };
 
-export async function acceptConsent(from: TgFrom, chatId: number, shopCode: string, version: string): Promise<{ ok: true; shop: Shop } | { ok: false; error: string }> {
+export async function acceptConsent(from: TgFrom, chatId: number, shopCode: string, version: string): Promise<{ ok: true; shop: Shop; subscriberId: number } | { ok: false; error: string }> {
   if (version !== CONSENT_VERSION) return { ok: false, error: "OLD_CONSENT" };
   const shop = await getShop(shopCode);
   if (!shop || shop.status !== "active" || !shop.subscribe) return { ok: false, error: "SHOP_NOT_AVAILABLE" };
-  await sql.begin(async (t) => {
+  const subscriberId = await sql.begin(async (t) => {
     const sub = (await t<{ id: number }[]>`
       insert into hub_subscribers (telegram_user_id, chat_id, first_name, username, language)
       values (${from.id}, ${chatId}, ${from.first_name?.slice(0, 100) ?? null}, ${from.username?.slice(0, 64) ?? null}, ${from.language_code?.slice(0, 10) ?? null})
@@ -38,8 +39,9 @@ export async function acceptConsent(from: TgFrom, chatId: number, shopCode: stri
     await t`insert into hub_subscriptions (shop_code, subscriber_id) values (${shop.code}, ${sub.id})
             on conflict (shop_code, subscriber_id) do update set service = true, promo = true, stopped_at = null, subscribed_at = now()`;
     await t`insert into hub_consent_log (subscriber_id, telegram_user_id, shop_code, action, text_version) values (${sub.id}, ${from.id}, ${shop.code}, 'subscribe', ${CONSENT_VERSION})`;
-  });
-  return { ok: true, shop };
+    return Number(sub.id); // bigint arrives as a string
+  }) as number;
+  return { ok: true, shop, subscriberId };
 }
 
 /** /stop promo → promotions off; /stop → everything off. Only the customer's own subscriptions (optionally one shop). */

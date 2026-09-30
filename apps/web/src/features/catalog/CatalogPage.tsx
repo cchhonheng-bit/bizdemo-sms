@@ -9,6 +9,7 @@ import { api, errCode, type CatalogItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { useFeature } from "@/lib/config";
 
 export default function CatalogPage() {
   const { t } = useTranslation();
@@ -101,6 +102,8 @@ function ItemDialog({ item, showCost, onClose }: { item: CatalogItem | null; sho
   const [sell, setSell] = useState(item?.sell_price != null ? String(fromCents(item.sell_price)) : "");
   const [cost, setCost] = useState(item?.cost_price != null ? String(fromCents(item.cost_price)) : "");
   const [duration, setDuration] = useState(String(item?.duration_min ?? 120)); // R3 placeholder 120 min until One Team confirms
+  const remindersOn = useFeature("reminders");
+  const [remind, setRemind] = useState(item?.reminder_months ? String(item.reminder_months) : "");
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<CatalogItemInput>({
     resolver: zodResolver(catalogItemSchema.omit({ sell_price: true, cost_price: true, duration_min: true })),
     defaultValues: item ? { name_km: item.name_km, name_en: item.name_en ?? "", kind: item.kind, category: item.category, unit: item.unit } : { name_km: "", name_en: "", kind: "service", category: "mep", unit: "" },
@@ -112,9 +115,11 @@ function ItemDialog({ item, showCost, onClose }: { item: CatalogItem | null; sho
     } catch { return toast.error(t("catalog.err_price")); }
     if (sellC < 0 || (costC != null && costC < 0)) return toast.error(t("catalog.err_price"));
     const mins = Number(duration);
+    const months = remind.trim() === "" ? null : Number(remind);
+    if (months !== null && (!Number.isInteger(months) || months < 1 || months > 60)) return toast.error(t("catalog.err_remind"));
     if (v.kind === "service" && (!Number.isInteger(mins) || mins < 15 || mins > 1440)) return toast.error(t("booking.err.DURATION_RANGE"));
     try {
-      await api.upsertCatalogItem({ id: item?.id, name_km: v.name_km, name_en: v.name_en || null, kind: v.kind, category: v.category, unit: v.unit || null, sell_price: sellC, cost_price: costC, duration_min: v.kind === "service" ? mins : undefined });
+      await api.upsertCatalogItem({ id: item?.id, name_km: v.name_km, name_en: v.name_en || null, kind: v.kind, category: v.category, unit: v.unit || null, sell_price: sellC, cost_price: costC, duration_min: v.kind === "service" ? mins : undefined, reminder_months: remindersOn && v.kind === "service" ? months : undefined });
       void qc.invalidateQueries({ queryKey: ["catalog"] });
       toast.success(t("app.saved"));
       onClose();
@@ -141,6 +146,9 @@ function ItemDialog({ item, showCost, onClose }: { item: CatalogItem | null; sho
         </div>
         {watch("kind") === "service" && (
           <Field label={t("catalog.duration")} hint={t("catalog.duration_hint")}><Input inputMode="numeric" type="number" min={15} max={1440} step={15} name="duration_min" value={duration} onChange={(e) => setDuration(e.target.value)} /></Field>
+        )}
+        {remindersOn && watch("kind") === "service" && (
+          <Field label={t("catalog.remind")} hint={t("catalog.remind_hint")}><Input inputMode="numeric" type="number" min={1} max={60} name="reminder_months" value={remind} onChange={(e) => setRemind(e.target.value)} placeholder="—" data-testid="remind-months" /></Field>
         )}
       </form>
     </Dialog>

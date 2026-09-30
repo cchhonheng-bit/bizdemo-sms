@@ -657,3 +657,29 @@ describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
     expect(sent.filter((x) => x.method === "sendMessage")).toHaveLength(0);
   });
 });
+
+describe("A2 customer's own subscribe link + service reminders through the hub (D-86)", () => {
+  it("s_<code> → consent → the shop links that customer; the hub delivers a reminder only while the service subscription is active", async () => {
+    config.shop.features = "subscribe,reminders";
+    const custId = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន Telegram", phones: ["012919191"], zone: "inside" })).json.id;
+    const l = (await admin.req("POST", `/api/customers/${custId}/tg-link`)).json;
+    expect(l.link).toMatch(/^https:\/\/t\.me\/Oneteam_app_bot\?start=s_[A-HJ-NP-Z2-9]{8}$/);
+    const code = l.link.split("s_")[1];
+    sent = [];
+    await privateMsg(860001, `/start s_${code.toLowerCase()}`);
+    const cbData = (lastSent(860001).payload.reply_markup.inline_keyboard as any[]).flat().find((b: any) => b.callback_data?.startsWith("sub:"))?.callback_data;
+    expect(cbData).toBe(`sub:ONETEAM:${CONSENT_VERSION}:${code}`);
+    await hook("oneteam", { callback_query: { id: `cbc${uid}`, from: { id: 860001, first_name: "C" }, message: { message_id: 1, chat: { id: 860001, type: "private" } }, data: cbData } });
+    expect(lastText(860001)).toContain("រំលឹកថែទាំ");
+    const sub = (await sql<{ tg_subscriber_id: string }[]>`select tg_subscriber_id::text from customers where id = ${custId}`)[0]!.tg_subscriber_id;
+    expect(sub).toBeTruthy();
+    const notify = (subscriber_id: number) => internal("ONETEAM", shopKey("ONETEAM"), "POST", "/internal/notify-subscriber", { subscriber_id, text: "🔔 ដល់ពេលលាងម៉ាស៊ីនត្រជាក់" });
+    sent = [];
+    expect((await notify(Number(sub))).json()).toMatchObject({ ok: true });
+    expect(lastText(860001)).toContain("ដល់ពេលលាង");
+    expect((await internal("SHOPB", shopKey("SHOPB"), "POST", "/internal/notify-subscriber", { subscriber_id: Number(sub), text: "x" })).json()).toMatchObject({ ok: false, error: "NOT_SUBSCRIBED" }); // another shop
+    await privateMsg(860001, "/stop");
+    expect((await notify(Number(sub))).json()).toMatchObject({ ok: false, error: "NOT_SUBSCRIBED" });
+    config.shop.features = "subscribe";
+  });
+});

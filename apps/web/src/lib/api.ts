@@ -8,7 +8,7 @@ export type Customer = {
 };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
-  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean;
+  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null;
 };
 export type Technician = { user_id: string; role: "lead" | "assistant"; full_name: string };
 export type Booking = {
@@ -18,6 +18,7 @@ export type Booking = {
   notes: string | null; survey_notes?: string | null; surveyed_at?: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
   technicians: Technician[] | null;
   warranty_of?: string | null; warranty_of_number?: string | null; warranty?: { until: string; days_left: number; active: boolean } | null;
+  units?: { id: string; label: string }[] | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
@@ -49,7 +50,13 @@ export type Quote = { id: string; number: string; status: "sent" | "accepted" | 
   lines: QuoteLine[]; subtotal: number; total: number; total_khr: number; company: { name: string; company_info: Record<string, string> } };
 export type QuoteRow = { id: string; number: string; status: Quote["status"]; created_at: string; booking_id: string; booking_number: string; customer_name: string; total: number; days_waiting: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
-export type Payment = { id: string; amount: number; currency: "usd" | "khr"; method: PayMethod; fx_rate_khr: number; usd_cents: number; paid_on: string; note: string | null; created_at: string; received_by_name: string | null };
+export type Payment = { id: string; amount: number; currency: "usd" | "khr"; method: PayMethod; fx_rate_khr: number; usd_cents: number; paid_on: string; note: string | null; created_at: string; received_by_name: string | null;
+  from_deposit?: boolean; reversal_of?: string | null; voided_at?: string | null; void_reason?: string | null; void_request?: { reason: string; requester_role: string; requested_by_name: string } | null };
+export type Deposit = { id: string; amount: number; currency: "usd" | "khr"; method: PayMethod; fx_rate_khr: number; usd_cents: number; paid_on: string; note: string | null; status: "active" | "applied" | "void"; received_by_name: string | null };
+export type Uninvoiced = { booking_id: string; number: string; status: string; customer_name: string; phones: string[]; finished_at: string; age_days: number; estimate: number; warranty: boolean };
+export type Reminder = { customer_id: string; customer_name: string; phones: string[]; unit_id: string | null; unit_label: string | null; service_item_id: string; service_name: string;
+  last_on: string; due_on: string; status: "overdue" | "due"; days_overdue: number; days_left: number; last_action: string | null; last_note: string | null; last_action_at: string | null; telegram: boolean };
+export type CustomerUnit = { id: string; label: string; kind: string; brand: string | null; model: string | null; location_note: string | null; installed_on: string | null; is_active: boolean };
 export type Invoice = {
   id: string; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
   discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
@@ -82,7 +89,7 @@ export type ReportSummary = { from: string; to: string; cancels: number;
 export type VerifyItem = { type: "void" | "discount" | "cancel" | "payment"; id: string; at: string; ref: string; amount: number | null; reason: string | null; status: string | null; method: PayMethod | null;
   currency: "usd" | "khr" | null; raw_amount: number | null; link: string; requested_by_name: string | null; approved_by_name: string | null; verified_at: string | null; verified_by_name: string | null; verify_note: string | null };
 export type Dashboard = { date: string; pending_review: number; today: { jobs: number; done: number; revenue?: number; received?: number }; month?: { revenue: number; received: number };
-  debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number;
+  debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number; uninvoiced?: { count: number; estimate: number };
   techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
 export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null };
 export type CustomerHistory = { customer: Customer;
@@ -121,15 +128,15 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
-  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number }) =>
-    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min })).id,
+  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null }) =>
+    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
 
   bookings: (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) =>
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
   booking: (id: string) => get<Booking>(`/api/bookings/${id}`),
   statusLog: (id: string) => get<StatusLog[]>(`/api/bookings/${id}/log`),
-  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null; warranty_of?: string | null }) =>
+  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null; warranty_of?: string | null; unit_ids?: string[] }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
   assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) =>
@@ -195,6 +202,31 @@ export const api = {
     audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),
+  fx: {
+    get: () => get<{ current: number; history: { rate: number; note: string | null; set_at: string; set_by_name: string | null }[] }>("/api/settings/fx"),
+    set: (rate: number, note: string) => post("/api/settings/fx", { rate, note }),
+  },
+  uninvoiced: () => get<Uninvoiced[]>("/api/invoices/uninvoiced"),
+  deposits: {
+    list: (bookingId: string) => get<Deposit[]>(`/api/bookings/${bookingId}/deposits`),
+    record: (bookingId: string, v: { amount: number; currency: "usd" | "khr"; method: PayMethod; paid_on: string; note: string }) => post<{ id: string; usd_cents: number }>(`/api/bookings/${bookingId}/deposits`, v),
+    void: (id: string, reason: string) => post(`/api/deposits/${id}/void`, { reason }),
+  },
+  payments: {
+    void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/payments/${id}/void`, { reason }),
+    decideVoid: (id: string, approve: boolean, note = "") => post(`/api/payments/${id}/void/${approve ? "approve" : "reject"}`, { note }),
+    voidRequests: () => get<{ id: string; payment_id: string; reason: string; invoice_id: string; number: string; usd_cents: number; requested_by_name: string }[]>("/api/payments/void-requests"),
+  },
+  reminders: {
+    list: (days = 14) => get<Reminder[]>(`/api/reminders?days=${days}`),
+    action: (v: { customer_id: string; unit_id: string | null; service_item_id: string; due_on: string; action: "contacted" | "snoozed" | "dismissed"; until?: string | null; note?: string | null }) => post("/api/reminders/action", v),
+    telegram: (items: { customer_id: string; unit_id: string | null; service_item_id: string; due_on: string }[]) => post<{ sent: number; skipped: number; not_linked: number; limit: number; failed: number }>("/api/reminders/telegram", { items }),
+  },
+  units: {
+    list: (customerId: string) => get<CustomerUnit[]>(`/api/customers/${customerId}/units`),
+    save: (customerId: string, v: Partial<CustomerUnit> & { label: string }) => post<{ id: string }>(`/api/customers/${customerId}/units`, v),
+  },
+  customerTgLink: (customerId: string) => post<{ link: string; expires_days: number }>(`/api/customers/${customerId}/tg-link`, {}),
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),

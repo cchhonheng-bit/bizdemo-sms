@@ -6,12 +6,15 @@ import { useQuery } from "@tanstack/react-query";
 import { formatUsd } from "@sms/shared";
 import { api } from "@/lib/api";
 import { Badge, Card, Skeleton } from "@/components/ui";
+import { useAuth } from "@/lib/auth";
+import FxCard from "@/features/dashboard/FxCard";
 
 const hm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Phnom_Penh" }) : null);
 const TONE: Record<string, "green" | "blue" | "warning" | "purple" | "grey"> = { free: "green", en_route: "blue", on_site: "purple", working: "warning", leave: "grey" };
 
 export default function DashboardPanel() {
   const { t } = useTranslation();
+  const { can } = useAuth();
   const q = useQuery({ queryKey: ["dashboard"], queryFn: api.reports.dashboard, refetchInterval: 60_000 });
   if (q.isLoading) return <Skeleton rows={3} />;
   if (!q.data) return null;
@@ -28,8 +31,10 @@ export default function DashboardPanel() {
           {tile(t("dashboard.received_today"), formatUsd(d.today.received ?? 0), "/reports", "text-success")}
           {tile(t("dashboard.revenue_month"), formatUsd(d.month.revenue), "/reports")}
           {tile(t("dashboard.debts"), formatUsd(d.debts.total), "/invoices", d.debts.d60_plus > 0 ? "text-danger" : "")}
+          {d.uninvoiced && tile(t("dashboard.uninvoiced"), `${d.uninvoiced.count} · ${formatUsd(d.uninvoiced.estimate)}`, "/invoices", d.uninvoiced.count ? "text-warning" : "")}
         </div>
       )}
+      {can("fx.set") && <FxCard />}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tile(t("status.pending_review"), d.pending_review, "/bookings", d.pending_review ? "text-warning" : "")}
         {tile(t("dashboard.approvals"), waiting, "/invoices", waiting ? "text-warning" : "")}

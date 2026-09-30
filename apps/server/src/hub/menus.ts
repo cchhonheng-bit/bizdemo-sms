@@ -106,7 +106,7 @@ export async function onCustomerAction(bot: Bot, chatId: number, messageId: numb
 }
 
 /** parse callback data; null = unknown/forged → only answered */
-export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; action: string; id?: string; back?: string; shop?: string; version?: string } | null {
+export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; action: string; id?: string; back?: string; shop?: string; version?: string; code?: string } | null {
   let m = data.match(/^c:(home|sub|about|promo_off|promo_on|stop_ask|stop_yes)$/);
   if (m) return { kind: "c", action: m[1]! };
   m = data.match(/^v:(home|today|next|att|ghome|gtoday)$/);
@@ -115,8 +115,8 @@ export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; ac
   if (m && UUID.test(m[1]!)) return { kind: "v", action: "job", id: m[1]!, back: m[2]! };
   m = data.match(/^m:(home|follow|unfollow|about)$/);
   if (m) return { kind: "m", action: m[1]! };
-  m = data.match(/^sub:([A-Z0-9]{2,20}):([\w-]{1,40})$/);
-  if (m) return { kind: "sub", action: "consent", shop: m[1]!, version: m[2]! };
+  m = data.match(/^sub:([A-Z0-9]{2,20}):([\w-]{1,40})(?::([A-HJ-NP-Z2-9]{8}))?$/);
+  if (m) return { kind: "sub", action: "consent", shop: m[1]!, version: m[2]!, code: m[3] };
   return null;
 }
 export { CONSENT_VERSION };

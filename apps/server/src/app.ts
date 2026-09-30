@@ -5,8 +5,9 @@ import fstatic from "@fastify/static";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ZodError } from "zod";
-import { parseFeatures, type FeatureFlag, type PermissionKey } from "@sms/shared";
+import { type FeatureFlag, type PermissionKey } from "@sms/shared";
 import { config, TRUSTED_PROXIES } from "./config.js";
+import { features } from "./lib/features.js";
 import { hubAlert, shopBotUsername } from "./services/hub-client.js";
 import { sql } from "./db.js";
 import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
@@ -25,6 +26,7 @@ import { quotesRoutes } from "./routes/quotes.js";
 import { invoicesRoutes } from "./routes/invoices.js";
 import { attendanceRoutes } from "./routes/attendance.js";
 import { reportsRoutes } from "./routes/reports.js";
+import { partARoutes } from "./routes/part-a.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { telegramRoutes } from "./routes/telegram.js";
 import { mapsRoutes } from "./routes/maps.js";
@@ -49,7 +51,7 @@ declare module "fastify" {
 const PASSWORD_CHANGE_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/auth/logout", "/api/config"]);
 
 /** read per call so tests (and a restart after changing FEATURES) see the current value */
-export const features = (): FeatureFlag[] => parseFeatures(config.shop.features);
+export { features } from "./lib/features.js";
 
 export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
@@ -131,6 +133,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(invoicesRoutes, { prefix: "/api/invoices" });
   app.register(attendanceRoutes, { prefix: "/api/attendance" });
   app.register(reportsRoutes, { prefix: "/api/reports" });
+  app.register(partARoutes, { prefix: "/api" });
   app.register(notificationsRoutes, { prefix: "/api/notifications" });
   app.register(telegramRoutes, { prefix: "/api/telegram" });
   app.register(mapsRoutes, { prefix: "/api/maps" });

@@ -10,6 +10,7 @@ import { shopBotCode } from "@sms/shared";
 import { consumeGroupCode, consumeLinkCode } from "../services/telegram.js";
 import { renderMenu } from "../services/telegram-menu.js";
 import { telegramAttendance } from "../services/attendance.js";
+import { customerSubscribed } from "../services/reminders.js";
 
 const tgSchema = z.object({
   kind: z.enum(["link", "group"]),
@@ -44,6 +45,12 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
     const b = z.object({ chat_id: z.number().int(), tg_user: z.number().int(), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
       accuracy: z.number().min(0).max(100_000).nullable(), sent_at: z.number().int() }).strict().parse(req.body);
     return { reply: await telegramAttendance(b) };
+  });
+
+  /** A2: the customer ticked the consent from their own link t.me/<bot>?start=s_<code> → the shop links the hub subscriber */
+  app.post("/customer-subscribed", async (req) => {
+    const b = z.object({ code: z.string().regex(/^[A-HJ-NP-Z2-9]{8}$/), subscriber_id: z.number().int().positive() }).strict().parse(req.body);
+    return customerSubscribed(b.code, b.subscriber_id);
   });
 
   /** aggregate numbers only (A4: non-subscriber data stays in the shop; the platform sees totals) */

@@ -69,6 +69,8 @@ export const catalogItemSchema = z.object({
   cost_price: z.number().int().min(0).nullable().optional(),
   /** Booking Rules v1.3 R3: default job length of a service (placeholder 120 min until One Team confirms) */
   duration_min: z.number().int().min(15, "DURATION_RANGE").max(1440, "DURATION_RANGE").optional(),
+  /** A2: service reminder interval in months (e.g. AC cleaning every 3); null = no reminder */
+  reminder_months: z.number().int().min(1).max(60).nullable().optional(),
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 
@@ -90,6 +92,8 @@ export const bookingSchema = z.object({
   notes: z.string().trim().max(500).optional().or(z.literal("")),
   /** FR-1201: free warranty job linked to a closed job of the same customer (≤ 30 days after closing) */
   warranty_of: z.string().uuid().optional().or(z.literal("")).nullable(),
+  /** A2: the customer's units this job serves (e.g. AC units) — reminders per unit */
+  unit_ids: z.array(z.string().uuid()).max(20).optional(),
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 

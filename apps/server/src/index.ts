@@ -8,12 +8,14 @@ import { startHubCron } from "./hub/cron.js";
 import { syncShops } from "./hub/shops.js";
 import { ensureConsentText } from "./hub/subscribers.js";
 import { startBots } from "./hub/bots.js";
+import { seedPermissions } from "./services/permissions.js";
 
 async function main() {
   const hub = config.mode === "hub";
   const app = hub ? buildHubApp() : buildApp();
   const applied = await migrate(sql, hub ? config.hub.migrationsDir : config.migrationsDir, (m) => app.log.info(m));
   if (applied.length) app.log.info({ applied }, "migrations applied");
+  if (!hub) for (const c of await sql<{ id: string }[]>`select id from companies`) await seedPermissions(sql, c.id); // new keys → default rows (existing rows untouched)
   if (hub) {
     app.log.info({ shops: await syncShops() }, "shop registry");
     await ensureConsentText();

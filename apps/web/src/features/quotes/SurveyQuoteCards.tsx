@@ -10,12 +10,20 @@ import { useAuth } from "@/lib/auth";
 import { compressPhoto } from "@/lib/offline";
 import { Badge, Button, Card, Dialog, Field } from "@/components/ui";
 import { PhotoGrid } from "@/features/tech/JobExecution";
+import DepositsCard from "./DepositsCard";
 import { toast } from "@/lib/toast";
 
 export default function SurveyQuoteCards({ booking }: { booking: Booking }) {
   const { can } = useAuth();
   if (booking.type !== "B" || !can("quote.manage")) return null;
-  return (<><SurveyCard booking={booking} /><QuoteCard booking={booking} /></>);
+  return (<><SurveyCard booking={booking} /><QuoteCard booking={booking} /><AcceptedDeposits booking={booking} /></>);
+}
+
+/** D-86: deposit once the customer accepted the quote, until the invoice is issued */
+function AcceptedDeposits({ booking }: { booking: Booking }) {
+  const row = useQuery({ queryKey: ["quote-for", booking.id], queryFn: () => api.quotes.forBooking(booking.id) });
+  if (row.data?.status !== "accepted" || ["invoiced", "partially_paid", "closed", "cancelled"].includes(booking.status)) return null;
+  return <DepositsCard bookingId={booking.id} />;
 }
 
 function SurveyCard({ booking }: { booking: Booking }) {

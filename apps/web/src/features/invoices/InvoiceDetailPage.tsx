@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { ActionBar, Button, Card, Dialog, ErrorState, Field, Input, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { InvoiceBadge } from "./shared";
+import PaymentRow from "./PaymentRow";
 import { todayLocal } from "./util";
 
 export default function InvoiceDetailPage() {
@@ -54,21 +55,13 @@ export default function InvoiceDetailPage() {
         <Card title={t("invoice.payments")} actions={issued && d.can.pay && d.balance > 0 ? <Button variant="primary" onClick={() => setPaying(true)} data-testid="pay-open"><Wallet size={16} /> {t("invoice.record_payment")}</Button> : undefined}>
           {d.payments.length === 0 ? <p className="text-sm text-muted">{t("invoice.no_payments")}</p> : (
             <ul className="text-sm divide-y divide-grey-line">
-              {d.payments.map((p) => (
-                <li key={p.id} className="py-2 flex gap-2 items-start">
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold tabular">{p.currency === "usd" ? formatUsd(p.amount) : formatKhr(p.amount)} <span className="text-xs text-muted font-normal">· {t(`invoice.method.${p.method}`)}</span></div>
-                    <div className="text-xs text-muted">{p.paid_on} · {p.received_by_name}{p.currency === "khr" ? ` · ${formatKhr(p.fx_rate_khr)}/$` : ""}{p.note ? ` · ${p.note}` : ""}</div>
-                  </div>
-                  <span className="tabular text-success">{formatUsd(p.usd_cents)}</span>
-                </li>
-              ))}
+              {d.payments.map((p) => <PaymentRow key={p.id} p={p} d={d} onDone={refresh} />)}
             </ul>
           )}
         </Card>
       )}
 
-      {d.status !== "void" && d.can.void_request && !d.void_request && d.payments.length === 0 && (
+      {d.status !== "void" && d.can.void_request && !d.void_request && d.paid === 0 && (
         <div className="text-center"><Button variant="danger" onClick={() => setVoiding(true)} data-testid="void-open"><Ban size={16} /> {t("invoice.void")}</Button></div>
       )}
 

@@ -8,6 +8,8 @@ import { AppError, forbidden, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { notifyUser } from "./telegram.js";
+import { applyDeposits } from "./deposits.js";
+import { postInvoiceIssue, postPayment, reverseSource } from "./ledger-hooks.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
@@ -186,10 +188,13 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
     const { subtotal } = await sums(t, id);
     const total = subtotal - i.discount;
     if (i.booking_id) {
+      const deposited = await applyDeposits(t, user, { id, booking_id: i.booking_id, total }); // deposits taken at quote acceptance
       await t`update bookings set status = 'invoiced' where id = ${i.booking_id}`;
-      if (total <= 0) await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
+      if (total <= 0 || deposited >= total) await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
+      else if (deposited > 0) await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.issue", table: "invoices", rowId: id, new: { number: i.number, total, fx }, ip });
+    await postInvoiceIssue(t, user, id);
     return { id, status: "issued" as const };
   });
 }
@@ -219,6 +224,7 @@ export async function recordPayment(user: SessionUser, ip: string | null, id: st
       if (nowPaid >= total && st !== "closed") await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
       else if (nowPaid < total && st === "invoiced") await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
+    await postPayment(t, user, { id: pid, method: v.method, usd_cents: cents, fx, date: v.paid_on ?? (await t<{ d: string }[]>`select (now() at time zone (select timezone from companies where id = ${user.companyId}))::date::text as d`)[0]!.d });
     await audit(t, { companyId: user.companyId, userId: user.id, action: "payment.record", table: "payments", rowId: pid, new: { invoice: i.number, amount: v.amount, currency: v.currency, method: v.method, usd_cents: cents, fx }, ip });
     return { id: pid, paid: nowPaid, balance: total - nowPaid, payment_status: payStatus(total, nowPaid) };
   });
@@ -228,7 +234,7 @@ export async function recordPayment(user: SessionUser, ip: string | null, id: st
 async function assertVoidable(t: Db, i: Inv) {
   if (i.status === "void") throw new AppError("INVOICE_VOID", 400);
   const s = await sums(t, i.id);
-  if (s.payments > 0) throw new AppError("HAS_PAYMENTS", 400);
+  if (s.paid > 0) throw new AppError("HAS_PAYMENTS", 400); // net of voided (reversed) payments
   if (i.status === "issued" && s.subtotal - i.discount <= 0) throw new AppError("INVOICE_PAID", 400);
 }
 
@@ -236,6 +242,7 @@ async function doVoid(t: Db, user: SessionUser, i: Inv, reason: string, ip: stri
   await t`update invoices set status = 'void', voided_at = now(), voided_by = ${user.id}, void_reason = ${reason} where id = ${i.id}`;
   if (i.booking_id) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
   await audit(t, { companyId: i.company_id, userId: user.id, action: "invoice.void", table: "invoices", rowId: i.id, new: { number: i.number, reason }, ip });
+  await reverseSource(t, user, "invoice", i.id, `VOID: ${reason}`);
   await tellBoss(t, i, user, "invoice.void", `🚫 VOID · ${i.number}`, `👤 ${i.customer_name}\nដោយ ${user.fullName}\n📝 ${reason}`);
 }
 
@@ -291,7 +298,10 @@ export async function getInvoice(user: SessionUser, perms: string[], id: string)
   const lines = (await sql<{ id: number; catalog_item_id: string | null; description: string; kind: string; qty: number; unit: string; unit_price: number }[]>`
     select id, catalog_item_id, description, kind, qty::float as qty, unit, unit_price from invoice_lines where invoice_id = ${id} order by sort, id`)
     .map((l) => ({ ...l, line_total: Math.round(l.qty * l.unit_price) }));
-  const payments = await sql`select p.id, p.amount::float8 as amount, p.currency, p.method, p.fx_rate_khr::float as fx_rate_khr, p.usd_cents, p.paid_on::text, p.note, p.created_at, u.full_name as received_by_name
+  const payments = await sql`select p.id, p.amount::float8 as amount, p.currency, p.method, p.fx_rate_khr::float as fx_rate_khr, p.usd_cents, p.paid_on::text, p.note, p.created_at, u.full_name as received_by_name,
+      p.deposit_id is not null as from_deposit, p.reversal_of, p.voided_at, p.void_reason,
+      (select json_build_object('reason', r.reason, 'requester_role', r.requester_role, 'requested_by_name', ru.full_name) from payment_void_requests r join users ru on ru.id = r.requested_by
+        where r.payment_id = p.id and r.status = 'pending') as void_request
     from payments p left join users u on u.id = p.received_by where p.invoice_id = ${id} order by p.created_at, p.id`;
   const vr = (await sql`select r.id, r.reason, r.requested_by, r.requester_role, r.created_at, u.full_name as requested_by_name from invoice_void_requests r
     join users u on u.id = r.requested_by where r.invoice_id = ${id} and r.status = 'pending'`)[0] ?? null;
@@ -343,4 +353,23 @@ export async function debts(user: SessionUser) {
 export function assertCanView(perms: string[]) {
   const VIEW = ["invoice.issue", "payment.record", "discount.give", "discount.approve", "void.request", "void.approve", "report.finance"];
   if (!perms.some((p) => VIEW.includes(p))) throw forbidden();
+}
+
+// ---------- A1 done but not invoiced ----------
+/** finished jobs (work done … reviewed) without an open invoice: age from the finish checkpoint, estimate = accepted quote,
+ *  else booked service + materials at catalog prices; a warranty job is free (estimate 0) */
+export async function uninvoiced(companyId: string) {
+  return sql<{ booking_id: string; number: string; status: string; customer_name: string; phones: string[]; finished_at: Date; age_days: number; estimate: number; warranty: boolean }[]>`
+    select x.*, (now() at time zone x.tz)::date - (x.finished_at at time zone x.tz)::date as age_days from (
+      select b.id as booking_id, b.number, b.status, c.name as customer_name, c.phones, co.timezone as tz, b.parent_booking_id is not null as warranty,
+        coalesce((select max(k.at) from booking_checkpoints k where k.booking_id = b.id and k.step = 'finish'), b.updated_at) as finished_at,
+        case when b.parent_booking_id is not null then 0 else coalesce(
+          (select sum(round(l.qty * l.unit_price))::int from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = b.id and q.status = 'accepted'),
+          coalesce((select sell_price from catalog_items where id = b.service_item_id), 0)
+            + coalesce((select sum(round(m.qty * coalesce(i.sell_price, 0)))::int from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id), 0)
+        ) end as estimate
+      from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id
+      where b.company_id = ${companyId} and b.status in ('work_done', 'pending_review', 'revision', 'reviewed')
+        and not exists (select 1 from invoices i where i.booking_id = b.id and i.status <> 'void')
+    ) x order by x.finished_at`;
 }

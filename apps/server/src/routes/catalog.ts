@@ -22,11 +22,12 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
     const id = await tx(req.user!.id, async (t) => {
       let id: string;
       if (!b.id) {
-        id = (await t<{ id: string }[]>`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, created_by)
-          values (${req.user!.companyId}, ${b.name_km}, ${b.name_en || null}, ${b.kind}::item_kind, ${b.category}::service_category, ${b.unit || "unit"}, ${b.sell_price}, ${b.cost_price ?? null}, ${b.duration_min ?? 120}, ${req.user!.id}) returning id`)[0]!.id;
+        id = (await t<{ id: string }[]>`insert into catalog_items (company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, reminder_months, created_by)
+          values (${req.user!.companyId}, ${b.name_km}, ${b.name_en || null}, ${b.kind}::item_kind, ${b.category}::service_category, ${b.unit || "unit"}, ${b.sell_price}, ${b.cost_price ?? null}, ${b.duration_min ?? 120}, ${b.reminder_months ?? null}, ${req.user!.id}) returning id`)[0]!.id;
       } else {
         const r = await t<{ id: string }[]>`update catalog_items set name_km = ${b.name_km}, name_en = ${b.name_en || null}, kind = ${b.kind}::item_kind, category = ${b.category}::service_category,
             unit = coalesce(${b.unit || null}, unit), sell_price = ${b.sell_price}, duration_min = coalesce(${b.duration_min ?? null}, duration_min),
+            reminder_months = case when ${b.reminder_months !== undefined} then ${b.reminder_months ?? null} else reminder_months end,
             cost_price = case when ${withCost && b.cost_price !== undefined} then ${b.cost_price ?? null} else cost_price end
           where id = ${b.id} and company_id = ${req.user!.companyId} returning id`;
         if (!r[0]) throw notFound();

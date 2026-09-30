@@ -29,6 +29,8 @@ import InvoicePrintPage from "@/features/invoices/InvoicePrintPage";
 import { INVOICE_VIEW } from "@/features/invoices/util";
 import AttendancePage from "@/features/attendance/AttendancePage";
 import ReportsPage from "@/features/reports/ReportsPage";
+import RemindersPage from "@/features/reminders/RemindersPage";
+import SubscribePrintPage from "@/features/subscribe/SubscribePrintPage";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
@@ -49,6 +51,7 @@ export default function App() {
             <Route path="/first-login" element={<FirstLoginPage />} />
             <Route element={<RequirePerm perm="quote.manage" />}><Route path="/quotes/:id/print" element={<QuotePrintPage />} /></Route>
             <Route element={<RequireAnyPerm perms={INVOICE_VIEW} />}><Route path="/invoices/:id/print" element={<InvoicePrintPage />} /></Route>
+            <Route element={<RequireFeature flag="subscribe" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/subscribe/print" element={<SubscribePrintPage />} /></Route></Route>
             <Route element={<Shell />}>
               <Route index element={<Home />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -66,6 +69,7 @@ export default function App() {
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/leave" element={<LeavePage />} />
               <Route path="/attendance" element={<AttendancePage />} />
+              <Route element={<RequireFeature flag="reminders" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/reminders" element={<RemindersPage />} /></Route></Route>
               <Route element={<RequirePerm perm="report.ops" />}><Route path="/reports" element={<ReportsPage />} /></Route>
               <Route element={<RequirePerm perm="quote.manage" />}>
                 <Route path="/quotes" element={<QuotesPage />} />

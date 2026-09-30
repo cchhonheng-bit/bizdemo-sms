@@ -10,6 +10,7 @@ import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
 import { MIME_BY_EXT, saveImage } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
+import { rateInfo, setRate } from "../services/fx.js";
 
 const settingsPatch = z.object({
   work_start: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/).optional(),
@@ -25,6 +26,8 @@ const settingsPatch = z.object({
   telegram_group_chat_id: z.union([z.string().regex(/^-?\d+$/), z.number().int(), z.literal(""), z.null()]).optional(),
   holidays: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
   invoice_prefix: z.string().regex(/^[A-Z]{2,5}$/).optional(),
+  reminder_default_months: z.number().int().min(1).max(60).optional(),
+  reminder_daily_limit: z.number().int().min(0).max(1000).optional(),
   company_info: z.record(z.unknown()).optional(),
 });
 
@@ -42,6 +45,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       const old = (await t`select * from company_settings where company_id = ${req.user!.companyId} for update`)[0];
       if (!old) throw notFound();
       const tg = p.telegram_group_chat_id;
+      if (p.fx_rate_khr !== undefined) await setRate(t, req.user!, p.fx_rate_khr, null, req.ip); // same history + audit as /fx
       const r = await t`update company_settings set
           work_start = coalesce(${p.work_start ?? null}::time, work_start),
           work_end = coalesce(${p.work_end ?? null}::time, work_end),
@@ -56,6 +60,8 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
           telegram_group_chat_id = case when ${tg !== undefined} then ${tg === "" || tg === null || tg === undefined ? null : String(tg)}::bigint else telegram_group_chat_id end,
           holidays = coalesce(${p.holidays ? t.array(p.holidays) : null}::date[], holidays),
           invoice_prefix = coalesce(${p.invoice_prefix ?? null}, invoice_prefix),
+          reminder_default_months = coalesce(${p.reminder_default_months ?? null}, reminder_default_months),
+          reminder_daily_limit = coalesce(${p.reminder_daily_limit ?? null}, reminder_daily_limit),
           company_info = coalesce(${p.company_info ? t.json(p.company_info as never) : null}, company_info),
           updated_by = ${req.user!.id}
         where company_id = ${req.user!.companyId} returning *`;
@@ -64,16 +70,15 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
-  // Admin may set the FX rate only (fx.set)
+  // A3: CEO + CFO set the rate (fx.set) — audited, history kept; every money row keeps its own snapshot
   app.post("/fx", { preHandler: app.requirePerm("fx.set") }, async (req) => {
-    const { rate } = z.object({ rate: z.number().min(1000, "INVALID_RATE").max(20000, "INVALID_RATE") }).parse(req.body);
-    await tx(req.user!.id, async (t) => {
-      const old = (await t<{ fx_rate_khr: string }[]>`select fx_rate_khr from company_settings where company_id = ${req.user!.companyId} for update`)[0];
-      if (!old) throw notFound();
-      await t`update company_settings set fx_rate_khr = ${rate}, updated_by = ${req.user!.id} where company_id = ${req.user!.companyId}`;
-      await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: "fx.set", table: "company_settings", rowId: req.user!.companyId, old: { fx_rate_khr: Number(old.fx_rate_khr) }, new: { fx_rate_khr: rate }, ip: req.ip });
-    });
+    const { rate, note } = z.object({ rate: z.number().min(1000, "INVALID_RATE").max(20000, "INVALID_RATE"), note: z.string().trim().max(200).optional() }).parse(req.body);
+    await tx(req.user!.id, (t) => setRate(t, req.user!, rate, note || null, req.ip));
     return { ok: true };
+  });
+  app.get("/fx", { preHandler: app.requireAuth }, async (req) => {
+    if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403);
+    return rateInfo(req.user!);
   });
 
   // ---- invoice logo + ACLEDA QR (FR-803 · BR-16): PNG / JPEG / WebP, printed on every invoice ----

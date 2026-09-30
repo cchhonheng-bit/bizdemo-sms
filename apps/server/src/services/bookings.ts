@@ -23,6 +23,7 @@ function baseSelect(db: Db) {
          b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at,
          b.created_by, b.created_at, b.updated_at, b.parent_booking_id as warranty_of, pb.number as warranty_of_number,
          ${warrantyJson(db)} as warranty,
+         (select json_agg(json_build_object('id', cu.id, 'label', cu.label) order by cu.label) from booking_units bu join customer_units cu on cu.id = bu.unit_id where bu.booking_id = b.id) as units,
          (select json_agg(json_build_object('user_id', t.user_id, 'role', t.role, 'full_name', u.full_name) order by t.role, u.full_name)
             from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as technicians
     from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id left join vehicles v on v.id = b.vehicle_id
@@ -170,7 +171,16 @@ export type CreateInput = {
   customer_id: string; type: "A" | "B"; category: string; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null;
   address: string | null; lat: number | null; lng: number | null; zone: string | null; vehicle_id: string | null; notes: string | null;
   warranty_of?: string | null;
+  unit_ids?: string[];
 };
+
+/** A2: the customer's units this job serves (reminders per unit) — only units of the same customer */
+async function setUnits(t: Db, companyId: string, bookingId: string, customerId: string, unitIds: string[]): Promise<void> {
+  const ids = [...new Set(unitIds)];
+  if (ids.length && (await t`select id from customer_units where id = any(${t.array(ids)}::uuid[]) and company_id = ${companyId} and customer_id = ${customerId} and is_active`).length !== ids.length) throw new AppError("UNIT_NOT_FOUND", 404);
+  await t`delete from booking_units where booking_id = ${bookingId}`;
+  for (const u of ids) await t`insert into booking_units (booking_id, unit_id) values (${bookingId}, ${u})`;
+}
 
 export async function createBooking(user: SessionUser, ip: string | null, b: CreateInput) {
   return tx(user.id, async (t) => {
@@ -203,6 +213,7 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
       values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${b.service_item_id}, ${w.start}, ${w.end},
               ${b.address?.trim() || c.address}, ${b.lat ?? c.lat}, ${b.lng ?? c.lng}, ${(b.zone ?? c.zone)}::zone, ${b.vehicle_id}, ${b.notes?.trim() || null}, ${user.id}, ${b.warranty_of ?? null}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${id}, null, ${status}::booking_status, ${user.id})`;
+    if (b.unit_ids?.length) await setUnits(t, user.companyId, id, c.id, b.unit_ids);
     if (c.lat == null && b.lat != null) await t`update customers set lat = ${b.lat}, lng = ${b.lng} where id = ${c.id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.create", table: "bookings", rowId: id, new: { number, type: b.type, customer_id: c.id, scheduled_at: w.start, ends_at: w.end }, ip });
     if (b.type === "B") {
@@ -225,6 +236,7 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
     const vehicle = has("vehicle_id") ? ((p.vehicle_id as string) || null) : old.vehicle_id;
     if (has("vehicle_id") && vehicle) await assertVehicle(t, user.companyId, vehicle); // F-M2-01
     const serviceItem = has("service_item_id") ? ((p.service_item_id as string) || null) : old.service_item_id;
+    if (has("unit_ids")) await setUnits(t, user.companyId, id, old.customer_id as string, (p.unit_ids as string[]) ?? []);
     // D2: the agreed appointment only moves through reschedule (who asked + why + history)
     if (has("scheduled_at") || has("ends_at")) {
       const sameStart = (p.scheduled_at === undefined || p.scheduled_at === "" ? null : new Date(p.scheduled_at as string).getTime()) === (old.scheduled_at?.getTime() ?? null);

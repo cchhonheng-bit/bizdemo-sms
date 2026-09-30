@@ -8,7 +8,7 @@ import { warrantyJson } from "./bookings.js";
 const INVOICE_VIEW = ["invoice.issue", "payment.record", "discount.give", "discount.approve", "void.request", "void.approve", "report.finance"];
 
 export async function customerHistory(user: SessionUser, perms: string[], id: string) {
-  const customer = (await sql`select id, name, phones, address, zone, lat, lng, notes, is_active, created_at from customers where id = ${id} and company_id = ${user.companyId}`)[0];
+  const customer = (await sql`select id, name, phones, address, zone, lat, lng, notes, is_active, created_at, tg_subscriber_id is not null as telegram from customers where id = ${id} and company_id = ${user.companyId}`)[0];
   if (!customer) throw notFound();
   const bookings = await sql<{ id: string; number: string; status: string; warranty: { until: string; days_left: number; active: boolean } | null }[]>`
     select b.id, b.number, b.status, b.type, b.category, b.service_text, b.scheduled_at, b.closed_at, b.cancel_reason, b.parent_booking_id as warranty_of, ${warrantyJson(sql)} as warranty

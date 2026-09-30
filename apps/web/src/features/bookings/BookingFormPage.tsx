@@ -11,6 +11,7 @@ import { ActionBar, Button, Card, Field, Input, Select, Skeleton } from "@/compo
 import { LocationPicker, type LatLngValue } from "./parts";
 import { CustomerDialog } from "@/features/customers/CustomersPage";
 import { toast } from "@/lib/toast";
+import { useFeature } from "@/lib/config";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, todayLocal } from "./time";
 
 type FormValues = BookingInput & { date: string; start: string; end: string };
@@ -28,6 +29,9 @@ export default function BookingFormPage() {
   const [sp] = useSearchParams();
   const warrantyOf = editing ? null : sp.get("warranty_of");
   const original = useQuery({ queryKey: ["booking", warrantyOf], queryFn: () => api.booking(warrantyOf!), enabled: !!warrantyOf });
+  // A2: units of the customer (reminders per unit) + prefill from a reminder's «book» (?customer=&service=&unit=)
+  const remindersOn = useFeature("reminders");
+  const [unitIds, setUnitIds] = useState<string[]>(() => (sp.get("unit") ? [sp.get("unit")!] : []));
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: api.vehicles });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
@@ -60,6 +64,18 @@ export default function BookingFormPage() {
       scheduled_at: "", ends_at: "", address: o.address ?? "", zone: o.zone, vehicle_id: "", notes: "", date: "", start: "", end: "" });
     setLoc({ lat: o.lat, lng: o.lng });
   }, [original.data, reset, t]);
+
+  const units = useQuery({ queryKey: ["units", customerId], queryFn: () => api.units.list(customerId), enabled: remindersOn && !!customerId });
+  useEffect(() => { if (existing.data?.units) setUnitIds(existing.data.units.map((u) => u.id)); }, [existing.data]);
+  const [prefilled, setPrefilled] = useState(false);
+  useEffect(() => {
+    if (editing || warrantyOf || prefilled || !customers.data || !catalog.data) return;
+    const c = customers.data.find((x) => x.id === sp.get("customer"));
+    const it = catalog.data.find((x) => x.id === sp.get("service"));
+    if (c) { setValue("customer_id", c.id, { shouldValidate: true }); setValue("address", c.address ?? ""); setValue("zone", c.zone); setLoc({ lat: c.lat, lng: c.lng }); }
+    if (it) { setValue("category", it.category); setValue("service_item_id", it.id); setValue("service_text", it.name_km); }
+    setPrefilled(true);
+  }, [editing, warrantyOf, prefilled, customers.data, catalog.data, sp, setValue]);
 
   const services = useMemo(() => (catalog.data ?? []).filter((i) => i.kind === "service" && i.is_active && i.category === category), [catalog.data, category]);
   const item = services.find((i) => i.id === itemId) ?? null;
@@ -98,12 +114,12 @@ export default function BookingFormPage() {
     try {
       if (editing) {
         await api.updateBooking(id!, { service_text: base.service_text, category: base.category, service_item_id: base.service_item_id ?? "", address: base.address ?? "", lat: base.lat, lng: base.lng,
-          zone: base.zone, vehicle_id: base.vehicle_id ?? "", notes: base.notes ?? "" });
+          zone: base.zone, vehicle_id: base.vehicle_id ?? "", notes: base.notes ?? "", ...(remindersOn ? { unit_ids: unitIds } : {}) });
         void qc.invalidateQueries({ queryKey: ["booking", id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
         toast.success(t("app.saved"));
         nav(`/bookings/${id}`);
       } else {
-        const r = await api.createBooking({ customer_id: v.customer_id, type: v.type, ...base, warranty_of: warrantyOf });
+        const r = await api.createBooking({ customer_id: v.customer_id, type: v.type, ...base, warranty_of: warrantyOf, ...(remindersOn && unitIds.length ? { unit_ids: unitIds } : {}) });
         void qc.invalidateQueries({ queryKey: ["bookings"] }); void qc.invalidateQueries({ queryKey: ["customers"] });
         toast.success(t("booking.created", { number: r.number }));
         nav(`/bookings/${r.id}`, { replace: true });
@@ -176,6 +192,17 @@ export default function BookingFormPage() {
               {services.map((i) => <option key={i.id} value={i.id}>{i.name_km} · {Math.round(i.duration_min / 6) / 10} h</option>)}
             </Select>
           </Field>
+          {remindersOn && (units.data ?? []).some((u) => u.is_active) && (
+            <Field label={t("units.for_job")}>
+              <div className="flex flex-wrap gap-2" data-testid="unit-picks">
+                {(units.data ?? []).filter((u) => u.is_active).map((u) => {
+                  const on = unitIds.includes(u.id);
+                  return <button key={u.id} type="button" aria-pressed={on} onClick={() => setUnitIds((x) => (on ? x.filter((y) => y !== u.id) : [...x, u.id]))}
+                    className={`px-3 min-h-[44px] rounded-md border text-sm ${on ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{on ? "✓ " : ""}{u.label}</button>;
+                })}
+              </div>
+            </Field>
+          )}
           <Field label={t("booking.service_text")} required error={errors.service_text && t("app.required")}>
             <textarea className="input h-24 py-2" {...register("service_text")} />
           </Field>

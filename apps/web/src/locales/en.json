@@ -40,7 +40,8 @@
     "leave": "Leave",
     "quotes": "Quotes",
     "invoices": "Invoices",
-    "reports": "Reports"
+    "reports": "Reports",
+    "reminders": "Reminders"
   },
   "roles": {
     "ceo": "CEO",
@@ -183,7 +184,8 @@
       "on_site": "On site",
       "working": "Working",
       "leave": "Leave"
-    }
+    },
+    "uninvoiced": "Done, not invoiced"
   },
   "zone": {
     "inside": "Inside Borey",
@@ -253,7 +255,10 @@
     "activate": "Activate item",
     "err_price": "Invalid price",
     "duration": "Job length (minutes)",
-    "duration_hint": "Default time a technician needs — the booking end time starts from it (can be changed per booking)."
+    "duration_hint": "Default time a technician needs — the booking end time starts from it (can be changed per booking).",
+    "remind": "Service reminder every (months)",
+    "remind_hint": "Empty = no reminder · e.g. AC cleaning 3 months",
+    "err_remind": "Months 1 – 60"
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -448,7 +453,9 @@
       "HUB_UNREACHABLE": "Cannot reach the HangKH hub right now",
       "HUB_NOT_CONFIGURED": "HangKH hub is not configured"
     },
-    "when": "Sent at"
+    "when": "Sent at",
+    "poster_hint": "Print A5/A4 and put it up in the shop / vehicles",
+    "no_bot": "The shop has no bot yet"
   },
   "legal": {
     "terms": "Terms of Service",
@@ -679,7 +686,8 @@
       "unpaid": "Unpaid",
       "paid": "Paid",
       "void": "Void",
-      "debts": "Debts"
+      "debts": "Debts",
+      "todo": "Not invoiced"
     },
     "none": "No invoices",
     "void_pending": "Void pending",
@@ -709,7 +717,14 @@
       "HAS_PAYMENTS": "Payments were recorded — cannot void",
       "INVOICE_PAID": "The invoice is paid — cannot void",
       "ITEM_NOT_FOUND": "Item not found",
-      "FORBIDDEN": "Not allowed"
+      "FORBIDDEN": "Not allowed",
+      "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first",
+      "DEPOSIT_EXCEEDS_TOTAL": "Deposits exceed the invoice total — fix the lines or void a deposit",
+      "DEPOSIT_NOT_ACTIVE": "This deposit is already applied or void",
+      "INVOICE_ISSUED": "The invoice is issued — record a normal payment",
+      "ALREADY_VOID": "Already void",
+      "NOT_VOIDABLE": "This line cannot be voided",
+      "DEPOSIT_PAYMENT": "Comes from a deposit — correct the deposit"
     }
   },
   "attendance": {
@@ -763,7 +778,8 @@
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "At most 62 days",
       "range": "Invalid date range (at most 62 days)"
-    }
+    },
+    "days_short": "d"
   },
   "range": {
     "today": "Today",
@@ -835,5 +851,80 @@
     "cash_saved": "Saved · difference {{usd}} · {{khr}}",
     "cash_waiting": "Waiting for CFO",
     "cash_by": "Closed by {{name}}"
+  },
+  "reminders": {
+    "title": "Service reminders",
+    "overdue_n": "{{n}} overdue",
+    "window": "{{n}} days",
+    "send_n": "Send Telegram ({{n}})",
+    "none": "Nothing to remind",
+    "pick": "Pick",
+    "overdue_days": "{{n}} days overdue",
+    "due_in": "in {{n}} days",
+    "last": "last {{date}}",
+    "due": "due {{date}}",
+    "book": "Book",
+    "act": {
+      "contacted": "Contacted",
+      "snoozed": "Snoozed",
+      "dismissed": "Dismissed"
+    },
+    "sent": "Sent {{sent}} · skipped {{skipped}} · not linked {{not_linked}} · daily limit {{limit}}",
+    "err": {
+      "UNIT_NOT_FOUND": "Unit not found",
+      "UNTIL_REQUIRED": "Pick a date",
+      "NO_SHOP_BOT": "The shop has no bot yet",
+      "FORBIDDEN": "Not allowed"
+    }
+  },
+  "deposit": {
+    "title": "Deposit",
+    "record": "Record deposit",
+    "none": "No deposit yet",
+    "active_total": "Deposit waiting: {{amount}} (applied when the invoice is issued)",
+    "void": "Void deposit (refund)",
+    "saved": "Deposit recorded",
+    "tag": "deposit",
+    "status": {
+      "active": "Waiting",
+      "applied": "Applied",
+      "void": "Void"
+    }
+  },
+  "payment": {
+    "void": "Void payment",
+    "void_ceo_hint": "CEO voids directly (reason required) · recorded as a minus line, nothing deleted"
+  },
+  "units": {
+    "title": "Units / equipment",
+    "none": "No units yet",
+    "label": "Name (e.g. bedroom)",
+    "label_ph": "Bedroom",
+    "brand": "Brand",
+    "model": "Model",
+    "where": "Where",
+    "add": "Add unit",
+    "tg_none": "Not linked on Telegram",
+    "tg_link": "Telegram link for the customer",
+    "copy": "Copy link",
+    "tg_hint": "Send this link or QR to the customer (7 days) — after they agree, reminders reach them",
+    "for_job": "Units for this job"
+  },
+  "fx": {
+    "title": "Exchange rate",
+    "hint": "Every transaction keeps the rate of its day — a change never touches old records",
+    "history": "History",
+    "rate": "៛ per $1",
+    "range": "1,000 – 20,000",
+    "note": "Note",
+    "note_ph": "e.g. bank rate",
+    "err": {
+      "INVALID_RATE": "Rate 1,000 – 20,000"
+    }
+  },
+  "uninvoiced": {
+    "summary": "{{n}} jobs · about {{amount}}",
+    "none": "No job waiting for an invoice ✅",
+    "age": "{{n}} days"
   }
 }

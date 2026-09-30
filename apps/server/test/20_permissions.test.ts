@@ -55,10 +55,11 @@ describe("permissions in the API (rule 5)", () => {
     expect((await gm.req("POST", "/api/catalog", { name_km: "X", kind: "service", category: "mep", sell_price: 1, cost_price: 1 })).json.error).toBe("FORBIDDEN_COST");
   });
 
-  it("settings.manage: only CEO edits settings/vehicles/permissions; Admin may set FX only", async () => {
+  it("settings.manage: only CEO edits settings/vehicles/permissions; the FX rate is CEO + CFO (A3, D-86)", async () => {
     expect((await gm.req("PATCH", "/api/settings/company", { fx_rate_khr: 4000 })).status).toBe(403);
     expect((await admin.req("PATCH", "/api/settings/company", { fx_rate_khr: 4000 })).status).toBe(403);
-    expect((await admin.req("POST", "/api/settings/fx", { rate: 4050 })).status).toBe(200);
+    expect((await admin.req("POST", "/api/settings/fx", { rate: 4050 })).status).toBe(403);
+    expect((await ceo.req("POST", "/api/settings/fx", { rate: 4050 })).status).toBe(200);
     expect((await gm.req("POST", "/api/settings/fx", { rate: 4050 })).status).toBe(403);
     expect(Number((await ceo.req("GET", "/api/settings/company")).json.fx_rate_khr)).toBe(4050);
     expect((await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100123", work_start: "07:00" })).status).toBe(200);

@@ -7,10 +7,13 @@ import { api, fmtDate, type Customer } from "@/lib/api";
 import { Badge, Dialog, ErrorState, Skeleton } from "@/components/ui";
 import { StatusBadge } from "@/features/bookings/parts";
 import { InvoiceBadge } from "@/features/invoices/shared";
+import { useFeature } from "@/lib/config";
+import UnitsSection from "./UnitsSection";
 
 export default function CustomerHistoryDialog({ customer, onClose }: { customer: Customer; onClose: () => void }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["customer-history", customer.id], queryFn: () => api.customerHistory(customer.id) });
+  const remindersOn = useFeature("reminders");
   const d = q.data;
   return (
     <Dialog open onClose={onClose} title={`${t("customers.history")} · ${customer.name}`}>
@@ -28,6 +31,7 @@ export default function CustomerHistoryDialog({ customer, onClose }: { customer:
               </ul>
             </section>
           )}
+          {remindersOn && <UnitsSection customerId={customer.id} telegram={!!(d.customer as { telegram?: boolean }).telegram} />}
           {d.debt !== undefined && (
             <div className={`rounded-md p-3 flex justify-between ${d.debt > 0 ? "bg-danger-50 text-danger" : "bg-grey-bg"}`}><span>{t("invoice.tab.debts")}</span><b className="tabular">{formatUsd(d.debt)}</b></div>
           )}

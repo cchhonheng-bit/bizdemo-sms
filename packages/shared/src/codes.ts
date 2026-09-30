@@ -34,7 +34,7 @@ export const deepLink = (bot: string, payload: string) => `https://t.me/${bot}?s
 export const subscribePayload = (shop: string) => `s-${shop}`;
 
 /** Feature flags (A6) — names match Module_Catalog.md */
-export const FEATURE_FLAGS = ["subscribe", "quote", "checkpoint", "jobreport", "invoice", "attendance", "reports", "warranty"] as const;
+export const FEATURE_FLAGS = ["subscribe", "quote", "checkpoint", "jobreport", "invoice", "attendance", "reports", "warranty", "reminders", "inventory", "accounting"] as const;
 export type FeatureFlag = (typeof FEATURE_FLAGS)[number];
 export function parseFeatures(v: string | undefined): FeatureFlag[] {
   return (v ?? "").split(",").map((x) => x.trim().toLowerCase()).filter((x): x is FeatureFlag => (FEATURE_FLAGS as readonly string[]).includes(x));

@@ -3,7 +3,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import {
-  assertCanView, createInvoice, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, updateInvoice,
+  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, updateInvoice,
 } from "../services/invoices.js";
 
 const line = z.object({
@@ -28,6 +28,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return listInvoices(req.user!, status, booking);
   });
   app.get("/debts", async (req) => debts(req.user!));
+  app.get("/uninvoiced", async (req) => uninvoiced(req.user!.companyId)); // A1
   app.get("/prefill", { preHandler: app.requirePerm("invoice.issue") }, async (req) => prefill(req.user!, z.object({ booking: z.string().uuid() }).parse(req.query ?? {}).booking));
   app.get("/:id", async (req) => getInvoice(req.user!, req.perms, idParam.parse(req.params).id));
 

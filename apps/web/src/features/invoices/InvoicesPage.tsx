@@ -9,16 +9,18 @@ import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Empty, Skeleton } from "@/components/ui";
 import { InvoiceBadge } from "./shared";
+import UninvoicedList from "./UninvoicedList";
 
-type Tab = "approval" | "draft" | "unpaid" | "paid" | "void" | "debts";
+type Tab = "approval" | "todo" | "draft" | "unpaid" | "paid" | "void" | "debts";
 
 export default function InvoicesPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const nav = useNavigate();
   const approver = can("discount.approve") || can("void.approve");
-  const tabs: Tab[] = [...(approver ? ["approval" as const] : []), "draft", "unpaid", "paid", "void", "debts"];
-  const [tab, setTab] = useState<Tab>(approver ? "approval" : "unpaid");
+  const issuer = can("invoice.issue") || can("report.finance");
+  const tabs: Tab[] = [...(approver ? ["approval" as const] : []), ...(issuer ? ["todo" as const] : []), "draft", "unpaid", "paid", "void", "debts"];
+  const [tab, setTab] = useState<Tab>(approver ? "approval" : issuer ? "todo" : "unpaid");
   return (
     <div className="max-w-3xl space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -30,12 +32,12 @@ export default function InvoicesPage() {
           <button key={s} role="tab" aria-selected={tab === s} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === s ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(s)}>{t(`invoice.tab.${s}`)}</button>
         ))}
       </div>
-      {tab === "debts" ? <Debts /> : <List status={tab} />}
+      {tab === "debts" ? <Debts /> : tab === "todo" ? <UninvoicedList /> : <List status={tab} />}
     </div>
   );
 }
 
-function List({ status }: { status: Exclude<Tab, "debts"> }) {
+function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["invoices", status], queryFn: () => api.invoices.list(status) });
   return (
