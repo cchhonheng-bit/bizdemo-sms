@@ -56,6 +56,8 @@ export const config = {
   /** directory with the built web app (index.html, assets/) */
   webDist: env("WEB_DIST", resolve(here, "../../web/dist")),
   migrationsDir: env("MIGRATIONS_DIR", resolve(here, "migrations")),
+  /** photos + signatures (job reports); the uploads_<shop> volume in production */
+  uploadsDir: env("UPLOADS_DIR", resolve(here, "../../../.local/uploads")),
   logLevel: env("LOG_LEVEL", "info"),
   /** behind caddy → trust X-Forwarded-For for rate limiting */
   trustProxy: env("TRUST_PROXY", "true") === "true",

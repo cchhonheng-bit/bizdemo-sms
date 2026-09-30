@@ -28,5 +28,14 @@ for db in "${DBS[@]}"; do
   mv "$tmp" "$f"; tmp=""
   echo "backup: $f ($(du -h "$f" | cut -f1))"
 done
+# nightly run (no db arguments): also the job photos / signatures of each shop (not in pg_dump), kept 7 days
+if [ $# -eq 0 ]; then
+  for vol in $(docker volume ls -q | grep -E '^hangkh_uploads_' || true); do
+    f="backups/${vol#hangkh_}-$(date +%Y-%m-%d).tar"; tmp="$f.tmp"
+    docker run --rm -v "$vol":/u:ro postgres:16-alpine tar -C /u -cf - . > "$tmp"
+    tar -tf "$tmp" > /dev/null && mv "$tmp" "$f" && tmp="" && echo "backup: $f ($(du -h "$f" | cut -f1))"
+  done
+  find backups -name 'uploads_*.tar' -mtime +7 -delete
+fi
 find backups -name '*.sql.gz' -mtime +30 -delete
 find backups -name '*.tmp' -mmin +60 -delete

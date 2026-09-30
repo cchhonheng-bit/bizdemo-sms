@@ -4,6 +4,7 @@ import { assignSchema, bookingSchema, cancelSchema, rescheduleSchema, BOOKING_ST
 import { AppError } from "../lib/errors.js";
 import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
+import { addPhoto, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
 const iso = z.string().datetime({ offset: true });
@@ -66,6 +67,40 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     const out = await rescheduleBooking(req.user!, req.ip, idParam.parse(req.params).id, { scheduled_at: r.scheduled_at, ends_at: r.ends_at || null, requested_by: r.requested_by, reason: r.reason });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return out;
+  });
+
+  // ---- Flow 1+2: job execution (checkpoints, photos, materials, report) + GM review ----
+  app.get("/:id/job", async (req) => jobInfo(req.user!, idParam.parse(req.params).id));
+  app.post("/:id/checkpoint", async (req) => {
+    const v = z.object({ step: z.enum(STEPS), at: z.string().datetime({ offset: true }).optional().nullable(), lat: z.number().min(-90).max(90).nullable().optional(),
+      lng: z.number().min(-180).max(180).nullable().optional(), accuracy: z.number().min(0).max(100000).nullable().optional(), no_gps: z.boolean().optional(), offline: z.boolean().optional() }).strict().parse(req.body);
+    const r = await recordCheckpoint(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
+  });
+  const bigBody = { bodyLimit: 3_000_000 }; // base64 of a ≤ 2 MB compressed photo
+  app.post("/:id/photos", bigBody, async (req) => {
+    const v = z.object({ kind: z.enum(["before", "after"]), data: z.string().min(10) }).strict().parse(req.body);
+    return addPhoto(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.kind, v.data);
+  });
+  app.delete("/:id/photos/:fid", async (req) => {
+    const p = z.object({ id: z.string().uuid(), fid: z.string().uuid() }).parse(req.params);
+    return removePhoto(req.user!, req.perms, p.id, p.fid);
+  });
+  app.put("/:id/materials", async (req) => {
+    const v = z.object({ items: z.array(z.object({ catalog_item_id: z.string().uuid(), qty: z.number().positive().max(100000) }).strict()).max(100) }).strict().parse(req.body);
+    return setMaterials(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.items);
+  });
+  app.post("/:id/report", bigBody, async (req) => {
+    const v = z.object({ notes: z.string().max(2000).default(""), signature: z.string().optional().nullable() }).strict().parse(req.body ?? {});
+    return submitReport(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
+  });
+  app.post("/:id/review", async (req) => {
+    if (!req.perms.includes("job.review")) throw new AppError("FORBIDDEN", 403);
+    const v = z.object({ decision: z.enum(["approve", "revision"]), note: z.string().max(500).default("") }).strict().parse(req.body);
+    const r = await reviewReport(req.user!, req.ip, idParam.parse(req.params).id, v.decision, v.note);
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
   });
 
   // R4: CEO / GM / Admin (permission cancel.request — all three by default), reason required

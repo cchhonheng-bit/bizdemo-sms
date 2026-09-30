@@ -449,5 +449,75 @@
       "END_BEFORE_START": "End date is before the start",
       "HALF_DAY_ONE_DATE": "Half a day = one date"
     }
+  },
+  "job": {
+    "title": "Job progress",
+    "checkpoints": "Checkpoints",
+    "step": {
+      "depart": "Left the office",
+      "arrive": "Arrived on site",
+      "start": "Started work",
+      "finish": "Finished work",
+      "return": "Back"
+    },
+    "press": {
+      "depart": "🚐 Leave the office now",
+      "arrive": "📍 I have arrived",
+      "start": "🔧 Start work",
+      "finish": "✅ Work finished",
+      "return": "🏁 Back / done"
+    },
+    "dur": {
+      "travel": "Travel",
+      "wait": "Waiting",
+      "work": "Work",
+      "return": "Return"
+    },
+    "no_gps": "GPS is off — saved without location",
+    "queued": "No internet — saved, will send automatically",
+    "pending_sync": "{{n}} waiting to send",
+    "gps_hint": "Turn on location for accurate times. Without internet the press is kept and sent later.",
+    "report": "Job report",
+    "photos_before": "Photos before",
+    "photos_after": "Photos after",
+    "add_photo": "Take / add photo",
+    "materials": "Materials used",
+    "materials_hint": "From the catalog — no prices",
+    "notes": "Notes",
+    "signature": "Customer signature",
+    "signature_hint": "The customer signs with a finger",
+    "clear_signature": "Clear",
+    "submit": "Send report",
+    "finish_first": "Press «Work finished» first",
+    "submitted": "Report sent · GM notified",
+    "revision_note": "Please fix",
+    "waiting_review": "Waiting for GM review",
+    "reviewed_ok": "GM reviewed: correct",
+    "report_status": {
+      "submitted": "Waiting review",
+      "reviewed": "Correct",
+      "revision": "Sent back"
+    },
+    "approve": "Correct",
+    "send_back": "Send back",
+    "what_to_fix": "What must be fixed?",
+    "approved_ok": "Marked correct",
+    "sent_back_ok": "Sent back to the team",
+    "err": {
+      "CHECKPOINT_ORDER": "Press the steps in order",
+      "CHECKPOINT_TIME": "The phone time looks wrong",
+      "BOOKING_NOT_ASSIGNED": "Job not assigned yet",
+      "PHOTOS_REQUIRED": "At least 1 photo before and 1 after",
+      "SIGNATURE_REQUIRED": "The customer must sign",
+      "WORK_NOT_FINISHED": "Press «Work finished» first",
+      "REPORT_LOCKED": "Report already sent",
+      "BAD_IMAGE": "Not a photo",
+      "IMAGE_TOO_LARGE": "Photo too large",
+      "NOT_ON_SITE": "Press «Arrived» first",
+      "NOTE_REQUIRED": "Write what to fix",
+      "NOT_PENDING_REVIEW": "Not waiting for review",
+      "FORBIDDEN": "No permission",
+      "NETWORK": "No internet"
+    }
   }
 }

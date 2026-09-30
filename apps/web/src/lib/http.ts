@@ -5,7 +5,7 @@ export class ApiError extends Error {
   }
 }
 
-export async function http<T = unknown>(method: "GET" | "POST" | "PATCH" | "DELETE", url: string, body?: unknown): Promise<T> {
+export async function http<T = unknown>(method: "GET" | "POST" | "PATCH" | "PUT" | "DELETE", url: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(url, {
@@ -30,3 +30,5 @@ export async function http<T = unknown>(method: "GET" | "POST" | "PATCH" | "DELE
 export const get = <T,>(url: string) => http<T>("GET", url);
 export const post = <T,>(url: string, body?: unknown) => http<T>("POST", url, body ?? {});
 export const patch = <T,>(url: string, body?: unknown) => http<T>("PATCH", url, body ?? {});
+export const put = <T,>(url: string, body?: unknown) => http<T>("PUT", url, body ?? {});
+export const del = <T,>(url: string) => http<T>("DELETE", url);

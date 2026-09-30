@@ -1,6 +1,6 @@
 // Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
 import type { BookingStatus, BookingType, FeatureFlag, ServiceCategory, Zone } from "@sms/shared";
-import { ApiError, get, patch, post } from "./http";
+import { ApiError, del, get, patch, post, put } from "./http";
 
 export type Customer = {
   id: string; company_id: string; name: string; phones: string[]; address: string | null; zone: Zone;
@@ -35,6 +35,13 @@ export type Availability = {
 export type Reschedule = { id: number; old_start: string | null; old_end: string | null; new_start: string; new_end: string; requested_by: string; reason: string; at: string; by_name: string | null };
 export type LeaveRow = { id: string; user_id: string; full_name: string; role: string; kind: "leave" | "absent"; date_from: string; date_to: string; part: "full" | "am" | "pm"; reason: string;
   status: "pending" | "approved" | "rejected" | "cancelled"; created_at: string; decided_at: string | null; decision_note: string | null; decided_by_name: string | null };
+export type Checkpoint = { step: "depart" | "arrive" | "start" | "finish" | "return"; at: string; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean; offline: boolean; by_name: string | null };
+export type JobInfo = {
+  checkpoints: Checkpoint[]; durations: { travel: number | null; wait: number | null; work: number | null; return: number | null };
+  photos: { id: string; kind: "before" | "after"; created_at: string }[];
+  materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number }[];
+  report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null } | null;
+};
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -89,6 +96,14 @@ export const api = {
     approve: (id: string) => post<{ status: string; affected: { id: string; number: string; scheduled_at: string }[] }>(`/api/leave/${id}/approve`, {}),
     reject: (id: string, note: string) => post(`/api/leave/${id}/reject`, { note }),
     cancel: (id: string) => post(`/api/leave/${id}/cancel`, {}),
+  },
+  job: {
+    info: (id: string) => get<JobInfo>(`/api/bookings/${id}/job`),
+    photo: (id: string, kind: "before" | "after", data: string) => post<{ id: string }>(`/api/bookings/${id}/photos`, { kind, data }),
+    removePhoto: (id: string, fid: string) => del(`/api/bookings/${id}/photos/${fid}`),
+    materials: (id: string, items: { catalog_item_id: string; qty: number }[]) => put(`/api/bookings/${id}/materials`, { items }),
+    report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
+    review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
   },
   cancelBooking: (id: string, reason: string) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason }),
 

@@ -9,6 +9,8 @@ import { ApiError } from "@/lib/http";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge, TypeBadge } from "./parts";
+import JobReview from "./JobReview";
+import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
 
@@ -78,6 +80,8 @@ export default function BookingDetailPage() {
               <dt className="text-muted">{t("booking.created_by")}</dt><dd>{nameOf(bk.created_by) || "—"} · {fmtDateTime(bk.created_at)}</dd>
             </dl>
           </Card>
+          {bk.technicians?.some((x) => x.user_id === me?.id) && <JobExecution booking={bk} />}
+          <JobReview booking={bk} />
         </div>
         <div className="space-y-4 min-w-0">
           <Card title={t("booking.team")}>

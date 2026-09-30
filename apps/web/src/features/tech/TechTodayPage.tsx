@@ -8,10 +8,11 @@ import { timeRange } from "@/features/bookings/time";
 import { useAuth } from "@/lib/auth";
 import { Badge, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge } from "@/features/bookings/parts";
+import JobExecution from "./JobExecution";
 
 const OPEN = ["assigned", "en_route", "on_site", "working", "work_done", "pending_review", "revision"];
 
-/** Technician home: my jobs (today first, then upcoming) — checkpoints arrive in M3 */
+/** Technician home: my jobs (today first, then upcoming) */
 export default function TechTodayPage() {
   const { t } = useTranslation();
   const { me } = useAuth();
@@ -76,6 +77,7 @@ export function TechJobPage() {
         <div className="text-sm mt-2">{bk.address ?? "—"} <Badge tone={bk.zone === "inside" ? "green" : "grey"}>{t(`zone.${bk.zone}`)}</Badge></div>
         <div className="mt-3"><DirectionLink lat={bk.lat} lng={bk.lng} size="lg" /></div>
       </Card>
+      <JobExecution booking={bk} />
       <Card title={t("booking.job")}>
         <CategoryBadge category={bk.category} />
         <p className="mt-2 whitespace-pre-wrap">{bk.service_text}</p>
@@ -85,7 +87,6 @@ export function TechJobPage() {
       <Card title={t("booking.team")}>
         <ul className="text-sm space-y-1">{(bk.technicians ?? []).map((x) => <li key={x.user_id}>{x.full_name} {x.role === "lead" && <Badge tone="navy">{t("booking.lead")}</Badge>}</li>)}</ul>
       </Card>
-      <p className="text-xs text-muted">{t("tech.checkpoints_m3")}</p>
     </div>
   );
 }
