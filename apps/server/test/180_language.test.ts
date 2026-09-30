@@ -24,7 +24,7 @@ describe("web texts and prints", () => {
     const km = flat(locale("km")), en = flat(locale("en"));
     expect(Object.keys(km).sort()).toEqual(Object.keys(en).sort());
     const mixedKm = Object.entries(km).filter(([k]) => !k.startsWith("legal.")).filter(([, v]) => {
-      const words = v.replace(/\{\{[^}]+\}\}/g, "").replace(/@\{?\w+\}?/g, "").replace(/\/[a-z_]+/g, "").replace(/\b[a-z]+\.(?=[\s/)])/g, "")
+      const words = v.replace(/\{\{[^}]+\}\}/g, "").replace(/@\{?\w+\}?/g, "").replace(/\/[a-z_]+(?: [a-z]+)?/g, "").replace(/\b[a-z]+\.(?=[\s/)])/g, "").replace(/\b[A-Z]{2,4}-[\w…#-]*/g, "")
         .match(/[A-Za-z][A-Za-z'-]*/g) ?? [];
       return words.some((w) => !ALLOWED.test(w));
     });

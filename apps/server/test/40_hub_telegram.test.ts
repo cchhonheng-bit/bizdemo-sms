@@ -185,7 +185,7 @@ describe("shop bot routing (T3)", () => {
     const g = (await ceo.req("POST", "/api/telegram/group-code")).json;
     expect(g.code).toMatch(/^[A-HJ-NP-Z2-9]{6}$/); expect(g.command).toBe(`/register ${g.code}`); expect(g.bot).toBe("Oneteam_app_bot");
     await privateMsg(700020, g.command);
-    expect(lastText(700020)).toContain("Group");
+    expect(lastText(700020)).toContain("ក្រុមការងារ");
     await groupMsg(700020, -1001234, `/register@Oneteam_app_bot ${g.code.toLowerCase()}`);
     expect(lastText(-1001234)).toContain("✅");
     const st = (await ceo.req("GET", "/api/settings/company")).json;
