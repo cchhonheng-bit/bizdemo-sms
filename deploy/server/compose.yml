@@ -75,7 +75,10 @@ services:
       postgres: { condition: service_healthy }
 
   caddy:
-    image: caddy:2-alpine
+    # D-84: Caddy + layer4 plugin (SSH on 443), built on the server from ./caddy/Dockerfile by remote-deploy.sh
+    image: hangkh/caddy-l4:2.11
+    pull_policy: never
+    extra_hosts: ["host.docker.internal:host-gateway"]
     restart: unless-stopped
     <<: *logging
     mem_limit: 128m

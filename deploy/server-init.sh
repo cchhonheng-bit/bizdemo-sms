@@ -28,9 +28,10 @@ usermod -aG docker "$DUSER"
 step "timezone Asia/Phnom_Penh (backups at 02:00 Cambodia time)"
 timedatectl set-timezone Asia/Phnom_Penh 2>/dev/null || true
 
-step "firewall: only 22, 80, 443"
+step "firewall: only 22, 2222, 80, 443"
 ufw default deny incoming >/dev/null; ufw default allow outgoing >/dev/null
-ufw allow 22/tcp >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
+# D-84: 2222 = second SSH port for networks that block 22 (SSH also rides on 443 through Caddy layer4)
+ufw allow 22/tcp >/dev/null; ufw allow 2222/tcp >/dev/null; ufw allow 80/tcp >/dev/null; ufw allow 443/tcp >/dev/null
 ufw --force enable >/dev/null
 
 step "SSH: key login only"
@@ -40,8 +41,11 @@ if [ -s "$DHOME/.ssh/authorized_keys" ]; then
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 PermitRootLogin prohibit-password
+# D-84: also listen on 2222 (Ubuntu 24.04 socket activation takes the Port lines)
+Port 22
+Port 2222
 SSH
-  if sshd -t 2>/dev/null; then systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true; echo "    password login disabled"
+  if sshd -t 2>/dev/null; then systemctl daemon-reload; systemctl restart ssh.socket 2>/dev/null || systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true; echo "    password login disabled · SSH on 22 + 2222"
   else rm -f /etc/ssh/sshd_config.d/00-hangkh.conf; echo "!! sshd config test failed — left unchanged"; fi
 else
   echo "!! $DHOME/.ssh/authorized_keys is empty — password login LEFT ON (owner-setup adds the key first)"

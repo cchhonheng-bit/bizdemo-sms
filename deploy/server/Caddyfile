@@ -1,6 +1,20 @@
 # Caddy: automatic HTTPS (Let's Encrypt) for every HangKH domain, HTTP→HTTPS, security headers, /internal/* closed.
 {
 	email {$ACME_EMAIL}
+	# D-84: port 443 also carries SSH for networks that block port 22. layer4 sees the plain "SSH-" greeting before any
+	# TLS and hands the connection to the host's sshd; everything else continues as normal HTTPS in this same Caddy
+	# process, so the apps keep the real client IP (rate limits, audit).
+	servers :443 {
+		listener_wrappers {
+			layer4 {
+				@ssh ssh
+				route @ssh {
+					proxy host.docker.internal:22
+				}
+			}
+			tls
+		}
+	}
 }
 
 (common) {

@@ -16,10 +16,10 @@ case "$target" in
   all)     services=(app-hub app-oneteam); vars=(IMAGE_HUB IMAGE_ONETEAM) ;;
   *) echo "target must be oneteam | hub | all"; exit 1 ;;
 esac
-FILES=(compose.yml Caddyfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh bin/set-env.sh bin/set-bot.sh bin/store-pending-bot.sh)
+FILES=(compose.yml Caddyfile caddy/Dockerfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh bin/set-env.sh bin/set-bot.sh bin/store-pending-bot.sh)
 
 # 1) server files: keep the running ones in .prev, install the new ones
-rm -rf "$PREV"; mkdir -p "$PREV/bin" bin
+rm -rf "$PREV"; mkdir -p "$PREV/bin" "$PREV/caddy" bin caddy
 for f in "${FILES[@]}"; do [ -f "$f" ] && cp -p "$f" "$PREV/$f"; done
 touch images.env; cp images.env "$PREV/images.env"
 for f in "${FILES[@]}"; do cp "$IN/$f" "$f"; done
@@ -31,13 +31,31 @@ for v in IMAGE_HUB IMAGE_ONETEAM; do grep -q "^$v=" images.env || echo "$v=$imag
 for v in "${vars[@]}"; do sed -i "s|^$v=.*|$v=$image|" images.env; done
 echo "==> images: $(tr '\n' ' ' < images.env)"
 
+# D-84: Caddy image with layer4 (SSH on 443) — rebuilt only when caddy/Dockerfile changes (legacy builder, like the app)
+CADDY_IMAGE=hangkh/caddy-l4:2.11
+caddy_image() {
+  local want have; want=$(sha256sum caddy/Dockerfile | cut -c1-12)
+  have=$(docker image inspect -f '{{index .Config.Labels "hangkh.dockerfile"}}' "$CADDY_IMAGE" 2>/dev/null || true)
+  [ "$want" = "$have" ] && return 0
+  echo "==> building $CADDY_IMAGE (caddy/Dockerfile changed)"
+  DOCKER_BUILDKIT=0 docker build -q --label "hangkh.dockerfile=$want" -t "$CADDY_IMAGE" caddy/ >/dev/null
+}
+# the new Caddyfile must load in the image that will run it — otherwise nothing is switched
+caddy_valid() { bin/dc run --rm --no-deps -T caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null 2>&1; }
+caddy_running() { [ "$(docker inspect -f '{{.State.Running}}' "$(bin/dc ps -q caddy)" 2>/dev/null)" = "true" ]; }
+
 healthy() { bin/dc exec -T "$1" wget -qO- http://127.0.0.1:3000/healthz >/dev/null 2>&1; }
 wait_healthy() { for _ in $(seq 1 "${HEALTH_TRIES:-45}"); do healthy "$1" && return 0; sleep 2; done; return 1; }
 start() { bin/dc up -d postgres && bin/dc up -d --no-deps "${services[@]}" && bin/dc up -d caddy && { bin/dc exec -T caddy caddy reload --config /etc/caddy/Caddyfile >/dev/null 2>&1 || true; }; }
 
 # 3 + 4)
 bad=""
-if start; then for s in "${services[@]}"; do wait_healthy "$s" || { bad="$s"; break; }; done; else bad="compose"; fi
+if ! caddy_image; then bad="caddy image build"
+elif ! caddy_valid; then bad="Caddyfile (validate)"
+elif start; then
+  for s in "${services[@]}"; do wait_healthy "$s" || { bad="$s"; break; }; done
+  [ -z "$bad" ] && { sleep 3; caddy_running || bad="caddy"; }
+else bad="compose"; fi
 if [ -n "$bad" ]; then
   echo "!! $bad is not healthy — last log lines:"; bin/dc logs --tail 40 "${services[@]}" 2>/dev/null || true
   if [ $first -eq 1 ]; then
