@@ -4,17 +4,19 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema, ZONES, type CustomerInput } from "@sms/shared";
-import { MapPin, Pencil, Plus, Power } from "lucide-react";
+import { History, MapPin, Pencil, Plus, Power } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
+import CustomerHistoryDialog from "./CustomerHistoryDialog";
 
 export default function CustomersPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const [toggle, setToggle] = useState<Customer | null>(null);
+  const [history, setHistory] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
 
@@ -54,6 +56,7 @@ export default function CustomersPage() {
                     <td><Badge tone={c.zone === "inside" ? "green" : "grey"}>{t(`zone.${c.zone}`)}</Badge></td>
                     <td>{c.lat != null ? <Badge tone="blue"><MapPin size={12} /> {t("customers.has_location")}</Badge> : <span className="text-muted">—</span>}</td>
                     <td className="text-right whitespace-nowrap cell-actions">
+                      <button className="tap-target rounded hover:bg-grey-bg" title={t("customers.history")} aria-label={t("customers.history")} onClick={() => setHistory(c)} data-testid="customer-history"><History size={16} /></button>
                       <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(c)}><Pencil size={16} /></button>
                       <button className="tap-target rounded hover:bg-grey-bg" title={c.is_active ? t("customers.deactivate") : t("customers.activate")} onClick={() => setToggle(c)}><Power size={16} /></button>
                     </td>
@@ -65,6 +68,7 @@ export default function CustomersPage() {
         )}
       </Card>
       {editing && <CustomerDialog customer={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
+      {history && <CustomerHistoryDialog customer={history} onClose={() => setHistory(null)} />}
       <ConfirmDialog open={!!toggle} onClose={() => setToggle(null)} loading={act.isPending} danger={toggle?.is_active}
         title={toggle?.is_active ? t("customers.deactivate") : t("customers.activate")} text={toggle?.name ?? ""} onConfirm={() => toggle && act.mutate(toggle)} />
     </div>
@@ -82,6 +86,11 @@ export function CustomerDialog({ customer, onClose, onSaved }: { customer: Custo
       : { name: "", phones: [], address: "", zone: "inside", notes: "" },
   });
   const [phones, setPhones] = useState<string>(customer?.phones.join(", ") ?? "");
+  const all = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
+  const dupes = useMemo(() => {
+    const list = phones.split(/[,s]+/).map((p) => p.trim()).filter((p) => /^0[0-9]{8,9}$/.test(p));
+    return (all.data ?? []).filter((c) => c.id !== customer?.id && c.phones.some((p) => list.includes(p)));
+  }, [all.data, phones, customer?.id]);
   const submit = handleSubmit(async (v) => {
     const list = phones.split(/[,\s]+/).map((p) => p.trim()).filter(Boolean);
     if (list.some((p) => !/^0[0-9]{8,9}$/.test(p))) return toast.error(t("users.err.INVALID_PHONE"));
@@ -103,6 +112,7 @@ export function CustomerDialog({ customer, onClose, onSaved }: { customer: Custo
       <form onSubmit={submit} noValidate>
         <Field label={t("customers.name")} required error={errors.name && t("app.required")}><Input invalid={!!errors.name} {...register("name")} autoFocus /></Field>
         <Field label={t("customers.phones")} hint={t("customers.phones_hint")}><Input inputMode="tel" name="phones" value={phones} onChange={(e) => setPhones(e.target.value)} /></Field>
+        {dupes.length > 0 && <p className="text-sm text-warning -mt-2 mb-3" data-testid="phone-dupe">⚠ {t("customers.phone_used", { names: dupes.map((c) => c.name).join(", ") })}</p>}
         <div className="grid grid-cols-[1fr_140px] gap-3">
           <Field label={t("customers.address")}><Input {...register("address")} /></Field>
           <Field label={t("customers.zone")}><Select {...register("zone")}>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select></Field>

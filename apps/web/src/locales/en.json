@@ -231,7 +231,9 @@
     "has_location": "Yes",
     "show_inactive": "Show inactive",
     "deactivate": "Deactivate customer",
-    "activate": "Activate customer"
+    "activate": "Activate customer",
+    "history": "History",
+    "phone_used": "This number already belongs to: {{names}}"
   },
   "catalog": {
     "title": "Products & Services",
@@ -341,7 +343,10 @@
       "USE_RESCHEDULE": "Use «Reschedule» to change the time",
       "REQUESTER_REQUIRED": "Choose who asked",
       "SAME_TIME": "This is the current time",
-      "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first (type B)"
+      "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first (type B)",
+      "WARRANTY_EXPIRED": "The 30-day warranty has ended",
+      "NOT_CLOSED": "The original job is not closed",
+      "WARRANTY_OTHER_CUSTOMER": "Warranty only for the same customer"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -384,7 +389,24 @@
       "technician": "Technician",
       "lead": "Lead technician",
       "gm": "GM"
-    }
+    },
+    "warranty": "Warranty",
+    "warranty_active": "In warranty ({{days}} days left)",
+    "warranty_until": "until {{date}}",
+    "warranty_expired": "Warranty ended ({{date}})",
+    "new_warranty": "New warranty booking",
+    "warranty_for": "Warranty booking for {{number}} ({{days}} days left) · free of charge",
+    "warranty_prefix": "Warranty",
+    "warranty_job_of": "Warranty booking for",
+    "warranty_free": "free of charge",
+    "filters": "Filters",
+    "f_day": "Day",
+    "f_day_all": "All days",
+    "f_day_pick": "Pick a day…",
+    "f_cat_all": "All categories",
+    "f_zone_all": "Inside + outside borey",
+    "f_tech_all": "All technicians",
+    "f_clear": "Clear filters"
   },
   "tech": {
     "hello": "Hello {{name}}",

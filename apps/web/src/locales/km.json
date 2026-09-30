@@ -231,7 +231,9 @@
     "has_location": "មាន",
     "show_inactive": "បង្ហាញដែលបិទ",
     "deactivate": "បិទអតិថិជន",
-    "activate": "បើកអតិថិជន"
+    "activate": "បើកអតិថិជន",
+    "history": "ប្រវត្តិ",
+    "phone_used": "លេខនេះមានរួចហើយ: {{names}}"
   },
   "catalog": {
     "title": "ទំនិញ និងសេវាកម្ម",
@@ -341,7 +343,10 @@
       "USE_RESCHEDULE": "សូមប្រើ «ប្ដូរម៉ោង» ដើម្បីប្ដូរម៉ោង",
       "REQUESTER_REQUIRED": "សូមជ្រើសអ្នកស្នើ",
       "SAME_TIME": "នេះជាម៉ោងបច្ចុប្បន្ន",
-      "QUOTE_NOT_ACCEPTED": "អតិថិជនត្រូវយល់ព្រមសម្រង់តម្លៃជាមុន (ប្រភេទ B)"
+      "QUOTE_NOT_ACCEPTED": "អតិថិជនត្រូវយល់ព្រមសម្រង់តម្លៃជាមុន (ប្រភេទ B)",
+      "WARRANTY_EXPIRED": "ផុតការធានា 30 ថ្ងៃហើយ",
+      "NOT_CLOSED": "ការងារដើមមិនទាន់បិទ",
+      "WARRANTY_OTHER_CUSTOMER": "ការធានាសម្រាប់អតិថិជនដដែលប៉ុណ្ណោះ"
     },
     "service_item": "សេវាកម្ម (ពីបញ្ជី)",
     "service_item_hint": "កំណត់រយៈពេល: {{minutes}} នាទី",
@@ -384,7 +389,24 @@
       "technician": "ជាង",
       "lead": "មេជាង",
       "gm": "GM"
-    }
+    },
+    "warranty": "ការធានា",
+    "warranty_active": "ក្នុងការធានា (នៅសល់ {{days}} ថ្ងៃ)",
+    "warranty_until": "ដល់ {{date}}",
+    "warranty_expired": "ផុតការធានា ({{date}})",
+    "new_warranty": "បង្កើត Booking ធានា",
+    "warranty_for": "Booking ធានា សម្រាប់ {{number}} (នៅសល់ {{days}} ថ្ងៃ) · មិនគិតលុយ",
+    "warranty_prefix": "ធានា",
+    "warranty_job_of": "Booking ធានា សម្រាប់",
+    "warranty_free": "មិនគិតលុយ",
+    "filters": "តម្រង",
+    "f_day": "ថ្ងៃ",
+    "f_day_all": "គ្រប់ថ្ងៃ",
+    "f_day_pick": "ជ្រើសថ្ងៃ…",
+    "f_cat_all": "គ្រប់ផ្នែក",
+    "f_zone_all": "ក្នុង + ក្រៅបុរី",
+    "f_tech_all": "ជាងទាំងអស់",
+    "f_clear": "សម្អាតតម្រង"
   },
   "tech": {
     "hello": "សួស្ដី {{name}}",

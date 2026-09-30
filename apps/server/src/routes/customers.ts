@@ -5,6 +5,7 @@ import { customerSchema } from "@sms/shared";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
+import { customerHistory } from "../services/customers.js";
 
 const COLS = sql`id, company_id, name, phones, address, zone, lat, lng, notes, is_active, created_at, updated_at`;
 
@@ -14,6 +15,12 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
     const q = z.object({ active: z.enum(["true", "false"]).optional() }).parse(req.query ?? {});
     return sql`select ${COLS} from customers where company_id = ${req.user!.companyId}
                ${q.active === "true" ? sql`and is_active` : sql``} order by name`;
+  });
+
+  // FR-203: bookings, invoices, debt, running warranties of one customer
+  app.get("/:id/history", { preHandler: app.requireAuth }, async (req) => {
+    if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403);
+    return customerHistory(req.user!, req.perms, z.object({ id: z.string().uuid() }).parse(req.params).id);
   });
 
   // POST /api/customers { id?, ...customerSchema } → { id }

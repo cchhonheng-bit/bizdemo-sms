@@ -41,6 +41,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
       customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, service_item_id: b.service_item_id || null,
       scheduled_at: b.scheduled_at || null, ends_at: b.ends_at || null,
       address: b.address || null, lat: b.lat ?? null, lng: b.lng ?? null, zone: b.zone, vehicle_id: b.vehicle_id || null, notes: b.notes || null,
+      warranty_of: b.warranty_of || null,
     });
   });
 

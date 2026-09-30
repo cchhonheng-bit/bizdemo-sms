@@ -71,8 +71,9 @@ async function openInvoice(db: Db, bookingId: string) {
 
 /** lines suggested for a reviewed job: the accepted quote (type B), else the booked service + the materials of the report, at catalog prices */
 export async function prefill(user: SessionUser, bookingId: string) {
-  const b = (await sql<{ id: string; number: string; status: string; service_text: string; service_item_id: string | null; customer_id: string; customer_name: string }[]>`
-    select b.id, b.number, b.status, b.service_text, b.service_item_id, b.customer_id, c.name as customer_name from bookings b join customers c on c.id = b.customer_id
+  const b = (await sql<{ id: string; number: string; status: string; service_text: string; service_item_id: string | null; customer_id: string; customer_name: string; warranty_of_number: string | null }[]>`
+    select b.id, b.number, b.status, b.service_text, b.service_item_id, b.customer_id, c.name as customer_name, pb.number as warranty_of_number
+    from bookings b join customers c on c.id = b.customer_id left join bookings pb on pb.id = b.parent_booking_id
     where b.id = ${bookingId} and b.company_id = ${user.companyId}`)[0];
   if (!b) throw notFound();
   if (await openInvoice(sql, b.id)) throw new AppError("INVOICE_EXISTS", 409);
@@ -87,8 +88,10 @@ export async function prefill(user: SessionUser, bookingId: string) {
     lines.push(...await sql<InvoiceLineInput[]>`select m.catalog_item_id, i.name_km as description, i.kind::text as kind, m.qty::float as qty, i.unit, coalesce(i.sell_price, 0)::int as unit_price
       from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = ${b.id} order by i.name_km`);
   }
-  lines = lines.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: Number(l.unit_price) }));
-  return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, lines };
+  // FR-1201: a warranty job is free — same lines, $0
+  const free = !!b.warranty_of_number;
+  lines = lines.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: free ? 0 : Number(l.unit_price) }));
+  return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, warranty_of_number: b.warranty_of_number, lines };
 }
 
 export async function createInvoice(user: SessionUser, ip: string | null, v: { booking_id?: string; customer_id?: string; lines: InvoiceLineInput[]; notes?: string | null }) {

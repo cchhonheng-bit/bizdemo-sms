@@ -21,10 +21,20 @@ function baseSelect(db: Db) {
   return db`select b.id, b.company_id, b.number, b.customer_id, c.name as customer_name, c.phones as customer_phones,
          b.type, b.category, b.status, b.service_text, b.service_item_id, b.scheduled_at, b.ends_at, b.address, b.lat, b.lng, b.zone,
          b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at,
-         b.created_by, b.created_at, b.updated_at,
+         b.created_by, b.created_at, b.updated_at, b.parent_booking_id as warranty_of, pb.number as warranty_of_number,
+         ${warrantyJson(db)} as warranty,
          (select json_agg(json_build_object('user_id', t.user_id, 'role', t.role, 'full_name', u.full_name) order by t.role, u.full_name)
             from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as technicians
-    from bookings b join customers c on c.id = b.customer_id left join vehicles v on v.id = b.vehicle_id`;
+    from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id left join vehicles v on v.id = b.vehicle_id
+      left join bookings pb on pb.id = b.parent_booking_id`;
+}
+
+/** FR-1201 · AC-14: 30 days from the closing day (company time zone), last day included; null while the job is open */
+export const WARRANTY_DAYS = 30;
+export function warrantyJson(db: Db) {
+  const closed = db`(b.closed_at at time zone co.timezone)::date`, today = db`(now() at time zone co.timezone)::date`;
+  return db`case when b.status = 'closed' and b.closed_at is not null then json_build_object(
+    'until', (${closed} + ${WARRANTY_DAYS}::int)::text, 'days_left', greatest(0, (${closed} + ${WARRANTY_DAYS}::int) - ${today}), 'active', ${today} <= ${closed} + ${WARRANTY_DAYS}::int) end`;
 }
 
 const techFilter = (db: Db, user: SessionUser) =>
@@ -159,6 +169,7 @@ export async function availability(user: SessionUser, fromIso: string, toIso: st
 export type CreateInput = {
   customer_id: string; type: "A" | "B"; category: string; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null;
   address: string | null; lat: number | null; lng: number | null; zone: string | null; vehicle_id: string | null; notes: string | null;
+  warranty_of?: string | null;
 };
 
 export async function createBooking(user: SessionUser, ip: string | null, b: CreateInput) {
@@ -168,6 +179,14 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     if (!c) throw new AppError("CUSTOMER_NOT_FOUND", 404);
     const service = b.service_text.trim();
     if (!service) throw new AppError("SERVICE_REQUIRED", 400);
+    if (b.warranty_of) { // FR-1201: only for a closed job of the same customer, while the warranty runs
+      const o = (await t<{ customer_id: string; status: string; warranty: { active: boolean } | null }[]>`select b.customer_id, b.status, ${warrantyJson(t)} as warranty
+        from bookings b join companies co on co.id = b.company_id where b.id = ${b.warranty_of} and b.company_id = ${user.companyId}`)[0];
+      if (!o) throw notFound();
+      if (o.status !== "closed") throw new AppError("NOT_CLOSED", 400);
+      if (o.customer_id !== c.id) throw new AppError("WARRANTY_OTHER_CUSTOMER", 400);
+      if (!o.warranty?.active) throw new AppError("WARRANTY_EXPIRED", 400);
+    }
     const minutes = await durationOf(t, user.companyId, b.service_item_id);
     const w = window(parseTime(b.scheduled_at, "INVALID_VALUE"), parseTime(b.ends_at, "INVALID_VALUE"), minutes);
     if (!w.start) throw new AppError("SCHEDULE_REQUIRED", 400); // D2: every booking has the agreed appointment time
@@ -180,9 +199,9 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
       on conflict (company_id) do update set last_no = booking_counters.last_no + 1 returning last_no`)[0]!.last_no;
     const number = `BK-${String(no).padStart(4, "0")}`;
     const status: BookingStatus = b.type === "B" ? "survey" : "new";
-    const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, zone, vehicle_id, notes, created_by)
+    const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, zone, vehicle_id, notes, created_by, parent_booking_id)
       values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${b.service_item_id}, ${w.start}, ${w.end},
-              ${b.address?.trim() || c.address}, ${b.lat ?? c.lat}, ${b.lng ?? c.lng}, ${(b.zone ?? c.zone)}::zone, ${b.vehicle_id}, ${b.notes?.trim() || null}, ${user.id}) returning id`)[0]!.id;
+              ${b.address?.trim() || c.address}, ${b.lat ?? c.lat}, ${b.lng ?? c.lng}, ${(b.zone ?? c.zone)}::zone, ${b.vehicle_id}, ${b.notes?.trim() || null}, ${user.id}, ${b.warranty_of ?? null}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${id}, null, ${status}::booking_status, ${user.id})`;
     if (c.lat == null && b.lat != null) await t`update customers set lat = ${b.lat}, lng = ${b.lng} where id = ${c.id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.create", table: "bookings", rowId: id, new: { number, type: b.type, customer_id: c.id, scheduled_at: w.start, ends_at: w.end }, ip });

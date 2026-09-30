@@ -2,12 +2,14 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BOARD_COLUMNS, type BookingStatus } from "@sms/shared";
-import { Clock, MapPin, Plus, Users } from "lucide-react";
+import { BOARD_COLUMNS, SERVICE_CATEGORIES, ZONES, type BookingStatus } from "@sms/shared";
+import { Clock, Filter, MapPin, Plus, Users } from "lucide-react";
 import { api, fmtDate, type Booking } from "@/lib/api";
 import { timeRange } from "./time";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, Empty, ErrorState, Input, Skeleton } from "@/components/ui";
+import { Button, Card, Empty, ErrorState, Input, Select, Skeleton } from "@/components/ui";
+import { presetRange, shiftDay } from "@/features/reports/range";
+import { todayLocal } from "@/features/invoices/util";
 import { CategoryBadge, StatusBadge, TypeBadge } from "./parts";
 
 /** Booking board (kanban by status) + list view */
@@ -20,12 +22,28 @@ export default function BookingsPage() {
   const [hideClosed, setHideClosed] = useState(true);
   const [showCancelled, setShowCancelled] = useState(false); // R4: cancelled bookings are kept, shown on demand
   const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 60_000 });
+  // FR-403: filters — day, category, inside/outside borey, technician
+  const [showFilters, setShowFilters] = useState(false);
+  const [day, setDay] = useState<"" | "today" | "week" | "date">("");
+  const [pickDate, setPickDate] = useState(todayLocal());
+  const [cat, setCat] = useState("");
+  const [zone, setZone] = useState("");
+  const [tech, setTech] = useState("");
+  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const techs = (users.data ?? []).filter((u) => u.role === "tech");
+  const active = [day, cat, zone, tech].filter(Boolean).length;
 
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
+    const today = todayLocal();
+    const monday = presetRange("week", today)[0];
+    const [from, to] = day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : ["", ""];
+    const localDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Phnom_Penh" }) : "");
     return (bookings.data ?? []).filter((b) => (b.status === "cancelled" ? showCancelled : !hideClosed || b.status !== "closed") &&
-      (!s || b.number.toLowerCase().includes(s) || b.customer_name.toLowerCase().includes(s) || b.service_text.toLowerCase().includes(s) || (b.technicians ?? []).some((x) => x.full_name.toLowerCase().includes(s))));
-  }, [bookings.data, q, hideClosed, showCancelled]);
+      (!s || b.number.toLowerCase().includes(s) || b.customer_name.toLowerCase().includes(s) || b.service_text.toLowerCase().includes(s) || (b.technicians ?? []).some((x) => x.full_name.toLowerCase().includes(s))) &&
+      (!day || (localDay(b.scheduled_at) >= from && localDay(b.scheduled_at) <= to)) && (!cat || b.category === cat) && (!zone || b.zone === zone) &&
+      (!tech || (b.technicians ?? []).some((x) => x.user_id === tech)));
+  }, [bookings.data, q, hideClosed, showCancelled, day, pickDate, cat, zone, tech]);
 
   return (
     <div>
@@ -37,11 +55,24 @@ export default function BookingsPage() {
         <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} /> {t("booking.hide_closed")}</label>
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} data-testid="show-cancelled" /> {t("booking.show_cancelled")}</label>
+        <Button type="button" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters} data-testid="filters-toggle"><Filter size={16} /> {t("booking.filters")}{active ? ` (${active})` : ""}</Button>
         <div className="ml-auto flex rounded-md border border-grey-line overflow-hidden text-sm">
           <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "board" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("board")}>{t("booking.view_board")}</button>
           <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "list" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("list")}>{t("booking.view_list")}</button>
         </div>
       </div>
+      {showFilters && (
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3" data-testid="filters">
+          <Select value={day} onChange={(e) => setDay(e.target.value as typeof day)} aria-label={t("booking.f_day")}>
+            <option value="">{t("booking.f_day_all")}</option><option value="today">{t("range.today")}</option><option value="week">{t("range.week")}</option><option value="date">{t("booking.f_day_pick")}</option>
+          </Select>
+          {day === "date" ? <Input type="date" value={pickDate} onChange={(e) => e.target.value && setPickDate(e.target.value)} aria-label={t("booking.f_day_pick")} /> : null}
+          <Select value={cat} onChange={(e) => setCat(e.target.value)} aria-label={t("booking.category")}><option value="">{t("booking.f_cat_all")}</option>{SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}</Select>
+          <Select value={zone} onChange={(e) => setZone(e.target.value)} aria-label={t("customers.zone")}><option value="">{t("booking.f_zone_all")}</option>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select>
+          <Select value={tech} onChange={(e) => setTech(e.target.value)} aria-label={t("booking.team")}><option value="">{t("booking.f_tech_all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
+          {active > 0 && <Button type="button" onClick={() => { setDay(""); setCat(""); setZone(""); setTech(""); }}>{t("booking.f_clear")}</Button>}
+        </div>
+      )}
       {bookings.isLoading ? <Skeleton /> : bookings.isError ? <ErrorState text={t("app.error")} onRetry={() => void bookings.refetch()} /> : rows.length === 0 ? (
         <Card><Empty text={t("booking.empty")} action={can("booking.create") ? <Button variant="primary" onClick={() => nav("/bookings/new")}>{t("booking.new")}</Button> : undefined} /></Card>
       ) : view === "board" ? <Board rows={rows} /> : <List rows={rows} />}

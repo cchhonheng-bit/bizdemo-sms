@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -24,6 +24,10 @@ export default function BookingFormPage() {
   const qc = useQueryClient();
   const editing = Boolean(id);
   const existing = useQuery({ queryKey: ["booking", id], queryFn: () => api.booking(id!), enabled: editing });
+  // FR-1201: /bookings/new?warranty_of=<closed job> → free warranty job for the same customer
+  const [sp] = useSearchParams();
+  const warrantyOf = editing ? null : sp.get("warranty_of");
+  const original = useQuery({ queryKey: ["booking", warrantyOf], queryFn: () => api.booking(warrantyOf!), enabled: !!warrantyOf });
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: api.vehicles });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
@@ -48,6 +52,14 @@ export default function BookingFormPage() {
     setEndTouched(!!b.ends_at);
     setLoc({ lat: b.lat, lng: b.lng });
   }, [existing.data, reset]);
+
+  useEffect(() => {
+    const o = original.data;
+    if (!o) return;
+    reset({ customer_id: o.customer_id, type: "A", category: o.category, service_text: `${t("booking.warranty_prefix")} ${o.number}: ${o.service_text}`.slice(0, 1000), service_item_id: o.service_item_id ?? "",
+      scheduled_at: "", ends_at: "", address: o.address ?? "", zone: o.zone, vehicle_id: "", notes: "", date: "", start: "", end: "" });
+    setLoc({ lat: o.lat, lng: o.lng });
+  }, [original.data, reset, t]);
 
   const services = useMemo(() => (catalog.data ?? []).filter((i) => i.kind === "service" && i.is_active && i.category === category), [catalog.data, category]);
   const item = services.find((i) => i.id === itemId) ?? null;
@@ -91,7 +103,7 @@ export default function BookingFormPage() {
         toast.success(t("app.saved"));
         nav(`/bookings/${id}`);
       } else {
-        const r = await api.createBooking({ customer_id: v.customer_id, type: v.type, ...base });
+        const r = await api.createBooking({ customer_id: v.customer_id, type: v.type, ...base, warranty_of: warrantyOf });
         void qc.invalidateQueries({ queryKey: ["bookings"] }); void qc.invalidateQueries({ queryKey: ["customers"] });
         toast.success(t("booking.created", { number: r.number }));
         nav(`/bookings/${r.id}`, { replace: true });
@@ -105,7 +117,8 @@ export default function BookingFormPage() {
 
   return (
     <div className="max-w-3xl">
-      <h1 className="mb-4">{editing ? `${t("app.edit")} ${existing.data?.number ?? ""}` : t("booking.new")}</h1>
+      <h1 className="mb-4">{editing ? `${t("app.edit")} ${existing.data?.number ?? ""}` : warrantyOf ? t("booking.new_warranty") : t("booking.new")}</h1>
+      {original.data && <p className="mb-3 text-sm rounded-md bg-success-50 text-success p-3" data-testid="warranty-banner">🛡 {t("booking.warranty_for", { number: original.data.number, days: original.data.warranty?.days_left ?? 0 })}</p>}
       {locked && <p className="mb-3 text-sm text-danger">{t("booking.err.BOOKING_LOCKED")}</p>}
       <form onSubmit={submit} noValidate>
         <Card title={t("booking.customer")} className="mb-4">

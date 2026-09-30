@@ -17,6 +17,7 @@ export type Booking = {
   address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; vehicle_code: string | null;
   notes: string | null; survey_notes?: string | null; surveyed_at?: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
   technicians: Technician[] | null;
+  warranty_of?: string | null; warranty_of_number?: string | null; warranty?: { until: string; days_left: number; active: boolean } | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
@@ -81,6 +82,11 @@ export type Dashboard = { date: string; pending_review: number; today: { jobs: n
   debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number;
   techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
 export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null };
+export type CustomerHistory = { customer: Customer;
+  bookings: { id: string; number: string; status: BookingStatus; type: BookingType; category: ServiceCategory; service_text: string; scheduled_at: string | null; closed_at: string | null; warranty_of: string | null; warranty: { until: string; days_left: number; active: boolean } | null }[];
+  warranties: { booking_id: string; number: string; until: string; days_left: number }[];
+  invoices?: { id: string; number: string; status: "draft" | "issued" | "void"; issued_at: string | null; created_at: string; booking_number: string | null; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid" }[];
+  debt?: number };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -120,7 +126,7 @@ export const api = {
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
   booking: (id: string) => get<Booking>(`/api/bookings/${id}`),
   statusLog: (id: string) => get<StatusLog[]>(`/api/bookings/${id}/log`),
-  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
+  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null; warranty_of?: string | null }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
   assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) =>
@@ -181,6 +187,7 @@ export const api = {
     verify: (type: VerifyItem["type"], id: string, note = "") => post("/api/reports/verify", { type, id, note }),
     audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   },
+  customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),

@@ -82,6 +82,15 @@ export default function BookingDetailPage() {
               <dt className="text-muted">{t("booking.created_by")}</dt><dd>{nameOf(bk.created_by) || "—"} · {fmtDateTime(bk.created_at)}</dd>
             </dl>
           </Card>
+          {(bk.warranty || bk.warranty_of) && (
+            <Card title={t("booking.warranty")}>
+              {bk.warranty_of && <p className="text-sm">🛡 {t("booking.warranty_job_of")} <Link className="text-blue underline font-mono" to={`/bookings/${bk.warranty_of}`}>{bk.warranty_of_number}</Link> · {t("booking.warranty_free")}</p>}
+              {bk.warranty && (bk.warranty.active
+                ? <div className="flex flex-wrap items-center gap-2" data-testid="warranty-status"><Badge tone="green">🛡 {t("booking.warranty_active", { days: bk.warranty.days_left })}</Badge><span className="text-xs text-muted">{t("booking.warranty_until", { date: bk.warranty.until })}</span>
+                    {can("booking.create") && <Link className="btn-secondary" to={`/bookings/new?warranty_of=${bk.id}`} data-testid="warranty-create">{t("booking.new_warranty")}</Link>}</div>
+                : <p className="text-sm text-muted" data-testid="warranty-status">{t("booking.warranty_expired", { date: bk.warranty.until })}</p>)}
+            </Card>
+          )}
           {bk.technicians?.some((x) => x.user_id === me?.id) && <JobExecution booking={bk} />}
           <SurveyQuoteCards booking={bk} />
           <JobReview booking={bk} />

@@ -88,6 +88,8 @@ export const bookingSchema = z.object({
   zone: z.enum(ZONES),
   vehicle_id: z.string().uuid().optional().or(z.literal("")),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
+  /** FR-1201: free warranty job linked to a closed job of the same customer (≤ 30 days after closing) */
+  warranty_of: z.string().uuid().optional().or(z.literal("")).nullable(),
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 
