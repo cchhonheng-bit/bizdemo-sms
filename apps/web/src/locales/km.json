@@ -39,7 +39,8 @@
     "more": "ច្រើនទៀត",
     "leave": "ច្បាប់ឈប់",
     "quotes": "សម្រង់តម្លៃ",
-    "invoices": "វិក្កយបត្រ"
+    "invoices": "វិក្កយបត្រ",
+    "reports": "របាយការណ៍"
   },
   "roles": {
     "ceo": "CEO",
@@ -165,7 +166,24 @@
   },
   "dashboard": {
     "title": "ផ្ទាំងគ្រប់គ្រង",
-    "coming": "Dashboard នឹងមាននៅ M6 · M2: Booking flow"
+    "coming": "Dashboard នឹងមាននៅ M6 · M2: Booking flow",
+    "revenue_today": "ចំណូលថ្ងៃនេះ",
+    "received_today": "ទទួលប្រាក់ថ្ងៃនេះ",
+    "revenue_month": "ចំណូលខែនេះ",
+    "debts": "ប្រាក់ជំពាក់",
+    "approvals": "រង់ចាំអនុម័ត (Discount/Void)",
+    "leave_waiting": "ច្បាប់ឈប់រង់ចាំ",
+    "unverified": "មិនទាន់ផ្ទៀងផ្ទាត់",
+    "jobs_today": "ការងារថ្ងៃនេះ (រួច/សរុប)",
+    "techs": "ស្ថានភាពជាង",
+    "not_in": "មិនទាន់ចូល",
+    "tech_status": {
+      "free": "ទំនេរ",
+      "en_route": "កំពុងធ្វើដំណើរ",
+      "on_site": "ដល់ទីតាំង",
+      "working": "កំពុងធ្វើ",
+      "leave": "ច្បាប់"
+    }
   },
   "zone": {
     "inside": "ក្នុងបុរី",
@@ -690,9 +708,6 @@
     "office_not_set": "CEO មិនទាន់កំណត់ទីតាំង Office ក្នុង Settings",
     "view_team": "ក្រុម",
     "view_mine": "របស់ខ្ញុំ",
-    "range_week": "សប្តាហ៍នេះ",
-    "range_month": "ខែនេះ",
-    "range_last": "ខែមុន",
     "from": "ពី",
     "to": "ដល់",
     "none": "គ្មានទិន្នន័យ",
@@ -726,6 +741,53 @@
       "BAD_RANGE": "ចន្លោះថ្ងៃមិនត្រឹមត្រូវ",
       "RANGE_TOO_LONG": "យូរបំផុត 62 ថ្ងៃ",
       "range": "ចន្លោះថ្ងៃមិនត្រឹមត្រូវ (យូរបំផុត 62 ថ្ងៃ)"
+    }
+  },
+  "range": {
+    "today": "ថ្ងៃនេះ",
+    "week": "សប្តាហ៍នេះ",
+    "month": "ខែនេះ",
+    "last": "ខែមុន"
+  },
+  "reports": {
+    "title": "របាយការណ៍",
+    "tab": {
+      "summary": "សង្ខេប",
+      "verify": "ផ្ទៀងផ្ទាត់",
+      "audit": "Audit Log"
+    },
+    "revenue": "ចំណូល (វិក្កយបត្រ)",
+    "received": "ប្រាក់ទទួលបាន",
+    "n_payments": "{{n}} ដង",
+    "inside": "ក្នុងបុរី",
+    "outside": "ក្រៅបុរី",
+    "riel_received": "ទទួលជាប្រាក់រៀល",
+    "new_debt": "ជំពាក់ថ្មី (ក្នុងរយៈពេលនេះ)",
+    "debt_total": "ជំពាក់សរុបឥឡូវ",
+    "controls": "Void · បញ្ចុះតម្លៃ · លុប",
+    "cancels": "Booking លុបចោល",
+    "jobs": "ការងារ",
+    "jobs_created": "Booking ថ្មី",
+    "jobs_finished": "ធ្វើរួច",
+    "out_of_range": "ក្រៅរង្វង់",
+    "only_unverified": "បង្ហាញតែមិនទាន់ផ្ទៀងផ្ទាត់",
+    "nothing_to_verify": "គ្មានអ្វីត្រូវផ្ទៀងផ្ទាត់",
+    "verify": "បានផ្ទៀងផ្ទាត់",
+    "requested_by": "ស្នើដោយ",
+    "approved_by": "អនុម័តដោយ",
+    "received_by": "ទទួលដោយ",
+    "type": {
+      "void": "Void",
+      "discount": "បញ្ចុះតម្លៃ",
+      "cancel": "លុប Booking",
+      "payment": "ទទួលប្រាក់"
+    },
+    "audit_filter": "តម្រង action (ឧ. invoice. / payment.)",
+    "no_audit": "គ្មានកំណត់ត្រា",
+    "err": {
+      "BAD_RANGE": "ចន្លោះថ្ងៃមិនត្រឹមត្រូវ",
+      "RANGE_TOO_LONG": "យូរបំផុត 92 ថ្ងៃ",
+      "FORBIDDEN": "គ្មានសិទ្ធិ"
     }
   }
 }

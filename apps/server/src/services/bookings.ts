@@ -9,7 +9,7 @@ import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { assertQuoteAccepted } from "./quotes.js";
-import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled } from "./telegram.js";
+import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
 
 export type BookingRow = Record<string, unknown> & {
   id: string; company_id: string; number: string; status: BookingStatus; type: "A" | "B";
@@ -311,6 +311,10 @@ export async function cancelBooking(user: SessionUser, ip: string | null, id: st
     await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.cancel", table: "bookings", rowId: id, old: { status: b.status }, new: { status: "cancelled", reason }, ip });
     await enqueueBookingCancelled(t, id, reason);
+    // BR-21 · FR-1002: CEO + CFO hear about every deletion (never the person who did it)
+    const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
+    for (const u of await t<{ id: string }[]>`select id from users where company_id = ${user.companyId} and is_active and role in ('ceo', 'cfo') and id <> ${user.id}`)
+      await notifyUser(t, user.companyId, u.id, "booking.cancelled", `❌ លុប Booking · ${b.number}`, `👤 ${cname}\nដោយ ${user.fullName}\n📝 ${reason}`, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
     return { id, status: "cancelled" as const };
   });
 }

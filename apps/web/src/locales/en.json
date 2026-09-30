@@ -39,7 +39,8 @@
     "more": "More",
     "leave": "Leave",
     "quotes": "Quotes",
-    "invoices": "Invoices"
+    "invoices": "Invoices",
+    "reports": "Reports"
   },
   "roles": {
     "ceo": "CEO",
@@ -165,7 +166,24 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "coming": "Dashboard arrives in M6 · M2: Booking flow"
+    "coming": "Dashboard arrives in M6 · M2: Booking flow",
+    "revenue_today": "Revenue today",
+    "received_today": "Received today",
+    "revenue_month": "Revenue this month",
+    "debts": "Debts",
+    "approvals": "Waiting approval (discount/void)",
+    "leave_waiting": "Leave waiting",
+    "unverified": "Not yet verified",
+    "jobs_today": "Jobs today (done/total)",
+    "techs": "Technicians now",
+    "not_in": "not in",
+    "tech_status": {
+      "free": "Free",
+      "en_route": "On the way",
+      "on_site": "On site",
+      "working": "Working",
+      "leave": "Leave"
+    }
   },
   "zone": {
     "inside": "Inside Borey",
@@ -690,9 +708,6 @@
     "office_not_set": "The CEO has not set the office location in Settings yet",
     "view_team": "Team",
     "view_mine": "Mine",
-    "range_week": "This week",
-    "range_month": "This month",
-    "range_last": "Last month",
     "from": "From",
     "to": "To",
     "none": "No data",
@@ -726,6 +741,53 @@
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "At most 62 days",
       "range": "Invalid date range (at most 62 days)"
+    }
+  },
+  "range": {
+    "today": "Today",
+    "week": "This week",
+    "month": "This month",
+    "last": "Last month"
+  },
+  "reports": {
+    "title": "Reports",
+    "tab": {
+      "summary": "Summary",
+      "verify": "Verification",
+      "audit": "Audit log"
+    },
+    "revenue": "Revenue (invoiced)",
+    "received": "Received",
+    "n_payments": "{{n}} payments",
+    "inside": "Inside borey",
+    "outside": "Outside borey",
+    "riel_received": "Received in riel",
+    "new_debt": "New debt (this period)",
+    "debt_total": "Total debt now",
+    "controls": "Void · discounts · deletions",
+    "cancels": "Cancelled bookings",
+    "jobs": "Jobs",
+    "jobs_created": "New bookings",
+    "jobs_finished": "Finished",
+    "out_of_range": "Out of range",
+    "only_unverified": "Only not yet verified",
+    "nothing_to_verify": "Nothing to verify",
+    "verify": "Verified",
+    "requested_by": "requested by",
+    "approved_by": "approved by",
+    "received_by": "received by",
+    "type": {
+      "void": "Void",
+      "discount": "Discount",
+      "cancel": "Booking deleted",
+      "payment": "Payment"
+    },
+    "audit_filter": "Filter by action (e.g. invoice. / payment.)",
+    "no_audit": "No entries",
+    "err": {
+      "BAD_RANGE": "Invalid date range",
+      "RANGE_TOO_LONG": "At most 92 days",
+      "FORBIDDEN": "Not allowed"
     }
   }
 }

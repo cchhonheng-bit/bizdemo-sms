@@ -145,7 +145,7 @@ export async function setDiscount(user: SessionUser, perms: string[], ip: string
     const status = v.amount === 0 ? "none" : direct || v.amount < limit ? "applied" : "pending";
     const note = v.note?.trim() || null;
     await t`update invoices set discount = ${status === "applied" ? v.amount : 0}, discount_status = ${status}::discount_status,
-      discount_requested = ${status === "none" ? null : v.amount}, discount_note = ${note}, discount_by = ${user.id},
+      discount_requested = ${status === "none" ? null : v.amount}, discount_note = ${note}, discount_by = ${user.id}, discount_at = now(),
       discount_decided_by = ${status === "applied" && direct ? user.id : null}, discount_decided_at = ${status === "applied" && direct ? t`now()` : null}
       where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.discount", table: "invoices", rowId: id, old: { discount: i.discount, status: i.discount_status }, new: { amount: v.amount, status, note }, ip });

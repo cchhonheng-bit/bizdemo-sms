@@ -1,24 +1,19 @@
 // Attendance report (Flow 5 · FR-904): present, late (minutes), absent, leave, minutes after work end, «out of range» flags (AC-12).
 // Team view for report.ops (GM, Admin, CEO, CFO); «mine» for everyone who records attendance. Sundays / holidays never count as absent.
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, MapPin } from "lucide-react";
 import { api, type AttendanceDay, type AttendancePerson } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Card, Empty, ErrorState, Field, Input, Skeleton } from "@/components/ui";
+import { Badge, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { todayLocal } from "@/features/invoices/util";
+import RangePicker from "@/features/reports/RangePicker";
+import { presetRange, type Range } from "@/features/reports/range";
 
 const TONE: Record<AttendanceDay["status"], "green" | "warning" | "danger" | "blue" | "grey" | "purple"> = {
   present: "green", late: "warning", absent: "danger", leave: "blue", holiday: "purple", off: "grey", pending: "grey", none: "grey",
 };
-const shift = (d: string, days: number) => new Date(Date.parse(`${d}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
-function presets(today: string) {
-  const dow = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7; // Mon 0
-  const month = today.slice(0, 8) + "01";
-  const lastMonthEnd = shift(month, -1);
-  return { week: [shift(today, -dow), today], month: [month, today], last: [lastMonthEnd.slice(0, 8) + "01", lastMonthEnd] } as const;
-}
 
 export default function AttendancePage() {
   const { t } = useTranslation();
@@ -26,9 +21,7 @@ export default function AttendancePage() {
   const team = can("report.ops");
   const mine = !!me && ["gm", "admin", "tech"].includes(me.role);
   const [view, setView] = useState<"team" | "mine">(team ? "team" : "mine");
-  const today = todayLocal();
-  const p = useMemo(() => presets(today), [today]);
-  const [range, setRange] = useState<readonly [string, string]>(p.month);
+  const [range, setRange] = useState<Range>(() => presetRange("month", todayLocal()));
   const q = useQuery({
     queryKey: ["attendance", view, range[0], range[1]],
     queryFn: async () => view === "team" ? (await api.attendance.report(range[0], range[1])).users : [await api.attendance.me(range[0], range[1])].filter((x): x is AttendancePerson => !!x),
@@ -42,17 +35,7 @@ export default function AttendancePage() {
           {(["team", "mine"] as const).map((v) => <button key={v} role="tab" aria-selected={view === v} className={`flex-1 px-3 min-h-[44px] ${view === v ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(v)}>{t(`attendance.view_${v}`)}</button>)}
         </div>
       )}
-      <Card>
-        <div className="flex flex-wrap gap-2 mb-2">
-          {(["week", "month", "last"] as const).map((k) => (
-            <button key={k} type="button" className={`px-3 min-h-[44px] rounded-md border text-sm ${range[0] === p[k][0] && range[1] === p[k][1] ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`} onClick={() => setRange(p[k])}>{t(`attendance.range_${k}`)}</button>
-          ))}
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={t("attendance.from")}><Input type="date" value={range[0]} max={range[1]} onChange={(e) => e.target.value && setRange([e.target.value, range[1]])} /></Field>
-          <Field label={t("attendance.to")}><Input type="date" value={range[1]} min={range[0]} onChange={(e) => e.target.value && setRange([range[0], e.target.value])} /></Field>
-        </div>
-      </Card>
+      <Card><RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} /></Card>
       {q.isLoading ? <Skeleton /> : q.isError ? <ErrorState text={t("attendance.err.range")} onRetry={() => void q.refetch()} /> : !q.data?.length ? <Card><Empty text={t("attendance.none")} /></Card>
         : q.data.map((u) => <PersonCard key={u.user_id} u={u} open={view === "mine" || q.data.length === 1} />)}
     </div>

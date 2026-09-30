@@ -69,6 +69,18 @@ export type AttendanceCheck = { kind: "in" | "out"; at: string; distance_m: numb
 export type AttendanceDay = { date: string; status: "present" | "late" | "absent" | "leave" | "holiday" | "off" | "pending" | "none"; in?: string; out?: string | null; late_min?: number; ot_min?: number;
   out_of_range?: boolean; no_gps?: boolean; distance_in?: number | null; distance_out?: number | null; leave_part?: "full" | "am" | "pm" | null; missing_out?: boolean; marked?: boolean };
 export type AttendancePerson = { user_id: string; full_name: string; role: string; since: string; days: AttendanceDay[]; present: number; late_count: number; late_min: number; absent: number; leave: number; ot_min: number; out_of_range: number };
+export type ReportSummary = { from: string; to: string; cancels: number;
+  jobs: { created: number; finished: number; cancelled: number; pending_review: number; in_progress: number };
+  attendance?: { people: number; present: number; late: number; absent: number; leave: number; out_of_range: number };
+  revenue?: { total: number; invoices: number; inside: number; outside: number; by_category: Record<string, number> };
+  payments?: { total: number; count: number; by_method: Record<PayMethod, number>; khr_riel: number };
+  new_debt?: number; debt_total?: number; voids?: { count: number; total: number }; discounts?: { count: number; total: number; over_limit: number } };
+export type VerifyItem = { type: "void" | "discount" | "cancel" | "payment"; id: string; at: string; ref: string; amount: number | null; reason: string | null; status: string | null; method: PayMethod | null;
+  currency: "usd" | "khr" | null; raw_amount: number | null; link: string; requested_by_name: string | null; approved_by_name: string | null; verified_at: string | null; verified_by_name: string | null; verify_note: string | null };
+export type Dashboard = { date: string; pending_review: number; today: { jobs: number; done: number; revenue?: number; received?: number }; month?: { revenue: number; received: number };
+  debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number;
+  techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
+export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -161,6 +173,13 @@ export const api = {
     check: (v: { kind: "in" | "out"; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean }) => post<AttendanceCheck>("/api/attendance/check", v),
     me: (from: string, to: string) => get<AttendancePerson | null>(`/api/attendance/me?from=${from}&to=${to}`),
     report: (from: string, to: string) => get<{ from: string; to: string; work_start: string; work_end: string; users: AttendancePerson[] }>(`/api/attendance/report?from=${from}&to=${to}`),
+  },
+  reports: {
+    summary: (from: string, to: string) => get<ReportSummary>(`/api/reports/summary?from=${from}&to=${to}`),
+    dashboard: () => get<Dashboard>("/api/reports/dashboard"),
+    verification: (from: string, to: string, unverified: boolean) => get<VerifyItem[]>(`/api/reports/verification?from=${from}&to=${to}${unverified ? "&unverified=1" : ""}`),
+    verify: (type: VerifyItem["type"], id: string, note = "") => post("/api/reports/verify", { type, id, note }),
+    audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {

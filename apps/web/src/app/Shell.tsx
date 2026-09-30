@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { BarChart3, Bell, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -44,6 +44,7 @@ export default function Shell() {
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)
     { to: "/leave", label: t("nav.leave"), icon: CalendarOff, hidden: !(["gm", "admin"].includes(me.role) || can("leave.approve.tech") || can("leave.approve.admin") || can("leave.approve.gm")) },
+    { to: "/reports", label: t("nav.reports"), icon: BarChart3, perm: "report.ops" },
     { to: "/attendance", label: t("nav.attendance"), icon: Fingerprint, hidden: !(can("report.ops") || ["gm", "admin"].includes(me.role)) },
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
