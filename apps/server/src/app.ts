@@ -28,6 +28,7 @@ import { attendanceRoutes } from "./routes/attendance.js";
 import { reportsRoutes } from "./routes/reports.js";
 import { partARoutes } from "./routes/part-a.js";
 import { inventoryRoutes } from "./routes/inventory.js";
+import { accountingRoutes } from "./routes/accounting.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { telegramRoutes } from "./routes/telegram.js";
 import { mapsRoutes } from "./routes/maps.js";
@@ -136,6 +137,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(reportsRoutes, { prefix: "/api/reports" });
   app.register(partARoutes, { prefix: "/api" });
   app.register(inventoryRoutes, { prefix: "/api/inventory" });
+  app.register(accountingRoutes, { prefix: "/api/accounting" });
   app.register(notificationsRoutes, { prefix: "/api/notifications" });
   app.register(telegramRoutes, { prefix: "/api/telegram" });
   app.register(mapsRoutes, { prefix: "/api/maps" });

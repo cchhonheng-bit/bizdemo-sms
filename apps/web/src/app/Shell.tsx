@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -32,6 +32,7 @@ export default function Shell() {
   const subscribeOn = useFeature("subscribe");
   const remindersOn = useFeature("reminders");
   const inventoryOn = useFeature("inventory");
+  const accountingOn = useFeature("accounting");
   const [more, setMore] = useState(false);
   if (!me) return null;
   const isTech = me.role === "tech";
@@ -49,6 +50,7 @@ export default function Shell() {
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)
     { to: "/leave", label: t("nav.leave"), icon: CalendarOff, hidden: !(["gm", "admin"].includes(me.role) || can("leave.approve.tech") || can("leave.approve.admin") || can("leave.approve.gm")) },
     { to: "/reports", label: t("nav.reports"), icon: BarChart3, perm: "report.ops" },
+    { to: "/accounting", label: t("nav.accounting"), icon: Landmark, hidden: !accountingOn || !(can("accounting.view") || can("payroll.manage") || can("payroll.approve")) },
     { to: "/attendance", label: t("nav.attendance"), icon: Fingerprint, hidden: !(can("report.ops") || ["gm", "admin"].includes(me.role)) },
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },

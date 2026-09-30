@@ -31,6 +31,7 @@ import AttendancePage from "@/features/attendance/AttendancePage";
 import ReportsPage from "@/features/reports/ReportsPage";
 import RemindersPage from "@/features/reminders/RemindersPage";
 import InventoryPage from "@/features/inventory/InventoryPage";
+import AccountingPage from "@/features/accounting/AccountingPage";
 import SubscribePrintPage from "@/features/subscribe/SubscribePrintPage";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
@@ -71,6 +72,7 @@ export default function App() {
               <Route path="/leave" element={<LeavePage />} />
               <Route path="/attendance" element={<AttendancePage />} />
               <Route element={<RequireFeature flag="inventory" />}><Route element={<RequirePerm perm="inventory.view" />}><Route path="/inventory" element={<InventoryPage />} /></Route></Route>
+              <Route element={<RequireFeature flag="accounting" />}><Route element={<RequireAnyPerm perms={["accounting.view", "payroll.manage", "payroll.approve"]} />}><Route path="/accounting" element={<AccountingPage />} /></Route></Route>
               <Route element={<RequireFeature flag="reminders" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/reminders" element={<RemindersPage />} /></Route></Route>
               <Route element={<RequirePerm perm="report.ops" />}><Route path="/reports" element={<ReportsPage />} /></Route>
               <Route element={<RequirePerm perm="quote.manage" />}>

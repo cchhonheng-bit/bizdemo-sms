@@ -17,7 +17,7 @@ const localDay = (col: ReturnType<typeof sql>, tz: string) => sql`(${col} at tim
 
 /** issued invoices with total and paid (all payments to date) */
 const INV = (companyId: string) => sql`
-  select i.id, i.number, i.status, i.issued_at, i.voided_at, i.discount, i.discount_status, i.discount_requested, i.customer_id,
+  select i.id, i.number, i.status, i.opening, i.issued_at, i.voided_at, i.discount, i.discount_status, i.discount_requested, i.customer_id,
     coalesce(b.zone, c.zone)::text as zone, coalesce(b.category::text, 'direct') as category,
     (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = i.id) - i.discount as total,
     (select coalesce(sum(p.usd_cents), 0)::int from payments p where p.invoice_id = i.id) as paid
@@ -41,10 +41,10 @@ export async function summaryData(companyId: string, from: string, to: string, f
       absent: day.filter((d) => d.status === "absent").length, leave: day.filter((d) => d.status === "leave").length, out_of_range: day.filter((d) => "out_of_range" in d && d.out_of_range).length };
   }
   if (!finance) return out;
-  const inv = await sql<{ status: string; issued_at: Date | null; voided_at: Date | null; zone: string; category: string; total: number; paid: number; issued_day: string | null; void_day: string | null }[]>`
+  const inv = await sql<{ status: string; opening: boolean; issued_at: Date | null; voided_at: Date | null; zone: string; category: string; total: number; paid: number; issued_day: string | null; void_day: string | null }[]>`
     select x.*, ${localDay(sql`x.issued_at`, tz)}::text as issued_day, ${localDay(sql`x.voided_at`, tz)}::text as void_day from (${INV(companyId)}) x`;
   const inPeriod = (d: string | null) => !!d && d >= from && d <= to;
-  const issued = inv.filter((i) => i.status === "issued" && inPeriod(i.issued_day));
+  const issued = inv.filter((i) => i.status === "issued" && !i.opening && inPeriod(i.issued_day)); // an opening debt is not revenue
   const revenue: Money = { total: 0, invoices: issued.length, inside: 0, outside: 0, by_category: { mep: 0, construction: 0, decor: 0, camera: 0, direct: 0 } };
   for (const i of issued) { revenue.total += i.total; revenue[i.zone === "inside" ? "inside" : "outside"] += i.total; revenue.by_category[i.category] = (revenue.by_category[i.category] ?? 0) + i.total; }
   const pays = await sql<{ method: string; cents: number; riel: number; n: number }[]>`select p.method::text as method, coalesce(sum(p.usd_cents), 0)::int as cents,

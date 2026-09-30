@@ -4,6 +4,7 @@ import { AppError } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { report as attendanceReport } from "./attendance.js";
+import { postCashClose } from "./ledger-hooks.js";
 
 const MAX_DAYS = 92;
 const tzOf = async (db: Db, companyId: string) => (await db<{ tz: string }[]>`select timezone as tz from companies where id = ${companyId}`)[0]?.tz ?? "Asia/Phnom_Penh";
@@ -91,10 +92,12 @@ export async function exportCsv(user: SessionUser, perms: string[], kind: Export
 }
 
 // ---------- daily cash close (FR-1107) ----------
+/** cash taken that day: payments (not those made from a deposit) + deposits received that day (not voided) */
 async function expectedCash(db: Db, companyId: string, day: string) {
-  return (await db<{ usd: number; khr: number }[]>`select coalesce(sum(amount) filter (where method = 'cash_usd'), 0)::int as usd,
-      coalesce(sum(amount) filter (where method = 'cash_khr'), 0)::float8 as khr
-    from payments where company_id = ${companyId} and paid_on = ${day}::date`)[0]!;
+  return (await db<{ usd: number; khr: number }[]>`select coalesce(sum(x.amount) filter (where x.method = 'cash_usd'), 0)::int as usd,
+      coalesce(sum(x.amount) filter (where x.method = 'cash_khr'), 0)::float8 as khr
+    from (select amount, method::text from payments where company_id = ${companyId} and paid_on = ${day}::date and deposit_id is null
+      union all select amount, method::text from deposits where company_id = ${companyId} and paid_on = ${day}::date and status <> 'void') x`)[0]!;
 }
 
 export async function cashCloses(user: SessionUser, from: string, to: string) {
@@ -127,6 +130,7 @@ export async function closeCash(user: SessionUser, ip: string | null, v: { day: 
       on conflict (company_id, day) do update set counted_usd = excluded.counted_usd, counted_khr = excluded.counted_khr, expected_usd = excluded.expected_usd,
         expected_khr = excluded.expected_khr, note = excluded.note, closed_by = excluded.closed_by, closed_at = now()`;
     const diff = { diff_usd: v.counted_usd - e.usd, diff_khr: v.counted_khr - e.khr };
+    await postCashClose(t, user, { day: v.day, ...diff }); // over / short → accounting
     await audit(t, { companyId: user.companyId, userId: user.id, action: "cash.close", table: "cash_closes", rowId: user.companyId, new: { day: v.day, counted_usd: v.counted_usd, counted_khr: v.counted_khr, ...diff }, ip });
     return { day: v.day, expected_usd: e.usd, expected_khr: e.khr, ...diff };
   });

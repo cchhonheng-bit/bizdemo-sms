@@ -103,6 +103,34 @@ export type StockCardRow = { id: number; date: string; kind: string; qty: number
 export type StockCard = { opening: { qty: number; value: number | null }; rows: StockCardRow[]; ending: { qty: number; value: number | null } };
 export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; materials: { item_id: string; name: string; unit: string; qty: number }[] };
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
+// ---------- accounting (D-88) ----------
+export type AcctType = "asset" | "liability" | "equity" | "income" | "expense";
+export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number };
+export type JournalRow = { id: string; number: string; date: string; memo: string; source: string; source_id: string | null; reversal_of: string | null; amount: number;
+  status: "posted" | "reversed"; created_by_name: string | null; attachment_id: string | null };
+export type JournalLine = { id: number; account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; debit: number; credit: number; memo: string | null;
+  supplier: string | null; customer_name: string | null; user_name: string | null };
+export type JournalEntry = { id: string; number: string; date: string; memo: string; note: string | null; source: string; source_id: string | null; fx_rate_khr: number; khr_amount: number | null;
+  attachment_id: string | null; created_at: string; created_by_name: string | null; reversal_of: string | null; reversal_of_number: string | null; reversed_by: { id: string; number: string } | null;
+  status: "posted" | "reversed"; lines: JournalLine[]; link: string | null; reversible: boolean };
+export type AcctRow = { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; amount: number };
+export type TrialBalance = { from: string | null; to: string; fx_rate_khr: number; rows: (AcctRow & { debit: number; credit: number; balance: number })[]; total_debit: number; total_credit: number;
+  total_debit_khr: number; total_credit_khr: number; balanced: boolean };
+export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income: AcctRow[]; expense: AcctRow[]; income_total: number; expense_total: number; net: number;
+  income_total_khr: number; expense_total_khr: number; net_khr: number };
+export type BalanceSheet = { to: string; fx_rate_khr: number; assets: AcctRow[]; liabilities: AcctRow[]; equity: AcctRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
+  equity_total: number; assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number };
+export type LedgerRow = { entry_id: string; number: string; date: string; memo: string; source: string; line_memo: string | null; debit: number; credit: number; balance: number;
+  customer_name: string | null; user_name: string | null; supplier: string | null };
+export type Ledger = { account: { id: string; code: string; name_km: string; name_en: string | null; type: AcctType }; from: string; to: string; opening: number; rows: LedgerRow[]; closing: number; fx_rate_khr: number };
+export type BooksInfo = { books_start: string | null; lock_date: string | null; today: string; fx_rate_khr: number };
+export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
+export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
+export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
+export type PayrollRun = { id: string; period: string; status: "draft" | "approved" | "paid" | "void"; created_at: string; approved_at: string | null; paid_at: string | null; pay_method: string | null;
+  void_reason: string | null; created_by_name: string | null; approved_by_name: string | null; paid_by_name: string | null; lines: PayrollLine[]; base: number; bonus: number; gross: number; deductions: number; net: number };
+export type PayrollSummary = { id: string; period: string; status: PayrollRun["status"]; people: number; gross: number; deductions: number; net: number };
+export type Salary = { user_id: string; full_name: string; role: string; base_salary: number; updated_at: string | null };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -247,6 +275,41 @@ export const api = {
     confirmJob: (bookingId: string, location_id: string | null) => post(`/api/inventory/jobs/${bookingId}/confirm`, { location_id }),
   },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
+  accounting: {
+    info: () => get<BooksInfo>("/api/accounting/lock"),
+    setLock: (lock_date: string, reason?: string) => post<{ lock_date: string }>("/api/accounting/lock", { lock_date, reason: reason || null }),
+    opening: (v: { date: string; cash_usd?: number; cash_khr?: number; banks?: { aba?: number; acleda?: number }; receivables?: { customer_id: string; amount: number; note?: string }[];
+      payables?: { supplier: string; amount: number }[] }) => post<{ opening_equity: number; entries: number; open_invoices: number; opening_invoices: string[] }>("/api/accounting/opening", v),
+    accounts: () => get<Account[]>("/api/accounting/accounts"),
+    saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean }) => post<{ id: string }>("/api/accounting/accounts", v),
+    deleteAccount: (id: string) => del(`/api/accounting/accounts/${id}`),
+    journal: (from: string, to: string, source?: string) => get<JournalRow[]>(`/api/accounting/journal?from=${from}&to=${to}${source ? `&source=${source}` : ""}`),
+    entry: (id: string) => get<JournalEntry>(`/api/accounting/journal/${id}`),
+    post: (v: { date: string; memo: string; note?: string | null; attachment?: string | null; lines: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] }) =>
+      post<{ id: string; number: string }>("/api/accounting/journal", v),
+    reverse: (id: string, reason: string) => post<{ id: string; number: string }>(`/api/accounting/journal/${id}/reverse`, { reason }),
+    transaction: (v: { date: string; type: AcctTxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string; account_code?: string; supplier?: string | null;
+      memo?: string | null; attachment?: string | null }) => post<{ id: string; number: string }>("/api/accounting/transactions", v),
+    tb: (to: string) => get<TrialBalance>(`/api/accounting/trial-balance?to=${to}`),
+    pl: (from: string, to: string) => get<ProfitLoss>(`/api/accounting/pl?from=${from}&to=${to}`),
+    bs: (to: string) => get<BalanceSheet>(`/api/accounting/balance-sheet?to=${to}`),
+    ledger: (account: string, from: string, to: string) => get<Ledger>(`/api/accounting/ledger?account=${account}&from=${from}&to=${to}`),
+    csvUrl: (kind: "trial-balance" | "pl" | "balance-sheet" | "ledger" | "journal", from: string | null, to: string, account?: string) =>
+      `/api/accounting/${kind}.csv?to=${to}${from ? `&from=${from}` : ""}${account ? `&account=${account}` : ""}`,
+    fileUrl: (id: string) => `/api/accounting/files/${id}`,
+    payroll: {
+      salaries: () => get<Salary[]>("/api/accounting/payroll/salaries"),
+      setSalary: (userId: string, base_salary: number) => post(`/api/accounting/payroll/salary/${userId}`, { base_salary }),
+      runs: () => get<PayrollSummary[]>("/api/accounting/payroll"),
+      create: (period: string) => post<PayrollRun>("/api/accounting/payroll", { period }),
+      run: (id: string) => get<PayrollRun>(`/api/accounting/payroll/${id}`),
+      adjust: (id: string, v: { user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string }) => post(`/api/accounting/payroll/${id}/adjust`, v),
+      removeAdj: (id: string, adj: number) => post(`/api/accounting/payroll/${id}/adjust/${adj}/remove`, {}),
+      approve: (id: string) => post(`/api/accounting/payroll/${id}/approve`, {}),
+      pay: (id: string, pay: string) => post(`/api/accounting/payroll/${id}/pay`, { pay }),
+      void: (id: string, reason: string) => post(`/api/accounting/payroll/${id}/void`, { reason }),
+    },
+  },
   survey: {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),
     photo: (id: string, data: string) => post<{ id: string }>(`/api/bookings/${id}/survey-photos`, { data }),

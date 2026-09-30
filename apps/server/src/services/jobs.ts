@@ -134,7 +134,7 @@ export async function removePhoto(user: SessionUser, perms: string[], id: string
 }
 /** authenticated download: same company; technicians only files of their jobs */
 export async function readJobFile(user: SessionUser, fileId: string): Promise<{ mime: string; data: Buffer }> {
-  const f = (await sql<{ path: string; mime: string; booking_id: string | null }[]>`select path, mime, booking_id from job_files where id = ${fileId} and company_id = ${user.companyId} and deleted_at is null`)[0];
+  const f = (await sql<{ path: string; mime: string; booking_id: string | null }[]>`select path, mime, booking_id from job_files where id = ${fileId} and company_id = ${user.companyId} and deleted_at is null and kind <> 'receipt'`)[0]; // receipts: accounting only
   if (!f) throw notFound();
   if (user.role === "tech" && !(await sql`select 1 from booking_technicians where booking_id = ${f.booking_id} and user_id = ${user.id}`).length) throw notFound();
   return { mime: f.mime, data: await readFile(join(config.uploadsDir, f.path)) };

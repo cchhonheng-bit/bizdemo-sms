@@ -23,7 +23,9 @@
     "active": "Active",
     "inactive": "Inactive",
     "back": "Back",
-    "add": "Add"
+    "add": "Add",
+    "delete": "Delete",
+    "remove": "Remove"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -43,7 +45,8 @@
     "invoices": "Invoices",
     "reports": "Reports",
     "reminders": "Reminders",
-    "inventory": "Stock"
+    "inventory": "Stock",
+    "accounting": "Accounting"
   },
   "roles": {
     "ceo": "CEO",
@@ -106,7 +109,8 @@
       "PASSWORD_TOO_COMMON": "Password is too common",
       "CANNOT_CHANGE_SELF": "You cannot change your own role/status",
       "FORBIDDEN": "No permission",
-      "NOT_FOUND": "Not found"
+      "NOT_FOUND": "Not found",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "settings": {
@@ -353,7 +357,8 @@
       "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first (type B)",
       "WARRANTY_EXPIRED": "The 30-day warranty has ended",
       "NOT_CLOSED": "The original job is not closed",
-      "WARRANTY_OTHER_CUSTOMER": "Warranty only for the same customer"
+      "WARRANTY_OTHER_CUSTOMER": "Warranty only for the same customer",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -453,7 +458,8 @@
       "BROADCAST_TOO_SOON": "Please wait 10 minutes after the previous broadcast",
       "SUBSCRIBE_DISABLED": "This module is not enabled for the shop",
       "HUB_UNREACHABLE": "Cannot reach the HangKH hub right now",
-      "HUB_NOT_CONFIGURED": "HangKH hub is not configured"
+      "HUB_NOT_CONFIGURED": "HangKH hub is not configured",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
     "when": "Sent at",
     "poster_hint": "Print A5/A4 and put it up in the shop / vehicles",
@@ -505,7 +511,8 @@
       "NO_ATTENDANCE_ROLE": "CEO/CFO do not request leave",
       "START_IN_PAST": "The date has passed",
       "END_BEFORE_START": "End date is before the start",
-      "HALF_DAY_ONE_DATE": "Half a day = one date"
+      "HALF_DAY_ONE_DATE": "Half a day = one date",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "job": {
@@ -576,7 +583,8 @@
       "NOT_PENDING_REVIEW": "Not waiting for review",
       "FORBIDDEN": "No permission",
       "NETWORK": "No internet",
-      "MATERIALS_CONFIRMED": "Admin already took the stock — materials are locked"
+      "MATERIALS_CONFIRMED": "Admin already took the stock — materials are locked",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "quote": {
@@ -623,7 +631,8 @@
       "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first",
       "ITEM_NOT_FOUND": "Item not found",
       "BOOKING_LOCKED": "The booking can no longer change",
-      "FORBIDDEN": "No permission"
+      "FORBIDDEN": "No permission",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "invoice": {
@@ -727,7 +736,8 @@
       "INVOICE_ISSUED": "The invoice is issued — record a normal payment",
       "ALREADY_VOID": "Already void",
       "NOT_VOIDABLE": "This line cannot be voided",
-      "DEPOSIT_PAYMENT": "Comes from a deposit — correct the deposit"
+      "DEPOSIT_PAYMENT": "Comes from a deposit — correct the deposit",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "attendance": {
@@ -780,7 +790,8 @@
       "NOT_CHECKED_IN": "Check in first",
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "At most 62 days",
-      "range": "Invalid date range (at most 62 days)"
+      "range": "Invalid date range (at most 62 days)",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
     "days_short": "d"
   },
@@ -832,7 +843,8 @@
       "FORBIDDEN": "Not allowed",
       "CASH_VERIFIED": "Verified by the CFO — locked",
       "NOT_CLOSED": "Not closed yet",
-      "BAD_DATE": "Future date"
+      "BAD_DATE": "Future date",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
     "tech_perf": "Technician performance",
     "hours": "Hours",
@@ -877,7 +889,8 @@
       "UNIT_NOT_FOUND": "Unit not found",
       "UNTIL_REQUIRED": "Pick a date",
       "NO_SHOP_BOT": "The shop has no bot yet",
-      "FORBIDDEN": "Not allowed"
+      "FORBIDDEN": "Not allowed",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "deposit": {
@@ -922,7 +935,8 @@
     "note": "Note",
     "note_ph": "e.g. bank rate",
     "err": {
-      "INVALID_RATE": "Rate 1,000 – 20,000"
+      "INVALID_RATE": "Rate 1,000 – 20,000",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
   },
   "uninvoiced": {
@@ -996,7 +1010,219 @@
       "ALREADY_CONFIRMED": "Already confirmed",
       "NOT_FINISHED": "The job is not finished",
       "LOCATION_NOT_FOUND": "Location not found",
-      "FORBIDDEN": "Not allowed"
+      "FORBIDDEN": "Not allowed",
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     }
+  },
+  "acct": {
+    "title": "Accounting",
+    "not_started": "The books have not started — enter the opening balances (cash, banks, debts) first. Until then nothing is posted.",
+    "start_books": "Start the books",
+    "tab": {
+      "reports": "Reports",
+      "money": "Money in/out",
+      "journal": "Journal",
+      "accounts": "Accounts",
+      "payroll": "Payroll",
+      "setup": "Setup"
+    },
+    "pay": {
+      "cash_usd": "Cash $",
+      "cash_khr": "Cash ៛",
+      "aba": "ABA",
+      "acleda": "ACLEDA",
+      "credit": "On credit"
+    },
+    "receipt": "Photo of the receipt",
+    "receipt_added": "Photo attached ✓",
+    "receipt_open": "Open the receipt photo",
+    "rep": {
+      "pl": "Profit & loss",
+      "bs": "Balance sheet",
+      "tb": "Trial balance"
+    },
+    "as_of": "As of",
+    "income": "Income",
+    "expense": "Expenses",
+    "nothing": "No data",
+    "income_total": "Total income",
+    "expense_total": "Total expenses",
+    "profit": "Net profit",
+    "loss": "Net loss",
+    "rate_note": "Riel at {{rate}}៛ = $1 (rate on the last day)",
+    "type": {
+      "asset": "Assets",
+      "liability": "Liabilities",
+      "equity": "Equity",
+      "income": "Income",
+      "expense": "Expenses"
+    },
+    "assets_total": "Total assets",
+    "liabilities_total": "Total liabilities",
+    "current_earnings": "Profit not yet closed",
+    "le_total": "Liabilities + equity",
+    "bs_ok": "Assets = liabilities + equity ✓",
+    "bs_bad": "Not equal — contact the administrator",
+    "account": "Account",
+    "debit": "Debit",
+    "credit": "Credit",
+    "total": "Total",
+    "tb_ok": "Debit = credit ✓",
+    "tb_bad": "Not equal — contact the administrator",
+    "excel": "Download Excel",
+    "new_account": "New account",
+    "edit_account": "Edit account",
+    "system": "system",
+    "code": "Code",
+    "code_hint": "4–6 digits (1 assets · 2 liabilities · 3 equity · 4 income · 5-6 expenses)",
+    "acc_type": "Type",
+    "name_km": "Name (Khmer)",
+    "name_en": "Name (English)",
+    "active": "In use",
+    "system_hint": "System account: can be renamed, never deleted or switched off",
+    "used_hint": "Already used: code and type stay",
+    "opening": "Opening balance",
+    "closing": "Closing balance",
+    "new_entry": "New entry",
+    "source": {
+      "manual": "Manual",
+      "other": "Money in/out",
+      "opening": "Opening",
+      "invoice": "Invoice",
+      "payment": "Payment",
+      "deposit": "Deposit",
+      "stock": "Stock",
+      "cash_close": "Cash close",
+      "payroll": "Payroll"
+    },
+    "reversal": "Reversal",
+    "reversed": "Reversed",
+    "reversed_ok": "Reversed by {{number}}",
+    "reverse": "Reverse (correct)",
+    "status": {
+      "posted": "Posted",
+      "reversed": "Reversed"
+    },
+    "rate": "Rate {{rate}}៛",
+    "by": "By {{name}}",
+    "reversal_of": "Reversal of {{number}}",
+    "reversed_by": "Reversed by {{number}}",
+    "open_source": "Open the source record",
+    "auto_hint": "Automatic entry: correct it at its source (void the invoice / payment …)",
+    "reverse_reason": "Reason",
+    "posted": "Posted {{number}}",
+    "post": "Post",
+    "date": "Date",
+    "memo": "Description",
+    "pick_account": "— choose an account —",
+    "amount": "Amount",
+    "line_memo": "Note (optional)",
+    "add_line": "Add line",
+    "balanced": "Balanced ✓",
+    "diff": "Difference {{amount}}",
+    "note": "Note",
+    "tx": {
+      "expense": "Expense",
+      "purchase": "Purchase (equipment…)",
+      "supplier_payment": "Pay a supplier",
+      "other_income": "Other income",
+      "owner_contribution": "Owner puts in",
+      "owner_withdrawal": "Owner takes out",
+      "transfer": "Move money"
+    },
+    "tx_hint": {
+      "expense": "Fuel, rent, electricity, phone … paid now or on credit",
+      "purchase": "Tools, a vehicle or other things (not stock — stock is bought on the Stock page)",
+      "supplier_payment": "Pay back what was bought on credit",
+      "other_income": "Income outside invoices (scrap, interest …)",
+      "owner_contribution": "The owner puts money into the company",
+      "owner_withdrawal": "The owner takes money out for personal use",
+      "transfer": "Cash into the bank, cash out of the bank, or bank to bank"
+    },
+    "recent": "Last 30 days",
+    "income_account": "Income account",
+    "expense_account": "For what (account)",
+    "received_in": "Received in",
+    "paid_from": "Paid from",
+    "payroll": {
+      "new": "New payroll",
+      "period": "Month",
+      "runs": "Payroll runs",
+      "people": "{{n}} people",
+      "salaries": "Base salaries",
+      "salaries_hint": "Monthly base salary ($) — used when a new month's payroll is made",
+      "base": "Base",
+      "status": {
+        "draft": "Draft",
+        "approved": "Approved by CEO",
+        "paid": "Paid",
+        "void": "Void"
+      },
+      "void": "Void",
+      "approve": "Approve",
+      "pay": "Pay salaries",
+      "approved_by": "Approved by {{name}}",
+      "gross": "Gross (base + bonus)",
+      "deductions": "Deductions",
+      "net": "Net to pay",
+      "add_adj": "Add bonus / deduction",
+      "staff": "Staff",
+      "bonus": "+ Bonus",
+      "deduction": "− Deduction",
+      "reason": "Reason"
+    },
+    "books": "Books",
+    "books_start": "Started",
+    "lock_date": "Locked until",
+    "lock_title": "Lock the books",
+    "lock_hint": "Nothing can be posted on or before this date any more (manual or automatic).",
+    "lock_until": "Locked until",
+    "reopen_reason": "Reason to re-open",
+    "lock_save": "Save",
+    "opening_title": "Opening balances (go-live)",
+    "go_live": "Go-live date",
+    "opening_hint": "Count the cash and check the bank balances now. Unpaid invoices, stock and deposits already in the app are added automatically. This is done once only.",
+    "old_debts": "Customers who owed before the app",
+    "old_debts_hint": "Each becomes an OB-… invoice that can be paid like any invoice (not counted as revenue)",
+    "add_debt": "Add a customer debt",
+    "supplier_debts": "What we owe suppliers",
+    "add_supplier_debt": "Add a supplier debt",
+    "opening_done": "The books have started · opening equity {{equity}} · open invoices {{n}}",
+    "opening_confirm": "Start the books on {{date}}? This is done once — later mistakes are corrected with a manual entry.",
+    "err": {
+      "OPENING_REQUIRED": "Enter the opening balances first",
+      "OPENING_DONE": "The opening balances are already done",
+      "NOT_BALANCED": "Debit and credit are not equal",
+      "PERIOD_LOCKED": "This period is locked — use a later date or ask the CFO",
+      "BAD_DATE": "Invalid date",
+      "REASON_REQUIRED": "Please enter a reason",
+      "ALREADY_REVERSED": "Already reversed",
+      "NOT_REVERSIBLE": "A reversal cannot be reversed",
+      "AUTO_ENTRY": "Automatic entry — correct it at its source",
+      "CODE_EXISTS": "This code already exists",
+      "ACCOUNT_USED": "This account is already used",
+      "SYSTEM_ACCOUNT": "System account — cannot be deleted or switched off",
+      "ACCOUNT_INACTIVE": "This account is switched off",
+      "ACCOUNT_NOT_FOUND": "Account not found",
+      "WRONG_ACCOUNT_TYPE": "Wrong type of account",
+      "SAME_ACCOUNT": "Same account",
+      "BAD_METHOD": "Wrong payment method",
+      "PAY_REQUIRED": "Choose how it was paid",
+      "AMOUNT_TOO_SMALL": "Amount too small",
+      "PAYROLL_EXISTS": "This month already has a payroll",
+      "PAYROLL_LOCKED": "Payroll approved — no changes",
+      "PAYROLL_PAID": "Already paid — cannot void",
+      "PAYROLL_VOID": "Already void",
+      "NO_SALARIES": "Set the base salaries first",
+      "NET_NEGATIVE": "Net pay below zero",
+      "NOT_APPROVED": "Not approved by the CEO yet",
+      "FORBIDDEN": "Not allowed",
+      "NOT_FOUND": "Not found",
+      "BAD_IMAGE": "Invalid image",
+      "IMAGE_TOO_LARGE": "Image too large",
+      "BAD_RANGE": "Invalid date range",
+      "RANGE_TOO_LONG": "Date range too long"
+    },
+    "rate_label": "Exchange rate"
   }
 }
