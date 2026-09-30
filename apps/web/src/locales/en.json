@@ -38,7 +38,8 @@
     "subscribe": "Telegram customers",
     "more": "More",
     "leave": "Leave",
-    "quotes": "Quotes"
+    "quotes": "Quotes",
+    "invoices": "Invoices"
   },
   "roles": {
     "ceo": "CEO",
@@ -141,7 +142,11 @@
     "tg_steps": "1) Add @{{bot}} to the work group · 2) Copy the command below and send it in the group · 3) The bot confirms. The code works once, within 24 hours.",
     "tg_expires": "Expires",
     "copy": "Copy",
-    "copied": "Copied"
+    "copied": "Copied",
+    "invoice_images": "Invoice: logo + ACLEDA QR",
+    "logo": "Logo",
+    "acleda_qr": "ACLEDA QR",
+    "upload": "Upload"
   },
   "me": {
     "title": "Me",
@@ -567,6 +572,102 @@
       "ITEM_NOT_FOUND": "Item not found",
       "BOOKING_LOCKED": "The booking can no longer change",
       "FORBIDDEN": "No permission"
+    }
+  },
+  "invoice": {
+    "title": "Invoices",
+    "title_one": "Invoice",
+    "new": "Create invoice",
+    "new_direct": "Direct sale",
+    "created": "{{number}} created",
+    "notes": "Invoice notes",
+    "save_draft": "Save draft",
+    "issue": "Issue invoice",
+    "issued_ok": "Invoice issued",
+    "payments": "Payments",
+    "record_payment": "Record payment",
+    "no_payments": "No payment yet",
+    "void": "Void invoice",
+    "subtotal": "Subtotal",
+    "discount": "Discount",
+    "paid": "Paid",
+    "balance": "Balance",
+    "discount_waiting": "Discount {{amount}} waiting for CEO approval",
+    "void_waiting": "Void requested by {{name}}",
+    "void_to_gm": "The request goes to a GM for approval",
+    "void_to_ceo": "The request goes to the CEO for approval",
+    "void_approve": "Approve void",
+    "discount_amount": "Discount ($)",
+    "discount_note": "Reason",
+    "discount_needs_ceo": "From this amount the CEO must approve before the invoice can be issued",
+    "discount_hint": "Below {{limit}}: applied at once · from {{limit}}: CEO approval",
+    "discount_hint_ceo": "CEO: applied at once (CFO is notified)",
+    "discount_sent": "Sent to the CEO for approval",
+    "paid_full": "Fully paid ✅",
+    "paid_part": "Recorded · {{balance}} left",
+    "currency": "Currency",
+    "amount_usd": "Amount ($)",
+    "amount_khr": "Amount (៛)",
+    "full": "All",
+    "method_label": "Method",
+    "method": {
+      "cash_usd": "Cash $",
+      "cash_khr": "Cash ៛",
+      "aba": "ABA",
+      "acleda": "ACLEDA"
+    },
+    "paid_on": "Paid on",
+    "pay_note": "Note",
+    "void_done": "Invoice voided",
+    "void_sent": "Void request sent",
+    "void_now": "Void now",
+    "void_request": "Send void request",
+    "void_ceo_hint": "CEO voids directly (reason required) · the number stays",
+    "status": {
+      "draft": "Draft"
+    },
+    "pay_status": {
+      "unpaid": "Unpaid",
+      "partial": "Partially paid",
+      "paid": "Paid"
+    },
+    "tab": {
+      "approval": "Approvals",
+      "draft": "Drafts",
+      "unpaid": "Unpaid",
+      "paid": "Paid",
+      "void": "Void",
+      "debts": "Debts"
+    },
+    "none": "No invoices",
+    "void_pending": "Void pending",
+    "discount_pending": "Discount waiting for CEO",
+    "days": "days",
+    "no_debts": "No debts",
+    "n_invoices": "{{n}} invoices",
+    "ready": "The job is reviewed — the invoice can be issued.",
+    "open": "Open invoice",
+    "err": {
+      "NOT_REVIEWED": "Not allowed: the GM has not reviewed the job as correct yet",
+      "INVOICE_EXISTS": "This job already has an invoice",
+      "INVOICE_LOCKED": "The invoice is issued and can no longer be changed",
+      "INVOICE_VOID": "This invoice is void",
+      "DISCOUNT_PENDING": "A discount is waiting for the CEO — the invoice cannot be issued yet",
+      "DISCOUNT_TOO_HIGH": "Discount is higher than the total",
+      "NOT_PENDING": "Already decided",
+      "OWN_REQUEST": "You cannot approve your own request",
+      "NEEDS_CEO": "A GM request needs the CEO",
+      "NOT_ISSUED": "Issue the invoice before recording payments",
+      "BAD_METHOD": "Method does not match the currency",
+      "BAD_DATE": "The payment date cannot be in the future",
+      "OVERPAY": "More than the balance",
+      "AMOUNT_TOO_SMALL": "Amount too small",
+      "REASON_REQUIRED": "Please enter a reason",
+      "VOID_PENDING": "A void request is already pending",
+      "HAS_PAYMENTS": "Payments were recorded — cannot void",
+      "INVOICE_PAID": "The invoice is paid — cannot void",
+      "ITEM_NOT_FOUND": "Item not found",
+      "FORBIDDEN": "Not allowed"
     }
   }
 }

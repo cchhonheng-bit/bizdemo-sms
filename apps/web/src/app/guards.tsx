@@ -19,6 +19,12 @@ export function RequirePerm({ perm }: { perm: PermissionKey }) {
   return can(perm) ? <Outlet /> : <Navigate to="/" replace />;
 }
 
+/** any one of these permissions opens the page (invoices: issue / pay / discount / void / finance reports) */
+export function RequireAnyPerm({ perms }: { perms: readonly PermissionKey[] }) {
+  const { can } = useAuth();
+  return perms.some((p) => can(p)) ? <Outlet /> : <Navigate to="/" replace />;
+}
+
 /** Module switched off for this shop (A6) → the page does not exist */
 export function RequireFeature({ flag }: { flag: FeatureFlag }) {
   const cfg = useAppConfig();

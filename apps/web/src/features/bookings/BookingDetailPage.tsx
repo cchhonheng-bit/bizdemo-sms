@@ -11,6 +11,7 @@ import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Select, Skeleton
 import { CategoryBadge, DirectionLink, StatusBadge, TypeBadge } from "./parts";
 import JobReview from "./JobReview";
 import SurveyQuoteCards from "@/features/quotes/SurveyQuoteCards";
+import BookingInvoiceCard from "@/features/invoices/BookingInvoiceCard";
 import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
@@ -84,6 +85,7 @@ export default function BookingDetailPage() {
           {bk.technicians?.some((x) => x.user_id === me?.id) && <JobExecution booking={bk} />}
           <SurveyQuoteCards booking={bk} />
           <JobReview booking={bk} />
+          <BookingInvoiceCard booking={bk} />
         </div>
         <div className="space-y-4 min-w-0">
           <Card title={t("booking.team")}>

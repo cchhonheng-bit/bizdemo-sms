@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, CalendarOff, FileText, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, CalendarOff, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -9,6 +9,7 @@ import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 import { api } from "@/lib/api";
 import { useFeature } from "@/lib/config";
 import { Dialog } from "@/components/ui";
+import { INVOICE_VIEW } from "@/features/invoices/util";
 
 type Item = { to: string; label: string; icon: typeof LayoutDashboard; perm?: PermissionKey; roles?: string[]; hidden?: boolean };
 
@@ -36,8 +37,9 @@ export default function Shell() {
   const allDesktop: Item[] = [
     { to: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
     { to: "/bookings", label: t("nav.bookings"), icon: ClipboardList },
-    { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
     { to: "/quotes", label: t("nav.quotes"), icon: FileText, perm: "quote.manage" },
+    { to: "/invoices", label: t("nav.invoices"), icon: Receipt, hidden: !INVOICE_VIEW.some((p) => can(p)) },
+    { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)

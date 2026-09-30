@@ -91,17 +91,24 @@ function sniff(buf: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
   if (buf.length > 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
   return null;
 }
-export async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature" | "survey", data: string, only?: "image/png"): Promise<string> {
+/** checked image (magic bytes, 2 MB) written under uploads/<company>/<yyyy-mm>/ → relative path + mime */
+export async function saveImage(companyId: string, data: string, only?: "image/png", badCode = "BAD_IMAGE"): Promise<{ id: string; rel: string; mime: string; bytes: number }> {
   const buf = Buffer.from(data, "base64");
   if (buf.length > MAX_BYTES) throw new AppError("IMAGE_TOO_LARGE", 413);
   const mime = sniff(buf);
-  if (!mime || (only && mime !== only)) throw new AppError(kind === "signature" ? "SIGNATURE_REQUIRED" : "BAD_IMAGE", 400);
+  if (!mime || (only && mime !== only)) throw new AppError(badCode, 400);
   const id = randomUUID();
-  const rel = join(user.companyId, new Date().toISOString().slice(0, 7), `${id}.${mime.split("/")[1]}`);
+  const rel = join(companyId, new Date().toISOString().slice(0, 7), `${id}.${mime.split("/")[1]}`);
   const abs = join(config.uploadsDir, rel);
   await mkdir(dirname(abs), { recursive: true });
   await writeFile(abs, buf, { mode: 0o640 });
-  await t`insert into job_files (id, company_id, booking_id, kind, path, mime, bytes, created_by) values (${id}, ${user.companyId}, ${bookingId}, ${kind}::job_file_kind, ${rel}, ${mime}, ${buf.length}, ${user.id})`;
+  return { id, rel, mime, bytes: buf.length };
+}
+export const MIME_BY_EXT: Record<string, string> = { jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
+
+export async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature" | "survey", data: string, only?: "image/png"): Promise<string> {
+  const { id, rel, mime, bytes } = await saveImage(user.companyId, data, only, kind === "signature" ? "SIGNATURE_REQUIRED" : "BAD_IMAGE");
+  await t`insert into job_files (id, company_id, booking_id, kind, path, mime, bytes, created_by) values (${id}, ${user.companyId}, ${bookingId}, ${kind}::job_file_kind, ${rel}, ${mime}, ${bytes}, ${user.id})`;
   return id;
 }
 

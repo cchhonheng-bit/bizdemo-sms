@@ -47,6 +47,22 @@ export type Quote = { id: string; number: string; status: "sent" | "accepted" | 
   reject_reason: string | null; booking_id: string; booking_number: string; address: string | null; service_text: string; customer_name: string; customer_phones: string[]; created_by_name: string | null;
   lines: QuoteLine[]; subtotal: number; total: number; total_khr: number; company: { name: string; company_info: Record<string, string> } };
 export type QuoteRow = { id: string; number: string; status: Quote["status"]; created_at: string; booking_id: string; booking_number: string; customer_name: string; total: number; days_waiting: number };
+export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
+export type Payment = { id: string; amount: number; currency: "usd" | "khr"; method: PayMethod; fx_rate_khr: number; usd_cents: number; paid_on: string; note: string | null; created_at: string; received_by_name: string | null };
+export type Invoice = {
+  id: string; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
+  discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
+  created_at: string; issued_at: string | null; voided_at: string | null; void_reason: string | null; voided_by_name: string | null; created_by_name: string | null; issued_by_name: string | null;
+  booking_number: string | null; service_text: string | null; address: string | null; customer_name: string; customer_phones: string[];
+  lines: QuoteLine[]; payments: Payment[]; subtotal: number; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid"; total_khr: number; balance_khr: number;
+  void_request: { id: string; reason: string; requested_by: string; requester_role: string; created_at: string; requested_by_name: string } | null;
+  company: { name: string; company_info: Record<string, string>; has_logo: boolean; has_qr: boolean; fx_now: number };
+  can: { issue: boolean; discount: boolean; discount_approve: boolean; pay: boolean; void_request: boolean; void_approve: boolean };
+};
+export type InvoiceRow = { id: string; number: string; status: Invoice["status"]; created_at: string; issued_at: string | null; booking_id: string | null; customer_id: string; customer_name: string;
+  booking_number: string | null; total: number; paid: number; payment_status: Invoice["payment_status"]; discount_status: Invoice["discount_status"]; void_pending: boolean };
+export type DebtRow = { customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; invoices: number; oldest: string };
+export type InvoicePrefill = { booking_id: string; booking_number: string; customer_id: string; customer_name: string; service_text: string; lines: QuoteLine[] };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -119,6 +135,22 @@ export const api = {
     reject: (id: string, reason: string) => post(`/api/quotes/${id}/reject`, { reason }),
     forBooking: async (bookingId: string) => (await get<QuoteRow[]>(`/api/quotes?booking=${bookingId}`)).find((q) => q.status !== "rejected") ?? null,
   },
+  invoices: {
+    list: (status?: string) => get<InvoiceRow[]>(`/api/invoices${status ? `?status=${status}` : ""}`),
+    forBooking: async (bookingId: string) => (await get<InvoiceRow[]>(`/api/invoices?booking=${bookingId}`)).find((i) => i.status !== "void") ?? null,
+    get: (id: string) => get<Invoice>(`/api/invoices/${id}`),
+    prefill: (bookingId: string) => get<InvoicePrefill>(`/api/invoices/prefill?booking=${bookingId}`),
+    create: (v: { booking_id?: string; customer_id?: string; lines: QuoteLine[]; notes: string }) => post<{ id: string; number: string }>("/api/invoices", v),
+    update: (id: string, v: { lines: QuoteLine[]; notes: string }) => put(`/api/invoices/${id}`, v),
+    issue: (id: string) => post(`/api/invoices/${id}/issue`, {}),
+    discount: (id: string, amount: number, note: string) => post<{ discount_status: string }>(`/api/invoices/${id}/discount`, { amount, note }),
+    decideDiscount: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/discount/${approve ? "approve" : "reject"}`, { note }),
+    pay: (id: string, v: { amount: number; currency: "usd" | "khr"; method: PayMethod; paid_on: string; note: string }) => post<{ balance: number; payment_status: string }>(`/api/invoices/${id}/payments`, v),
+    void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
+    decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
+    debts: () => get<DebtRow[]>("/api/invoices/debts"),
+  },
+  settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),
     photo: (id: string, data: string) => post<{ id: string }>(`/api/bookings/${id}/survey-photos`, { data }),

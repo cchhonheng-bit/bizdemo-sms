@@ -1,10 +1,14 @@
 // Company settings, FX rate, vehicles, permission matrix (port of v1 M1 RPCs).
+import { readFile } from "node:fs/promises";
+import { extname, join } from "node:path";
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { ROLES, PERMISSION_KEYS } from "@sms/shared";
+import { config } from "../config.js";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
+import { MIME_BY_EXT, saveImage } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
 
 const settingsPatch = z.object({
@@ -70,6 +74,27 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
       await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: "fx.set", table: "company_settings", rowId: req.user!.companyId, old: { fx_rate_khr: Number(old.fx_rate_khr) }, new: { fx_rate_khr: rate }, ip: req.ip });
     });
     return { ok: true };
+  });
+
+  // ---- invoice logo + ACLEDA QR (FR-803 · BR-16): PNG / JPEG / WebP, printed on every invoice ----
+  app.post("/image/:kind", { preHandler: app.requirePerm("settings.manage"), bodyLimit: 3_000_000 }, async (req) => {
+    const { kind } = z.object({ kind: z.enum(["logo", "qr"]) }).parse(req.params);
+    const { data } = z.object({ data: z.string().min(10).max(2_800_000) }).parse(req.body);
+    const img = await saveImage(req.user!.companyId, data);
+    await tx(req.user!.id, async (t) => {
+      if (kind === "logo") await t`update company_settings set logo_path = ${img.rel}, updated_by = ${req.user!.id} where company_id = ${req.user!.companyId}`;
+      else await t`update company_settings set qr_image_path = ${img.rel}, updated_by = ${req.user!.id} where company_id = ${req.user!.companyId}`;
+      await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: `settings.${kind}`, table: "company_settings", rowId: req.user!.companyId, new: { bytes: img.bytes, mime: img.mime }, ip: req.ip });
+    });
+    return { ok: true };
+  });
+  app.get("/image/:kind", { preHandler: app.requireAuth }, async (req, reply) => {
+    const { kind } = z.object({ kind: z.enum(["logo", "qr"]) }).parse(req.params);
+    const path = (await sql<{ path: string | null }[]>`select ${kind === "logo" ? sql`logo_path` : sql`qr_image_path`} as path from company_settings where company_id = ${req.user!.companyId}`)[0]?.path;
+    if (!path) throw notFound();
+    const data = await readFile(join(config.uploadsDir, path)).catch(() => null);
+    if (!data) throw notFound();
+    return reply.type(MIME_BY_EXT[extname(path).slice(1)] ?? "application/octet-stream").header("Cache-Control", "private, max-age=300").header("X-Content-Type-Options", "nosniff").send(data);
   });
 
   // ---- vehicles ----

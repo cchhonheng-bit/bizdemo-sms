@@ -3,7 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useAuth } from "@/lib/auth";
 import Shell from "@/app/Shell";
-import { Home, RequireAuth, RequirePerm } from "@/app/guards";
+import { Home, RequireAnyPerm, RequireAuth, RequirePerm } from "@/app/guards";
 import LoginPage from "@/features/auth/LoginPage";
 import FirstLoginPage from "@/features/auth/FirstLoginPage";
 import UsersPage from "@/features/users/UsersPage";
@@ -22,6 +22,11 @@ import LeavePage from "@/features/leave/LeavePage";
 import QuotesPage from "@/features/quotes/QuotesPage";
 import QuoteEditorPage from "@/features/quotes/QuoteEditorPage";
 import QuotePrintPage from "@/features/quotes/QuotePrintPage";
+import InvoicesPage from "@/features/invoices/InvoicesPage";
+import InvoiceEditorPage from "@/features/invoices/InvoiceEditorPage";
+import InvoiceDetailPage from "@/features/invoices/InvoiceDetailPage";
+import InvoicePrintPage from "@/features/invoices/InvoicePrintPage";
+import { INVOICE_VIEW } from "@/features/invoices/util";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
@@ -41,6 +46,7 @@ export default function App() {
           <Route element={<RequireAuth />}>
             <Route path="/first-login" element={<FirstLoginPage />} />
             <Route element={<RequirePerm perm="quote.manage" />}><Route path="/quotes/:id/print" element={<QuotePrintPage />} /></Route>
+            <Route element={<RequireAnyPerm perms={INVOICE_VIEW} />}><Route path="/invoices/:id/print" element={<InvoicePrintPage />} /></Route>
             <Route element={<Shell />}>
               <Route index element={<Home />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -61,6 +67,14 @@ export default function App() {
                 <Route path="/quotes" element={<QuotesPage />} />
                 <Route path="/quotes/new" element={<QuoteEditorPage />} />
                 <Route path="/quotes/:id/edit" element={<QuoteEditorPage />} />
+              </Route>
+              <Route element={<RequireAnyPerm perms={INVOICE_VIEW} />}>
+                <Route path="/invoices" element={<InvoicesPage />} />
+                <Route path="/invoices/:id" element={<InvoiceDetailPage />} />
+              </Route>
+              <Route element={<RequirePerm perm="invoice.issue" />}>
+                <Route path="/invoices/new" element={<InvoiceEditorPage />} />
+                <Route path="/invoices/:id/edit" element={<InvoiceEditorPage />} />
               </Route>
               <Route path="/me" element={<MePage />} />
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>

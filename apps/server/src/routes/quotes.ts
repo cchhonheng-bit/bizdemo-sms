@@ -10,7 +10,8 @@ const line = z.object({
   qty: z.number().positive().max(1_000_000),
   unit: z.string().trim().max(20).default("unit"),
   unit_price: z.number().int().min(0).max(100_000_000),
-}).strict();
+}).strict().refine((l) => l.qty * l.unit_price <= 1_000_000_000, "LINE_TOO_LARGE"); // ≤ $10M a line
+const lines = z.array(line).min(1).max(100).refine((ls) => ls.reduce((s, l) => s + l.qty * l.unit_price, 0) <= 2_000_000_000, "TOTAL_TOO_LARGE"); // sums stay in int4
 const idParam = z.object({ id: z.string().uuid() });
 
 export const quotesRoutes: FastifyPluginAsync = async (app) => {
@@ -21,11 +22,11 @@ export const quotesRoutes: FastifyPluginAsync = async (app) => {
   });
   app.get("/:id", async (req) => getQuote(req.user!, idParam.parse(req.params).id));
   app.post("/", async (req) => {
-    const v = z.object({ booking_id: z.string().uuid(), lines: z.array(line).min(1).max(100), notes: z.string().max(2000).optional().nullable(), valid_days: z.number().int().min(1).max(365).optional().nullable() }).strict().parse(req.body);
+    const v = z.object({ booking_id: z.string().uuid(), lines, notes: z.string().max(2000).optional().nullable(), valid_days: z.number().int().min(1).max(365).optional().nullable() }).strict().parse(req.body);
     return createQuote(req.user!, req.ip, v);
   });
   app.put("/:id", async (req) => {
-    const v = z.object({ lines: z.array(line).min(1).max(100), notes: z.string().max(2000).optional().nullable() }).strict().parse(req.body);
+    const v = z.object({ lines, notes: z.string().max(2000).optional().nullable() }).strict().parse(req.body);
     return updateQuote(req.user!, req.ip, idParam.parse(req.params).id, v);
   });
   app.post("/:id/accept", async (req) => acceptQuote(req.user!, req.ip, idParam.parse(req.params).id));

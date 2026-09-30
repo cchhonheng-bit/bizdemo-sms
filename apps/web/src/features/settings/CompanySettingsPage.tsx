@@ -5,7 +5,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
 import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
-import { Copy, Plus, Send } from "lucide-react";
+import { Copy, ImageUp, Plus, Send } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
@@ -104,6 +104,7 @@ export default function CompanySettingsPage() {
         <div className="flex justify-end"><Button type="submit" variant="primary" loading={isSubmitting}>{t("app.save")}</Button></div>
       </form>
 
+      <InvoiceImagesCard current={settings.data as unknown as Record<string, unknown> | undefined} />
       <TelegramGroupCard current={settings.data} />
 
       <Card title={t("settings.vehicles")}>
@@ -161,6 +162,47 @@ function TelegramGroupCard({ current }: { current?: { telegram_group_chat_id: nu
       ) : (
         <Button variant="primary" onClick={() => make.mutate()} loading={make.isPending} data-testid="tg-group-make"><Send size={16} /> {t("settings.tg_make_code")}</Button>
       )}
+    </Card>
+  );
+}
+
+/** FR-803 · BR-16: logo + the fixed ACLEDA QR printed on every invoice (kept lossless as PNG so the QR stays sharp) */
+async function toPng(file: File, maxSide: number): Promise<string> {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.round(bmp.width * scale); canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  const png = canvas.toDataURL("image/png").split(",")[1]!;
+  return png.length * 0.75 < 1_900_000 ? png : canvas.toDataURL("image/jpeg", 0.92).split(",")[1]!; // a camera photo can be too big as PNG (server limit 2 MB)
+}
+function InvoiceImagesCard({ current }: { current?: Record<string, unknown> }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const [ver, setVer] = useState(0);
+  const [busy, setBusy] = useState<"" | "logo" | "qr">("");
+  const upload = async (kind: "logo" | "qr", file?: File) => {
+    if (!file) return;
+    setBusy(kind);
+    try { await api.settingsImage(kind, await toPng(file, kind === "qr" ? 1000 : 600)); toast.success(t("app.saved")); setVer(Date.now()); void qc.invalidateQueries({ queryKey: ["company_settings"] }); }
+    catch (e) { toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
+    setBusy("");
+  };
+  const has = (k: string) => !!current?.[k] || ver > 0;
+  return (
+    <Card title={t("settings.invoice_images")}>
+      <div className="grid grid-cols-2 gap-4">
+        {([["logo", "logo_path", t("settings.logo")], ["qr", "qr_image_path", t("settings.acleda_qr")]] as const).map(([kind, key, label]) => (
+          <div key={kind} className="flex flex-col items-start gap-2">
+            <div className="text-sm font-semibold">{label}</div>
+            {has(key) ? <img src={`/api/settings/image/${kind}?v=${ver}`} alt={label} className="h-28 w-28 object-contain border border-grey-line rounded" onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
+              : <div className="h-28 w-28 border border-dashed border-grey-line rounded grid place-items-center text-xs text-muted">—</div>}
+            <label className="btn-secondary cursor-pointer !mb-0"><ImageUp size={16} /> {busy === kind ? t("app.loading") : t("settings.upload")}
+              <input type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" data-testid={`upload-${kind}`} onChange={(e) => { void upload(kind, e.target.files?.[0]); e.target.value = ""; }} /></label>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }
