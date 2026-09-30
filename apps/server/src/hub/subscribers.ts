@@ -58,6 +58,16 @@ export async function stopSubscriptions(tgUser: number, promoOnly: boolean, shop
   }) as Promise<string[]>;
 }
 
+/** owner I1: promotions back on (menu button) — consent log 'promo_on' */
+export async function resumePromo(tgUser: number, shopCode: string): Promise<boolean> {
+  return sql.begin(async (t) => {
+    const r = (await t<{ subscriber_id: number }[]>`update hub_subscriptions s set promo = true from hub_subscribers u
+      where u.id = s.subscriber_id and u.telegram_user_id = ${tgUser} and s.shop_code = ${shopCode} and s.stopped_at is null and not s.promo returning s.subscriber_id`)[0];
+    if (r) await t`insert into hub_consent_log (subscriber_id, telegram_user_id, shop_code, action, text_version) values (${r.subscriber_id}, ${tgUser}, ${shopCode}, 'promo_on', ${CONSENT_VERSION})`;
+    return !!r;
+  }) as Promise<boolean>;
+}
+
 export async function subscribersOf(shop: Shop) {
   const counts = (await sql<{ total: number; promo: number; stopped: number }[]>`
     select count(*) filter (where s.stopped_at is null and u.blocked_at is null)::int as total,

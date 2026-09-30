@@ -234,6 +234,11 @@ describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
     expect(texts(700001, "ONETEAM").some((t) => t.includes("Booking Confirmed"))).toBe(true);
     expect(texts(-1001234, "ONETEAM").some((t) => t.includes("Booking Confirmed"))).toBe(true);
     expect(sent.filter((x) => x.method === "sendMessage").every((x) => x.bot === "ONETEAM")).toBe(true);
+    // I1: a 📱 button under the job message — technician → their job page, group → the booking page
+    const kimMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && String(x.payload.text).includes("Booking Confirmed"))!;
+    expect(kimMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/tech/job/${bk}`)).toBe(true);
+    const grpMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === -1001234 && String(x.payload.text).includes("Booking Confirmed"))!;
+    expect(grpMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/bookings/${bk}`)).toBe(true);
     expect((await sql<{ status: string }[]>`select status from telegram_outbox where text like '%Hub Customer%'`).every((o) => o.status === "sent")).toBe(true);
   });
 
@@ -442,5 +447,147 @@ describe("platform page (owner): login + bot management (T6) + public pages", ()
     resetBotCache();
     const c = (await shop.inject({ method: "GET", url: "/api/config" })).json();
     expect(c).toMatchObject({ companyName: "One Team Engineering", shopCode: "ONETEAM", telegramBot: "Oneteam_app_bot", features: ["subscribe"] });
+  });
+});
+
+// ---- restored review fixes (R5 · R6 · R7 · R12) for per-shop bots ----
+describe("independent review fixes (R5 · R6 · R7 · R12)", () => {
+  it("R12: shops may attach https link buttons only — no callback buttons (forged consent / menu)", async () => {
+    const key = process.env.HUB_KEY_ONETEAM!;
+    await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values ('ONETEAM', 700077, 'staff') on conflict do nothing`;
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700077", text: "tap", reply_markup: { inline_keyboard: [[{ text: "☑", callback_data: "sub:SHOPB:x" }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700077", text: "tap", reply_markup: { inline_keyboard: [[{ text: "☑", callback_data: "v:job:x" }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700077", text: "x", reply_markup: { inline_keyboard: [[{ text: "go", url: "http://evil.example" }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key, "POST", "/internal/send", { chat_id: "700077", text: "ok", reply_markup: { inline_keyboard: [[{ text: "🗺 Direction", url: "https://www.google.com/maps/dir/?api=1&destination=1,2" }]] } })).json().ok).toBe(true);
+  });
+
+  it("R5: the hub keeps no text of shop messages nor per-recipient broadcast copies", async () => {
+    const rows = await sql`select text from hub_message_log where kind in ('shop.send', 'broadcast') and text is not null`;
+    expect(rows.every((r) => /^\[\d+ chars\]$/.test(String(r.text)))).toBe(true);
+    expect((await sql`select count(*)::int as n from hub_message_log where text like '%Hub Customer%'`)[0]!.n).toBe(0);
+  });
+
+  it("R7: concurrent wrong codes cannot bypass the 10/hour limit", async () => {
+    resetRateLimits();
+    const before = shopCalls;
+    await Promise.all(Array.from({ length: 15 }, (_, i) => privateMsg(700050, `/start ZZZZ${"ABCDEFGHJKLMNPQ"[i]}ZZZ`)));
+    expect(shopCalls - before).toBeLessThanOrEqual(10);
+    resetRateLimits();
+  });
+
+  it("R6: deactivating a user unlinks Telegram at the hub (allowlist + user row)", async () => {
+    const dara = await loginAs(shop, "dara");
+    const { code } = (await dara.req("POST", "/api/telegram/link-code")).json;
+    await privateMsg(700060, `/start ${code}`);
+    expect((await sql`select 1 from hub_shop_chats where chat_id = 700060 and shop_code = 'ONETEAM'`).length).toBe(1);
+    expect((await ceo.req("PATCH", `/api/users/${s.users.dara}`, { is_active: false })).status).toBe(200);
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await sql`select 1 from hub_shop_chats where chat_id = 700060`).length).toBe(0);
+    expect((await sql`select telegram_chat_id from users where id = ${s.users.dara!}`)[0]!.telegram_chat_id).toBeNull();
+    await ceo.req("PATCH", `/api/users/${s.users.dara}`, { is_active: true });
+  });
+});
+
+// ---- owner I1: inline-button menus (edit in place, back/home), commands stay as fallback ----
+describe("I1 Telegram inline menus", () => {
+  let mid = 5000;
+  const cb = (user: number, data: string, path = "oneteam", chat: { id: number; type: string } = { id: user, type: "private" }) =>
+    hook(path, { callback_query: { id: `cbm${uid}`, from: { id: user, first_name: `U${user}` }, message: { message_id: ++mid, chat }, data } });
+  const lastEdit = (chat: number) => sent.filter((x) => (x.method === "editMessageText" || x.method === "sendMessage") && Number(x.payload.chat_id) === chat).at(-1);
+  const buttons = (m: Sent | undefined) => (m?.payload.reply_markup?.inline_keyboard ?? []).flat() as { text: string; callback_data?: string; url?: string }[];
+  const datas = (m: Sent | undefined) => buttons(m).map((b) => b.callback_data ?? b.url ?? "");
+
+  it("commands per chat type + menu button are set when a bot connects", async () => {
+    sent = [];
+    await rotateSecret("ONETEAM"); // reconnect
+    const cmds = sent.filter((x) => x.method === "setMyCommands");
+    expect(cmds.map((c) => c.payload.scope?.type).sort()).toEqual(["all_group_chats", "all_private_chats"]);
+    expect(cmds.find((c) => c.payload.scope.type === "all_group_chats")!.payload.commands.map((c: any) => c.command)).toContain("register");
+    expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.menu_button.type === "commands")).toBe(true);
+  });
+
+  it("customer: /start → menu → subscribe (consent) → promo off/on → stop with confirm; every step edits the same message", async () => {
+    sent = [];
+    await privateMsg(830001, "/start");
+    const home = lastSent(830001);
+    expect(home.bot).toBe("ONETEAM"); expect(home.payload.text).toContain("One Team Engineering");
+    expect(datas(home)).toEqual(expect.arrayContaining(["c:sub", "c:about"]));
+    expect(datas(home).some((d) => d.endsWith("/privacy"))).toBe(true);
+    await cb(830001, "c:sub");
+    const consent = lastEdit(830001)!;
+    expect(consent.method).toBe("editMessageText"); expect(consent.payload.message_id).toBe(mid);
+    expect(datas(consent)).toContain(`sub:ONETEAM:${CONSENT_VERSION}`); expect(datas(consent)).toContain("c:home");
+    expect(sent.filter((x) => x.method === "answerCallbackQuery").length).toBeGreaterThan(0);
+    await tick(830001);
+    await privateMsg(830001, "/start");
+    const subd = lastSent(830001);
+    expect(datas(subd)).toEqual(expect.arrayContaining(["c:promo_off", "c:stop_ask"]));
+    await cb(830001, "c:promo_off");
+    expect((await sql`select s.promo from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.promo).toBe(false);
+    expect(datas(lastEdit(830001))).toContain("c:promo_on");
+    await cb(830001, "c:promo_on");
+    expect((await sql`select s.promo from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.promo).toBe(true);
+    expect((await sql`select action from hub_consent_log where telegram_user_id = 830001 order by id`).map((r) => r.action)).toEqual(["subscribe", "promo_off", "promo_on"]);
+    await cb(830001, "c:stop_ask");
+    expect(datas(lastEdit(830001))).toEqual(expect.arrayContaining(["c:stop_yes", "c:home"]));
+    await cb(830001, "c:stop_yes");
+    expect((await sql`select s.stopped_at from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.stopped_at).not.toBeNull();
+  });
+
+  it("staff: /start in the shop bot → own menu (today / upcoming / app) → job details with Direction + back; data comes from the shop", async () => {
+    await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values ('ONETEAM', 700001, 'staff') on conflict do nothing`;
+    await sql`update users set telegram_chat_id = 700001, telegram_user_id = 700001 where id = ${s.users.kim!}`;
+    sent = [];
+    await privateMsg(700001, "/start");
+    const home = lastSent(700001);
+    expect(home.payload.text).toContain("Kim");
+    expect(datas(home)).toEqual(expect.arrayContaining(["v:today", "v:next"]));
+    expect(datas(home).some((d) => d.startsWith("https://hub.test"))).toBe(true); // open the app
+    await cb(700001, "v:next");
+    const list = lastEdit(700001);
+    const jobBtn = buttons(list).find((b) => b.callback_data?.startsWith("v:job:"));
+    expect(jobBtn).toBeTruthy(); expect(datas(list)).toContain("v:home");
+    await cb(700001, jobBtn!.callback_data!);
+    const job = lastEdit(700001)!;
+    expect(job.payload.text).toMatch(/BK-\d{4}/); expect(job.payload.text).toContain("Hub Customer");
+    expect(datas(job).some((d) => d.includes("google.com/maps/dir"))).toBe(true);
+    expect(datas(job)).toContain("v:next");
+    expect(job.payload.text).not.toMatch(/\$|៛/); // technicians never see prices (AC-01)
+  });
+
+  it("security: a technician cannot open another technician's job; a non-staff chat never gets staff data; bad callback data does nothing", async () => {
+    const custId = (await ceo.req("GET", "/api/customers")).json[0].id;
+    const other = (await ceo.req("POST", "/api/bookings", { customer_id: custId, type: "A", category: "mep", service_text: "secret job", zone: "inside", scheduled_at: new Date(Date.now() + 5 * 86400_000).toISOString() })).json.id;
+    await cb(700001, `v:job:${other}`);
+    expect(lastEdit(700001)!.payload.text).not.toContain("secret job");
+    sent = [];
+    await cb(840001, "v:today"); // a customer chat pressing a staff button
+    expect(JSON.stringify(sent)).not.toContain("Hub Customer");
+    sent = [];
+    await cb(700001, "v:job:not-a-uuid'; drop table users;--");
+    await cb(700001, "zz:whatever");
+    expect(sent.filter((x) => x.method !== "answerCallbackQuery")).toHaveLength(0);
+    expect(sent.filter((x) => x.method === "answerCallbackQuery")).toHaveLength(2);
+  });
+
+  it("group: registered work group gets a group menu (today's jobs); an unregistered group gets /register help", async () => {
+    sent = [];
+    await groupMsg(700020, -1001234, "/start");
+    expect(datas(lastSent(-1001234))).toContain("v:gtoday");
+    await cb(700020, "v:gtoday", "oneteam", { id: -1001234, type: "supergroup" });
+    expect(lastEdit(-1001234)!.payload.text).toBeTruthy();
+    await groupMsg(700020, -1005555, "/help");
+    expect(lastSent(-1005555).payload.text).toContain("/register");
+  });
+
+  it("master bot: /start menu → Follow / Unfollow buttons", async () => {
+    sent = [];
+    await privateMsg(850001, "/start", {}, "hangkh");
+    expect(datas(lastSent(850001))).toContain("m:follow");
+    await cb(850001, "m:follow", "hangkh");
+    expect((await sql`select stopped_at from hub_followers where telegram_user_id = 850001`)[0]!.stopped_at).toBeNull();
+    expect(datas(lastEdit(850001))).toContain("m:unfollow");
+    await cb(850001, "m:unfollow", "hangkh");
+    expect((await sql`select stopped_at from hub_followers where telegram_user_id = 850001`)[0]!.stopped_at).not.toBeNull();
   });
 });

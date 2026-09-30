@@ -51,19 +51,23 @@ export function setWebhook(bot: BotRef, url: string, secret: string): Promise<Tg
   return tg(bot, "setWebhook", { url, secret_token: secret, allowed_updates: ["message", "callback_query"], drop_pending_updates: false });
 }
 
-/** Commands shown in the Telegram menu: shop bots (T3) and the master bot (T4) */
-export function setCommands(bot: BotRef, kind: "shop" | "master"): Promise<TgResult> {
-  const commands = kind === "shop"
+/** owner I1: command lists per chat type (private / groups) + the menu button shows them; buttons are the main UI */
+export async function setCommands(bot: BotRef, kind: "shop" | "master"): Promise<TgResult> {
+  const privateCmds = kind === "shop"
     ? [
-      { command: "start", description: "Start" },
-      { command: "stop", description: "Stop messages (/stop promo = promotions off)" },
-      { command: "help", description: "Help" },
-      { command: "register", description: "Set the work group (/register <code>)" },
+      { command: "start", description: "🏠 ម៉ឺនុយ / Menu" },
+      { command: "help", description: "❓ ជំនួយ / Help" },
+      { command: "stop", description: "⛔ ឈប់ទទួលសារ (/stop promo = បិទប្រូម៉ូសិន)" },
     ]
     : [
-      { command: "start", description: "Start / Follow HangKH" },
-      { command: "stop", description: "Stop following HangKH" },
-      { command: "help", description: "Help" },
+      { command: "start", description: "🏠 ម៉ឺនុយ / Menu" },
+      { command: "stop", description: "🔕 ឈប់តាមដាន HangKH" },
     ];
-  return tg(bot, "setMyCommands", { commands });
+  const groupCmds = kind === "shop"
+    ? [{ command: "start", description: "📋 ម៉ឺនុយ Group" }, { command: "register", description: "🔗 កំណត់ Group ការងារ (/register <កូដ>)" }, { command: "help", description: "❓ ជំនួយ" }]
+    : [{ command: "help", description: "❓ ជំនួយ" }];
+  const a = await tg(bot, "setMyCommands", { commands: privateCmds, scope: { type: "all_private_chats" } });
+  await tg(bot, "setMyCommands", { commands: groupCmds, scope: { type: "all_group_chats" } });
+  await tg(bot, "setChatMenuButton", { menu_button: { type: "commands" } });
+  return a;
 }

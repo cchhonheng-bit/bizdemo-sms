@@ -8,6 +8,7 @@ import { AppError } from "../lib/errors.js";
 import { safeEqual } from "../lib/secure.js";
 import { shopBotCode } from "@sms/shared";
 import { consumeGroupCode, consumeLinkCode } from "../services/telegram.js";
+import { renderMenu } from "../services/telegram-menu.js";
 
 const tgSchema = z.object({
   kind: z.enum(["link", "group"]),
@@ -29,6 +30,12 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
     const code = shopBotCode(b.code, config.shop.code, b.kind === "link" ? "staff" : "group");
     if (!code) return { ok: false, error: "WRONG_SHOP", reply: "❌ កូដនេះមិនមែនសម្រាប់ហាងនេះទេ។" };
     return b.kind === "link" ? consumeLinkCode(code, b.tg_user, b.chat_id) : consumeGroupCode(code, b.chat_id, b.chat_title.slice(0, 120));
+  });
+
+  /** owner I1: inline menu for a Telegram chat (staff / work group). The chat id comes from Telegram via the hub; the shop decides. */
+  app.post("/tg-menu", async (req) => {
+    const b = z.object({ chat_id: z.number().int(), view: z.enum(["home", "today", "next", "job", "ghome", "gtoday"]), id: z.string().uuid().optional(), back: z.enum(["today", "next"]).optional() }).strict().parse(req.body);
+    return { menu: await renderMenu(b.chat_id, b.view, b.id ?? null, b.back) };
   });
 
   /** aggregate numbers only (A4: non-subscriber data stays in the shop; the platform sees totals) */

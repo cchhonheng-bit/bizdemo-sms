@@ -2,6 +2,7 @@
 // THROUGH THE HUB (the shop has no bot token — D-51), "Booking Confirmed" text (Architecture §8.1),
 // staff/group codes ONETEAM-S-xxxxxx / ONETEAM-G-xxxxxx (A3, S-11) validated when the hub forwards them.
 import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN } from "@sms/shared";
+import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
 import { audit } from "./audit.js";
@@ -52,6 +53,18 @@ export async function flushOutbox(limit = 20, send: (chatId: number | string, te
   return out;
 }
 
+// ---------- buttons under job messages (owner I1) --------------------------------------------
+type Row = { text: string; url: string }[];
+/** 📱 open the job in the app — technicians on their job page, the group on the booking page (https only, R12) */
+function appRow(bookingId: string, forTech: boolean): Row[] {
+  if (!config.publicUrl.startsWith("https://")) return [];
+  return [[{ text: "📱 មើលក្នុងកម្មវិធី", url: `${config.publicUrl}${forTech ? "/tech/job/" : "/bookings/"}${bookingId}` }]];
+}
+function withApp(markup: unknown, bookingId: string, forTech: boolean): unknown {
+  const rows = [...(((markup as { inline_keyboard?: Row[] } | null)?.inline_keyboard) ?? []), ...appRow(bookingId, forTech)];
+  return rows.length ? { inline_keyboard: rows } : null;
+}
+
 // ---------- Booking Confirmed text -----------------------------------------------------
 export async function bookingConfirmedText(db: Db, bookingId: string): Promise<{ text: string; markup: unknown | null; companyId: string; number: string }> {
   const b = (await db<{
@@ -91,12 +104,12 @@ export function fmtLocal(d: Date, timeZone: string): string {
 export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason: string): Promise<void> {
   const { text, markup, companyId, number } = await bookingConfirmedText(db, bookingId);
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${companyId}`)[0]?.telegram_group_chat_id;
-  if (group) await enqueue(db, companyId, group, text, markup, `booking:${bookingId}:${reason}:group`);
+  if (group) await enqueue(db, companyId, group, text, withApp(markup, bookingId, false), `booking:${bookingId}:${reason}:group`);
   const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
   for (const m of team) {
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
              values (${companyId}, ${m.id}, 'booking.assigned', ${number + " · ការងារថ្មី"}, ${text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
-    if (m.telegram_chat_id) await enqueue(db, companyId, m.telegram_chat_id, text, markup, `booking:${bookingId}:${reason}:${m.id}`);
+    if (m.telegram_chat_id) await enqueue(db, companyId, m.telegram_chat_id, text, withApp(markup, bookingId, true), `booking:${bookingId}:${reason}:${m.id}`);
   }
 }
 
@@ -118,12 +131,12 @@ export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { 
   ].join("\n");
   const key = `resched:${bookingId}:${Date.now()}`;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
-  if (group) await enqueue(db, b.company_id, group, text, null, `${key}:group`);
+  if (group) await enqueue(db, b.company_id, group, text, withApp(null, bookingId, false), `${key}:group`);
   const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
   for (const m of team) {
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
              values (${b.company_id}, ${m.id}, 'booking.rescheduled', ${b.number + " · ប្ដូរម៉ោង"}, ${text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
-    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, null, `${key}:${m.id}`);
+    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, withApp(null, bookingId, true), `${key}:${m.id}`);
   }
 }
 
