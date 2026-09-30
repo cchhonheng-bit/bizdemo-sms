@@ -96,7 +96,7 @@ export default function CompanySettingsPage() {
           <Button type="button" onClick={() => void readGps().then((g) => { if (!g) { toast.error(t("attendance.saved_no_gps")); return; } setValue("office_lat", g.lat, { shouldDirty: true }); setValue("office_lng", g.lng, { shouldDirty: true }); toast.success(t("settings.office_here_ok", { m: g.accuracy })); })} data-testid="office-here"><MapPin size={16} /> {t("settings.office_here")}</Button>
         </Card>
 
-        <Card title="Finance · Telegram">
+        <Card title={t("settings.finance_title")}>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label={t("settings.fx")} error={errors.fx_rate_khr?.message}><Input type="number" {...num("fx_rate_khr")} /></Field>
             <Field label={t("settings.discount_limit")} error={errors.discount_approval_limit?.message}><Input type="number" step="0.01" {...num("discount_approval_limit")} /></Field>

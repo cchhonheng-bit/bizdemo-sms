@@ -9,7 +9,7 @@ import { api, fmtDate } from "@/lib/api";
 import { Button, ErrorState, Skeleton } from "@/components/ui";
 
 export default function QuotePrintPage() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { id } = useParams();
   const q = useQuery({ queryKey: ["quote", id], queryFn: () => api.quotes.get(id!) });
   if (q.isLoading) return <div className="p-4"><Skeleton /></div>;
@@ -25,28 +25,27 @@ export default function QuotePrintPage() {
       <article className="mx-auto my-4 print:my-0 bg-white w-full max-w-[210mm] p-6 sm:p-10 text-[13px] leading-relaxed shadow print:shadow-none" data-testid="quote-print">
         <header className="flex flex-wrap justify-between gap-4 border-b-2 border-navy pb-3">
           <div>
-            <div className="text-lg font-bold text-navy">{info.name_km || d.company.name}</div>
-            {info.name_en && <div className="font-semibold">{info.name_en}</div>}
+            <div className="text-lg font-bold text-navy">{(i18n.language === "en" ? info.name_en : info.name_km) || d.company.name}</div>
             {info.address && <div className="text-xs">{info.address}</div>}
             {info.phone && <div className="text-xs">☎ {info.phone}</div>}
           </div>
           <div className="text-right">
-            <div className="text-xl font-bold text-navy">សម្រង់តម្លៃ / QUOTATION</div>
+            <div className="text-xl font-bold text-navy">{t("print.quote")}</div>
             <div className="font-mono font-bold">{d.number}</div>
             <div className="text-xs">{fmtDate(d.created_at)}{d.valid_until ? ` · ${t("quote.valid_until")} ${fmtDate(d.valid_until)}` : ""}</div>
           </div>
         </header>
         <section className="grid sm:grid-cols-2 gap-3 my-4">
-          <div><div className="text-xs text-muted">អតិថិជន / Customer</div><div className="font-semibold">{d.customer_name}</div><div className="text-xs">{d.customer_phones.join(", ")}</div><div className="text-xs">{d.address ?? ""}</div></div>
-          <div><div className="text-xs text-muted">ការងារ / Job</div><div>{d.booking_number}</div><div className="text-xs break-words">{d.service_text}</div></div>
+          <div><div className="text-xs text-muted">{t("print.customer")}</div><div className="font-semibold">{d.customer_name}</div><div className="text-xs">{d.customer_phones.join(", ")}</div><div className="text-xs">{d.address ?? ""}</div></div>
+          <div><div className="text-xs text-muted">{t("print.job")}</div><div>{d.booking_number}</div><div className="text-xs break-words">{d.service_text}</div></div>
         </section>
         <table className="w-full border-collapse">
-          <thead><tr className="bg-navy text-white text-xs"><th className="p-2 text-left">#</th><th className="p-2 text-left">ការពិពណ៌នា / Description</th><th className="p-2 text-right">ចំនួន / Qty</th><th className="p-2 text-right">តម្លៃ / Price</th><th className="p-2 text-right">សរុប / Amount</th></tr></thead>
+          <thead><tr className="bg-navy text-white text-xs"><th className="p-2 text-left">#</th><th className="p-2 text-left">{t("print.description")}</th><th className="p-2 text-right">{t("print.qty")}</th><th className="p-2 text-right">{t("print.price")}</th><th className="p-2 text-right">{t("print.amount")}</th></tr></thead>
           <tbody>
             {d.lines.map((l, i) => (
               <tr key={l.id ?? i} className="border-b border-grey-line align-top">
                 <td className="p-2">{i + 1}</td>
-                <td className="p-2 break-words">{l.description}<div className="text-[11px] text-muted">{l.kind === "service" ? "សេវាកម្ម / Service" : "ទំនិញ / Product"}</div></td>
+                <td className="p-2 break-words">{l.description}<div className="text-[11px] text-muted">{t(l.kind === "service" ? "print.service" : "print.product")}</div></td>
                 <td className="p-2 text-right tabular whitespace-nowrap">{l.qty} {l.unit}</td>
                 <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.unit_price)}</td>
                 <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.line_total ?? 0)}</td>
@@ -54,14 +53,14 @@ export default function QuotePrintPage() {
             ))}
           </tbody>
           <tfoot>
-            <tr><td colSpan={4} className="p-2 text-right font-bold">សរុប / Total</td><td className="p-2 text-right font-bold tabular text-base">{formatUsd(d.total)}</td></tr>
-            <tr><td colSpan={4} className="p-2 text-right text-xs">ប្រហែល / approx. ({formatKhr(d.fx_rate_khr)} / $1)</td><td className="p-2 text-right text-xs tabular">{formatKhr(d.total_khr)}</td></tr>
+            <tr><td colSpan={4} className="p-2 text-right font-bold">{t("print.total")}</td><td className="p-2 text-right font-bold tabular text-base">{formatUsd(d.total)}</td></tr>
+            <tr><td colSpan={4} className="p-2 text-right text-xs">{t("print.approx_riel", { rate: formatKhr(d.fx_rate_khr) })}</td><td className="p-2 text-right text-xs tabular">{formatKhr(d.total_khr)}</td></tr>
           </tfoot>
         </table>
-        {d.notes && <p className="mt-4 whitespace-pre-wrap break-words"><b>ចំណាំ / Notes:</b> {d.notes}</p>}
+        {d.notes && <p className="mt-4 whitespace-pre-wrap break-words"><b>{t("print.notes")}:</b> {d.notes}</p>}
         <footer className="mt-10 grid grid-cols-2 gap-8 text-center text-xs">
-          <div className="border-t border-ink pt-1">អ្នករៀបចំ / Prepared by<br />{d.created_by_name ?? ""}</div>
-          <div className="border-t border-ink pt-1">អតិថិជនយល់ព្រម / Customer acceptance</div>
+          <div className="border-t border-ink pt-1">{t("print.prepared_by")}<br />{d.created_by_name ?? ""}</div>
+          <div className="border-t border-ink pt-1">{t("print.acceptance")}</div>
         </footer>
       </article>
     </div>

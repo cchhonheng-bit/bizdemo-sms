@@ -178,7 +178,7 @@ export async function submitReport(user: SessionUser, perms: string[], ip: strin
     // FR-1002: GM receives the job waiting for review
     const reviewers = await t<{ id: string }[]>`select u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
       where u.company_id = ${b.company_id} and u.is_active and rp.permission_key = 'job.review' and rp.allowed and u.role = 'gm'`;
-    for (const r of reviewers) await notifyUser(t, b.company_id, r.id, "job.review", `🔎 រង់ចាំពិនិត្យ · ${b.number}`, `របាយការណ៍ការងារពី ${user.fullName}`, `/bookings/${id}`, `review-req:${id}:${Date.now()}:${r.id}`);
+    for (const r of reviewers) await notifyUser(t, b.company_id, r.id, "job.review", { km: `🔎 រង់ចាំពិនិត្យ · ${b.number}`, en: `🔎 Waiting for review · ${b.number}` }, { km: `របាយការណ៍ការងារពី ${user.fullName}`, en: `Job report from ${user.fullName}` }, `/bookings/${id}`, `review-req:${id}:${Date.now()}:${r.id}`);
     return { ok: true, status: "pending_review" as const };
   });
 }
@@ -196,7 +196,8 @@ export async function reviewReport(user: SessionUser, ip: string | null, id: str
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.review", table: "booking_reports", rowId: id, new: { decision, note: note.trim() }, ip });
     const crew = await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`;
     for (const c of crew) await notifyUser(t, b.company_id, c.user_id, decision === "approve" ? "job.reviewed" : "job.revision",
-      decision === "approve" ? `✅ ការងារត្រឹមត្រូវ · ${b.number}` : `✏️ សូមកែរបាយការណ៍ · ${b.number}`, decision === "approve" ? `ពិនិត្យដោយ ${user.fullName}` : `📝 ${note.trim()}`,
+      decision === "approve" ? { km: `✅ ការងារត្រឹមត្រូវ · ${b.number}`, en: `✅ Job approved · ${b.number}` } : { km: `✏️ សូមកែរបាយការណ៍ · ${b.number}`, en: `✏️ Please fix the report · ${b.number}` },
+      decision === "approve" ? { km: `ពិនិត្យដោយ ${user.fullName}`, en: `Reviewed by ${user.fullName}` } : `📝 ${note.trim()}`,
       `/tech/job/${id}`, `review:${id}:${Date.now()}:${c.user_id}`);
     return { ok: true, status };
   });
@@ -216,8 +217,8 @@ export async function lateAlerts(): Promise<number> {
       (select string_agg(u.full_name, ', ') from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as crew`;
   for (const b of late) {
     const to = await sql<{ id: string }[]>`select id from users where company_id = ${b.company_id} and is_active and role in ('admin', 'gm')`;
-    for (const u of to) await notifyUser(sql, b.company_id, u.id, "booking.late", `⏰ ជាងយឺត · ${b.number}`,
-      `ណាត់ ${fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh").slice(-5)} · មិនទាន់ចុច «ដល់ទីតាំង»\n👷 ${b.crew ?? "—"}`, `/bookings/${b.id}`, `late:${b.id}:${u.id}`);
+    for (const u of to) await notifyUser(sql, b.company_id, u.id, "booking.late", { km: `⏰ ជាងយឺត · ${b.number}`, en: `⏰ Technician late · ${b.number}` },
+      { km: `ណាត់ ${fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh").slice(-5)} · មិនទាន់ចុច «ដល់ទីតាំង»\n👷 ${b.crew ?? "—"}`, en: `Due ${fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh").slice(-5)} · «Arrived on site» not pressed yet\n👷 ${b.crew ?? "—"}` }, `/bookings/${b.id}`, `late:${b.id}:${u.id}`);
   }
   return late.length;
 }

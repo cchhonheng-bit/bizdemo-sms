@@ -39,10 +39,10 @@ async function doVoid(t: Db, user: SessionUser, p: Pay, reason: string, ip: stri
     if (["closed", "partially_paid", "invoiced"].includes(s.status) && want !== s.status) await t`update bookings set status = ${want}::booking_status where id = ${p.booking_id}`;
   }
   await audit(t, { companyId: p.company_id, userId: user.id, action: "payment.void", table: "payments", rowId: p.id, new: { invoice: p.number, usd_cents: p.usd_cents, reason }, ip });
-  await reverseSource(t, user, "payment", p.id, `VOID: ${reason}`);
+  await reverseSource(t, user, "payment", p.id, reason);
   // BR-21: CEO + CFO hear about every void
   for (const u of await t<{ id: string }[]>`select id from users where company_id = ${p.company_id} and is_active and role in ('ceo', 'cfo') and id <> ${user.id}`)
-    await notifyUser(t, p.company_id, u.id, "payment.void", `🚫 VOID ការទទួលប្រាក់ · ${p.number}`, `ដោយ ${user.fullName}\n📝 ${reason}`, `/invoices/${p.invoice_id}`, `pvoid:${p.id}:${u.id}`);
+    await notifyUser(t, p.company_id, u.id, "payment.void", { km: `🚫 មោឃៈការទទួលប្រាក់ · ${p.number}`, en: `🚫 Payment void · ${p.number}` }, { km: `ដោយ ${user.fullName}\n📝 ${reason}`, en: `by ${user.fullName}\n📝 ${reason}` }, `/invoices/${p.invoice_id}`, `pvoid:${p.id}:${u.id}`);
 }
 
 export async function requestPaymentVoid(user: SessionUser, ip: string | null, id: string, reason: string) {
@@ -57,7 +57,7 @@ export async function requestPaymentVoid(user: SessionUser, ip: string | null, i
     await audit(t, { companyId: user.companyId, userId: user.id, action: "payment.void_request", table: "payment_void_requests", rowId: rid, new: { payment_id: id, reason: why }, ip });
     for (const u of await t<{ id: string }[]>`select u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role and rp.permission_key = 'void.approve' and rp.allowed
         where u.company_id = ${user.companyId} and u.is_active and u.id <> ${user.id} and u.role::text = any(${t.array(user.role === "admin" ? ["gm"] : ["ceo"])})`)
-      await notifyUser(t, user.companyId, u.id, "payment.void_request", `🚫 សំណើ Void ការទទួលប្រាក់ · ${p.number}`, `ស្នើដោយ ${user.fullName}\n📝 ${why}`, `/invoices/${p.invoice_id}`, `pvoid-req:${rid}:${u.id}`);
+      await notifyUser(t, user.companyId, u.id, "payment.void_request", { km: `🚫 សំណើធ្វើមោឃៈការទទួលប្រាក់ · ${p.number}`, en: `🚫 Payment void request · ${p.number}` }, { km: `ស្នើដោយ ${user.fullName}\n📝 ${why}`, en: `requested by ${user.fullName}\n📝 ${why}` }, `/invoices/${p.invoice_id}`, `pvoid-req:${rid}:${u.id}`);
     return { status: "pending" as const };
   });
 }
@@ -73,7 +73,7 @@ export async function decidePaymentVoid(user: SessionUser, ip: string | null, id
     await t`update payment_void_requests set status = ${approve ? "approved" : "rejected"}::void_request_status, decided_by = ${user.id}, decided_at = now(), decision_note = ${note.trim() || null} where id = ${r.id}`;
     if (approve) await doVoid(t, user, p, r.reason, ip);
     else await audit(t, { companyId: user.companyId, userId: user.id, action: "payment.void_reject", table: "payment_void_requests", rowId: r.id, new: { note: note.trim() || null }, ip });
-    await notifyUser(t, user.companyId, r.requested_by, "payment.void_decided", `${approve ? "✅ Void អនុម័ត" : "❌ Void មិនអនុម័ត"} · ${p.number}`, `${user.fullName}${note.trim() ? `\n📝 ${note.trim()}` : ""}`, `/invoices/${p.invoice_id}`, `pvoid-dec:${r.id}`);
+    await notifyUser(t, user.companyId, r.requested_by, "payment.void_decided", { km: `${approve ? "✅ ការធ្វើមោឃៈត្រូវបានអនុម័ត" : "❌ ការធ្វើមោឃៈមិនត្រូវបានអនុម័ត"} · ${p.number}`, en: `${approve ? "✅ Void approved" : "❌ Void rejected"} · ${p.number}` }, `${user.fullName}${note.trim() ? `\n📝 ${note.trim()}` : ""}`, `/invoices/${p.invoice_id}`, `pvoid-dec:${r.id}`);
     return { status: approve ? ("void" as const) : ("rejected" as const) };
   });
 }

@@ -5,6 +5,7 @@ import { sql, tx, type Db } from "../db.js";
 import { AppError } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
+import { asLang, pick } from "../lib/i18n.js";
 
 export const ATTENDANCE_ROLES = ["gm", "admin", "tech"];
 const MAX_DAYS = 62;
@@ -149,29 +150,34 @@ const hmIn = (d: Date, tz: string) => new Intl.DateTimeFormat("en-GB", { timeZon
 /** the hub forwards a location sent in a private chat with the shop bot; the shop decides who it is and records in / out.
  *  No GPS accuracy (a point picked on the map) = «no GPS», flagged; a location older than 2 minutes is refused. */
 export async function telegramAttendance(b: { chat_id: number; tg_user: number; lat: number; lng: number; accuracy: number | null; sent_at: number }): Promise<string> {
-  const u = (await sql<{ id: string; company_id: string; role: string; full_name: string; username: string; timezone: string }[]>`
-    select u.id, u.company_id, u.role, u.full_name, u.username, c.timezone from users u join companies c on c.id = u.company_id
+  const u = (await sql<{ id: string; company_id: string; role: string; full_name: string; username: string; timezone: string; language: string }[]>`
+    select u.id, u.company_id, u.role, u.full_name, u.username, c.timezone, u.language from users u join companies c on c.id = u.company_id
     where u.telegram_chat_id = ${b.chat_id} and u.telegram_user_id = ${b.tg_user} and u.is_active and c.is_active limit 1`)[0];
   if (!u) return "ℹ️ ការផ្ញើទីតាំង ប្រើសម្រាប់វត្តមានបុគ្គលិកដែលបានភ្ជាប់ Telegram ប៉ុណ្ណោះ។";
-  if (Math.abs(Date.now() / 1000 - b.sent_at) > 120) return "⏳ ទីតាំងនេះចាស់ពេក — សូមចុច «📍 ផ្ញើទីតាំង» ម្ដងទៀត។";
+  const L = (km: string, en: string) => pick({ km, en }, asLang(u.language));
+  if (Math.abs(Date.now() / 1000 - b.sent_at) > 120) return L("⏳ ទីតាំងនេះចាស់ពេក — សូមចុច «📍 ផ្ញើទីតាំង» ម្ដងទៀត។", "⏳ This location is too old — tap «📍 Send location» again.");
   const user = { id: u.id, companyId: u.company_id, role: u.role, username: u.username, fullName: u.full_name, mustChangePassword: false, language: "km", sessionId: "telegram" } as SessionUser;
-  if (!(await tracks(sql, user))) return "ℹ️ គណនីរបស់អ្នកមិនកត់វត្តមានទេ។";
+  if (!(await tracks(sql, user))) return L("ℹ️ គណនីរបស់អ្នកមិនកត់វត្តមានទេ។", "ℹ️ Your account does not record attendance.");
   const rec = (await sql<{ in_at: Date; out_at: Date | null }[]>`select in_at, out_at from attendance where user_id = ${u.id} and work_date = (now() at time zone ${u.timezone})::date`)[0];
-  if (rec?.out_at) return `✅ ថ្ងៃនេះកត់រួចហើយ · ចូល ${hmIn(rec.in_at, u.timezone)} · ចេញ ${hmIn(rec.out_at, u.timezone)}`;
+  if (rec?.out_at) return L(`✅ ថ្ងៃនេះកត់រួចហើយ · ចូល ${hmIn(rec.in_at, u.timezone)} · ចេញ ${hmIn(rec.out_at, u.timezone)}`, `✅ Already recorded today · in ${hmIn(rec.in_at, u.timezone)} · out ${hmIn(rec.out_at, u.timezone)}`);
   const kind = rec ? "out" : "in";
   const gps = b.accuracy != null;
   const r = await check(user, null, { kind, lat: gps ? b.lat : null, lng: gps ? b.lng : null, accuracy: b.accuracy, no_gps: !gps });
-  const where = r.no_gps ? "⚠️ គ្មាន GPS (ទីតាំងជ្រើសលើផែនទី) — GM នឹងពិនិត្យ"
-    : r.out_of_range ? `⚠️ ក្រៅរង្វង់ Office (${r.distance_m} m) — GM នឹងពិនិត្យ`
-      : r.distance_m != null ? `📍 ក្នុងរង្វង់ Office (${r.distance_m} m)` : "📍 បានកត់ (CEO មិនទាន់កំណត់ទីតាំង Office)";
-  return `${kind === "in" ? "✅ ចូលធ្វើការ" : "👋 ចេញពីការងារ"} ម៉ោង ${hmIn(new Date(r.at), u.timezone)}\n${where}`;
+  const where = r.no_gps ? L("⚠️ គ្មាន GPS (ទីតាំងជ្រើសលើផែនទី) — អ្នកគ្រប់គ្រងនឹងពិនិត្យ", "⚠️ No GPS (point picked on the map) — the GM will check")
+    : r.out_of_range ? L(`⚠️ ក្រៅរង្វង់ការិយាល័យ (${r.distance_m} ម៉ែត្រ) — អ្នកគ្រប់គ្រងនឹងពិនិត្យ`, `⚠️ Outside the office area (${r.distance_m} m) — the GM will check`)
+      : r.distance_m != null ? L(`📍 ក្នុងរង្វង់ការិយាល័យ (${r.distance_m} ម៉ែត្រ)`, `📍 Inside the office area (${r.distance_m} m)`)
+        : L("📍 បានកត់ (នាយកប្រតិបត្តិមិនទាន់កំណត់ទីតាំងការិយាល័យ)", "📍 Recorded (the CEO has not set the office location yet)");
+  return `${kind === "in" ? L("✅ ចូលធ្វើការ", "✅ Checked in") : L("👋 ចេញពីការងារ", "👋 Checked out")} ${L("ម៉ោង", "at")} ${hmIn(new Date(r.at), u.timezone)}\n${where}`;
 }
 
 /** staff menu screen «📍 វត្តមាន»: today's state (the hub adds the «send my location» keyboard) */
 export async function attendanceMenuText(userId: string): Promise<string | null> {
-  const u = (await sql<{ role: string; tracks: boolean; timezone: string }[]>`select u.role, u.tracks_attendance as tracks, c.timezone from users u join companies c on c.id = u.company_id where u.id = ${userId}`)[0];
+  const u = (await sql<{ role: string; tracks: boolean; timezone: string; language: string }[]>`select u.role, u.tracks_attendance as tracks, c.timezone, u.language from users u join companies c on c.id = u.company_id where u.id = ${userId}`)[0];
   if (!u || !u.tracks || !ATTENDANCE_ROLES.includes(u.role)) return null;
   const rec = (await sql<{ in_at: Date; out_at: Date | null }[]>`select in_at, out_at from attendance where user_id = ${userId} and work_date = (now() at time zone ${u.timezone})::date`)[0];
-  const state = !rec ? "មិនទាន់ចូលធ្វើការ" : !rec.out_at ? `ចូល ${hmIn(rec.in_at, u.timezone)} · មិនទាន់ចេញ` : `ចូល ${hmIn(rec.in_at, u.timezone)} · ចេញ ${hmIn(rec.out_at, u.timezone)} ✅`;
-  return `📍 វត្តមានថ្ងៃនេះ\n${state}\n\nផ្ញើទីតាំងបច្ចុប្បន្ន (GPS) ដើម្បី${!rec ? "ចូលធ្វើការ" : !rec.out_at ? "ចេញពីការងារ" : " — ថ្ងៃនេះរួចហើយ"}។`;
+  const L = (km: string, en: string) => pick({ km, en }, asLang(u.language));
+  const state = !rec ? L("មិនទាន់ចូលធ្វើការ", "Not checked in yet") : !rec.out_at ? L(`ចូល ${hmIn(rec.in_at, u.timezone)} · មិនទាន់ចេញ`, `In ${hmIn(rec.in_at, u.timezone)} · not out yet`)
+    : L(`ចូល ${hmIn(rec.in_at, u.timezone)} · ចេញ ${hmIn(rec.out_at, u.timezone)} ✅`, `In ${hmIn(rec.in_at, u.timezone)} · out ${hmIn(rec.out_at, u.timezone)} ✅`);
+  return L(`📍 វត្តមានថ្ងៃនេះ\n${state}\n\nផ្ញើទីតាំងបច្ចុប្បន្ន (GPS) ដើម្បី${!rec ? "ចូលធ្វើការ" : !rec.out_at ? "ចេញពីការងារ" : " — ថ្ងៃនេះរួចហើយ"}។`,
+    `📍 Attendance today\n${state}\n\n${!rec ? "Send your current location (GPS) to check in." : !rec.out_at ? "Send your current location (GPS) to check out." : "Done for today."}`);
 }

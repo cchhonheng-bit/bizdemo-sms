@@ -30,7 +30,7 @@ function sameOrigin(req: FastifyRequest): boolean {
 
 const loginForm = (msg = "") => layout("Platform · HangKH", `<div class="card" style="max-width:380px;margin:40px auto"><h1>Platform</h1>
 ${msg ? `<p class="bad">${esc(msg)}</p>` : ""}<form method="post" action="/platform/login"><p><input name="username" placeholder="Username" autocomplete="username" required></p>
-<p><input name="password" type="password" placeholder="Password" autocomplete="current-password" required></p><p><button>ចូល / Sign in</button></p></form></div>`);
+<p><input name="password" type="password" placeholder="Password" autocomplete="current-password" required></p><p><button>Sign in</button></p></form></div>`);
 
 export async function createHubAdmin(username: string, password: string): Promise<void> {
   await sql`insert into hub_admins (username, password_hash) values (${username}, ${await hashPassword(password)})
@@ -51,10 +51,10 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (!sameOrigin(req)) return reply.status(403).send(loginForm("Forbidden"));
     const b = (req.body ?? {}) as Record<string, string>;
     const username = String(b.username ?? "").trim().toLowerCase().slice(0, 40), password = String(b.password ?? "").slice(0, 200);
-    if (!checkRate(`hub:login:ip:${req.ip}`, 5, 60) || !checkRate(`hub:login:id:${username}:${req.ip}`, 10, 3600)) return reply.status(429).send(loginForm("ព្យាយាមច្រើនដងពេក · Too many attempts"));
+    if (!checkRate(`hub:login:ip:${req.ip}`, 5, 60) || !checkRate(`hub:login:id:${username}:${req.ip}`, 10, 3600)) return reply.status(429).send(loginForm("Too many attempts — wait a minute"));
     const a = (await sql<{ id: string; password_hash: string }[]>`select id, password_hash from hub_admins where username = ${username} and is_active`)[0];
     const ok = await verifyPassword(password, a?.password_hash ?? (await DUMMY_HASH_PROMISE));
-    if (!a || !ok) return reply.status(401).send(loginForm("Username ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ"));
+    if (!a || !ok) return reply.status(401).send(loginForm("Wrong username or password"));
     const token = randomBytes(32).toString("base64url");
     await sql`insert into hub_sessions (token_hash, admin_id, expires_at) values (${sha256(token)}, ${a.id}, now() + interval '12 hours')`;
     await sql`delete from hub_sessions where expires_at < now()`;
@@ -88,14 +88,14 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       const health = s.status !== "active" ? `<span class="muted">ended</span>` : st?.status === 200 ? `<span class="ok">● online</span>` : `<span class="bad">● offline</span>`;
       const j = st?.status === 200 ? st.json : null;
       return `<tr><td><b>${esc(s.code)}</b><br><span class="muted">${esc(s.name)}</span></td><td>${health}</td><td>${j ? `${esc(j.users)} / ${esc(j.customers)}` : "—"}</td>
-        <td>${j ? `${esc(j.bookings)} <span class="muted">(30 ថ្ងៃ: ${esc(j.bookings_30d)})</span>` : "—"}</td><td>${s.subscribe ? `${s.subs} <span class="muted">(promo ${s.promo} · stop ${s.stopped})</span>` : `<span class="muted">off</span>`}</td></tr>`;
+        <td>${j ? `${esc(j.bookings)} <span class="muted">(30 days: ${esc(j.bookings_30d)})</span>` : "—"}</td><td>${s.subscribe ? `${s.subs} <span class="muted">(promo ${s.promo} · stop ${s.stopped})</span>` : `<span class="muted">off</span>`}</td></tr>`;
     }).join("");
     return reply.send(layout("Platform · HangKH", `
-      <div style="display:flex;justify-content:space-between;align-items:center"><h1>Platform</h1><form class="inline" method="post" action="/platform/logout"><button>ចេញ (${esc(admin.username)})</button></form></div>
-      <div class="grid"><div class="card"><div class="muted">ហាង</div><div class="num">${shops.length}</div></div><div class="card"><div class="muted">អ្នកចុះឈ្មោះ Telegram</div><div class="num">${subscribers}</div></div>
-      <div class="card"><div class="muted">សារចេញ 7 ថ្ងៃ</div><div class="num">${msgs.out_ok}</div><div class="${msgs.out_fail ? "bad" : "muted"}">បរាជ័យ ${msgs.out_fail}</div></div><div class="card"><div class="muted">Commands ចូល 7 ថ្ងៃ</div><div class="num">${msgs.inbound}</div></div></div>
-      <div class="card"><table><tr><th>ហាង</th><th>ស្ថានភាព</th><th>បុគ្គលិក / អតិថិជន</th><th>Booking</th><th>Subscribers</th></tr>${rows}</table>
-      <p class="muted">ស្ថិតិសរុបប៉ុណ្ណោះ — Platform មិនបង្ហាញទិន្នន័យបុគ្គលរបស់អតិថិជនហាងទេ (A4)។</p></div>
+      <div style="display:flex;justify-content:space-between;align-items:center"><h1>Platform</h1><form class="inline" method="post" action="/platform/logout"><button>Sign out (${esc(admin.username)})</button></form></div>
+      <div class="grid"><div class="card"><div class="muted">Shops</div><div class="num">${shops.length}</div></div><div class="card"><div class="muted">Telegram subscribers</div><div class="num">${subscribers}</div></div>
+      <div class="card"><div class="muted">Messages sent, 7 days</div><div class="num">${msgs.out_ok}</div><div class="${msgs.out_fail ? "bad" : "muted"}">failed ${msgs.out_fail}</div></div><div class="card"><div class="muted">Commands received, 7 days</div><div class="num">${msgs.inbound}</div></div></div>
+      <div class="card"><table><tr><th>Shop</th><th>Status</th><th>Staff / customers</th><th>Bookings</th><th>Subscribers</th></tr>${rows}</table>
+      <p class="muted">Totals only — the platform never shows a shop's customer data (A4).</p></div>
       ${flash(req)}${await botsSection(shops, admin.id)}`));
   });
   // ---- bots (T6): add / replace / disable / enable / rotate secret / test message. Tokens are pasted here by the owner

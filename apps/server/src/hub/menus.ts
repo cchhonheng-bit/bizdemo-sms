@@ -60,21 +60,21 @@ function toMarkup(buttons: ShopBtn[][]): Markup {
   return { inline_keyboard: rows.slice(0, 20) };
 }
 /** ask the shop for a staff / group screen; null = this chat is not staff / not the shop's work group */
-export async function shopMenu(shop: Shop, chatId: number, view: string, id?: string, back?: string): Promise<{ text: string; markup: Markup } | null> {
+export async function shopMenu(shop: Shop, chatId: number, view: string, id?: string, back?: string): Promise<{ text: string; markup: Markup; lang: "km" | "en" } | null> {
   const r = await callShop(shop, "POST", "/internal/tg-menu", { chat_id: chatId, view, ...(id ? { id } : {}), ...(back ? { back } : {}) });
   const m = r && r.status === 200 ? r.json?.menu : null;
   if (!m || typeof m.text !== "string") return null;
-  return { text: m.text.slice(0, 4000), markup: toMarkup(Array.isArray(m.buttons) ? m.buttons : []) };
+  return { text: m.text.slice(0, 4000), markup: toMarkup(Array.isArray(m.buttons) ? m.buttons : []), lang: m.lang === "en" ? "en" : "km" };
 }
 
-export const groupHelp = "🤖 កំណត់ Group ការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
+export const groupHelp = "🤖 កំណត់ក្រុមការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
 
 // ---------- master bot ----------
 export async function masterMenu(tgUser: number): Promise<{ text: string; markup: Markup }> {
   const f = (await sql<{ stopped_at: Date | null }[]>`select stopped_at from hub_followers where telegram_user_id = ${tgUser}`)[0];
   const following = !!f && !f.stopped_at;
   return {
-    text: `🤖 HangKH — ប្រព័ន្ធគ្រប់គ្រងសេវាកម្មសម្រាប់ហាង\n${following ? "⭐ អ្នកកំពុងតាមដាន HangKH" : "តាមដាន HangKH ដើម្បីទទួលដំណឹង Platform ម្តងម្កាល។"}`,
+    text: `🤖 HangKH — ប្រព័ន្ធគ្រប់គ្រងសេវាកម្មសម្រាប់ហាង\n${following ? "⭐ អ្នកកំពុងតាមដាន HangKH" : "តាមដាន HangKH ដើម្បីទទួលដំណឹងពីវេទិកាម្តងម្កាល។"}`,
     markup: { inline_keyboard: [
       [following ? { text: "🔕 ឈប់តាមដាន", callback_data: "m:unfollow" } : { text: "⭐ តាមដាន HangKH", callback_data: "m:follow" }],
       [{ text: "ℹ️ អំពី HangKH", callback_data: "m:about" }, { text: "🔒 ឯកជនភាព", url: `${config.publicUrl}/privacy` }],

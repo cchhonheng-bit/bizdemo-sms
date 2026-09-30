@@ -218,7 +218,7 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.create", table: "bookings", rowId: id, new: { number, type: b.type, customer_id: c.id, scheduled_at: w.start, ends_at: w.end }, ip });
     if (b.type === "B") {
       await t`insert into notifications (company_id, user_id, kind, title, body, link)
-              select ${user.companyId}, u.id, 'booking.survey', ${number + " · ត្រូវការសិក្សាគម្រោង"}, ${c.name + " · " + service.slice(0, 80)}, ${"/bookings/" + id}
+              select ${user.companyId}, u.id, 'booking.survey', case when u.language = 'en' then ${number + " · Project survey needed"} else ${number + " · ត្រូវការសិក្សាគម្រោង"} end, ${c.name + " · " + service.slice(0, 80)}, ${"/bookings/" + id}
               from users u where u.company_id = ${user.companyId} and u.role = 'gm' and u.is_active`;
     }
     return { id, number, status };
@@ -345,7 +345,7 @@ export async function cancelBooking(user: SessionUser, ip: string | null, id: st
     // BR-21 · FR-1002: CEO + CFO hear about every deletion (never the person who did it)
     const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
     for (const u of await t<{ id: string }[]>`select id from users where company_id = ${user.companyId} and is_active and role in ('ceo', 'cfo') and id <> ${user.id}`)
-      await notifyUser(t, user.companyId, u.id, "booking.cancelled", `❌ លុប Booking · ${b.number}`, `👤 ${cname}\nដោយ ${user.fullName}\n📝 ${reason}`, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
+      await notifyUser(t, user.companyId, u.id, "booking.cancelled", { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` }, { km: `👤 ${cname}\nដោយ ${user.fullName}\n📝 ${reason}`, en: `👤 ${cname}\nby ${user.fullName}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
     return { id, status: "cancelled" as const };
   });
 }

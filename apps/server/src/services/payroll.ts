@@ -110,7 +110,7 @@ export async function approveRun(user: SessionUser, ip: string | null, runId: st
       const date = (await t<{ d: string }[]>`select least((${r.period + "-01"}::date + interval '1 month - 1 day')::date, ${b.today}::date)::text as d`)[0]!.d;
       const lines: Line[] = [{ account: R.salaries, amount: run.base - run.deductions }, { account: R.bonus, amount: run.bonus },
         ...run.lines.map((l) => ({ account: R.payroll, amount: -l.net, user_id: l.user_id, memo: l.full_name }))];
-      await post(t, user, { date, memo: `ប្រាក់ខែ ${r.period}`, source: "payroll", source_id: runId, lines });
+      await post(t, user, { date, memo: r.period, source: "payroll", source_id: runId, lines });
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "payroll.approve", table: "payroll_runs", rowId: runId, new: { period: r.period, gross: run.gross, deductions: run.deductions, net: run.net }, ip });
     return { status: "approved" as const };
@@ -126,7 +126,7 @@ export async function payRun(user: SessionUser, ip: string | null, runId: string
     const b = await books(t, user.companyId);
     if (b.start) {
       const R = await roleIds(t, user.companyId);
-      await post(t, user, { date: b.today, memo: `បើកប្រាក់ខែ ${r.period}`, source: "payroll", source_id: runId, lines: [
+      await post(t, user, { date: b.today, memo: r.period, source: "payroll", source_id: runId, lines: [
         ...run.lines.map((l) => ({ account: R.payroll, amount: l.net, user_id: l.user_id, memo: l.full_name })), { account: R[METHOD_ROLE[pay]], amount: -run.net }] });
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "payroll.pay", table: "payroll_runs", rowId: runId, new: { period: r.period, net: run.net, pay }, ip });
@@ -143,7 +143,7 @@ export async function voidRun(user: SessionUser, ip: string | null, runId: strin
     if (r.status === "paid") throw new AppError("PAYROLL_PAID", 400);
     if (r.status === "void") throw new AppError("PAYROLL_VOID", 400);
     await t`update payroll_runs set status = 'void', voided_by = ${user.id}, voided_at = now(), void_reason = ${why} where id = ${runId}`;
-    await reverseAll(t, user, "payroll", runId, `VOID: ${why}`, (await books(t, user.companyId)).today);
+    await reverseAll(t, user, "payroll", runId, why, (await books(t, user.companyId)).today);
     await audit(t, { companyId: user.companyId, userId: user.id, action: "payroll.void", table: "payroll_runs", rowId: runId, new: { period: r.period, reason: why }, ip });
     return { status: "void" as const };
   });

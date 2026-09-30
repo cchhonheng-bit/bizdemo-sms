@@ -8,6 +8,7 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { report as attendanceReport } from "./attendance.js";
 import { notifyUser } from "./telegram.js";
+import { pick, type Lang } from "../lib/i18n.js";
 import { uninvoiced } from "./invoices.js";
 import { checkRange, techPerformance } from "./reports-extra.js";
 
@@ -184,19 +185,28 @@ function localParts(at: Date, tz: string) {
 }
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
-function summaryText(kind: "daily" | "weekly" | "monthly", from: string, to: string, s: Awaited<ReturnType<typeof summaryData>>): string {
+function summaryText(kind: "daily" | "weekly" | "monthly", from: string, to: string, s: Awaited<ReturnType<typeof summaryData>>, lang: Lang): string {
   const x = s as Record<string, any>;
-  const title = kind === "daily" ? `📊 របាយការណ៍ប្រចាំថ្ងៃ · ${from}` : kind === "weekly" ? `📊 របាយការណ៍ប្រចាំសប្តាហ៍ · ${from} → ${to}` : `📊 របាយការណ៍ប្រចាំខែ · ${from.slice(0, 7)} (${from} → ${to})`;
+  const L = (km: string, en: string) => pick({ km, en }, lang);
+  const title = kind === "daily" ? L(`📊 របាយការណ៍ប្រចាំថ្ងៃ · ${from}`, `📊 Daily report · ${from}`)
+    : kind === "weekly" ? L(`📊 របាយការណ៍ប្រចាំសប្តាហ៍ · ${from} → ${to}`, `📊 Weekly report · ${from} → ${to}`)
+      : L(`📊 របាយការណ៍ប្រចាំខែ · ${from.slice(0, 7)} (${from} → ${to})`, `📊 Monthly report · ${from.slice(0, 7)} (${from} → ${to})`);
   const m = x.payments.by_method;
+  const riel = x.payments.khr_riel ? ` (${formatKhr(x.payments.khr_riel)})` : "";
   const lines = [
     title,
-    `🧾 ចំណូល: ${formatUsd(x.revenue.total)} (${x.revenue.invoices} វិក្កយបត្រ) · ក្នុងបុរី ${formatUsd(x.revenue.inside)} · ក្រៅបុរី ${formatUsd(x.revenue.outside)}`,
-    `💵 ទទួលប្រាក់: ${formatUsd(x.payments.total)} · សាច់ប្រាក់ $ ${formatUsd(m.cash_usd)} · សាច់ប្រាក់ ៛ ${formatUsd(m.cash_khr)} · ABA ${formatUsd(m.aba)} · ACLEDA ${formatUsd(m.acleda)}${x.payments.khr_riel ? ` (${formatKhr(x.payments.khr_riel)})` : ""}`,
-    `📌 ជំពាក់ថ្មី: ${formatUsd(x.new_debt)} · ជំពាក់សរុប: ${formatUsd(x.debt_total)}`,
-    `🔧 ការងារ: ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · លុប ${x.jobs.cancelled} · រង់ចាំពិនិត្យ ${x.jobs.pending_review}`,
-    `🚫 Void ${x.voids.count} (${formatUsd(x.voids.total)}) · 💸 Discount ${x.discounts.count} (${formatUsd(x.discounts.total)}; ≥ limit ${x.discounts.over_limit})`,
+    L(`🧾 ចំណូល: ${formatUsd(x.revenue.total)} (${x.revenue.invoices} វិក្កយបត្រ) · ក្នុងបុរី ${formatUsd(x.revenue.inside)} · ក្រៅបុរី ${formatUsd(x.revenue.outside)}`,
+      `🧾 Revenue: ${formatUsd(x.revenue.total)} (${x.revenue.invoices} invoices) · inside the borey ${formatUsd(x.revenue.inside)} · outside ${formatUsd(x.revenue.outside)}`),
+    L(`💵 ទទួលប្រាក់: ${formatUsd(x.payments.total)} · សាច់ប្រាក់ $ ${formatUsd(m.cash_usd)} · សាច់ប្រាក់ ៛ ${formatUsd(m.cash_khr)} · ABA ${formatUsd(m.aba)} · ACLEDA ${formatUsd(m.acleda)}${riel}`,
+      `💵 Received: ${formatUsd(x.payments.total)} · cash $ ${formatUsd(m.cash_usd)} · cash ៛ ${formatUsd(m.cash_khr)} · ABA ${formatUsd(m.aba)} · ACLEDA ${formatUsd(m.acleda)}${riel}`),
+    L(`📌 ជំពាក់ថ្មី: ${formatUsd(x.new_debt)} · ជំពាក់សរុប: ${formatUsd(x.debt_total)}`, `📌 New debt: ${formatUsd(x.new_debt)} · total debt: ${formatUsd(x.debt_total)}`),
+    L(`🔧 ការងារ: ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · លុប ${x.jobs.cancelled} · រង់ចាំពិនិត្យ ${x.jobs.pending_review}`,
+      `🔧 Jobs: new ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled} · waiting for review ${x.jobs.pending_review}`),
+    L(`🚫 មោឃៈ ${x.voids.count} (${formatUsd(x.voids.total)}) · 💸 បញ្ចុះតម្លៃ ${x.discounts.count} (${formatUsd(x.discounts.total)}; ≥ កម្រិត ${x.discounts.over_limit})`,
+      `🚫 Void ${x.voids.count} (${formatUsd(x.voids.total)}) · 💸 Discount ${x.discounts.count} (${formatUsd(x.discounts.total)}; ≥ limit ${x.discounts.over_limit})`),
   ];
-  if (x.attendance) lines.push(`👷 វត្តមាន: មក ${x.attendance.present}/${x.attendance.people} · យឺត ${x.attendance.late} · អវត្តមាន ${x.attendance.absent} · ច្បាប់ ${x.attendance.leave} · ក្រៅរង្វង់ ${x.attendance.out_of_range}`);
+  if (x.attendance) lines.push(L(`👷 វត្តមាន: មក ${x.attendance.present}/${x.attendance.people} · យឺត ${x.attendance.late} · អវត្តមាន ${x.attendance.absent} · ច្បាប់ ${x.attendance.leave} · ក្រៅរង្វង់ ${x.attendance.out_of_range}`,
+    `👷 Attendance: present ${x.attendance.present}/${x.attendance.people} · late ${x.attendance.late} · absent ${x.attendance.absent} · leave ${x.attendance.leave} · out of range ${x.attendance.out_of_range}`));
   return lines.join("\n");
 }
 
@@ -212,10 +222,11 @@ export async function sendSummaries(at: Date = new Date()): Promise<number> {
     for (const r of runs) {
       const fresh = await sql`insert into report_runs (company_id, kind, period) values (${co.id}, ${r.kind}, ${r.period}) on conflict do nothing returning period`;
       if (!fresh.length) continue;
-      const text = summaryText(r.kind, r.from, r.to, await summaryData(co.id, r.from, r.to, true));
-      const [title, ...body] = text.split("\n");
+      const data = await summaryData(co.id, r.from, r.to, true);
+      const [kmTitle, ...kmBody] = summaryText(r.kind, r.from, r.to, data, "km").split("\n");
+      const [enTitle, ...enBody] = summaryText(r.kind, r.from, r.to, data, "en").split("\n");
       for (const u of await sql<{ id: string }[]>`select id from users where company_id = ${co.id} and is_active and role in ('ceo', 'cfo')`)
-        await notifyUser(sql, co.id, u.id, `report.${r.kind}`, title!, body.join("\n"), `/reports?from=${r.from}&to=${r.to}`, `sum:${r.kind}:${r.period}:${u.id}`);
+        await notifyUser(sql, co.id, u.id, `report.${r.kind}`, { km: kmTitle!, en: enTitle! }, { km: kmBody.join("\n"), en: enBody.join("\n") }, `/reports?from=${r.from}&to=${r.to}`, `sum:${r.kind}:${r.period}:${u.id}`);
       sent++;
     }
   }

@@ -14,7 +14,7 @@ import RangePicker from "@/features/reports/RangePicker";
 import { presetRange, type Range } from "@/features/reports/range";
 import { todayLocal } from "@/features/invoices/util";
 import { ReceiptInput } from "./common";
-import { cents, useAccName, useAcctErr } from "./acct";
+import { cents, sourceKey, useAccName, useAcctErr } from "./acct";
 
 export default function Journal() {
   const { t } = useTranslation();
@@ -36,7 +36,7 @@ export default function Journal() {
                   <div className="flex justify-between gap-2 text-xs text-muted"><span>{e.date} · {e.number}</span><span className="tabular text-sm text-ink font-semibold">{formatUsd(e.amount)}</span></div>
                   <div className="text-sm break-words">{e.memo}</div>
                   <div className="flex flex-wrap gap-1 mt-1">
-                    <Badge tone="grey">{t(`acct.source.${e.source}`)}</Badge>
+                    <Badge tone="grey">{t(sourceKey(e.source, e.source_id))}</Badge>
                     {e.reversal_of && <Badge tone="warning">{t("acct.reversal")}</Badge>}
                     {e.status === "reversed" && <Badge tone="danger">{t("acct.reversed")}</Badge>}
                     {e.attachment_id && <Badge tone="blue"><ImageIcon size={12} className="inline" /></Badge>}
@@ -79,7 +79,7 @@ function EntryDialog({ id, onClose, onOpen }: { id: string; onClose: () => void;
         <p className="font-semibold break-words">{e.memo}</p>
         {e.note && <p className="text-sm text-muted whitespace-pre-line">{e.note}</p>}
         <div className="flex flex-wrap gap-1 my-2">
-          <Badge tone="grey">{t(`acct.source.${e.source}`)}</Badge>
+          <Badge tone="grey">{t(sourceKey(e.source, e.source_id))}</Badge>
           <Badge tone={e.status === "reversed" ? "danger" : "green"}>{t(`acct.status.${e.status}`)}</Badge>
           <Badge tone="grey">{t("acct.rate", { rate: e.fx_rate_khr })}</Badge>
         </div>

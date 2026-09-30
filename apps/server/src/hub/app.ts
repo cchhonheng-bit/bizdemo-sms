@@ -45,7 +45,8 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
 
   // ---- public ----------------------------------------------------------------
   app.get("/healthz", async () => { await sql`select 1`; return { ok: true, mode: "hub" }; });
-  app.get("/", async (_req, reply) => reply.type("text/html; charset=utf-8").send(landingPage((await masterBot())?.username ?? config.hub.masterUsername)));
+  app.get("/", async (req, reply) => reply.type("text/html; charset=utf-8").send(landingPage((await masterBot())?.username ?? config.hub.masterUsername,
+    (req.query as { lang?: string } | undefined)?.lang === "en" ? "en" : "km")));
   for (const which of ["terms", "privacy"] as const) {
     app.get(`/${which}`, async (_req, reply) => reply.type("text/html; charset=utf-8").header("Cache-Control", "public, max-age=3600").send(legalPage(which)));
   }

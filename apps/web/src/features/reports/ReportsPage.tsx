@@ -72,8 +72,8 @@ function Summary({ range }: { range: Range }) {
             <Row label={t("reports.debt_total")} value={formatUsd(s.debt_total ?? 0)} strong />
           </Card>
           <Card title={t("reports.controls")}>
-            <Row label="Void" value={`${s.voids!.count} · ${formatUsd(s.voids!.total)}`} />
-            <Row label={t("invoice.discount")} value={`${s.discounts!.count} · ${formatUsd(s.discounts!.total)} (≥ limit ${s.discounts!.over_limit})`} />
+            <Row label={t("reports.type.void")} value={`${s.voids!.count} · ${formatUsd(s.voids!.total)}`} />
+            <Row label={t("invoice.discount")} value={`${s.discounts!.count} · ${formatUsd(s.discounts!.total)} ${t("reports.over_limit", { n: s.discounts!.over_limit })}`} />
             <Row label={t("reports.cancels")} value={s.cancels} />
           </Card>
         </>

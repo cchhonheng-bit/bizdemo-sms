@@ -96,7 +96,7 @@ async function lowStock(t: Db, user: SessionUser, item: string, name: string, re
   if (!r) return;
   for (const u of await t<{ id: string }[]>`select u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
       and rp.permission_key = 'inventory.manage' and rp.allowed where u.company_id = ${user.companyId} and u.is_active`)
-    await notifyUser(t, user.companyId, u.id, "stock.low", `📦 ស្តុកជិតអស់ · ${name}`, `នៅសល់ ${Number(r.qty)} (កម្រិត ${reorder})`, "/inventory", `low:${item}:${Date.now()}:${u.id}`);
+    await notifyUser(t, user.companyId, u.id, "stock.low", { km: `📦 ស្តុកជិតអស់ · ${name}`, en: `📦 Low stock · ${name}` }, { km: `នៅសល់ ${Number(r.qty)} (កម្រិត ${reorder})`, en: `${Number(r.qty)} left (level ${reorder})` }, "/inventory", `low:${item}:${Date.now()}:${u.id}`);
 }
 
 // ---------- operations ----------

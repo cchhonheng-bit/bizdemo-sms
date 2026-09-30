@@ -1,7 +1,8 @@
 // Double-entry accounting (D-88 · flag "accounting") for any shop: chart of accounts (Cambodian SME template), journal
 // (balanced, immutable, corrected only by reversal, lock date), automatic postings from every money event (ledger hooks),
 // other transactions, opening balances, reports (GL · TB · P&L · balance sheet, USD with KHR, CSV).
-// Money = integer US cents (signed internally: + debit, − credit); every entry keeps its KHR rate.
+// Money = integer US cents (signed internally: + debit, − credit); every entry keeps its KHR rate. Automatic memos hold only
+// references (INV-…, BK-…, dates, item names) so they read the same in Khmer and English; the source badge says what it is.
 // The books start with the opening balances: before that nothing is posted, afterwards every business event is.
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -129,7 +130,6 @@ export async function reverseAll(t: Db, user: SessionUser, source: Source, sourc
 }
 
 // ---------- automatic postings (C3) ----------
-const KIND_KM: Record<string, string> = { opening: "ដើមគ្រា", in: "ទិញចូល", out_job: "ប្រើក្នុងការងារ", out_sale: "លក់", adjust: "កែតម្រូវ", reverse: "ត្រឡប់" };
 
 async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
   const b = await books(t, u.companyId);
@@ -142,26 +142,26 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
       if (i.opening) return;
       const k = await t<{ kind: string; amt: string }[]>`select kind::text, coalesce(sum(round(qty * unit_price)), 0)::bigint::text as amt from invoice_lines where invoice_id = ${e.invoice_id} group by kind`;
       const svc = Number(k.find((x) => x.kind === "service")?.amt ?? 0), prod = Number(k.find((x) => x.kind === "product")?.amt ?? 0);
-      await post(t, u, { date: b.today, memo: `វិក្កយបត្រ ${i.number}`, source: "invoice", source_id: e.invoice_id, fx: Number(i.fx), lines: [
+      await post(t, u, { date: b.today, memo: i.number, source: "invoice", source_id: e.invoice_id, fx: Number(i.fx), lines: [
         { account: R.ar, amount: svc + prod - i.discount, customer_id: i.customer_id }, { account: R.discount, amount: i.discount },
         { account: R.rev_service, amount: -svc }, { account: R.rev_sales, amount: -prod }] });
       return;
     }
     case "payment": {
       const p = (await t<{ number: string; customer_id: string }[]>`select i.number, i.customer_id from payments p join invoices i on i.id = p.invoice_id where p.id = ${e.id}`)[0]!;
-      await post(t, u, { date: e.date, memo: `ទទួលប្រាក់ ${p.number}`, source: "payment", source_id: e.id, fx: e.fx, lines: [
+      await post(t, u, { date: e.date, memo: p.number, source: "payment", source_id: e.id, fx: e.fx, lines: [
         { account: R[METHOD_ROLE[e.method]!], amount: e.usd_cents }, { account: R.ar, amount: -e.usd_cents, customer_id: p.customer_id }] });
       return;
     }
     case "deposit": {
       const d = (await t<{ number: string; customer_id: string }[]>`select b.number, b.customer_id from deposits d join bookings b on b.id = d.booking_id where d.id = ${e.id}`)[0]!;
-      await post(t, u, { date: e.date, memo: `ប្រាក់កក់ ${d.number}`, source: "deposit", source_id: e.id, fx: e.fx, lines: [
+      await post(t, u, { date: e.date, memo: d.number, source: "deposit", source_id: e.id, fx: e.fx, lines: [
         { account: R[METHOD_ROLE[e.method]!], amount: e.usd_cents }, { account: R.deposits, amount: -e.usd_cents, customer_id: d.customer_id }] });
       return;
     }
     case "deposit_applied": {
       const p = (await t<{ number: string; customer_id: string }[]>`select i.number, i.customer_id from payments p join invoices i on i.id = p.invoice_id where p.id = ${e.payment_id}`)[0]!;
-      await post(t, u, { date: b.today, memo: `ប្រាក់កក់ → ${p.number}`, source: "payment", source_id: e.payment_id, fx: e.fx, lines: [
+      await post(t, u, { date: b.today, memo: p.number, source: "payment", source_id: e.payment_id, fx: e.fx, lines: [
         { account: R.deposits, amount: e.usd_cents, customer_id: p.customer_id }, { account: R.ar, amount: -e.usd_cents, customer_id: p.customer_id }] });
       return;
     }
@@ -201,13 +201,13 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
       const ref = m0.ref_type === "booking" ? (await t<{ n: string }[]>`select number as n from bookings where id::text = ${m0.ref_id}`)[0]?.n
         : m0.ref_type === "invoice" ? (await t<{ n: string }[]>`select number as n from invoices where id::text = ${m0.ref_id}`)[0]?.n : null;
       await post(t, u, { date: m0.date, fx: Number(m0.fx), source: "stock", source_id: m0.ref_id ?? m0.id, lines,
-        memo: `ស្តុក · ${KIND_KM[m0.kind] ?? m0.kind}${ref ? ` · ${ref}` : ""}${ms.length === 1 ? ` · ${m0.name}` : ""}` });
+        memo: [ref, ms.length === 1 ? m0.name : null].filter(Boolean).join(" · ") || "—" });
       return;
     }
     case "cash_close": {
-      await reverseAll(t, u, "cash_close", e.day, "រាប់ឡើងវិញ", e.day); // a re-count replaces the day's earlier posting
+      await reverseAll(t, u, "cash_close", e.day, e.day, e.day); // a re-count replaces the day's earlier posting
       const khr = khrToCents(e.diff_khr, Number(b.fx));
-      await post(t, u, { date: e.day, memo: `បិទបញ្ជីសាច់ប្រាក់ ${e.day}`, source: "cash_close", source_id: e.day, khr_amount: e.diff_khr || null, lines: [
+      await post(t, u, { date: e.day, memo: e.day, source: "cash_close", source_id: e.day, khr_amount: e.diff_khr || null, lines: [
         { account: R.cash_usd, amount: e.diff_usd }, { account: R.cash_khr, amount: khr }, { account: R.cash_diff, amount: -(e.diff_usd + khr) }] });
       return;
     }
@@ -396,13 +396,13 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
     add({ account: R.cash_khr, amount: khrToCents(v.cash_khr ?? 0, fx), memo: v.cash_khr ? `${v.cash_khr}៛` : null });
     add({ account: R.bank_aba, amount: v.banks?.aba ?? 0 });
     add({ account: R.bank_acleda, amount: v.banks?.acleda ?? 0 });
-    add({ account: R.inventory, amount: Number((await t<{ v: string }[]>`select coalesce(sum(value_cents), 0)::text as v from stock_items where company_id = ${user.companyId}`)[0]!.v), memo: "ស្តុកតាមប្រព័ន្ធ" });
+    add({ account: R.inventory, amount: Number((await t<{ v: string }[]>`select coalesce(sum(value_cents), 0)::text as v from stock_items where company_id = ${user.companyId}`)[0]!.v), memo: null });
     for (const d of await t<{ usd: number; customer_id: string; number: string }[]>`select d.usd_cents as usd, b.customer_id, b.number from deposits d join bookings b on b.id = d.booking_id
         where d.company_id = ${user.companyId} and d.status = 'active' order by d.created_at`)
-      add({ account: R.deposits, amount: -d.usd, customer_id: d.customer_id, memo: `ប្រាក់កក់ ${d.number}` });
+      add({ account: R.deposits, amount: -d.usd, customer_id: d.customer_id, memo: d.number });
     for (const p of v.payables ?? []) add({ account: R.ap, amount: -p.amount, supplier: p.supplier.trim(), memo: p.supplier.trim() });
     const mainEquity = equity;
-    if (await post(t, user, { date: v.date, memo: "សមតុល្យដើម", source: "opening", fx, lines: [...main, { account: R.opening, amount: -mainEquity }] })) entries++;
+    if (await post(t, user, { date: v.date, memo: v.date, source: "opening", fx, lines: [...main, { account: R.opening, amount: -mainEquity }] })) entries++;
     // open invoices already in the app: one entry each, so a later void reverses exactly it
     const open = await t<{ id: string; number: string; customer_id: string; balance: string }[]>`select x.id, x.number, x.customer_id, (x.total - x.paid)::text as balance from (
         select i.id, i.number, i.customer_id, (select coalesce(sum(round(l.qty * l.unit_price)), 0) from invoice_lines l where l.invoice_id = i.id) - i.discount as total,
@@ -410,7 +410,7 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
         from invoices i where i.company_id = ${user.companyId} and i.status = 'issued') x where x.total > x.paid order by x.number`;
     for (const i of open) {
       const amt = Number(i.balance);
-      await post(t, user, { date: v.date, memo: `សមតុល្យដើម · ${i.number}`, source: "invoice", source_id: i.id, fx, lines: [
+      await post(t, user, { date: v.date, memo: i.number, source: "invoice", source_id: i.id, fx, lines: [
         { account: R.ar, amount: amt, customer_id: i.customer_id }, { account: R.opening, amount: -amt }] });
       equity += amt; entries++;
     }
@@ -422,8 +422,8 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
       const number = `OB-${String(n).padStart(4, "0")}`;
       const id = (await t<{ id: string }[]>`insert into invoices (company_id, customer_id, number, status, notes, fx_rate_khr, created_by, issued_at, issued_by, opening)
         values (${user.companyId}, ${r.customer_id}, ${number}, 'issued', ${r.note?.trim() || null}, ${fx}, ${user.id}, now(), ${user.id}, true) returning id`)[0]!.id;
-      await t`insert into invoice_lines (invoice_id, sort, description, kind, qty, unit, unit_price) values (${id}, 0, ${"សមតុល្យដើម — ជំពាក់ពីមុន" + (r.note?.trim() ? ` · ${r.note.trim()}` : "")}, 'service'::item_kind, 1, 'unit', ${r.amount})`;
-      await post(t, user, { date: v.date, memo: `សមតុល្យដើម · ${number}`, source: "invoice", source_id: id, fx, lines: [
+      await t`insert into invoice_lines (invoice_id, sort, description, kind, qty, unit, unit_price) values (${id}, 0, ${r.note?.trim() || number}, 'service'::item_kind, 1, 'unit', ${r.amount})`;
+      await post(t, user, { date: v.date, memo: number, source: "invoice", source_id: id, fx, lines: [
         { account: R.ar, amount: r.amount, customer_id: r.customer_id }, { account: R.opening, amount: -r.amount }] });
       equity += r.amount; entries++; invoices.push(number);
     }
@@ -436,8 +436,6 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
 
 // ---------- C4 other transactions ----------
 export type TxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
-const TX_MEMO: Record<TxType, string> = { expense: "ចំណាយ", purchase: "ទិញ", supplier_payment: "សងអ្នកផ្គត់ផ្គង់", other_income: "ចំណូលផ្សេងៗ",
-  owner_contribution: "ម្ចាស់ដាក់ដើមទុន", owner_withdrawal: "ម្ចាស់ដកប្រាក់", transfer: "ផ្ទេរប្រាក់" };
 
 export async function otherTransaction(user: SessionUser, ip: string | null, v: { date: string; type: TxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string;
   account_code?: string; supplier?: string | null; memo?: string | null; note?: string | null; attachment?: string | null }) {
@@ -482,7 +480,7 @@ export async function otherTransaction(user: SessionUser, ip: string | null, v: 
       }
     }
     const attachment = v.attachment ? await attach(t, user, v.attachment) : null;
-    const memo = [TX_MEMO[v.type], v.memo?.trim(), supplier].filter(Boolean).join(" · ");
+    const memo = [v.memo?.trim(), supplier].filter(Boolean).join(" · ") || "—"; // the type is the source_id (shown translated)
     const r = (await post(t, user, { date: v.date, memo, note: v.note?.trim() || null, source: "other", source_id: v.type, fx: Number(b.fx), lines,
       khr_amount: v.currency === "khr" ? v.amount : null, attachment_id: attachment }))!;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.transaction", table: "journal_entries", rowId: r.id, new: { number: r.number, ...v, attachment: !!v.attachment, usd_cents: cents }, ip });

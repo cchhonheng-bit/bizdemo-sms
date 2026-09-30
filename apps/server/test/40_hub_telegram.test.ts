@@ -231,13 +231,13 @@ describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
       if ((await sql`select 1 from telegram_outbox where text like '%Hub Customer%' and status = 'pending'`).length === 0) break;
       await new Promise((r) => setTimeout(r, 50));
     }
-    expect(texts(700001, "ONETEAM").some((t) => t.includes("Booking Confirmed"))).toBe(true);
-    expect(texts(-1001234, "ONETEAM").some((t) => t.includes("Booking Confirmed"))).toBe(true);
+    expect(texts(700001, "ONETEAM").some((t) => t.includes("បញ្ជាក់ការងារ"))).toBe(true);
+    expect(texts(-1001234, "ONETEAM").some((t) => t.includes("បញ្ជាក់ការងារ"))).toBe(true);
     expect(sent.filter((x) => x.method === "sendMessage").every((x) => x.bot === "ONETEAM")).toBe(true);
     // I1: a 📱 button under the job message — technician → their job page, group → the booking page
-    const kimMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && String(x.payload.text).includes("Booking Confirmed"))!;
+    const kimMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && String(x.payload.text).includes("បញ្ជាក់ការងារ"))!;
     expect(kimMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/tech/job/${bk}`)).toBe(true);
-    const grpMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === -1001234 && String(x.payload.text).includes("Booking Confirmed"))!;
+    const grpMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === -1001234 && String(x.payload.text).includes("បញ្ជាក់ការងារ"))!;
     expect(grpMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/bookings/${bk}`)).toBe(true);
     expect((await sql<{ status: string }[]>`select status from telegram_outbox where text like '%Hub Customer%'`).every((o) => o.status === "sent")).toBe(true);
   });

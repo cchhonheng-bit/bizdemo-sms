@@ -11,6 +11,7 @@ import { notifyUser } from "./telegram.js";
 import { applyDeposits } from "./deposits.js";
 import { postInvoiceIssue, postPayment, reverseSource } from "./ledger-hooks.js";
 import { deductSale, reverseRef } from "./inventory.js";
+import type { Tx } from "../lib/i18n.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
@@ -135,7 +136,7 @@ export async function updateInvoice(user: SessionUser, ip: string | null, id: st
 }
 
 // ---------- discount (BR-12 · AC-03/04/05) ----------
-async function tellBoss(t: Db, i: Inv, actor: SessionUser, kind: string, title: string, body: string) {
+async function tellBoss(t: Db, i: Inv, actor: SessionUser, kind: string, title: Tx, body: Tx) {
   for (const u of await usersByRole(t, i.company_id, ["ceo", "cfo"], actor.id))
     await notifyUser(t, i.company_id, u.id, kind, title, body, `/invoices/${i.id}`, `${kind}:${i.id}:${Date.now()}:${u.id}`);
 }
@@ -156,8 +157,9 @@ export async function setDiscount(user: SessionUser, perms: string[], ip: string
       where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.discount", table: "invoices", rowId: id, old: { discount: i.discount, status: i.discount_status }, new: { amount: v.amount, status, note }, ip });
     if (v.amount >= limit) // BR-21: CEO + CFO hear about every discount ≥ limit
-      await tellBoss(t, i, user, "invoice.discount", `💸 Discount ${formatUsd(v.amount)} · ${i.number}`,
-        [`👤 ${i.customer_name} · សរុប ${formatUsd(subtotal)}`, `ដោយ ${user.fullName}`, note ? `📝 ${note}` : "", status === "pending" ? "⏳ រង់ចាំ CEO អនុម័ត" : "✅ អនុវត្តរួច"].filter(Boolean).join("\n"));
+      await tellBoss(t, i, user, "invoice.discount", { km: `💸 បញ្ចុះតម្លៃ ${formatUsd(v.amount)} · ${i.number}`, en: `💸 Discount ${formatUsd(v.amount)} · ${i.number}` }, {
+        km: [`👤 ${i.customer_name} · សរុប ${formatUsd(subtotal)}`, `ដោយ ${user.fullName}`, note ? `📝 ${note}` : "", status === "pending" ? "⏳ រង់ចាំនាយកប្រតិបត្តិអនុម័ត" : "✅ អនុវត្តរួច"].filter(Boolean).join("\n"),
+        en: [`👤 ${i.customer_name} · total ${formatUsd(subtotal)}`, `by ${user.fullName}`, note ? `📝 ${note}` : "", status === "pending" ? "⏳ waiting for CEO approval" : "✅ applied"].filter(Boolean).join("\n") });
     return { discount_status: status };
   });
 }
@@ -173,7 +175,7 @@ export async function decideDiscount(user: SessionUser, ip: string | null, id: s
       discount_decided_by = ${user.id}, discount_decided_at = now() where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: approve ? "invoice.discount_approve" : "invoice.discount_reject", table: "invoices", rowId: id, new: { amount, note: note.trim() || null }, ip });
     if (i.discount_by) await notifyUser(t, i.company_id, i.discount_by, "invoice.discount_decided",
-      `${approve ? "✅ Discount អនុម័ត" : "❌ Discount មិនអនុម័ត"} · ${i.number}`, `${formatUsd(amount)} · ${user.fullName}${note.trim() ? `\n📝 ${note.trim()}` : ""}`, `/invoices/${id}`, `disc-dec:${id}:${Date.now()}`);
+      { km: `${approve ? "✅ បញ្ចុះតម្លៃត្រូវបានអនុម័ត" : "❌ បញ្ចុះតម្លៃមិនត្រូវបានអនុម័ត"} · ${i.number}`, en: `${approve ? "✅ Discount approved" : "❌ Discount rejected"} · ${i.number}` }, `${formatUsd(amount)} · ${user.fullName}${note.trim() ? `\n📝 ${note.trim()}` : ""}`, `/invoices/${id}`, `disc-dec:${id}:${Date.now()}`);
     return { discount_status: approve ? "applied" : "rejected" };
   });
 }
@@ -244,9 +246,10 @@ async function doVoid(t: Db, user: SessionUser, i: Inv, reason: string, ip: stri
   await t`update invoices set status = 'void', voided_at = now(), voided_by = ${user.id}, void_reason = ${reason} where id = ${i.id}`;
   if (i.booking_id) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
   await audit(t, { companyId: i.company_id, userId: user.id, action: "invoice.void", table: "invoices", rowId: i.id, new: { number: i.number, reason }, ip });
-  await reverseSource(t, user, "invoice", i.id, `VOID: ${reason}`);
+  await reverseSource(t, user, "invoice", i.id, reason);
   await reverseRef(t, user, "invoice", i.id); // a direct sale gives its stock back
-  await tellBoss(t, i, user, "invoice.void", `🚫 VOID · ${i.number}`, `👤 ${i.customer_name}\nដោយ ${user.fullName}\n📝 ${reason}`);
+  await tellBoss(t, i, user, "invoice.void", { km: `🚫 មោឃៈ · ${i.number}`, en: `🚫 VOID · ${i.number}` },
+    { km: `👤 ${i.customer_name}\nដោយ ${user.fullName}\n📝 ${reason}`, en: `👤 ${i.customer_name}\nby ${user.fullName}\n📝 ${reason}` });
 }
 
 /** who approves: an Admin's request → GM (or CEO); anyone else's → the CEO */
@@ -264,7 +267,7 @@ export async function requestVoid(user: SessionUser, ip: string | null, id: stri
       values (${user.companyId}, ${id}, ${why}, ${user.id}, ${user.role}::user_role) returning id`)[0]!.id;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.void_request", table: "invoice_void_requests", rowId: rid, new: { number: i.number, reason: why }, ip });
     for (const u of await usersByRole(t, user.companyId, user.role === "admin" ? ["gm"] : ["ceo"], user.id, "void.approve"))
-      await notifyUser(t, user.companyId, u.id, "invoice.void_request", `🚫 សំណើ Void · ${i.number}`, `👤 ${i.customer_name}\nស្នើដោយ ${user.fullName}\n📝 ${why}`, `/invoices/${id}`, `void-req:${rid}:${u.id}`);
+      await notifyUser(t, user.companyId, u.id, "invoice.void_request", { km: `🚫 សំណើធ្វើមោឃៈ · ${i.number}`, en: `🚫 Void request · ${i.number}` }, { km: `👤 ${i.customer_name}\nស្នើដោយ ${user.fullName}\n📝 ${why}`, en: `👤 ${i.customer_name}\nrequested by ${user.fullName}\n📝 ${why}` }, `/invoices/${id}`, `void-req:${rid}:${u.id}`);
     return { status: "pending" as const };
   });
 }
@@ -282,7 +285,7 @@ export async function decideVoid(user: SessionUser, ip: string | null, id: strin
       decision_note = ${note.trim() || null} where id = ${r.id}`;
     if (approve) await doVoid(t, user, i, r.reason, ip);
     else await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.void_reject", table: "invoice_void_requests", rowId: r.id, new: { note: note.trim() || null }, ip });
-    await notifyUser(t, user.companyId, r.requested_by, "invoice.void_decided", `${approve ? "✅ Void អនុម័ត" : "❌ Void មិនអនុម័ត"} · ${i.number}`,
+    await notifyUser(t, user.companyId, r.requested_by, "invoice.void_decided", { km: `${approve ? "✅ ការធ្វើមោឃៈត្រូវបានអនុម័ត" : "❌ ការធ្វើមោឃៈមិនត្រូវបានអនុម័ត"} · ${i.number}`, en: `${approve ? "✅ Void approved" : "❌ Void rejected"} · ${i.number}` },
       `${user.fullName}${note.trim() ? `\n📝 ${note.trim()}` : ""}`, `/invoices/${id}`, `void-dec:${r.id}`);
     return { status: approve ? ("void" as const) : ("rejected" as const) };
   });

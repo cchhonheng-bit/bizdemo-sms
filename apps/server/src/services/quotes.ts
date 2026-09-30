@@ -86,7 +86,7 @@ export async function rejectQuote(user: SessionUser, ip: string | null, id: stri
     await audit(t, { companyId: user.companyId, userId: user.id, action: "quote.reject", table: "quotes", rowId: id, new: { reason: reason.trim() }, ip });
     return q;
   });
-  await cancelBooking(user, ip, q.booking_id, `Quote ${q.number} មិនយល់ព្រម: ${reason.trim()}`);
+  await cancelBooking(user, ip, q.booking_id, `${q.number} · ${reason.trim()}`);
   return { id, status: "rejected" as const };
 }
 

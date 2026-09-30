@@ -1,6 +1,6 @@
 {
   "app": {
-    "name": "BizDemo Service Manager",
+    "name": "Service Manager",
     "loading": "Loading…",
     "save": "Save",
     "cancel": "Cancel",
@@ -156,7 +156,8 @@
     "acleda_qr": "ACLEDA QR",
     "upload": "Upload",
     "office_here": "Use my current location as the office",
-    "office_here_ok": "Location filled (±{{m}} m) — press Save"
+    "office_here_ok": "Location filled (±{{m}} m) — press Save",
+    "finance_title": "Finance · Telegram"
   },
   "me": {
     "title": "Me",
@@ -173,7 +174,7 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "coming": "Dashboard arrives in M6 · M2: Booking flow",
+    "coming": "The dashboard is coming soon",
     "revenue_today": "Revenue today",
     "received_today": "Received today",
     "revenue_month": "Revenue this month",
@@ -264,7 +265,8 @@
     "duration_hint": "Default time a technician needs — the booking end time starts from it (can be changed per booking).",
     "remind": "Service reminder every (months)",
     "remind_hint": "Empty = no reminder · e.g. AC cleaning 3 months",
-    "err_remind": "Months 1 – 60"
+    "err_remind": "Months 1 – 60",
+    "unit_ph": "unit"
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -310,7 +312,7 @@
     "confirm_assign": "Confirm assignment",
     "assigned_ok": "Assigned · Telegram sent",
     "assigned_conflicts": "Assigned · ⚠ {{n}} technician(s) have a job near this time",
-    "assign_notify_hint": "On confirm the system sends «Booking Confirmed» to the Telegram group and each technician (with Direction).",
+    "assign_notify_hint": "On confirm the system sends «Booking confirmed» to the Telegram group and each technician (with directions).",
     "type_b_gm_only": "Type B jobs are assigned by GM or CEO",
     "survey_hint": "Waiting for GM survey and quote (M3) · assignment comes after",
     "status": "Status",
@@ -865,7 +867,8 @@
     "cash_save": "Close cash",
     "cash_saved": "Saved · difference {{usd}} · {{khr}}",
     "cash_waiting": "Waiting for CFO",
-    "cash_by": "Closed by {{name}}"
+    "cash_by": "Closed by {{name}}",
+    "over_limit": "(≥ limit {{n}})"
   },
   "reminders": {
     "title": "Service reminders",
@@ -1224,5 +1227,39 @@
       "RANGE_TOO_LONG": "Date range too long"
     },
     "rate_label": "Exchange rate"
+  },
+  "print": {
+    "invoice": "INVOICE",
+    "quote": "QUOTATION",
+    "draft": "DRAFT",
+    "void": "VOID",
+    "customer": "Customer",
+    "job": "Job",
+    "description": "Description",
+    "qty": "Qty",
+    "price": "Price",
+    "amount": "Amount",
+    "service": "Service",
+    "product": "Product",
+    "subtotal": "Subtotal",
+    "discount": "Discount",
+    "total": "Total",
+    "paid": "Paid and deposit",
+    "balance": "Balance",
+    "total_riel": "Total in riel ({{rate}} = $1)",
+    "balance_riel": "Balance in riel",
+    "approx_riel": "About, in riel ({{rate}} = $1)",
+    "notes": "Notes",
+    "scan_pay": "Scan to pay · ACLEDA",
+    "seller": "Seller",
+    "prepared_by": "Prepared by",
+    "acceptance": "Customer acceptance"
+  },
+  "poster": {
+    "title": "📢 Get our updates on Telegram",
+    "step1": "1️⃣ Scan the QR with your phone camera",
+    "step2": "2️⃣ Tap «START» in Telegram",
+    "step3": "3️⃣ Tap the ☑ agree button",
+    "stop": "/stop — stop anytime"
   }
 }

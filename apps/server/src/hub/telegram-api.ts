@@ -55,16 +55,16 @@ export function setWebhook(bot: BotRef, url: string, secret: string): Promise<Tg
 export async function setCommands(bot: BotRef, kind: "shop" | "master"): Promise<TgResult> {
   const privateCmds = kind === "shop"
     ? [
-      { command: "start", description: "🏠 ម៉ឺនុយ / Menu" },
-      { command: "help", description: "❓ ជំនួយ / Help" },
+      { command: "start", description: "🏠 ម៉ឺនុយ" },
+      { command: "help", description: "❓ ជំនួយ" },
       { command: "stop", description: "⛔ ឈប់ទទួលសារ (/stop promo = បិទប្រូម៉ូសិន)" },
     ]
     : [
-      { command: "start", description: "🏠 ម៉ឺនុយ / Menu" },
+      { command: "start", description: "🏠 ម៉ឺនុយ" },
       { command: "stop", description: "🔕 ឈប់តាមដាន HangKH" },
     ];
   const groupCmds = kind === "shop"
-    ? [{ command: "start", description: "📋 ម៉ឺនុយ Group" }, { command: "register", description: "🔗 កំណត់ Group ការងារ (/register <កូដ>)" }, { command: "help", description: "❓ ជំនួយ" }]
+    ? [{ command: "start", description: "📋 ម៉ឺនុយក្រុម" }, { command: "register", description: "🔗 កំណត់ក្រុមការងារ (/register <កូដ>)" }, { command: "help", description: "❓ ជំនួយ" }]
     : [{ command: "help", description: "❓ ជំនួយ" }];
   const a = await tg(bot, "setMyCommands", { commands: privateCmds, scope: { type: "all_private_chats" } });
   await tg(bot, "setMyCommands", { commands: groupCmds, scope: { type: "all_group_chats" } });

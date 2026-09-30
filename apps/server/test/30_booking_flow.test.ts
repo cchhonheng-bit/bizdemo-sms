@@ -63,7 +63,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     // outbox: group + kim (linked); dara only in-app
     const out = await sql<{ chat_id: string; text: string; reply_markup: any }[]>`select chat_id, text, reply_markup from telegram_outbox order by id`;
     expect(out.map((o) => o.chat_id).sort()).toEqual(["-100123", "900002"]);
-    expect(out[0]!.text.startsWith(`✅ Booking Confirmed (BK-0001)
+    expect(out[0]!.text.startsWith(`✅ បញ្ជាក់ការងារ (BK-0001)
 📅 ${ddmmyyyy(T9)} · 09:00–11:00
 👤 អតិថិជន: លោក សុខា · 📞 012345678`)).toBe(true);
     expect(out[0]!.text).toContain("1. Kim (មេជាង)  2. Dara"); expect(out[0]!.text).toContain("🚐 01");

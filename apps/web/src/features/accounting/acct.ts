@@ -20,4 +20,6 @@ export function cents(v: string): number {
   if (v.trim() === "") return NaN;
   try { return toCents(v); } catch { return NaN; }
 }
+/** «Expense», «Transfer» … for other transactions (their type is the source id), else the source name — a locale key */
+export const sourceKey = (source: string, sourceId: string | null) => (source === "other" && sourceId ? `acct.tx.${sourceId}` : `acct.source.${source}`);
 export const signedUsd = (c: number) => (c < 0 ? `−${formatUsd(-c)}` : formatUsd(c));

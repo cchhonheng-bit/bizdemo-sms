@@ -138,7 +138,7 @@ function ItemDialog({ item, showCost, onClose }: { item: CatalogItem | null; sho
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
           <Field label={t("catalog.kind")}><Select {...register("kind")}><option value="service">{t("catalog.kind_service")}</option><option value="product">{t("catalog.kind_product")}</option></Select></Field>
           <Field label={t("catalog.category")}><Select {...register("category")}>{SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}</Select></Field>
-          <Field label={t("catalog.unit")}><Input placeholder="unit" {...register("unit")} /></Field>
+          <Field label={t("catalog.unit")}><Input placeholder={t("catalog.unit_ph")} {...register("unit")} /></Field>
         </div>
         <div className="grid grid-cols-2 gap-x-3">
           <Field label={t("catalog.sell_price") + " ($)"} required><Input inputMode="decimal" name="sell_price" value={sell} onChange={(e) => setSell(e.target.value)} /></Field>

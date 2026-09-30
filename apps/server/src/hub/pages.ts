@@ -29,7 +29,10 @@ export function legalPage(which: "terms" | "privacy"): string {
   return layout(`${docs.km.title} · ${docs.en.title}`, part("km") + part("en"));
 }
 
-export function landingPage(bot: string): string {
-  return layout("HangKH", `<div class="card"><h1>HangKH</h1><p>ប្រព័ន្ធគ្រប់គ្រងសេវាកម្មសម្រាប់ហាង · Service management for shops in Cambodia.</p>
-<p>Telegram: <a href="https://t.me/${esc(bot)}">@${esc(bot)}</a></p><p><a href="/privacy">គោលការណ៍ឯកជនភាព / Privacy</a> · <a href="/terms">លក្ខខណ្ឌ / Terms</a></p></div>`);
+/** one language per page (D-89): Khmer by default, English with ?lang=en */
+export function landingPage(bot: string, lang: "km" | "en" = "km"): string {
+  const en = lang === "en";
+  return layout("HangKH", `<div class="card"><h1>HangKH</h1><p>${en ? "Service management for shops in Cambodia." : "ប្រព័ន្ធគ្រប់គ្រងសេវាកម្មសម្រាប់ហាងនៅកម្ពុជា។"}</p>
+<p>Telegram: <a href="https://t.me/${esc(bot)}">@${esc(bot)}</a></p><p><a href="/privacy">${en ? "Privacy" : "គោលការណ៍ឯកជនភាព"}</a> · <a href="/terms">${en ? "Terms" : "លក្ខខណ្ឌ"}</a></p>
+<p class="muted"><a href="${en ? "/" : "/?lang=en"}">${en ? "ខ្មែរ" : "English"}</a></p></div>`);
 }

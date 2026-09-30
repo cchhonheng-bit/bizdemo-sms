@@ -54,7 +54,8 @@ export async function requestLeave(user: SessionUser, ip: string | null, v: { da
     await audit(t, { companyId: user.companyId, userId: user.id, action: "leave.request", table: "staff_leaves", rowId: id, new: { ...v }, ip });
     const when = v.date_from === v.date_to ? v.date_from : `${v.date_from} → ${v.date_to}`;
     for (const a of await approvers(t, user.companyId, user.role, user.id))
-      await notifyUser(t, user.companyId, a.id, "leave.request", `🗓 សំណើច្បាប់ឈប់ · ${user.fullName}`, `${when} (${v.part === "full" ? "ពេញថ្ងៃ" : v.part === "am" ? "ព្រឹក" : "រសៀល"})\n📝 ${v.reason.trim()}`, "/leave", `leave:${id}:req:${a.id}`);
+      await notifyUser(t, user.companyId, a.id, "leave.request", { km: `🗓 សំណើច្បាប់ឈប់ · ${user.fullName}`, en: `🗓 Leave request · ${user.fullName}` },
+      { km: `${when} (${v.part === "full" ? "ពេញថ្ងៃ" : v.part === "am" ? "ព្រឹក" : "រសៀល"})\n📝 ${v.reason.trim()}`, en: `${when} (${v.part === "full" ? "full day" : v.part === "am" ? "morning" : "afternoon"})\n📝 ${v.reason.trim()}` }, "/leave", `leave:${id}:req:${a.id}`);
     return { id, status: "pending" as const };
   });
 }
@@ -76,7 +77,7 @@ export async function decideLeave(user: SessionUser, ip: string | null, id: stri
     await t`update staff_leaves set status = ${status}::leave_status, decided_by = ${user.id}, decided_at = now(), decision_note = ${note} where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: approve ? "leave.approve" : "leave.reject", table: "staff_leaves", rowId: id, new: { note }, ip });
     await notifyUser(t, user.companyId, row.user_id, approve ? "leave.approved" : "leave.rejected",
-      approve ? "✅ ច្បាប់ឈប់ត្រូវបានអនុម័ត" : "❌ ច្បាប់ឈប់ត្រូវបានបដិសេធ", `${row.date_from}${row.date_to !== row.date_from ? " → " + row.date_to : ""}${note ? `\n📝 ${note}` : ""}`, "/leave", `leave:${id}:${status}`);
+      approve ? { km: "✅ ច្បាប់ឈប់ត្រូវបានអនុម័ត", en: "✅ Leave approved" } : { km: "❌ ច្បាប់ឈប់ត្រូវបានបដិសេធ", en: "❌ Leave rejected" }, `${row.date_from}${row.date_to !== row.date_from ? " → " + row.date_to : ""}${note ? `\n📝 ${note}` : ""}`, "/leave", `leave:${id}:${status}`);
     return { id, status, affected: approve ? await affected(t, row.user_id, row.starts_at, row.ends_at) : [] };
   });
 }

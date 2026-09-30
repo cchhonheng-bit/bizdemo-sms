@@ -19,8 +19,8 @@ export async function ensureConsentText(): Promise<void> {
 /** customerCode (A2): the customer came through their own link s_<code> — after the tick the hub tells the shop which customer it was */
 export function consentMarkup(shop: string | null, masterUsername: string | null, customerCode?: string) {
   const rows: unknown[][] = [];
-  if (shop) rows.push([{ text: "☑ យល់ព្រម / I agree", callback_data: `sub:${shop}:${CONSENT_VERSION}${customerCode ? `:${customerCode}` : ""}` }]);
-  if (masterUsername) rows.push([{ text: "⭐ Follow HangKH (ស្រេចចិត្ត)", url: `https://t.me/${masterUsername}?start=follow` }]);
+  if (shop) rows.push([{ text: "☑ យល់ព្រម", callback_data: `sub:${shop}:${CONSENT_VERSION}${customerCode ? `:${customerCode}` : ""}` }]);
+  if (masterUsername) rows.push([{ text: "⭐ តាមដាន HangKH (ស្រេចចិត្ត)", url: `https://t.me/${masterUsername}?start=follow` }]);
   return { inline_keyboard: rows };
 }
 

@@ -5,6 +5,7 @@ import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
+import { asLang, LEAD, pick, tx, ZONE, type Lang, type Tx } from "../lib/i18n.js";
 import { audit } from "./audit.js";
 import { hubCall, hubConfigured, sendViaHub, shopBotUsername } from "./hub-client.js";
 
@@ -56,17 +57,17 @@ export async function flushOutbox(limit = 20, send: (chatId: number | string, te
 // ---------- buttons under job messages (owner I1) --------------------------------------------
 type Row = { text: string; url: string }[];
 /** 📱 open the job in the app — technicians on their job page, the group on the booking page (https only, R12) */
-function appRow(bookingId: string, forTech: boolean): Row[] {
+function appRow(bookingId: string, forTech: boolean, lang: Lang): Row[] {
   if (!config.publicUrl.startsWith("https://")) return [];
-  return [[{ text: "📱 មើលក្នុងកម្មវិធី", url: `${config.publicUrl}${forTech ? "/tech/job/" : "/bookings/"}${bookingId}` }]];
+  return [[{ text: pick(tx("📱 មើលក្នុងកម្មវិធី", "📱 Open in the app"), lang), url: `${config.publicUrl}${forTech ? "/tech/job/" : "/bookings/"}${bookingId}` }]];
 }
-function withApp(markup: unknown, bookingId: string, forTech: boolean): unknown {
-  const rows = [...(((markup as { inline_keyboard?: Row[] } | null)?.inline_keyboard) ?? []), ...appRow(bookingId, forTech)];
+function withApp(markup: unknown, bookingId: string, forTech: boolean, lang: Lang): unknown {
+  const rows = [...(((markup as { inline_keyboard?: Row[] } | null)?.inline_keyboard) ?? []), ...appRow(bookingId, forTech, lang)];
   return rows.length ? { inline_keyboard: rows } : null;
 }
 
 // ---------- Booking Confirmed text -----------------------------------------------------
-export async function bookingConfirmedText(db: Db, bookingId: string): Promise<{ text: string; markup: unknown | null; companyId: string; number: string }> {
+export async function bookingConfirmedText(db: Db, bookingId: string, lang: Lang = "km"): Promise<{ text: string; markup: unknown | null; companyId: string; number: string }> {
   const b = (await db<{
     number: string; service_text: string; scheduled_at: Date | null; ends_at: Date | null; address: string | null; zone: string; notes: string | null; lat: number | null; lng: number | null;
     cname: string; phones: string[]; vcode: string | null; timezone: string; company_id: string;
@@ -78,18 +79,19 @@ export async function bookingConfirmedText(db: Db, bookingId: string): Promise<{
        where t.booking_id = ${bookingId} order by t.role, u.full_name`;
   const tz = b.timezone || "Asia/Phnom_Penh";
   const dt = b.scheduled_at ? fmtLocal(b.scheduled_at, tz) + (b.ends_at ? `–${fmtLocal(b.ends_at, tz).slice(-5)}` : "") : "—";
-  const techLine = techs.length ? techs.map((t, i) => `${i + 1}. ${t.full_name}${t.role === "lead" ? " (មេជាង)" : ""}`).join("  ") : "—";
+  const techLine = techs.length ? techs.map((t, i) => `${i + 1}. ${t.full_name}${t.role === "lead" ? ` (${pick(LEAD, lang)})` : ""}`).join("  ") : "—";
+  const L = (km: string, en: string) => pick(tx(km, en), lang);
   const text = [
-    `✅ Booking Confirmed (${b.number})`,
+    L(`✅ បញ្ជាក់ការងារ (${b.number})`, `✅ Booking confirmed (${b.number})`),
     `📅 ${dt}`,
-    `👤 អតិថិជន: ${b.cname}${b.phones?.[0] ? ` · 📞 ${b.phones[0]}` : ""}`,
-    `📍 ${b.address ?? "—"} (${b.zone === "inside" ? "ក្នុងបុរី" : "ក្រៅបុរី"})`,
-    `🔧 សេវាកម្ម: ${b.service_text}`,
-    `👷 ជាង: ${techLine}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`,
-    `📝 ចំណាំ: ${b.notes ?? "—"}`,
+    `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}${b.phones?.[0] ? ` · 📞 ${b.phones[0]}` : ""}`,
+    `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`,
+    `🔧 ${L("សេវាកម្ម", "Service")}: ${b.service_text}`,
+    `👷 ${L("ជាង", "Technicians")}: ${techLine}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`,
+    `📝 ${L("ចំណាំ", "Notes")}: ${b.notes ?? "—"}`,
   ].join("\n");
   const markup = b.lat != null && b.lng != null
-    ? { inline_keyboard: [[{ text: "🗺 Direction", url: `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lng}&travelmode=driving` }]] }
+    ? { inline_keyboard: [[{ text: L("🗺 ផ្លូវទៅ", "🗺 Directions"), url: `https://www.google.com/maps/dir/?api=1&destination=${b.lat},${b.lng}&travelmode=driving` }]] }
     : null;
   return { text, markup, companyId: b.company_id, number: b.number };
 }
@@ -102,18 +104,21 @@ export function fmtLocal(d: Date, timeZone: string): string {
 
 /** Group + every linked technician of the team get the message; every technician gets an in-app notification. */
 export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason: string): Promise<void> {
-  const { text, markup, companyId, number } = await bookingConfirmedText(db, bookingId);
+  const km = await bookingConfirmedText(db, bookingId, "km"), en = await bookingConfirmedText(db, bookingId, "en");
+  const { companyId, number } = km;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${companyId}`)[0]?.telegram_group_chat_id;
-  if (group) await enqueue(db, companyId, group, text, withApp(markup, bookingId, false), `booking:${bookingId}:${reason}:group`);
-  const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
+  if (group) await enqueue(db, companyId, group, km.text, withApp(km.markup, bookingId, false, "km"), `booking:${bookingId}:${reason}:group`);
+  const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
   for (const m of team) {
+    const lang = asLang(m.language), msg = lang === "en" ? en : km;
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
-             values (${companyId}, ${m.id}, 'booking.assigned', ${number + " · ការងារថ្មី"}, ${text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
-    if (m.telegram_chat_id) await enqueue(db, companyId, m.telegram_chat_id, text, withApp(markup, bookingId, true), `booking:${bookingId}:${reason}:${m.id}`);
+             values (${companyId}, ${m.id}, 'booking.assigned', ${number + " · " + pick(tx("ការងារថ្មី", "New job"), lang)}, ${msg.text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+    if (m.telegram_chat_id) await enqueue(db, companyId, m.telegram_chat_id, msg.text, withApp(msg.markup, bookingId, true, lang), `booking:${bookingId}:${reason}:${m.id}`);
   }
 }
 
-const REQUESTER_KM: Record<string, string> = { customer: "អតិថិជន", creator: "អ្នកបង្កើត Booking", technician: "ជាង", lead: "មេជាង", gm: "GM" };
+const REQUESTER: Record<string, Tx> = { customer: tx("អតិថិជន", "customer"), creator: tx("អ្នកបង្កើតការងារ", "booking creator"), technician: tx("ជាង", "technician"),
+  lead: tx("មេជាង", "lead technician"), gm: tx("អ្នកគ្រប់គ្រង", "GM") };
 
 /** D2: the group + every linked technician of the team get «Booking Rescheduled» (old → new, who asked, why) + in-app notice. */
 export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { oldStart: Date | null; requestedBy: string; reason: string }): Promise<void> {
@@ -121,30 +126,33 @@ export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { 
     select bk.number, bk.company_id, bk.scheduled_at, bk.ends_at, c.name as cname, co.timezone from bookings bk join customers c on c.id = bk.customer_id join companies co on co.id = bk.company_id
     where bk.id = ${bookingId}`)[0]!;
   const tz = b.timezone || "Asia/Phnom_Penh";
-  const text = [
-    `🔁 Booking Rescheduled (${b.number})`,
-    `❌ ពីមុន: ${r.oldStart ? fmtLocal(r.oldStart, tz) : "—"}`,
-    `✅ ថ្មី: ${fmtLocal(b.scheduled_at, tz)}–${fmtLocal(b.ends_at, tz).slice(-5)}`,
-    `👤 អតិថិជន: ${b.cname}`,
-    `🙋 ស្នើដោយ: ${REQUESTER_KM[r.requestedBy] ?? r.requestedBy}`,
-    `📝 មូលហេតុ: ${r.reason}`,
-  ].join("\n");
+  const textIn = (lang: Lang) => { const L = (km: string, en: string) => pick(tx(km, en), lang); return [
+    L(`🔁 ប្ដូរម៉ោងការងារ (${b.number})`, `🔁 Booking rescheduled (${b.number})`),
+    `❌ ${L("ពីមុន", "Before")}: ${r.oldStart ? fmtLocal(r.oldStart, tz) : "—"}`,
+    `✅ ${L("ថ្មី", "New")}: ${fmtLocal(b.scheduled_at, tz)}–${fmtLocal(b.ends_at, tz).slice(-5)}`,
+    `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}`,
+    `🙋 ${L("ស្នើដោយ", "Requested by")}: ${REQUESTER[r.requestedBy] ? pick(REQUESTER[r.requestedBy]!, lang) : r.requestedBy}`,
+    `📝 ${L("មូលហេតុ", "Reason")}: ${r.reason}`,
+  ].join("\n"); };
+  const text = textIn("km");
   const key = `resched:${bookingId}:${Date.now()}`;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
-  if (group) await enqueue(db, b.company_id, group, text, withApp(null, bookingId, false), `${key}:group`);
-  const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
+  if (group) await enqueue(db, b.company_id, group, text, withApp(null, bookingId, false, "km"), `${key}:group`);
+  const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
   for (const m of team) {
+    const lang = asLang(m.language), mine = textIn(lang);
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
-             values (${b.company_id}, ${m.id}, 'booking.rescheduled', ${b.number + " · ប្ដូរម៉ោង"}, ${text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
-    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, withApp(null, bookingId, true), `${key}:${m.id}`);
+             values (${b.company_id}, ${m.id}, 'booking.rescheduled', ${b.number + " · " + pick(tx("ប្ដូរម៉ោង", "Rescheduled"), lang)}, ${mine.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, mine, withApp(null, bookingId, true, lang), `${key}:${m.id}`);
   }
 }
 
-/** a personal Telegram message + in-app notification to one user (leave requests / decisions) */
-export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string, body: string, link: string | null, dedupe: string): Promise<void> {
-  await db`insert into notifications (company_id, user_id, kind, title, body, link) values (${companyId}, ${userId}, ${kind}, ${title}, ${body.slice(0, 300)}, ${link})`;
-  const chat = (await db<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from users where id = ${userId} and is_active`)[0]?.telegram_chat_id;
-  if (chat) await enqueue(db, companyId, chat, `${title}\n${body}`, null, dedupe);
+/** a personal Telegram message + in-app notification to one user, in that user's language (a plain string = the same in both) */
+export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string | Tx, body: string | Tx, link: string | null, dedupe: string): Promise<void> {
+  const u = (await db<{ chat: string | null; active: boolean; language: string }[]>`select telegram_chat_id as chat, is_active as active, language from users where id = ${userId}`)[0];
+  const lang = asLang(u?.language), t = pick(title, lang), b = pick(body, lang);
+  await db`insert into notifications (company_id, user_id, kind, title, body, link) values (${companyId}, ${userId}, ${kind}, ${t}, ${b.slice(0, 300)}, ${link})`;
+  if (u?.chat && u.active) await enqueue(db, companyId, u.chat, `${t}\n${b}`, null, dedupe);
 }
 
 /** R4: the group + every linked technician of the (former) team get a cancel notice; technicians an in-app notification. */
@@ -152,20 +160,22 @@ export async function enqueueBookingCancelled(db: Db, bookingId: string, reason:
   const b = (await db<{ number: string; company_id: string; scheduled_at: Date | null; cname: string; timezone: string }[]>`
     select bk.number, bk.company_id, bk.scheduled_at, c.name as cname, co.timezone from bookings bk join customers c on c.id = bk.customer_id join companies co on co.id = bk.company_id
     where bk.id = ${bookingId}`)[0]!;
-  const text = [
-    `❌ Booking Cancelled (${b.number})`,
+  const textIn = (lang: Lang) => { const L = (km: string, en: string) => pick(tx(km, en), lang); return [
+    L(`❌ លុបចោលការងារ (${b.number})`, `❌ Booking cancelled (${b.number})`),
     `📅 ${b.scheduled_at ? fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh") : "—"}`,
-    `👤 អតិថិជន: ${b.cname}`,
-    `📝 មូលហេតុ: ${reason}`,
-    "ការងារនេះត្រូវបានលុបចោល — មិនចាំបាច់ចុះទីតាំងទេ។",
-  ].join("\n");
+    `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}`,
+    `📝 ${L("មូលហេតុ", "Reason")}: ${reason}`,
+    L("ការងារនេះត្រូវបានលុបចោល — មិនចាំបាច់ចុះទីតាំងទេ។", "This job is cancelled — no need to go on site."),
+  ].join("\n"); };
+  const text = textIn("km");
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
   if (group) await enqueue(db, b.company_id, group, text, null, `cancel:${bookingId}:group`);
-  const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
+  const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
   for (const m of team) {
+    const lang = asLang(m.language);
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
-             values (${b.company_id}, ${m.id}, 'booking.cancelled', ${b.number + " · បានលុបចោល"}, ${reason.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
-    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, null, `cancel:${bookingId}:${m.id}`);
+             values (${b.company_id}, ${m.id}, 'booking.cancelled', ${b.number + " · " + pick(tx("បានលុបចោល", "Cancelled"), lang)}, ${reason.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, textIn(lang), null, `cancel:${bookingId}:${m.id}`);
   }
 }
 
@@ -218,10 +228,11 @@ export async function consumeLinkCode(code: string, tgUser: number, chatId: numb
     for (const p of prev) await audit(t, { companyId: p.company_id, userId: p.id, action: "telegram.unlink", source: "telegram", table: "users", rowId: p.id, new: { reason: "relinked_to_other_user" } });
     const before = (await t<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from users where id = ${row.user_id}`)[0]?.telegram_chat_id;
     if (before && String(before) !== String(chatId)) forgetLater.push(String(before));
-    const u = (await t<{ full_name: string; is_active: boolean }[]>`update users set telegram_user_id = ${tgUser}, telegram_chat_id = ${chatId} where id = ${row.user_id} returning full_name, is_active`)[0]!;
+    const u = (await t<{ full_name: string; is_active: boolean; language: string }[]>`update users set telegram_user_id = ${tgUser}, telegram_chat_id = ${chatId} where id = ${row.user_id} returning full_name, is_active, language`)[0]!;
+    const lang = asLang(u.language);
     await audit(t, { companyId: row.company_id, userId: row.user_id, action: "telegram.link", source: "telegram", table: "users", rowId: row.user_id, new: { telegram_user_id: tgUser } });
-    await t`insert into notifications (company_id, user_id, kind, title) values (${row.company_id}, ${row.user_id}, 'telegram.linked', 'Telegram ភ្ជាប់រួច')`;
-    return { ok: true as const, reply: `✅ ភ្ជាប់រួចរាល់ ${u.full_name}។ អ្នកនឹងទទួលការងារថ្មីនៅទីនេះ។` };
+    await t`insert into notifications (company_id, user_id, kind, title) values (${row.company_id}, ${row.user_id}, 'telegram.linked', ${pick(tx("Telegram ភ្ជាប់រួច", "Telegram linked"), lang)})`;
+    return { ok: true as const, reply: pick(tx(`✅ ភ្ជាប់រួចរាល់ ${u.full_name}។ អ្នកនឹងទទួលការងារថ្មីនៅទីនេះ។`, `✅ Linked, ${u.full_name}. New jobs will arrive here.`), lang) };
   }) as Consumed;
   for (const c of forgetLater) void hubForgetChat(c);
   return result;
@@ -248,7 +259,8 @@ export async function consumeGroupCode(code: string, chatId: number, title: stri
     await t`update company_settings set telegram_group_chat_id = ${chatId}, telegram_group_title = ${title || null}, updated_by = ${row.created_by} where company_id = ${row.company_id}`;
     await audit(t, { companyId: row.company_id, userId: row.created_by, action: "telegram.group_registered", source: "telegram", table: "company_settings", rowId: row.company_id,
       old: { chat_id: old?.telegram_group_chat_id ?? null }, new: { chat_id: chatId, title } });
-    await t`insert into notifications (company_id, user_id, kind, title, body) values (${row.company_id}, ${row.created_by}, 'telegram.group', 'Group Telegram កំណត់រួច', ${title || null})`;
-    return { ok: true as const, reply: "✅ ក្រុមនេះត្រូវបានកំណត់ជាបណ្ដាញការងាររបស់ក្រុមហ៊ុន។ Booking ថ្មីនឹងផ្ញើមកទីនេះ។" };
+    const lang = asLang((await t<{ language: string }[]>`select language from users where id = ${row.created_by}`)[0]?.language);
+    await t`insert into notifications (company_id, user_id, kind, title, body) values (${row.company_id}, ${row.created_by}, 'telegram.group', ${pick(tx("ក្រុម Telegram កំណត់រួច", "Telegram group set"), lang)}, ${title || null})`;
+    return { ok: true as const, reply: "✅ ក្រុមនេះត្រូវបានកំណត់ជាក្រុមការងាររបស់ក្រុមហ៊ុន។ ការងារថ្មីនឹងផ្ញើមកទីនេះ។" };
   }) as Promise<Consumed>;
 }

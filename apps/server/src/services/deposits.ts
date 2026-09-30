@@ -47,7 +47,7 @@ export async function voidDeposit(user: SessionUser, ip: string | null, id: stri
     if (d.status !== "active") throw new AppError("DEPOSIT_NOT_ACTIVE", 400);
     await t`update deposits set status = 'void', note = coalesce(note || ' · ', '') || ${"VOID: " + reason.trim()} where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "deposit.void", table: "deposits", rowId: id, new: { reason: reason.trim() }, ip });
-    await reverseSource(t, user, "deposit", id, `VOID: ${reason.trim()}`);
+    await reverseSource(t, user, "deposit", id, reason.trim());
     return { ok: true };
   });
 }

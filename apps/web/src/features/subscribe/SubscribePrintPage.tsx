@@ -26,16 +26,15 @@ export default function SubscribePrintPage() {
       </div>
       <article className="mx-auto my-4 print:my-0 bg-white w-full max-w-[148mm] p-8 text-center shadow print:shadow-none" data-testid="sub-poster">
         <div className="text-2xl font-bold text-navy">{cfg.data?.companyName}</div>
-        <div className="text-xl font-bold mt-4">📢 ចុះឈ្មោះទទួលដំណឹង</div>
-        <div className="text-sm text-muted">Get our updates on Telegram</div>
+        <div className="text-xl font-bold mt-4">{t("poster.title")}</div>
         {qr && <img src={qr} alt="QR" className="w-[70%] mx-auto my-6" />}
         <ol className="text-left mx-auto max-w-[110mm] space-y-2 text-base">
-          <li>1️⃣ បើកកាមេរ៉ាទូរស័ព្ទ ស្កេន QR · Scan with your phone camera</li>
-          <li>2️⃣ ចុច «Start» ក្នុង Telegram · Tap «Start» in Telegram</li>
-          <li>3️⃣ ចុច «☑ យល់ព្រម» · Tap «☑ I agree»</li>
+          <li>{t("poster.step1")}</li>
+          <li>{t("poster.step2")}</li>
+          <li>{t("poster.step3")}</li>
         </ol>
         <p className="mt-6 font-mono text-sm break-all">{link}</p>
-        <p className="text-xs text-muted mt-1">/stop — ឈប់ទទួល · stop anytime</p>
+        <p className="text-xs text-muted mt-1">{t("poster.stop")}</p>
       </article>
     </div>
   );

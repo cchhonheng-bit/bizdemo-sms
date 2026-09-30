@@ -42,7 +42,7 @@ const shopHelp = (name: string) => [
   "• /stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទទួលសារទាំងអស់ពីហាងនេះ",
   `• គោលការណ៍ឯកជនភាព: ${privacyUrl()}`,
 ].join("\n");
-const SHOP_HELP_GROUP = "🤖 កំណត់ Group ការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
+const SHOP_HELP_GROUP = "🤖 កំណត់ក្រុមការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
 
 /** a staff/group code received by a shop bot → that shop validates it (never another shop) */
 async function forwardCode(bot: Bot, kind: "link" | "group", raw: string, msg: Message, log: FastifyBaseLogger): Promise<void> {
@@ -100,7 +100,7 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
     const staff = promoOnly ? [] : await sql`delete from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'staff' returning chat_id`;
     const lines: string[] = [];
     if (names.length) lines.push(promoOnly ? `✅ បិទប្រូម៉ូសិនរួច: ${names.join(", ")}។ អ្នកនៅទទួលដំណឹងសេវាកម្ម។` : `✅ ឈប់ទទួលសាររួច: ${names.join(", ")}។ ចុះឈ្មោះម្ដងទៀតបានតាមតំណរបស់ហាង។`);
-    if (staff.length) lines.push(`ℹ️ ការងារពី ${shop.name} នឹងលែងផ្ញើមកទីនេះ។ ភ្ជាប់វិញ: App → ខ្ញុំ → ភ្ជាប់ Telegram។`);
+    if (staff.length) lines.push(`ℹ️ ការងារពី ${shop.name} នឹងលែងផ្ញើមកទីនេះ។ ភ្ជាប់វិញ: កម្មវិធី → ខ្ញុំ → ភ្ជាប់ Telegram។`);
     return reply(bot, msg.chat.id, lines.length ? lines.join("\n") : "ℹ️ អ្នកមិនមានការចុះឈ្មោះសកម្មទេ។", shop.code, promoOnly ? "stop.promo" : "stop.all");
   }
   if (isGroup && c.cmd === "register") return forwardCode(bot, "group", c.arg, msg, log);
@@ -109,7 +109,7 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
     return g ? show(bot, msg.chat.id, null, g.text, g.markup, "menu.group", shop.code) : reply(bot, msg.chat.id, groupHelp, shop.code, "help");
   }
   if (isPrivate && c.cmd === "help") return show(bot, msg.chat.id, null, shopHelp(shop.name), { inline_keyboard: [[{ text: "🏠 ម៉ឺនុយ", callback_data: "v:home" }]] }, "help", shop.code);
-  if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុង Group ការងារប៉ុណ្ណោះ។", shop.code, "register.private");
+  if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");
   if (c.cmd === "help") return reply(bot, msg.chat.id, isPrivate ? shopHelp(shop.name) : SHOP_HELP_GROUP, shop.code, "help");
 }
 
@@ -123,7 +123,7 @@ async function startMenu(bot: Bot, shop: Shop, chatId: number, tgUser: number): 
 
 async function onMasterMessage(bot: Bot, msg: Message, c: { cmd: string; arg: string }): Promise<void> {
   if (msg.chat.type !== "private") {
-    if (c.cmd === "register" || c.cmd === "help") return reply(bot, msg.chat.id, "ℹ️ Group ការងារ ត្រូវកំណត់ជាមួយ bot របស់ហាង (កម្មវិធី: ការកំណត់ → Telegram)។", null, "master.group");
+    if (c.cmd === "register" || c.cmd === "help") return reply(bot, msg.chat.id, "ℹ️ ក្រុមការងារ ត្រូវកំណត់ជាមួយ bot របស់ហាង (កម្មវិធី: ការកំណត់ → Telegram)។", null, "master.group");
     return;
   }
   const from = msg.from!;
@@ -164,7 +164,7 @@ async function onLocation(bot: Bot, msg: Message): Promise<void> {
   const l = msg.location;
   const r = await callShop(shop, "POST", "/internal/tg-attendance", { chat_id: msg.chat.id, tg_user: msg.from.id, lat: l.latitude, lng: l.longitude,
     accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0 });
-  const text = r && r.status === 200 && typeof r.json?.reply === "string" ? String(r.json.reply).slice(0, 1000) : "❌ មិនអាចកត់វត្តមានបានទេ — សូមព្យាយាមម្ដងទៀត ឬប្រើ App។";
+  const text = r && r.status === 200 && typeof r.json?.reply === "string" ? String(r.json.reply).slice(0, 1000) : "❌ មិនអាចកត់វត្តមានបានទេ — សូមព្យាយាមម្ដងទៀត ឬប្រើកម្មវិធី។";
   return reply(bot, msg.chat.id, text, shop.code, "attendance.location", { remove_keyboard: true });
 }
 
@@ -220,7 +220,7 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
     if (p.action === "follow") await sql`insert into hub_followers (telegram_user_id, chat_id, first_name) values (${q.from.id}, ${chat.id}, ${q.from.first_name?.slice(0, 100) ?? null})
       on conflict (telegram_user_id) do update set chat_id = excluded.chat_id, stopped_at = null`;
     if (p.action === "unfollow") await sql`update hub_followers set stopped_at = now() where telegram_user_id = ${q.from.id} and stopped_at is null`;
-    if (p.action === "about") return show(bot, chat.id, mid, "ℹ️ HangKH ជួយហាងគ្រប់គ្រងការងារ ជាង Booking និងអតិថិជន តាម App និង Telegram។", { inline_keyboard: [[{ text: "⬅️ ត្រឡប់", callback_data: "m:home" }]] }, "about", null);
+    if (p.action === "about") return show(bot, chat.id, mid, "ℹ️ HangKH ជួយហាងគ្រប់គ្រងការងារ ជាង និងអតិថិជន តាមកម្មវិធី និង Telegram។", { inline_keyboard: [[{ text: "⬅️ ត្រឡប់", callback_data: "m:home" }]] }, "about", null);
     const mm = await masterMenu(q.from.id);
     return show(bot, chat.id, mid, mm.text, mm.markup, "menu.master", null);
   }
@@ -243,8 +243,9 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
   const v = await shopMenu(shop, chat.id, p.action, p.id, p.back);
   if (v && p.action === "att") { // FR-902: a reply keyboard can only come with a new message
     await show(bot, chat.id, mid, v.text, v.markup, "menu.att", shop.code);
-    return reply(bot, chat.id, "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", shop.code, "attendance.ask",
-      { keyboard: [[{ text: "📍 ផ្ញើទីតាំង (ចូល/ចេញ)", request_location: true }]], resize_keyboard: true, one_time_keyboard: true });
+    const en = v.lang === "en"; // the staff member's app language, told by the shop
+    return reply(bot, chat.id, en ? "👇 Tap the button below to send your current location (GPS)" : "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", shop.code, "attendance.ask",
+      { keyboard: [[{ text: en ? "📍 Send location (in/out)" : "📍 ផ្ញើទីតាំង (ចូល/ចេញ)", request_location: true }]], resize_keyboard: true, one_time_keyboard: true });
   }
   if (v) return show(bot, chat.id, mid, v.text, v.markup, `menu.${p.action}`, shop.code);
   if (isGroupView) return show(bot, chat.id, mid, groupHelp, { inline_keyboard: [] }, "help", shop.code);
