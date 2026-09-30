@@ -16,7 +16,7 @@ import { CategoryBadge, StatusBadge, TypeBadge } from "./parts";
 export default function BookingsPage() {
   const { t } = useTranslation();
   const nav = useNavigate();
-  const { can } = useAuth();
+  const { can, me } = useAuth();
   const [view, setView] = useState<"board" | "list">(() => (window.innerWidth < 768 ? "list" : "board"));
   const [q, setQ] = useState("");
   const [hideClosed, setHideClosed] = useState(true);
@@ -29,7 +29,7 @@ export default function BookingsPage() {
   const [cat, setCat] = useState("");
   const [zone, setZone] = useState("");
   const [tech, setTech] = useState("");
-  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic, enabled: me?.role !== "tech" }); // technicians never read the staff list
   const techs = (users.data ?? []).filter((u) => u.role === "tech");
   const active = [day, cat, zone, tech].filter(Boolean).length;
 

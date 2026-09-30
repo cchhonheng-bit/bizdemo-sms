@@ -17,6 +17,9 @@ export default function DashboardPage() {
   const nav = useNavigate();
   const { can } = useAuth();
   const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 60_000 });
+  // managers: wait for the KPI panel too, so the page does not jump when it arrives (CLS)
+  const panel = useQuery({ queryKey: ["dashboard"], queryFn: api.reports.dashboard, refetchInterval: 60_000, enabled: can("report.ops") });
+  const att = useQuery({ queryKey: ["attendance-today"], queryFn: api.attendance.today, refetchInterval: 5 * 60_000 }); // same query as the check-in card
   const { today, counts } = useMemo(() => {
     const all = bookings.data ?? [];
     const d = fmtDate(new Date().toISOString());
@@ -24,6 +27,7 @@ export default function DashboardPage() {
     const counts = { new: all.filter((b) => b.status === "new").length, survey: all.filter((b) => ["survey", "quoted"].includes(b.status)).length, assigned: all.filter((b) => b.status === "assigned").length, in_progress: all.filter((b) => ["en_route", "on_site", "working"].includes(b.status)).length };
     return { today, counts };
   }, [bookings.data]);
+  if ((can("report.ops") && panel.isLoading) || att.isLoading) return <Skeleton rows={8} />;
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">

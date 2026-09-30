@@ -71,6 +71,15 @@ function pagesFor(role, ids) {
     { key: "notifications", path: "/notifications" },
     { key: "tech", path: "/tech" },
     job && { key: "tech-job", path: `/tech/job/${job}` },
+    // Flows 3–7 (D-71 … D-82)
+    { key: "leave", path: "/leave" },
+    { key: "quotes", path: "/quotes" },
+    { key: "invoices", path: "/invoices" },
+    { key: "invoices-new", path: "/invoices/new" },
+    ids.invoice && { key: "invoice-detail", path: `/invoices/${ids.invoice}` },
+    ids.invoice && { key: "invoice-print", path: `/invoices/${ids.invoice}/print` },
+    { key: "attendance", path: "/attendance" },
+    { key: "reports", path: "/reports" },
   ].filter(Boolean);
   return list;
 }
@@ -324,6 +333,8 @@ const ids = {};
   await login(ctx, "ceo");
   const bks = await (await ctx.request.get(`${BASE}/api/bookings`)).json();
   ids.booking = bks[0]?.id;
+  const invs = await ctx.request.get(`${BASE}/api/invoices`).then((r) => (r.ok() ? r.json() : [])).catch(() => []);
+  ids.invoice = invs[0]?.id;
   // tech job: first booking of kim
   const kctx = await browser.newContext();
   await login(kctx, "kim");
