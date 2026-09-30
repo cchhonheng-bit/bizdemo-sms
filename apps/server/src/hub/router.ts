@@ -16,7 +16,8 @@ import { customerMenu, groupHelp, masterMenu, onCustomerAction, parseCallback, s
 import { resumePromo } from "./subscribers.js";
 
 type Chat = { id: number; type: "private" | "group" | "supergroup" | "channel"; title?: string };
-export type Message = { message_id: number; chat: Chat; from?: TgFrom & { is_bot?: boolean }; text?: string; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown };
+export type Message = { message_id: number; date?: number; chat: Chat; from?: TgFrom & { is_bot?: boolean }; text?: string; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown;
+  location?: { latitude: number; longitude: number; horizontal_accuracy?: number; live_period?: number } };
 export type CallbackQuery = { id: string; from: TgFrom & { is_bot?: boolean }; message?: { message_id: number; chat: Chat }; data?: string };
 export type Update = { update_id: number; message?: Message; callback_query?: CallbackQuery };
 
@@ -147,9 +148,25 @@ async function onMasterMessage(bot: Bot, msg: Message, c: { cmd: string; arg: st
   if (c.cmd === "start" || c.cmd === "help") { const m = await masterMenu(from.id); return show(bot, msg.chat.id, null, m.text, m.markup, "menu.master", null); }
 }
 
+/** FR-902: a staff member sends a location to the shop bot (private chat) → the shop records check-in / check-out.
+ *  The hub stores no coordinates; the shop refuses unknown chats and old locations and flags points without GPS accuracy. */
+async function onLocation(bot: Bot, msg: Message): Promise<void> {
+  const shop = await getShop(bot.shop_code!);
+  if (!shop || !msg.location || !msg.from) return;
+  if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
+  await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: "location", text: null });
+  const l = msg.location;
+  const r = await callShop(shop, "POST", "/internal/tg-attendance", { chat_id: msg.chat.id, tg_user: msg.from.id, lat: l.latitude, lng: l.longitude,
+    accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0 });
+  const text = r && r.status === 200 && typeof r.json?.reply === "string" ? String(r.json.reply).slice(0, 1000) : "❌ មិនអាចកត់វត្តមានបានទេ — សូមព្យាយាមម្ដងទៀត ឬប្រើ App។";
+  return reply(bot, msg.chat.id, text, shop.code, "attendance.location", { remove_keyboard: true });
+}
+
 async function onMessage(bot: Bot, msg: Message, log: FastifyBaseLogger): Promise<void> {
-  if (!msg.from || !msg.chat || typeof msg.chat.id !== "number" || msg.from.is_bot || !msg.text) return;
-  if (msg.forward_origin || msg.forward_from || msg.forward_from_chat) return; // never act on forwarded text
+  if (!msg.from || !msg.chat || typeof msg.chat.id !== "number" || msg.from.is_bot) return;
+  if (msg.forward_origin || msg.forward_from || msg.forward_from_chat) return; // never act on forwarded text or locations
+  if (msg.location && !msg.text) return bot.kind === "shop" && msg.chat.type === "private" ? onLocation(bot, msg) : undefined;
+  if (!msg.text) return;
   const c = parseCommand(msg.text, bot.username);
   if (!c) return; // free text: ignored, not stored
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return; // S-06, per bot
@@ -215,6 +232,11 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
   const isGroupView = p.action === "ghome" || p.action === "gtoday";
   if (isGroupView !== (chat.type === "group" || chat.type === "supergroup")) return;
   const v = await shopMenu(shop, chat.id, p.action, p.id, p.back);
+  if (v && p.action === "att") { // FR-902: a reply keyboard can only come with a new message
+    await show(bot, chat.id, mid, v.text, v.markup, "menu.att", shop.code);
+    return reply(bot, chat.id, "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", shop.code, "attendance.ask",
+      { keyboard: [[{ text: "📍 ផ្ញើទីតាំង (ចូល/ចេញ)", request_location: true }]], resize_keyboard: true, one_time_keyboard: true });
+  }
   if (v) return show(bot, chat.id, mid, v.text, v.markup, `menu.${p.action}`, shop.code);
   if (isGroupView) return show(bot, chat.id, mid, groupHelp, { inline_keyboard: [] }, "help", shop.code);
   const cm = await customerMenu(shop, q.from.id); // not staff (any more) → the customer menu, never staff data

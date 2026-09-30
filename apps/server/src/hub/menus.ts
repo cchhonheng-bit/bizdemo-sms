@@ -47,7 +47,7 @@ export async function customerMenu(shop: Shop, tgUser: number): Promise<{ text: 
 
 // ---------- staff + work groups (rendered by the shop) ----------
 type ShopBtn = { text: string; view?: string; id?: string; back?: string; url?: string };
-const VIEWS = new Set(["home", "today", "next", "job", "ghome", "gtoday"]);
+const VIEWS = new Set(["home", "today", "next", "job", "att", "ghome", "gtoday"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function toMarkup(buttons: ShopBtn[][]): Markup {
   const rows = buttons.map((r) => r.flatMap((b): Btn[] => {
@@ -109,7 +109,7 @@ export async function onCustomerAction(bot: Bot, chatId: number, messageId: numb
 export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; action: string; id?: string; back?: string; shop?: string; version?: string } | null {
   let m = data.match(/^c:(home|sub|about|promo_off|promo_on|stop_ask|stop_yes)$/);
   if (m) return { kind: "c", action: m[1]! };
-  m = data.match(/^v:(home|today|next|ghome|gtoday)$/);
+  m = data.match(/^v:(home|today|next|att|ghome|gtoday)$/);
   if (m) return { kind: "v", action: m[1]! };
   m = data.match(/^v:job:([0-9a-f-]{36}):(today|next)$/);
   if (m && UUID.test(m[1]!)) return { kind: "v", action: "job", id: m[1]!, back: m[2]! };

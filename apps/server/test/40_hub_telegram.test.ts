@@ -591,3 +591,69 @@ describe("I1 Telegram inline menus", () => {
     expect((await sql`select stopped_at from hub_followers where telegram_user_id = 850001`)[0]!.stopped_at).not.toBeNull();
   });
 });
+
+describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
+  let mid = 9000;
+  const cb = (user: number, data: string) => hook("oneteam", { callback_query: { id: `cba${uid}`, from: { id: user, first_name: `U${user}` }, message: { message_id: ++mid, chat: { id: user, type: "private" } }, data } });
+  const loc = (user: number, lat: number, lng: number, o: { accuracy?: number | null; date?: number; forward?: boolean; chat?: { id: number; type: string } } = {}) =>
+    hook("oneteam", { message: { message_id: ++mid, date: o.date ?? Math.floor(Date.now() / 1000), chat: o.chat ?? { id: user, type: "private" }, from: { id: user, first_name: `U${user}` },
+      location: { latitude: lat, longitude: lng, ...(o.accuracy === null ? {} : { horizontal_accuracy: o.accuracy ?? 10 }) }, ...(o.forward ? { forward_origin: { type: "user" } } : {}) } });
+  const OFFICE = { lat: 11.5564, lng: 104.9282 };
+  const link = async (user: string, chat: number) => {
+    await sql`update users set telegram_chat_id = ${chat}, telegram_user_id = ${chat} where id = ${s.users[user]!}`;
+    await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values ('ONETEAM', ${chat}, 'staff') on conflict do nothing`;
+  };
+  const att = async (user: string) => (await sql`select in_at, out_at, in_out_of_range, out_out_of_range, in_no_gps, in_distance_m from attendance where user_id = ${s.users[user]!}`)[0];
+
+  beforeAll(async () => {
+    await ceo.req("PATCH", "/api/settings/company", { office_lat: OFFICE.lat, office_lng: OFFICE.lng, geofence_m: 100 });
+    await link("kim", 700001); await link("gm01", 700777); await link("admin", 700888);
+  });
+
+  it("staff menu has «📍 វត្តមាន»; pressing it shows today's state and a «send my location» keyboard", async () => {
+    sent = [];
+    await privateMsg(700001, "/start");
+    expect((lastSent(700001).payload.reply_markup.inline_keyboard as any[]).flat().map((b: any) => b.callback_data)).toContain("v:att");
+    sent = [];
+    await cb(700001, "v:att");
+    const ask = sent.filter((x) => x.method === "sendMessage").at(-1)!;
+    expect(ask.payload.reply_markup.keyboard[0][0]).toMatchObject({ request_location: true });
+  });
+
+  it("location near the office → check-in (no flag); again far away → check-out flagged; a third time → already done; keyboard removed", async () => {
+    sent = [];
+    await loc(700001, OFFICE.lat + 0.0002, OFFICE.lng);
+    expect(lastText(700001)).toContain("ចូលធ្វើការ");
+    expect(lastSent(700001).payload.reply_markup).toMatchObject({ remove_keyboard: true });
+    expect(await att("kim")).toMatchObject({ in_out_of_range: false, out_at: null });
+    await loc(700001, OFFICE.lat + 0.003, OFFICE.lng);
+    expect(lastText(700001)).toContain("ចេញពីការងារ"); expect(lastText(700001)).toContain("ក្រៅរង្វង់");
+    expect(await att("kim")).toMatchObject({ out_out_of_range: true });
+    await loc(700001, OFFICE.lat, OFFICE.lng);
+    expect(lastText(700001)).toContain("កត់រួចហើយ");
+    const log = await sql`select kind, text from hub_message_log where chat_id = 700001 and kind = 'location'`;
+    expect(log.length).toBeGreaterThan(0); expect(log.every((l) => l.text === null)).toBe(true); // coordinates are not stored in the hub
+  });
+
+  it("anti-spoofing: a location picked on the map (no GPS accuracy) is flagged «no GPS»; old or forwarded locations are refused/ignored", async () => {
+    await loc(700777, OFFICE.lat, OFFICE.lng, { accuracy: null });
+    expect(await att("gm01")).toMatchObject({ in_no_gps: true, in_out_of_range: true });
+    sent = [];
+    await loc(700888, OFFICE.lat, OFFICE.lng, { date: Math.floor(Date.now() / 1000) - 600 });
+    expect(lastText(700888)).toContain("ចាស់");
+    expect(await att("admin")).toBeUndefined();
+    sent = [];
+    await loc(700888, OFFICE.lat, OFFICE.lng, { forward: true });
+    expect(sent.filter((x) => x.method === "sendMessage")).toHaveLength(0);
+    expect(await att("admin")).toBeUndefined();
+  });
+
+  it("not staff → short info, nothing recorded; locations in groups are ignored", async () => {
+    sent = [];
+    await loc(840777, OFFICE.lat, OFFICE.lng);
+    expect(lastText(840777)).toContain("បុគ្គលិក");
+    sent = [];
+    await loc(700001, OFFICE.lat, OFFICE.lng, { chat: { id: -100555, type: "supergroup" } });
+    expect(sent.filter((x) => x.method === "sendMessage")).toHaveLength(0);
+  });
+});

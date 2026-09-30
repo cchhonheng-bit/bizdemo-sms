@@ -5,6 +5,7 @@
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { fmtLocal } from "./telegram.js";
+import { attendanceMenuText } from "./attendance.js";
 
 export type MenuButton = { text: string; view?: string; id?: string; back?: "today" | "next"; url?: string };
 export type Menu = { text: string; buttons: MenuButton[][] } | null;
@@ -51,6 +52,7 @@ async function staffHome(u: Staff): Promise<Menu> {
       where l.company_id = ${u.company_id} and l.status = 'pending' and l.user_id <> ${u.id}`)[0]!.n;
     rows.push(url(`🗓 ច្បាប់ឈប់រង់ចាំ (${pending})`, appUrl("/leave")));
   }
+  if (await attendanceMenuText(u.id)) rows.push([{ text: "📍 វត្តមាន (ចូល/ចេញ)", view: "att" }]); // FR-902
   rows.push(url("📱 បើកកម្មវិធី", appUrl(u.role === "tech" ? "/tech" : "/dashboard")));
   return { text: `👷 សួស្តី ${u.full_name}\nថ្ងៃនេះ: ${today.length} ការងារ · ខាងមុខ: ${next.length}\nជ្រើសខាងក្រោម 👇`, buttons: rows.filter((r) => r.length) };
 }
@@ -114,5 +116,6 @@ export async function renderMenu(chatId: number, view: string, id: string | null
   if (!u) return null;
   if (view === "today" || view === "next") return staffList(u, view);
   if (view === "job" && id) return staffJob(u, id, back);
+  if (view === "att") { const text = await attendanceMenuText(u.id); return { text: text ?? "ℹ️ គណនីរបស់អ្នកមិនកត់វត្តមានទេ។", buttons: [[{ text: "🏠 ទំព័រដើម", view: "home" }]] }; }
   return staffHome(u);
 }

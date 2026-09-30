@@ -9,6 +9,7 @@ import { safeEqual } from "../lib/secure.js";
 import { shopBotCode } from "@sms/shared";
 import { consumeGroupCode, consumeLinkCode } from "../services/telegram.js";
 import { renderMenu } from "../services/telegram-menu.js";
+import { telegramAttendance } from "../services/attendance.js";
 
 const tgSchema = z.object({
   kind: z.enum(["link", "group"]),
@@ -34,8 +35,15 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
 
   /** owner I1: inline menu for a Telegram chat (staff / work group). The chat id comes from Telegram via the hub; the shop decides. */
   app.post("/tg-menu", async (req) => {
-    const b = z.object({ chat_id: z.number().int(), view: z.enum(["home", "today", "next", "job", "ghome", "gtoday"]), id: z.string().uuid().optional(), back: z.enum(["today", "next"]).optional() }).strict().parse(req.body);
+    const b = z.object({ chat_id: z.number().int(), view: z.enum(["home", "today", "next", "job", "att", "ghome", "gtoday"]), id: z.string().uuid().optional(), back: z.enum(["today", "next"]).optional() }).strict().parse(req.body);
     return { menu: await renderMenu(b.chat_id, b.view, b.id ?? null, b.back) };
+  });
+
+  /** FR-902: a location sent to the shop bot in a private chat → check in / out (the shop identifies the linked staff member) */
+  app.post("/tg-attendance", async (req) => {
+    const b = z.object({ chat_id: z.number().int(), tg_user: z.number().int(), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
+      accuracy: z.number().min(0).max(100_000).nullable(), sent_at: z.number().int() }).strict().parse(req.body);
+    return { reply: await telegramAttendance(b) };
   });
 
   /** aggregate numbers only (A4: non-subscriber data stays in the shop; the platform sees totals) */
