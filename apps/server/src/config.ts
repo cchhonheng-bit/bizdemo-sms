@@ -13,6 +13,10 @@ const env = (k: string, def?: string): string => {
 const mode = env("APP_MODE", "shop");
 if (mode !== "shop" && mode !== "hub") throw new Error("APP_MODE must be shop or hub");
 
+/** D-85: Caddy reaches the apps from the private Docker network; trust X-Forwarded-For only from there (Caddy replaces any
+ *  header a visitor sends). A hop count ("1") made Fastify 5 return Caddy's own address — every visitor shared one IP. */
+export const TRUSTED_PROXIES = "loopback,linklocal,uniquelocal";
+
 export const config = {
   /** v2.1 (D-50): one codebase, two modes — "hub" (hub.hangkh.com) or "shop" (<shop>.hangkh.com) */
   mode: mode as "shop" | "hub",

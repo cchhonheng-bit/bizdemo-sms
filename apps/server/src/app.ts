@@ -6,7 +6,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { ZodError } from "zod";
 import { parseFeatures, type FeatureFlag, type PermissionKey } from "@sms/shared";
-import { config } from "./config.js";
+import { config, TRUSTED_PROXIES } from "./config.js";
 import { hubAlert, shopBotUsername } from "./services/hub-client.js";
 import { sql } from "./db.js";
 import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
@@ -55,7 +55,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
     logger: opts.logger === false ? false : { level: config.logLevel },
     // trust exactly one hop (caddy in the same compose network); numeric hop counts are accepted at runtime but not typed
-    trustProxy: (config.trustProxy ? 1 : false) as unknown as boolean,
+    trustProxy: config.trustProxy ? TRUSTED_PROXIES : false,
     bodyLimit: 1_000_000,
   });
 

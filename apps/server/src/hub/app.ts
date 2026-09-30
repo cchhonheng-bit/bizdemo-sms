@@ -3,7 +3,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import { z, ZodError } from "zod";
-import { config } from "../config.js";
+import { config, TRUSTED_PROXIES } from "../config.js";
 import { sql } from "../db.js";
 import { AppError, fromPg } from "../lib/errors.js";
 import { safeEqual } from "../lib/secure.js";
@@ -25,7 +25,7 @@ const broadcastSchema = z.object({ kind: z.enum(["service", "promo"]), text: z.s
 export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
     logger: opts.logger === false ? false : { level: config.logLevel },
-    trustProxy: (config.trustProxy ? 1 : false) as unknown as boolean,
+    trustProxy: config.trustProxy ? TRUSTED_PROXIES : false,
     bodyLimit: 256_000,
   });
   app.register(cookie);

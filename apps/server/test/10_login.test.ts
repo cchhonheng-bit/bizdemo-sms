@@ -37,6 +37,19 @@ describe("login (rule 6.2/6.3)", () => {
     resetRateLimits();
   });
 
+  it("D-85: behind Caddy the real client IP counts — one client hitting the limit never blocks another; a direct caller cannot spoof X-Forwarded-For", async () => {
+    resetRateLimits();
+    const attempt = (xff: string, remote = "172.18.0.5") => app.inject({ method: "POST", url: "/api/auth/login", remoteAddress: remote,
+      headers: { "content-type": "application/json", "x-forwarded-for": xff }, payload: JSON.stringify({ identifier: `probe-${xff}`, password: "wrong-pass" }) });
+    for (let i = 0; i < 5; i++) expect((await attempt("203.0.113.10")).statusCode).toBe(401);
+    expect((await attempt("203.0.113.10")).statusCode).toBe(429);   // this client is limited …
+    expect((await attempt("203.0.113.20")).statusCode).toBe(401);   // … another client is not
+    // a connection that does not come from the private proxy network: its own address counts, the header is ignored
+    for (let i = 0; i < 5; i++) await attempt("203.0.113.30", "198.51.100.7");
+    expect((await attempt("203.0.113.31", "198.51.100.7")).statusCode).toBe(429);
+    resetRateLimits();
+  });
+
   it("inactive user cannot log in; deactivation ends existing sessions", async () => {
     const c = await loginAs(app, "dara");
     expect((await c.req("GET", "/api/me")).status).toBe(200);
