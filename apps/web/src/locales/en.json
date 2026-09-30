@@ -37,7 +37,8 @@
     "notifications": "Notifications",
     "subscribe": "Telegram customers",
     "more": "More",
-    "leave": "Leave"
+    "leave": "Leave",
+    "quotes": "Quotes"
   },
   "roles": {
     "ceo": "CEO",
@@ -314,7 +315,8 @@
       "DURATION_RANGE": "15–1440 minutes",
       "USE_RESCHEDULE": "Use «Reschedule» to change the time",
       "REQUESTER_REQUIRED": "Choose who asked",
-      "SAME_TIME": "This is the current time"
+      "SAME_TIME": "This is the current time",
+      "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first (type B)"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -518,6 +520,53 @@
       "NOT_PENDING_REVIEW": "Not waiting for review",
       "FORBIDDEN": "No permission",
       "NETWORK": "No internet"
+    }
+  },
+  "quote": {
+    "title": "Quotes",
+    "title_one": "Quote",
+    "new": "New quote",
+    "issue": "Issue quote",
+    "created": "{{number}} issued",
+    "lines": "Lines",
+    "add_item": "+ Add from catalog…",
+    "free_line": "Free line",
+    "no_lines": "Add at least one line",
+    "description": "Description",
+    "kind": "Type",
+    "qty": "Qty",
+    "unit_price": "Unit price ($)",
+    "total": "Total",
+    "notes": "Notes on the quote",
+    "valid_days": "Valid for (days)",
+    "survey": "Site survey",
+    "survey_notes": "Survey notes (measurements, situation…)",
+    "none": "No quotes",
+    "none_yet": "No quote yet — create it after the survey.",
+    "days_waiting": "waiting {{n}} days",
+    "status": {
+      "sent": "Waiting for customer",
+      "accepted": "Accepted",
+      "rejected": "Rejected"
+    },
+    "accept": "Customer accepted",
+    "reject": "Customer rejected",
+    "accepted_ok": "Accepted — you can now assign the team",
+    "rejected_ok": "Rejected — booking cancelled",
+    "now_assign": "Accepted: assign the team now (Assign button above).",
+    "reject_warning": "The booking will be cancelled with this reason.",
+    "print": "Print / Save PDF",
+    "print_hint": "Print → Save as PDF, then share with the customer",
+    "valid_until": "valid until",
+    "err": {
+      "NOT_TYPE_B": "Quotes are for type B jobs",
+      "QUOTE_EXISTS": "This booking already has a quote",
+      "QUOTE_DECIDED": "This quote is already decided",
+      "REASON_REQUIRED": "Please give a reason",
+      "QUOTE_NOT_ACCEPTED": "The customer must accept the quote first",
+      "ITEM_NOT_FOUND": "Item not found",
+      "BOOKING_LOCKED": "The booking can no longer change",
+      "FORBIDDEN": "No permission"
     }
   }
 }

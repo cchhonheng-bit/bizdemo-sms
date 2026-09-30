@@ -19,6 +19,9 @@ import TechTodayPage, { TechJobPage } from "@/features/tech/TechTodayPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import SubscribePage from "@/features/subscribe/SubscribePage";
 import LeavePage from "@/features/leave/LeavePage";
+import QuotesPage from "@/features/quotes/QuotesPage";
+import QuoteEditorPage from "@/features/quotes/QuoteEditorPage";
+import QuotePrintPage from "@/features/quotes/QuotePrintPage";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
@@ -37,6 +40,7 @@ export default function App() {
           <Route path="/privacy" element={<LegalPage which="privacy" />} />
           <Route element={<RequireAuth />}>
             <Route path="/first-login" element={<FirstLoginPage />} />
+            <Route element={<RequirePerm perm="quote.manage" />}><Route path="/quotes/:id/print" element={<QuotePrintPage />} /></Route>
             <Route element={<Shell />}>
               <Route index element={<Home />} />
               <Route path="/dashboard" element={<DashboardPage />} />
@@ -53,6 +57,11 @@ export default function App() {
               <Route path="/tech/job/:id" element={<TechJobPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/leave" element={<LeavePage />} />
+              <Route element={<RequirePerm perm="quote.manage" />}>
+                <Route path="/quotes" element={<QuotesPage />} />
+                <Route path="/quotes/new" element={<QuoteEditorPage />} />
+                <Route path="/quotes/:id/edit" element={<QuoteEditorPage />} />
+              </Route>
               <Route path="/me" element={<MePage />} />
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>

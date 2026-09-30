@@ -8,6 +8,7 @@ import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
+import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled } from "./telegram.js";
 
 export type BookingRow = Record<string, unknown> & {
@@ -19,7 +20,7 @@ export type BookingRow = Record<string, unknown> & {
 function baseSelect(db: Db) {
   return db`select b.id, b.company_id, b.number, b.customer_id, c.name as customer_name, c.phones as customer_phones,
          b.type, b.category, b.status, b.service_text, b.service_item_id, b.scheduled_at, b.ends_at, b.address, b.lat, b.lng, b.zone,
-         b.vehicle_id, v.code as vehicle_code, b.notes, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at,
+         b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at,
          b.created_by, b.created_at, b.updated_at,
          (select json_agg(json_build_object('user_id', t.user_id, 'role', t.role, 'full_name', u.full_name) order by t.role, u.full_name)
             from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as technicians
@@ -237,6 +238,7 @@ export async function assignBooking(user: SessionUser, ip: string | null, id: st
     if (!b) throw notFound();
     if (!ASSIGNABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400);
     if (b.type === "B" && user.role === "admin") throw new AppError("FORBIDDEN_TYPE_B", 403); // BR-02
+    await assertQuoteAccepted(t, id, b.type);                                                 // BR-02: accepted quote first
     if (!b.scheduled_at || !b.ends_at) throw new AppError("SCHEDULE_REQUIRED", 400);
     // D2: assigning keeps the agreed time — a different time must go through reschedule
     if ((a.scheduled_at && new Date(a.scheduled_at).getTime() !== b.scheduled_at.getTime()) || (a.ends_at && new Date(a.ends_at).getTime() !== b.ends_at.getTime())) throw new AppError("USE_RESCHEDULE", 400);

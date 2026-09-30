@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, CalendarOff, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, CalendarOff, FileText, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -37,6 +37,7 @@ export default function Shell() {
     { to: "/dashboard", label: t("nav.dashboard"), icon: LayoutDashboard },
     { to: "/bookings", label: t("nav.bookings"), icon: ClipboardList },
     { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
+    { to: "/quotes", label: t("nav.quotes"), icon: FileText, perm: "quote.manage" },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)

@@ -4,6 +4,7 @@ import { assignSchema, bookingSchema, cancelSchema, rescheduleSchema, BOOKING_ST
 import { AppError } from "../lib/errors.js";
 import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
+import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
 import { addPhoto, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -67,6 +68,18 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     const out = await rescheduleBooking(req.user!, req.ip, idParam.parse(req.params).id, { scheduled_at: r.scheduled_at, ends_at: r.ends_at || null, requested_by: r.requested_by, reason: r.reason });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return out;
+  });
+
+  // ---- Flow 3: survey of a type B job (FR-501) — GM (quote.manage) ----
+  app.post("/:id/survey", async (req) => {
+    if (!req.perms.includes("quote.manage")) throw new AppError("FORBIDDEN", 403);
+    const { notes } = z.object({ notes: z.string().max(2000) }).strict().parse(req.body);
+    return saveSurvey(req.user!, req.ip, idParam.parse(req.params).id, notes);
+  });
+  app.post("/:id/survey-photos", { bodyLimit: 3_000_000 }, async (req) => {
+    if (!req.perms.includes("quote.manage")) throw new AppError("FORBIDDEN", 403);
+    const { data } = z.object({ data: z.string().min(10) }).strict().parse(req.body);
+    return addSurveyPhoto(req.user!, req.ip, idParam.parse(req.params).id, data);
   });
 
   // ---- Flow 1+2: job execution (checkpoints, photos, materials, report) + GM review ----

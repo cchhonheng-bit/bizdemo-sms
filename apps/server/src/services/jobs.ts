@@ -76,7 +76,7 @@ export async function jobInfo(user: SessionUser, id: string) {
   const checkpoints = await sql<{ step: string; at: Date; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean; offline: boolean; by_name: string | null }[]>`
     select c.step, c.at, c.lat, c.lng, c.accuracy_m as accuracy, c.no_gps, c.offline, u.full_name as by_name
     from booking_checkpoints c left join users u on u.id = c.by_user where c.booking_id = ${id} order by c.at, c.id`;
-  const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after') order by created_at`;
+  const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey') order by created_at`;
   const materials = await sql`select m.catalog_item_id, i.name_km, i.name_en, i.unit, m.qty::float as qty from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = ${id} order by i.name_km`;
   const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name
     from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by where r.booking_id = ${id}`)[0] ?? null;
@@ -91,7 +91,7 @@ function sniff(buf: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
   if (buf.length > 12 && buf.subarray(0, 4).toString("latin1") === "RIFF" && buf.subarray(8, 12).toString("latin1") === "WEBP") return "image/webp";
   return null;
 }
-async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature", data: string, only?: "image/png"): Promise<string> {
+export async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature" | "survey", data: string, only?: "image/png"): Promise<string> {
   const buf = Buffer.from(data, "base64");
   if (buf.length > MAX_BYTES) throw new AppError("IMAGE_TOO_LARGE", 413);
   const mime = sniff(buf);

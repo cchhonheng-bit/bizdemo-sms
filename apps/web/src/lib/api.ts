@@ -15,7 +15,7 @@ export type Booking = {
   id: string; number: string; customer_id: string; customer_name: string; customer_phones: string[];
   type: BookingType; category: ServiceCategory; status: BookingStatus; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null;
   address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; vehicle_code: string | null;
-  notes: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
+  notes: string | null; survey_notes?: string | null; surveyed_at?: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
   technicians: Technician[] | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
@@ -38,10 +38,15 @@ export type LeaveRow = { id: string; user_id: string; full_name: string; role: s
 export type Checkpoint = { step: "depart" | "arrive" | "start" | "finish" | "return"; at: string; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean; offline: boolean; by_name: string | null };
 export type JobInfo = {
   checkpoints: Checkpoint[]; durations: { travel: number | null; wait: number | null; work: number | null; return: number | null };
-  photos: { id: string; kind: "before" | "after"; created_at: string }[];
+  photos: { id: string; kind: "before" | "after" | "survey"; created_at: string }[];
   materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number }[];
   report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null } | null;
 };
+export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
+export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
+  reject_reason: string | null; booking_id: string; booking_number: string; address: string | null; service_text: string; customer_name: string; customer_phones: string[]; created_by_name: string | null;
+  lines: QuoteLine[]; subtotal: number; total: number; total_khr: number; company: { name: string; company_info: Record<string, string> } };
+export type QuoteRow = { id: string; number: string; status: Quote["status"]; created_at: string; booking_id: string; booking_number: string; customer_name: string; total: number; days_waiting: number };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -104,6 +109,19 @@ export const api = {
     materials: (id: string, items: { catalog_item_id: string; qty: number }[]) => put(`/api/bookings/${id}/materials`, { items }),
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
+  },
+  quotes: {
+    list: (status?: string) => get<QuoteRow[]>(`/api/quotes${status ? `?status=${status}` : ""}`),
+    get: (id: string) => get<Quote>(`/api/quotes/${id}`),
+    create: (v: { booking_id: string; lines: QuoteLine[]; notes: string; valid_days: number | null }) => post<{ id: string; number: string }>("/api/quotes", v),
+    update: (id: string, v: { lines: QuoteLine[]; notes: string }) => put(`/api/quotes/${id}`, v),
+    accept: (id: string) => post(`/api/quotes/${id}/accept`, {}),
+    reject: (id: string, reason: string) => post(`/api/quotes/${id}/reject`, { reason }),
+    forBooking: async (bookingId: string) => (await get<QuoteRow[]>(`/api/quotes?booking=${bookingId}`)).find((q) => q.status !== "rejected") ?? null,
+  },
+  survey: {
+    save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),
+    photo: (id: string, data: string) => post<{ id: string }>(`/api/bookings/${id}/survey-photos`, { data }),
   },
   cancelBooking: (id: string, reason: string) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason }),
 
