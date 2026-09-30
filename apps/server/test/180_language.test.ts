@@ -39,8 +39,8 @@ describe("web texts and prints", () => {
 
 describe("staff messages follow each person's language", () => {
   it("Booking confirmed: an English-mode technician gets English, a Khmer-mode one and the work group get Khmer — never both", async () => {
-    await sql`update users set language = 'en', telegram_chat_id = 900101, telegram_user_id = 900101 where id = ${s.users.kim}`;
-    await sql`update users set telegram_chat_id = 900102, telegram_user_id = 900102 where id = ${s.users.dara}`;
+    await sql`update users set language = 'en', telegram_chat_id = 900101, telegram_user_id = 900101 where id = ${s.users.kim!}`;
+    await sql`update users set telegram_chat_id = 900102, telegram_user_id = 900102 where id = ${s.users.dara!}`;
     await sql`update company_settings set telegram_group_chat_id = -100777 where company_id = ${s.a}`;
     const admin = await loginAs(app, "admin"), gm = await loginAs(app, "gm01");
     const cust = (await admin.req("POST", "/api/customers", { name: "Mr Lang Test", phones: ["012555111"], zone: "inside", address: "Street 1" })).json.id;
@@ -58,7 +58,7 @@ describe("staff messages follow each person's language", () => {
   });
 
   it("a personal notice (leave request) is English for an English-mode approver and Khmer for a Khmer-mode one", async () => {
-    await sql`update users set language = 'en' where id = ${s.users.gm01}`;
+    await sql`update users set language = 'en' where id = ${s.users.gm01!}`;
     const dara = await loginAs(app, "dara");
     const day = new Date(Date.now() + 9 * 86_400_000).toISOString().slice(0, 10);
     expect((await dara.req("POST", "/api/leave", { kind: "leave", date_from: day, date_to: day, part: "am", reason: "doctor" })).status).toBe(200);
