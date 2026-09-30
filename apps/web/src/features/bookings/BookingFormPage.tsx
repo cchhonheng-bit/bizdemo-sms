@@ -73,7 +73,8 @@ export default function BookingFormPage() {
   const locked = editing && existing.data && !EDITABLE_STATUSES.includes(existing.data.status);
   const startIso = date && start ? joinLocal(date, start) : null;
   const endIso = date && end ? joinLocal(date, end) : null;
-  const timeError = !date && (start || end) ? t("booking.err.DATE_REQUIRED")
+  // D2: every booking has the agreed appointment; on edit the time is read-only (Reschedule on the booking page)
+  const timeError = editing ? null : !date ? t("booking.err.DATE_REQUIRED")
     : date && !start ? t("booking.err.START_REQUIRED")
       : startIso && isPastLocal(startIso) && (!editing || startIso !== existing.data?.scheduled_at) ? t("booking.err.START_IN_PAST")
         : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START") : null;
@@ -84,10 +85,8 @@ export default function BookingFormPage() {
       address: v.address || null, lat: loc.lat, lng: loc.lng, zone: v.zone, vehicle_id: v.vehicle_id || null, notes: v.notes || null };
     try {
       if (editing) {
-        const old = existing.data!;
-        const timeChanged = startIso !== (old.scheduled_at ? new Date(old.scheduled_at).toISOString() : null) || endIso !== (old.ends_at ? new Date(old.ends_at).toISOString() : null);
         await api.updateBooking(id!, { service_text: base.service_text, category: base.category, service_item_id: base.service_item_id ?? "", address: base.address ?? "", lat: base.lat, lng: base.lng,
-          zone: base.zone, vehicle_id: base.vehicle_id ?? "", notes: base.notes ?? "", ...(timeChanged ? { scheduled_at: base.scheduled_at ?? "", ends_at: base.ends_at ?? "" } : {}) });
+          zone: base.zone, vehicle_id: base.vehicle_id ?? "", notes: base.notes ?? "" });
         void qc.invalidateQueries({ queryKey: ["booking", id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
         toast.success(t("app.saved"));
         nav(`/bookings/${id}`);
@@ -169,10 +168,10 @@ export default function BookingFormPage() {
           </Field>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
             <div className="col-span-2 sm:col-span-1">
-              <Field label={t("booking.date")} hint={t("booking.scheduled_hint")}><Input type="date" min={todayLocal()} {...register("date")} /></Field>
+              <Field label={t("booking.date")} required={!editing} hint={editing ? t("booking.time_readonly_hint") : t("booking.scheduled_hint")}><Input type="date" min={editing ? undefined : todayLocal()} {...register("date")} disabled={editing} /></Field>
             </div>
-            <Field label={t("booking.start")}><Input type="time" step={300} {...register("start")} disabled={!date} /></Field>
-            <Field label={t("booking.end")}><Input type="time" step={300} {...register("end")} disabled={!date || !start} onInput={() => setEndTouched(true)} /></Field>
+            <Field label={t("booking.start")} required={!editing}><Input type="time" step={300} {...register("start")} disabled={editing || !date} /></Field>
+            <Field label={t("booking.end")}><Input type="time" step={300} {...register("end")} disabled={editing || !date || !start} onInput={() => setEndTouched(true)} /></Field>
           </div>
           {timeError && <p className="field-error -mt-1 mb-3" role="alert">{timeError}</p>}
           <Field label={t("booking.vehicle")} hint={t("booking.vehicle_hint")}>

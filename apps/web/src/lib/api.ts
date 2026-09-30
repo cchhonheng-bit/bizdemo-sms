@@ -32,6 +32,9 @@ export type Availability = {
   people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[] }[];
   vehicles: { id: string; code: string; plate: string | null; available: boolean; reason: string | null; busy: Busy[] }[];
 };
+export type Reschedule = { id: number; old_start: string | null; old_end: string | null; new_start: string; new_end: string; requested_by: string; reason: string; at: string; by_name: string | null };
+export type LeaveRow = { id: string; user_id: string; full_name: string; role: string; kind: "leave" | "absent"; date_from: string; date_to: string; part: "full" | "am" | "pm"; reason: string;
+  status: "pending" | "approved" | "rejected" | "cancelled"; created_at: string; decided_at: string | null; decision_note: string | null; decided_by_name: string | null };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -74,9 +77,19 @@ export const api = {
   createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id: string | null; notes: string | null }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
-  assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string; ends_at: string | null }) =>
-    post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at, ends_at: v.ends_at ?? "" }),
+  assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) =>
+    post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "" }),
   availability: (from: string, to: string, exclude?: string) => get<Availability>(`/api/bookings/availability${q({ from, to, exclude })}`),
+  rescheduleBooking: (id: string, v: { scheduled_at: string; ends_at: string | null; requested_by: string; reason: string }) => post<{ id: string }>(`/api/bookings/${id}/reschedule`, { ...v, ends_at: v.ends_at ?? "" }),
+  rescheduleHistory: (id: string) => get<Reschedule[]>(`/api/bookings/${id}/reschedules`),
+  leave: {
+    list: (scope: "mine" | "approve") => get<LeaveRow[]>(`/api/leave?scope=${scope}`),
+    request: (v: { date_from: string; date_to: string; part: string; reason: string }) => post<{ id: string; status: string }>("/api/leave", v),
+    absent: (v: { user_id: string; date_from: string; date_to: string; part: string; reason: string }) => post<{ id: string; affected: { id: string; number: string; scheduled_at: string }[] }>("/api/leave/absent", v),
+    approve: (id: string) => post<{ status: string; affected: { id: string; number: string; scheduled_at: string }[] }>(`/api/leave/${id}/approve`, {}),
+    reject: (id: string, note: string) => post(`/api/leave/${id}/reject`, { note }),
+    cancel: (id: string) => post(`/api/leave/${id}/cancel`, {}),
+  },
   cancelBooking: (id: string, reason: string) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason }),
 
   usersBasic: async () => (await get<UserBasic[]>("/api/users/basic")).filter((u) => u.is_active),

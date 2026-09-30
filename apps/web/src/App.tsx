@@ -18,6 +18,7 @@ import BookingDetailPage from "@/features/bookings/BookingDetailPage";
 import TechTodayPage, { TechJobPage } from "@/features/tech/TechTodayPage";
 import NotificationsPage from "@/features/notifications/NotificationsPage";
 import SubscribePage from "@/features/subscribe/SubscribePage";
+import LeavePage from "@/features/leave/LeavePage";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
@@ -51,6 +52,7 @@ export default function App() {
               <Route path="/tech" element={<TechTodayPage />} />
               <Route path="/tech/job/:id" element={<TechJobPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/leave" element={<LeavePage />} />
               <Route path="/me" element={<MePage />} />
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>

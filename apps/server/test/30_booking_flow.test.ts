@@ -37,8 +37,8 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     const b = (await ceo.req("GET", `/api/bookings/${bk1}`)).json;
     expect(b.address).toBe("ផ្ទះ 12 ផ្លូវ 3"); expect(b.lat).toBe(11.55); expect(b.customer_name).toBe("លោក សុខា"); expect(b.customer_phones).toEqual(["012345678"]); expect(b.vehicle_code).toBe("01");
     expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "", zone: "inside" })).json.error).toBe("REQUIRED");
-    expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", vehicle_id: "00000000-0000-0000-0000-000000000099" })).json.error).toBe("VEHICLE_NOT_FOUND");
-    const r2 = await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside" });
+    expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", scheduled_at: at(4, 9), vehicle_id: "00000000-0000-0000-0000-000000000099" })).json.error).toBe("VEHICLE_NOT_FOUND");
+    const r2 = await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", scheduled_at: at(3, 9) });
     expect(r2.json.number).toBe("BK-0002"); expect(r2.json.status).toBe("survey");
     bk2 = r2.json.id;
     const notif = (await gm.req("GET", "/api/notifications")).json;
@@ -50,7 +50,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
   it("assign: validation (lead, schedule, team members, vehicle), type B admin blocked, happy path → outbox + notifications", async () => {
     expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: "not-a-uuid", assistants: [], scheduled_at: T9 })).status).toBe(400);
     expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: "", assistants: [], scheduled_at: T9 })).json.error).toBe("TEAM_REQUIRED");
-    expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: "" })).json.error).toBe("SCHEDULE_REQUIRED");
+    expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: at(9, 9) })).json.error).toBe("USE_RESCHEDULE"); // D2
     expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: s.users.ceo, assistants: [], scheduled_at: T9 })).json.error).toBe("TECH_NOT_FOUND");
     expect((await admin.req("POST", `/api/bookings/${bk1}/assign`, { lead: s.users.kim, assistants: [s.users.kim], scheduled_at: T9 })).json.error).toBe("LEAD_IN_ASSISTANTS");
     expect((await admin.req("POST", `/api/bookings/${bk2}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: T9 })).json.error).toBe("BOOKING_LOCKED"); // survey
@@ -100,7 +100,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     const av = (await admin.req("GET", `/api/bookings/availability?at=${encodeURIComponent(T10)}`)).json.people;
     expect(av.find((p: any) => p.full_name === "Kim").busy[0].number).toBe("BK-0001");
     expect(av.find((p: any) => p.full_name === "GM A").busy).toEqual([]);
-    const bk3 = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "camera", service_text: "ដំឡើងកាមេរ៉ា", zone: "inside" })).json.id;
+    const bk3 = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "camera", service_text: "ដំឡើងកាមេរ៉ា", zone: "inside", scheduled_at: T10 })).json.id;
     const r = await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: T10 });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     expect(r.json.details.conflicts).toEqual([expect.objectContaining({ user_id: s.users.kim, number: "BK-0001" })]);

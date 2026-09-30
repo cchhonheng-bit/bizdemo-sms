@@ -222,9 +222,9 @@ describe("shop bot routing (T3)", () => {
 describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
   it("booking confirmed goes out through the hub, via One Team's own bot, to allow-listed chats only", async () => {
     const cust = (await ceo.req("POST", "/api/customers", { name: "Hub Customer", phones: ["012777777"], zone: "inside", lat: 11.5, lng: 104.9 })).json.id;
-    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC", zone: "inside" })).json.id;
-    sent = [];
     const when = new Date(Date.now() + 3 * 86400_000).toISOString();
+    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC", zone: "inside", scheduled_at: when })).json.id;
+    sent = [];
     expect((await gm.req("POST", `/api/bookings/${bk}/assign`, { scheduled_at: when, lead: s.users.kim, assistants: [] })).status).toBe(200);
     for (let i = 0; i < 40; i++) {
       await flushOutbox();
@@ -436,7 +436,9 @@ describe("platform page (owner): login + bot management (T6) + public pages", ()
   it("/privacy and /terms (km + en) on the hub; the shop exposes its company name and its own bot", async () => {
     const p = await hub.inject({ method: "GET", url: "/privacy" });
     expect(p.statusCode).toBe(200); expect(p.body).toContain("គោលការណ៍ឯកជនភាព"); expect(p.body).not.toContain("{{company_name}}");
-    expect((await hub.inject({ method: "GET", url: "/terms?lang=en" })).body).toContain("Terms of Service");
+    const terms = (await hub.inject({ method: "GET", url: "/terms" })).body; // I2: one page, Khmer first then English
+    expect(terms).toContain("Terms of Service"); expect(terms.indexOf("លក្ខខណ្ឌ")).toBeLessThan(terms.indexOf("Terms of Service"));
+    expect(terms).not.toContain("?lang=");
     resetBotCache();
     const c = (await shop.inject({ method: "GET", url: "/api/config" })).json();
     expect(c).toMatchObject({ companyName: "One Team Engineering", shopCode: "ONETEAM", telegramBot: "Oneteam_app_bot", features: ["subscribe"] });

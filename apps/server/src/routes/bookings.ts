@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { assignSchema, bookingSchema, cancelSchema, BOOKING_STATUSES } from "@sms/shared";
+import { assignSchema, bookingSchema, cancelSchema, rescheduleSchema, BOOKING_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
-import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, statusLog, updateBooking } from "../services/bookings.js";
+import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -30,6 +30,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/:id", async (req) => getBooking(req.user!, idParam.parse(req.params).id));
   app.get("/:id/log", async (req) => statusLog(req.user!, idParam.parse(req.params).id));
+  app.get("/:id/reschedules", async (req) => rescheduleHistory(req.user!, idParam.parse(req.params).id));
 
   app.post("/", async (req) => {
     if (!req.perms.includes("booking.create")) throw new AppError("FORBIDDEN", 403);
@@ -52,10 +53,19 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
     const a = assignSchema.parse(req.body);
     const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, {
-      lead: a.lead || null, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at, ends_at: a.ends_at || null,
+      lead: a.lead || null, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at || null, ends_at: a.ends_at || null,
     });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // deliver right away; cron is the backstop (D-15)
     return r;
+  });
+
+  // D2: move the agreed appointment — who asked + reason + history; CEO / GM / Admin (booking.create or booking.assign)
+  app.post("/:id/reschedule", async (req) => {
+    if (!req.perms.includes("booking.create") && !req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
+    const r = rescheduleSchema.parse(req.body ?? {});
+    const out = await rescheduleBooking(req.user!, req.ip, idParam.parse(req.params).id, { scheduled_at: r.scheduled_at, ends_at: r.ends_at || null, requested_by: r.requested_by, reason: r.reason });
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return out;
   });
 
   // R4: CEO / GM / Admin (permission cancel.request — all three by default), reason required

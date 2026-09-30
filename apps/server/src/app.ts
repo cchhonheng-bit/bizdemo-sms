@@ -19,6 +19,7 @@ import { settingsRoutes } from "./routes/settings.js";
 import { customersRoutes } from "./routes/customers.js";
 import { catalogRoutes } from "./routes/catalog.js";
 import { bookingsRoutes } from "./routes/bookings.js";
+import { leaveRoutes } from "./routes/leave.js";
 import { notificationsRoutes } from "./routes/notifications.js";
 import { telegramRoutes } from "./routes/telegram.js";
 import { mapsRoutes } from "./routes/maps.js";
@@ -119,6 +120,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(customersRoutes, { prefix: "/api/customers" });
   app.register(catalogRoutes, { prefix: "/api/catalog" });
   app.register(bookingsRoutes, { prefix: "/api/bookings" });
+  app.register(leaveRoutes, { prefix: "/api/leave" });
   app.register(notificationsRoutes, { prefix: "/api/notifications" });
   app.register(telegramRoutes, { prefix: "/api/telegram" });
   app.register(mapsRoutes, { prefix: "/api/maps" });

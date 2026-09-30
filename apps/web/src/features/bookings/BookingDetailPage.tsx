@@ -2,8 +2,8 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ASSIGNABLE_STATUSES, CANCELLABLE_STATUSES, EDITABLE_STATUSES } from "@sms/shared";
-import { ArrowLeft, Ban, Pencil, Phone, UserPlus } from "lucide-react";
+import { ASSIGNABLE_STATUSES, CANCELLABLE_STATUSES, EDITABLE_STATUSES, RESCHEDULE_REQUESTERS } from "@sms/shared";
+import { ArrowLeft, Ban, CalendarClock, Pencil, Phone, UserPlus } from "lucide-react";
 import { api, errCode, fmtDate, fmtDateTime, type Booking, type Conflict } from "@/lib/api";
 import { ApiError } from "@/lib/http";
 import { useAuth } from "@/lib/auth";
@@ -19,8 +19,10 @@ export default function BookingDetailPage() {
   const { can, me } = useAuth();
   const [assign, setAssign] = useState(false);
   const [cancel, setCancel] = useState(false);
+  const [resched, setResched] = useState(false);
   const b = useQuery({ queryKey: ["booking", id], queryFn: () => api.booking(id!) });
   const log = useQuery({ queryKey: ["booking-log", id], queryFn: () => api.statusLog(id!) });
+  const history = useQuery({ queryKey: ["booking-resched", id], queryFn: () => api.rescheduleHistory(id!) });
   const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic, enabled: me?.role !== "tech" });
   const nameOf = (uid: string | null) => users.data?.find((u) => u.id === uid)?.full_name ?? "";
 
@@ -30,6 +32,7 @@ export default function BookingDetailPage() {
   const canAssign = can("booking.assign") && ASSIGNABLE_STATUSES.includes(bk.status) && !(bk.type === "B" && me?.role === "admin");
   const canEdit = can("booking.create") && EDITABLE_STATUSES.includes(bk.status);
   const canCancel = can("cancel.request") && CANCELLABLE_STATUSES.includes(bk.status);
+  const canResched = (can("booking.create") || can("booking.assign")) && EDITABLE_STATUSES.includes(bk.status);
   const lead = bk.technicians?.find((x) => x.role === "lead");
   const crew = bk.technicians?.filter((x) => x.role === "assistant") ?? [];
 
@@ -41,6 +44,7 @@ export default function BookingDetailPage() {
         <TypeBadge type={bk.type} /><StatusBadge status={bk.status} />
         <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap gap-2">
           {canEdit && <Button onClick={() => nav(`/bookings/${bk.id}/edit`)}><Pencil size={16} /> {t("app.edit")}</Button>}
+          {canResched && <Button onClick={() => setResched(true)} data-testid="resched-btn"><CalendarClock size={16} /> {t("booking.reschedule")}</Button>}
           {canCancel && <Button variant="danger" onClick={() => setCancel(true)} data-testid="cancel-btn"><Ban size={16} /> {t("booking.cancel")}</Button>}
           {canAssign && <Button variant="primary" className="flex-1 sm:flex-none" onClick={() => setAssign(true)} data-testid="assign-btn"><UserPlus size={16} /> {bk.status === "assigned" ? t("booking.reassign") : t("booking.assign")}</Button>}
         </div>
@@ -84,6 +88,19 @@ export default function BookingDetailPage() {
               </ul>
             )}
           </Card>
+          {(history.data?.length ?? 0) > 0 && (
+            <Card title={t("booking.reschedule_history")}>
+              <ol className="space-y-3 text-sm" data-testid="resched-history">
+                {history.data!.map((h) => (
+                  <li key={h.id} className="border-l-2 border-warning pl-3">
+                    <div className="tabular"><s className="text-muted">{h.old_start ? `${fmtDate(h.old_start)} ${timeRange(h.old_start, h.old_end)}` : "—"}</s> → <b>{fmtDate(h.new_start)} {timeRange(h.new_start, h.new_end)}</b></div>
+                    <div>🙋 {t(`booking.requester.${h.requested_by}`)} · {h.reason}</div>
+                    <div className="text-xs text-muted">{fmtDateTime(h.at)}{h.by_name ? ` · ${h.by_name}` : ""}</div>
+                  </li>
+                ))}
+              </ol>
+            </Card>
+          )}
           <Card title={t("booking.timeline")}>
             {log.isLoading ? <Skeleton rows={3} /> : (
               <ol className="relative border-l border-grey-line ml-2 space-y-3 text-sm">
@@ -102,6 +119,7 @@ export default function BookingDetailPage() {
       </div>
       {assign && <AssignDialog booking={bk} onClose={() => setAssign(false)} />}
       {cancel && <CancelDialog booking={bk} onClose={() => setCancel(false)} />}
+      {resched && <RescheduleDialog booking={bk} onClose={() => setResched(false)} />}
     </div>
   );
 }
@@ -112,18 +130,13 @@ const conflictText = (c: Conflict[] | undefined) => (c ?? []).map((x) => `${x.fu
 function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const s0 = splitLocal(booking.scheduled_at), e0 = splitLocal(booking.ends_at);
-  const future = booking.scheduled_at && !isPastLocal(booking.scheduled_at);
-  const [date, setDate] = useState(future ? s0.date : "");
-  const [start, setStart] = useState(future ? s0.time : "");
-  const [end, setEnd] = useState(future ? e0.time : "");
   const [team, setTeam] = useState<string[]>(booking.technicians?.map((x) => x.user_id) ?? []);
   const [lead, setLead] = useState(booking.technicians?.find((x) => x.role === "lead")?.user_id ?? "");
   const [vehicle, setVehicle] = useState(booking.vehicle_id ?? "");
   const [showBusy, setShowBusy] = useState(false);
-  const fromIso = date && start ? joinLocal(date, start) : null;
-  const toIso = date && end ? joinLocal(date, end) : null;
-  const windowOk = !!fromIso && !!toIso && toIso > fromIso && !isPastLocal(fromIso);
+  // D2: the crew is picked for the agreed appointment; a different time = Reschedule (who + why)
+  const fromIso = booking.scheduled_at, toIso = booking.ends_at;
+  const windowOk = !!fromIso && !!toIso && !isPastLocal(fromIso);
   const avail = useQuery({ queryKey: ["availability", fromIso, toIso, booking.id], queryFn: () => api.availability(fromIso!, toIso!, booking.id), enabled: windowOk });
   const free = useMemo(() => (avail.data?.people ?? []).filter((p) => p.available), [avail.data]);
   const busy = useMemo(() => (avail.data?.people ?? []).filter((p) => !p.available), [avail.data]);
@@ -133,7 +146,7 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
   const leadOk = lead && crew.includes(lead) ? lead : "";
 
   const m = useMutation({
-    mutationFn: () => api.assignBooking({ id: booking.id, lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, scheduled_at: fromIso!, ends_at: toIso }),
+    mutationFn: () => api.assignBooking({ id: booking.id, lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, scheduled_at: null, ends_at: null }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking-log", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
       api.flushTelegram();
@@ -146,22 +159,20 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
       void avail.refetch();
     },
   });
-  const whenError = date && start && isPastLocal(joinLocal(date, start)) ? t("booking.err.START_IN_PAST") : fromIso && toIso && toIso <= fromIso ? t("booking.err.END_BEFORE_START") : null;
 
   return (
     <Dialog open onClose={onClose} title={`${booking.status === "assigned" ? t("booking.reassign") : t("booking.assign")} · ${booking.number}`} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" className="flex-1 sm:flex-none" loading={m.isPending} disabled={!windowOk || crew.length === 0} onClick={() => m.mutate()} data-testid="assign-submit">{t("booking.confirm_assign")} ({crew.length})</Button>
     </>}>
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
-        <div className="col-span-2 sm:col-span-1"><Field label={t("booking.date")} required><Input type="date" min={todayLocal()} name="assign_date" value={date} onChange={(e) => setDate(e.target.value)} /></Field></div>
-        <Field label={t("booking.start")} required><Input type="time" step={300} name="assign_start" value={start} onChange={(e) => { setStart(e.target.value); if (date && e.target.value) setEnd(addMinutesLocal(date, e.target.value, booking.scheduled_at && booking.ends_at ? (new Date(booking.ends_at).getTime() - new Date(booking.scheduled_at).getTime()) / 60_000 : 120)); }} /></Field>
-        <Field label={t("booking.end")} required><Input type="time" step={300} name="assign_end" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+      <div className="card bg-grey-bg p-3 mb-3 text-sm" data-testid="assign-when">
+        <div className="text-muted text-xs">{t("booking.appointment")}</div>
+        <div className="font-bold tabular text-base">{booking.scheduled_at ? `${fmtDate(booking.scheduled_at)} · ${timeRange(booking.scheduled_at, booking.ends_at)}` : "—"}</div>
+        {!windowOk && <p className="text-danger mt-1" role="alert">{t("booking.err.START_IN_PAST")} — {t("booking.reschedule_first")}</p>}
       </div>
-      {whenError && <p className="field-error -mt-1 mb-3" role="alert">{whenError}</p>}
 
       <Field label={t("booking.crew")} required hint={t("booking.crew_hint")}>
-        {!windowOk ? <p className="text-sm text-muted">{t("booking.pick_time_first")}</p> : avail.isLoading ? <Skeleton rows={3} /> : (
+        {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p> : avail.isLoading ? <Skeleton rows={3} /> : (
           <>
             {free.length === 0 && <p className="text-sm text-danger" role="alert">{t("booking.nobody_free")}</p>}
             <ul className="divide-y divide-grey-line border border-grey-line rounded-md">
@@ -200,6 +211,64 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
         </Select>
       </Field>
       <p className="text-xs text-muted">{t("booking.assign_notify_hint")}</p>
+    </Dialog>
+  );
+}
+
+/** D2 — move the agreed appointment: new time + who asked + why; every availability rule runs again on the server */
+function RescheduleDialog({ booking, onClose }: { booking: Booking; onClose: () => void }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const s0 = splitLocal(booking.scheduled_at);
+  const minutes = booking.scheduled_at && booking.ends_at ? (new Date(booking.ends_at).getTime() - new Date(booking.scheduled_at).getTime()) / 60_000 : 120;
+  const [date, setDate] = useState(isPastLocal(booking.scheduled_at ?? "1970-01-01") ? "" : s0.date);
+  const [start, setStart] = useState(isPastLocal(booking.scheduled_at ?? "1970-01-01") ? "" : s0.time);
+  const [end, setEnd] = useState(booking.ends_at && !isPastLocal(booking.scheduled_at ?? "1970-01-01") ? splitLocal(booking.ends_at).time : "");
+  const [who, setWho] = useState<string>("");
+  const [reason, setReason] = useState("");
+  const startIso = date && start ? joinLocal(date, start) : null, endIso = date && end ? joinLocal(date, end) : null;
+  const err = startIso && isPastLocal(startIso) ? t("booking.err.START_IN_PAST") : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START")
+    : startIso && startIso === booking.scheduled_at && endIso === booking.ends_at ? t("booking.err.SAME_TIME") : null;
+  const ready = !!startIso && !!endIso && !err && !!who && reason.trim().length >= 3;
+  const m = useMutation({
+    mutationFn: () => api.rescheduleBooking(booking.id, { scheduled_at: startIso!, ends_at: endIso, requested_by: who, reason: reason.trim() }),
+    onSuccess: () => {
+      for (const k of [["booking", booking.id], ["booking-resched", booking.id], ["bookings"]]) void qc.invalidateQueries({ queryKey: k });
+      api.flushTelegram();
+      toast.success(t("booking.rescheduled_ok"));
+      onClose();
+    },
+    onError: (e) => {
+      const d = e instanceof ApiError ? (e.details as { conflicts?: Conflict[] } | undefined) : undefined;
+      toast.error(`${t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") })}${d?.conflicts?.length ? ` — ${conflictText(d.conflicts)}` : ""}`);
+    },
+  });
+  return (
+    <Dialog open onClose={onClose} title={`${t("booking.reschedule")} · ${booking.number}`} footer={<>
+      <Button onClick={onClose}>{t("app.back")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" loading={m.isPending} disabled={!ready} onClick={() => m.mutate()} data-testid="resched-submit">{t("booking.reschedule_confirm")}</Button>
+    </>}>
+      <p className="text-sm text-muted mb-3">{t("booking.appointment")}: <b className="tabular text-ink">{booking.scheduled_at ? `${fmtDate(booking.scheduled_at)} · ${timeRange(booking.scheduled_at, booking.ends_at)}` : "—"}</b></p>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
+        <div className="col-span-2 sm:col-span-1"><Field label={t("booking.date")} required><Input type="date" min={todayLocal()} name="resched_date" value={date} onChange={(e) => setDate(e.target.value)} /></Field></div>
+        <Field label={t("booking.start")} required><Input type="time" step={300} name="resched_start" value={start} onChange={(e) => { setStart(e.target.value); if (date && e.target.value) setEnd(addMinutesLocal(date, e.target.value, minutes)); }} /></Field>
+        <Field label={t("booking.end")} required><Input type="time" step={300} name="resched_end" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
+      </div>
+      {err && <p className="field-error -mt-1 mb-3" role="alert">{err}</p>}
+      <Field label={t("booking.requested_by")} required>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup">
+          {RESCHEDULE_REQUESTERS.map((r) => (
+            <button key={r} type="button" role="radio" aria-checked={who === r} onClick={() => setWho(r)}
+              className={`min-h-[48px] rounded-md border px-3 text-sm text-left ${who === r ? "border-navy bg-[#E6EDFD] font-bold text-navy" : "border-grey-line bg-white"}`}>
+              {t(`booking.requester.${r}`)}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field label={t("booking.reschedule_reason")} required hint={t("booking.cancel_reason_hint")}>
+        <textarea className="input h-20 py-2" name="resched_reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
+      </Field>
+      <p className="text-xs text-muted">{t("booking.reschedule_notify_hint")}</p>
     </Dialog>
   );
 }

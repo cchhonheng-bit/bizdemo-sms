@@ -19,6 +19,8 @@ function at(d: number, hh: number, mm = 0): string {
 const mk = async (c: Client, extra: Record<string, unknown> = {}) =>
   c.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...extra });
 const assign = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/assign`, { assistants: [], ...body });
+/** D2: the only way to move the appointment */
+const resched = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/reschedule`, { requested_by: "customer", reason: "ភ្ញៀវសុំ", ...body });
 
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
@@ -43,7 +45,7 @@ describe("R3 schedule control", () => {
     expect((await mk(ceo, { scheduled_at: at(2, 9), ends_at: at(2, 8) })).json.error).toBe("END_BEFORE_START");
     expect((await mk(ceo, { scheduled_at: at(2, 9), ends_at: at(2, 9) })).json.error).toBe("END_BEFORE_START");
     expect((await mk(ceo, { ends_at: at(2, 9) })).json.error).toBe("START_REQUIRED");
-    expect((await mk(ceo, {})).status).toBe(200); // unscheduled booking is still allowed (assign needs a time)
+    expect((await mk(ceo, {})).json.error).toBe("SCHEDULE_REQUIRED"); // D2: the agreed time is required
   });
 
   it("duration comes from the catalog service (placeholder 120 min, configurable); an explicit end wins", async () => {
@@ -58,13 +60,13 @@ describe("R3 schedule control", () => {
     expect(new Date((await ceo.req("GET", `/api/bookings/${r2.json.id}`)).json.ends_at).toISOString()).toBe(at(3, 8, 45));
   });
 
-  it("edit: a booking today 21:00 cannot be moved to yesterday; moving the start keeps the duration", async () => {
+  it("reschedule: a booking today 21:00 cannot be moved to yesterday; moving the start keeps the duration", async () => {
     const id = (await mk(ceo, { scheduled_at: at(0, 23, 50) > new Date().toISOString() ? at(0, 23, 50) : at(1, 21) })).json.id;
-    expect((await ceo.req("PATCH", `/api/bookings/${id}`, { scheduled_at: at(-1, 21) })).json.error).toBe("START_IN_PAST");
-    expect((await ceo.req("PATCH", `/api/bookings/${id}`, { scheduled_at: at(4, 14) })).status).toBe(200);
+    expect((await resched(ceo, id, { scheduled_at: at(-1, 21) })).json.error).toBe("START_IN_PAST");
+    expect((await resched(ceo, id, { scheduled_at: at(4, 14) })).status).toBe(200);
     const b = (await ceo.req("GET", `/api/bookings/${id}`)).json;
     expect(new Date(b.ends_at).toISOString()).toBe(at(4, 16));
-    expect((await ceo.req("PATCH", `/api/bookings/${id}`, { ends_at: at(4, 13) })).json.error).toBe("END_BEFORE_START");
+    expect((await resched(ceo, id, { scheduled_at: at(4, 14), ends_at: at(4, 13) })).json.error).toBe("END_BEFORE_START");
     expect((await ceo.req("PATCH", `/api/bookings/${id}`, { notes: "ok" })).status).toBe(200); // other fields: no time check
   });
 });
@@ -93,50 +95,56 @@ describe("R1/R2 availability + server-side blocking", () => {
 
   it("API bypass of the UI: assigning a busy technician or vehicle is rejected with who/what blocks it", async () => {
     const b = (await mk(admin, { scheduled_at: at(5, 10) })).json.id;
-    const r = await assign(admin, b, { lead: s.users.kim, scheduled_at: at(5, 10) });
+    const r = await assign(admin, b, { lead: s.users.kim });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     expect(r.json.details.conflicts[0]).toMatchObject({ user_id: s.users.kim, full_name: "Kim" });
-    const r2 = await assign(admin, b, { assistants: [s.users.gm01], vehicle_id: v1, scheduled_at: at(5, 10) });
+    const r2 = await assign(admin, b, { assistants: [s.users.gm01], vehicle_id: v1 });
     expect(r2.status).toBe(409); expect(r2.json.error).toBe("VEHICLE_UNAVAILABLE");
-    expect((await assign(admin, b, { assistants: [s.users.newbie], scheduled_at: at(5, 10) })).json.error).toBe("TECH_NOT_FOUND"); // inactive
+    expect((await assign(admin, b, { assistants: [s.users.newbie] })).json.error).toBe("TECH_NOT_FOUND"); // inactive
     // exact boundary: 11:00 start next to 09:00–11:00 is fine
     const c = (await mk(admin, { scheduled_at: at(5, 11) })).json.id;
-    expect((await assign(admin, c, { lead: s.users.kim, vehicle_id: v1, scheduled_at: at(5, 11) })).status).toBe(200);
-    // one minute earlier overlaps
-    const d = (await mk(admin, { scheduled_at: at(6, 9) })).json.id;
-    expect((await assign(admin, d, { assistants: [s.users.kim], scheduled_at: at(5, 12, 59) })).json.error).toBe("TECH_UNAVAILABLE");
-    expect((await assign(admin, d, { assistants: [s.users.kim], scheduled_at: at(5, 10, 59), ends_at: at(5, 11) })).json.error).toBe("TECH_UNAVAILABLE");
+    expect((await assign(admin, c, { lead: s.users.kim, vehicle_id: v1 })).status).toBe(200);
+    // one minute into the other job overlaps
+    const d = (await mk(admin, { scheduled_at: at(5, 12, 59) })).json.id;
+    expect((await assign(admin, d, { assistants: [s.users.kim] })).json.error).toBe("TECH_UNAVAILABLE");
+    const d2 = (await mk(admin, { scheduled_at: at(5, 10, 59), ends_at: at(5, 11) })).json.id;
+    expect((await assign(admin, d2, { assistants: [s.users.kim] })).json.error).toBe("TECH_UNAVAILABLE");
+    // assign cannot move the agreed time (D2)
+    expect((await assign(admin, d2, { assistants: [s.users.gm01], scheduled_at: at(6, 9) })).json.error).toBe("USE_RESCHEDULE");
   });
 
-  it("vehicle on create/edit is checked too", async () => {
+  it("vehicle on create/edit/reschedule is checked too", async () => {
     expect((await mk(ceo, { scheduled_at: at(5, 9, 30), vehicle_id: v1 })).json.error).toBe("VEHICLE_UNAVAILABLE");
     const e = (await mk(ceo, { scheduled_at: at(7, 9), vehicle_id: v1 })).json.id;
-    expect((await ceo.req("PATCH", `/api/bookings/${e}`, { scheduled_at: at(5, 10) })).json.error).toBe("VEHICLE_UNAVAILABLE");
+    expect((await resched(ceo, e, { scheduled_at: at(5, 10) })).json.error).toBe("VEHICLE_UNAVAILABLE");
+    const e2 = (await mk(ceo, { scheduled_at: at(5, 10) })).json.id;
+    expect((await ceo.req("PATCH", `/api/bookings/${e2}`, { vehicle_id: v1 })).json.error).toBe("VEHICLE_UNAVAILABLE");
   });
 
-  it("edit into conflict: moving an assigned booking onto a technician's other job is rejected", async () => {
+  it("reschedule into conflict: moving an assigned booking onto a technician's other job is rejected", async () => {
     const x = (await mk(ceo, { scheduled_at: at(8, 9) })).json.id;
-    expect((await assign(gm, x, { lead: s.users.kim, scheduled_at: at(8, 9) })).status).toBe(200);
-    const r = await ceo.req("PATCH", `/api/bookings/${x}`, { scheduled_at: at(5, 9, 30) });
+    expect((await assign(gm, x, { lead: s.users.kim })).status).toBe(200);
+    const r = await resched(ceo, x, { scheduled_at: at(5, 9, 30) });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     // longer end that runs into the next job is rejected as well
-    expect((await ceo.req("PATCH", `/api/bookings/${a1}`, { ends_at: at(5, 11, 30) })).json.error).toBe("TECH_UNAVAILABLE");
+    expect((await resched(ceo, a1, { scheduled_at: at(5, 9), ends_at: at(5, 11, 30) })).json.error).toBe("TECH_UNAVAILABLE");
   });
 
   it("reassign into conflict is rejected; reassign re-runs the past-time check", async () => {
-    const y = (await mk(ceo, { scheduled_at: at(9, 9) })).json.id;
-    expect((await assign(gm, y, { lead: s.users.dara, scheduled_at: at(9, 9) })).status).toBe(200);
-    expect((await assign(gm, y, { lead: s.users.kim, scheduled_at: at(5, 9) })).json.error).toBe("TECH_UNAVAILABLE");
-    expect((await assign(gm, y, { lead: s.users.dara, scheduled_at: at(-1, 9) })).json.error).toBe("START_IN_PAST");
+    const y = (await mk(ceo, { scheduled_at: at(8, 10) })).json.id;
+    expect((await assign(gm, y, { lead: s.users.dara })).status).toBe(200);
+    expect((await assign(gm, y, { lead: s.users.kim })).json.error).toBe("TECH_UNAVAILABLE"); // kim is on x 09:00–11:00
+    await sql`update bookings set scheduled_at = ${at(-1, 9)}, ends_at = ${at(-1, 11)} where id = ${y}`; // the appointment has passed
+    expect((await assign(gm, y, { lead: s.users.dara })).json.error).toBe("START_IN_PAST"); // → reschedule first
     expect((await ceo.req("GET", `/api/bookings/${y}`)).json.technicians).toEqual([expect.objectContaining({ full_name: "Dara", role: "lead" })]); // unchanged
   });
 
   it("concurrent double-save: two assigns of the same technician at the same time → exactly one wins (DB constraint)", async () => {
     const p = (await mk(ceo, { scheduled_at: at(10, 9) })).json.id;
-    const q = (await mk(ceo, { scheduled_at: at(10, 9) })).json.id;
+    const q = (await mk(ceo, { scheduled_at: at(10, 10) })).json.id;
     const [r1, r2] = await Promise.all([
-      assign(gm, p, { lead: s.users.dara, scheduled_at: at(10, 9) }),
-      assign(admin, q, { lead: s.users.dara, scheduled_at: at(10, 10) }),
+      assign(gm, p, { lead: s.users.dara }),
+      assign(admin, q, { lead: s.users.dara }),
     ]);
     expect([r1.status, r2.status].sort()).toEqual([200, 409]);
     expect((r1.status === 409 ? r1 : r2).json.error).toBe("TECH_UNAVAILABLE");

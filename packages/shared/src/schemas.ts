@@ -96,7 +96,8 @@ export const assignSchema = z.object({
   lead: z.string().uuid().optional().or(z.literal("")).nullable(),
   assistants: z.array(z.string().uuid()).max(10),
   vehicle_id: z.string().uuid().optional().or(z.literal("")),
-  scheduled_at: z.string().min(1, "SCHEDULE_REQUIRED"),
+  /** D2: the agreed time is kept; a different time here is refused (USE_RESCHEDULE) */
+  scheduled_at: z.string().optional().or(z.literal("")),
   ends_at: z.string().optional().or(z.literal("")),
 })
   .refine((v) => !v.lead || !v.assistants.includes(v.lead), { message: "LEAD_IN_ASSISTANTS", path: ["assistants"] })
@@ -106,3 +107,32 @@ export type AssignInput = z.infer<typeof assignSchema>;
 /** R4: cancel with a reason (CEO / GM / Admin) */
 export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG") }).strict();
 export type CancelInput = z.infer<typeof cancelSchema>;
+
+/** D2: who asked to move the appointment */
+export const RESCHEDULE_REQUESTERS = ["customer", "creator", "technician", "lead", "gm"] as const;
+export type RescheduleRequester = (typeof RESCHEDULE_REQUESTERS)[number];
+export const rescheduleSchema = z.object({
+  scheduled_at: z.string().min(1, "SCHEDULE_REQUIRED"),
+  ends_at: z.string().optional().or(z.literal("")),
+  requested_by: z.enum(RESCHEDULE_REQUESTERS, { errorMap: () => ({ message: "REQUESTER_REQUIRED" }) }).optional(),
+  reason: z.string().trim().max(500, "TOO_LONG").optional().default(""),
+}).strict();
+
+/** D3 / FR-903: leave request (own) or absence (marked by an approver) — whole day(s) or half a day */
+export const LEAVE_PARTS = ["full", "am", "pm"] as const;
+export type LeavePart = (typeof LEAVE_PARTS)[number];
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "INVALID_DATE");
+export const leaveRequestSchema = z.object({
+  kind: z.literal("leave").optional().default("leave"),
+  date_from: isoDate,
+  date_to: isoDate,
+  part: z.enum(LEAVE_PARTS).default("full"),
+  reason: z.string().trim().min(2, "REASON_REQUIRED").max(500, "TOO_LONG"),
+}).strict();
+export const absenceSchema = z.object({
+  user_id: z.string().uuid(),
+  date_from: isoDate,
+  date_to: isoDate,
+  part: z.enum(LEAVE_PARTS).default("full"),
+  reason: z.string().trim().min(2, "REASON_REQUIRED").max(500, "TOO_LONG"),
+}).strict();

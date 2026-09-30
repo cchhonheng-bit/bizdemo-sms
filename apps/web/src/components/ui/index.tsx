@@ -117,7 +117,7 @@ export function Toaster() {
   const { toasts, remove } = useToast();
   const tone = { success: "bg-success text-white", error: "bg-danger text-white", info: "bg-navy text-white" };
   return (
-    <div className="fixed inset-x-4 sm:inset-x-auto bottom-[calc(5rem+env(safe-area-inset-bottom))] sm:bottom-4 sm:right-4 z-[60] space-y-2" aria-live="polite">
+    <div className="fixed inset-x-4 sm:inset-x-auto top-[calc(3.5rem+env(safe-area-inset-top))] sm:top-auto sm:bottom-4 sm:right-4 z-[60] space-y-2 pointer-events-none [&>*]:pointer-events-auto" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.id} className={`${tone[t.kind]} rounded-md px-4 py-2 shadow-drawer text-sm flex items-center gap-3`}>
           <span className="flex-1 break-words">{t.text}</span><button className="tap-target -my-2 -mr-2" onClick={() => remove(t.id)} aria-label="dismiss"><X size={16} /></button>

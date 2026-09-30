@@ -36,7 +36,8 @@
     "attendance": "វត្តមាន",
     "notifications": "ជូនដំណឹង",
     "subscribe": "អតិថិជន Telegram",
-    "more": "ច្រើនទៀត"
+    "more": "ច្រើនទៀត",
+    "leave": "ច្បាប់ឈប់"
   },
   "roles": {
     "ceo": "CEO",
@@ -310,7 +311,10 @@
       "REASON_REQUIRED": "សូមបញ្ចូលមូលហេតុ",
       "SERVICE_NOT_FOUND": "រកមិនឃើញសេវាកម្ម",
       "SCHEDULE_CONFLICT": "ម៉ោងជាន់គ្នា",
-      "DURATION_RANGE": "15–1440 នាទី"
+      "DURATION_RANGE": "15–1440 នាទី",
+      "USE_RESCHEDULE": "សូមប្រើ «ប្ដូរម៉ោង» ដើម្បីប្ដូរម៉ោង",
+      "REQUESTER_REQUIRED": "សូមជ្រើសអ្នកស្នើ",
+      "SAME_TIME": "នេះជាម៉ោងបច្ចុប្បន្ន"
     },
     "service_item": "សេវាកម្ម (ពីបញ្ជី)",
     "service_item_hint": "កំណត់រយៈពេល: {{minutes}} នាទី",
@@ -336,7 +340,24 @@
     "cancel_reason_hint": "ចាំបាច់ · ក្រុមការងារមើលឃើញ",
     "cancelled_ok": "{{number}} បានលុបចោល",
     "cancelled_banner": "បានលុបចោល",
-    "show_cancelled": "បង្ហាញដែលបានលុបចោល"
+    "show_cancelled": "បង្ហាញដែលបានលុបចោល",
+    "appointment": "ម៉ោងណាត់",
+    "reschedule": "ប្ដូរម៉ោង",
+    "reschedule_confirm": "រក្សាម៉ោងថ្មី",
+    "reschedule_first": "សូមប្ដូរម៉ោង Booking នេះជាមុន",
+    "reschedule_history": "ប្រវត្តិប្ដូរម៉ោង",
+    "requested_by": "អ្នកស្នើ",
+    "reschedule_reason": "មូលហេតុ",
+    "rescheduled_ok": "រក្សាម៉ោងថ្មីរួច · បានជូនដំណឹងក្រុម",
+    "reschedule_notify_hint": "ជាងដែលបានចាត់ និង Group Telegram នឹងទទួលម៉ោងថ្មី។",
+    "time_readonly_hint": "ប្ដូរម៉ោងដោយ «ប្ដូរម៉ោង» នៅទំព័រ Booking",
+    "requester": {
+      "customer": "អតិថិជន",
+      "creator": "អ្នកបង្កើត Booking",
+      "technician": "ជាង",
+      "lead": "មេជាង",
+      "gm": "GM"
+    }
   },
   "tech": {
     "hello": "សួស្ដី {{name}}",
@@ -384,5 +405,49 @@
     "terms": "លក្ខខណ្ឌប្រើប្រាស់",
     "privacy": "គោលការណ៍ឯកជនភាព",
     "back": "ត្រឡប់ក្រោយ"
+  },
+  "leave": {
+    "title": "ច្បាប់ឈប់ និងអវត្តមាន",
+    "request": "ស្នើសុំច្បាប់ឈប់",
+    "from": "ពីថ្ងៃ",
+    "to": "ដល់ថ្ងៃ",
+    "part_label": "ពេល",
+    "part": {
+      "full": "ពេញថ្ងៃ",
+      "am": "ព្រឹក",
+      "pm": "រសៀល"
+    },
+    "reason": "មូលហេតុ",
+    "send": "ផ្ញើសំណើ",
+    "sent": "បានផ្ញើសំណើ",
+    "mine": "សំណើរបស់ខ្ញុំ",
+    "none": "មិនទាន់មាន",
+    "approvals": "សំណើរង់ចាំអនុម័ត",
+    "approve": "អនុម័ត",
+    "reject": "បដិសេធ",
+    "note": "កំណត់ចំណាំ (ស្រេចចិត្ត)",
+    "approved_ok": "បានអនុម័ត",
+    "absent": "អវត្តមាន",
+    "mark_absent": "កត់អវត្តមាន",
+    "person": "បុគ្គលិក",
+    "absent_ok": "បានកត់អវត្តមាន",
+    "affected_title": "ការងារត្រូវចាត់ជាងថ្មី",
+    "affected_text": "បុគ្គលិកនេះមានការងារទាំងនេះក្នុងពេលនោះ — សូមបើកហើយចាត់ជាងថ្មី:",
+    "affected_none": "គ្មានការងារប៉ះពាល់ទេ។",
+    "status": {
+      "pending": "រង់ចាំ",
+      "approved": "អនុម័ត",
+      "rejected": "បដិសេធ",
+      "cancelled": "បោះបង់"
+    },
+    "err": {
+      "OWN_REQUEST": "មិនអាចអនុម័តសំណើខ្លួនឯង",
+      "FORBIDDEN": "គ្មានសិទ្ធិ",
+      "LEAVE_NOT_PENDING": "បានសម្រេចរួចហើយ",
+      "NO_ATTENDANCE_ROLE": "CEO/CFO មិនស្នើច្បាប់ឈប់",
+      "START_IN_PAST": "ថ្ងៃនេះកន្លងហើយ",
+      "END_BEFORE_START": "ថ្ងៃបញ្ចប់មុនថ្ងៃចាប់ផ្តើម",
+      "HALF_DAY_ONE_DATE": "កន្លះថ្ងៃ = ថ្ងៃតែមួយ"
+    }
   }
 }

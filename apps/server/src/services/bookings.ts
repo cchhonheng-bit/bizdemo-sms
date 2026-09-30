@@ -3,12 +3,12 @@
 // R3 no start in the past, end time, no overlaps — the exclusion constraints of 0003 are the last line under concurrency
 // R4 cancel with a reason · R5 lead technician optional, crew ≥ 1.
 // Every function takes companyId + the acting user; technicians only see bookings they are assigned to (D-18).
-import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, type BookingStatus } from "@sms/shared";
+import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
-import { enqueueBookingCancelled, enqueueBookingConfirmed } from "./telegram.js";
+import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled } from "./telegram.js";
 
 export type BookingRow = Record<string, unknown> & {
   id: string; company_id: string; number: string; status: BookingStatus; type: "A" | "B";
@@ -109,10 +109,22 @@ async function assertVehicleFree(t: Db, companyId: string, vehicleId: string, st
   const b = await busyVehicles(t, companyId, start, end, exclude, vehicleId);
   if (b.length) throw new AppError("VEHICLE_UNAVAILABLE", 409, { conflicts: b.map((x) => ({ vehicle_id: x.vehicle_id, code: x.code, number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at })) });
 }
+/** D3: approved leave / absence overlapping [from, to) */
+async function awayPeople(t: Db, companyId: string, from: Date, to: Date, ids?: string[]) {
+  return t<{ user_id: string; full_name: string; kind: "leave" | "absent"; starts_at: Date; ends_at: Date }[]>`
+    select l.user_id, u.full_name, l.kind, l.starts_at, l.ends_at from staff_leaves l join users u on u.id = l.user_id
+    where l.company_id = ${companyId} and l.status = 'approved'
+      ${ids ? t`and l.user_id = any(${t.array(ids)}::uuid[])` : t``}
+      and tstzrange(l.starts_at, l.ends_at, '[)') && tstzrange(${from}, ${to}, '[)')`;
+}
 async function assertTeamFree(t: Db, companyId: string, team: string[], start: Date, end: Date, exclude: string | null) {
   if (!team.length) return;
+  const away = await awayPeople(t, companyId, start, end, team);
   const b = await busyPeople(t, companyId, start, end, exclude, team);
-  if (b.length) throw new AppError("TECH_UNAVAILABLE", 409, { conflicts: b.map((x) => ({ user_id: x.user_id, full_name: x.full_name, number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at })) });
+  if (away.length || b.length) throw new AppError("TECH_UNAVAILABLE", 409, { conflicts: [
+    ...away.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: x.kind === "leave" ? "LEAVE" : "ABSENT", number: null, scheduled_at: x.starts_at, ends_at: x.ends_at })),
+    ...b.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: "BUSY", number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at })),
+  ] });
 }
 
 /** R1: who/what is free for [from, to) — assigners only (F-M2-02). Inactive people are never offered. */
@@ -123,14 +135,17 @@ export async function availability(user: SessionUser, fromIso: string, toIso: st
     where company_id = ${user.companyId} and is_active and role in ('tech', 'gm') order by role desc, full_name`;
   const vehicles = await sql<{ id: string; code: string; plate: string | null }[]>`select id, code, plate from vehicles where company_id = ${user.companyId} and is_active order by code`;
   const bp = await busyPeople(sql, user.companyId, from, to, exclude);
+  const away = await awayPeople(sql, user.companyId, from, to);
   const bv = await busyVehicles(sql, user.companyId, from, to, exclude);
   const strip = (b: Busy) => ({ number: b.number, scheduled_at: b.scheduled_at, ends_at: b.ends_at });
   return {
     from, to,
-    // absent / on leave: attendance + leave arrive with M4 (no data yet) — reason list is ready for it
+    // D3: approved leave / absence first (LEAVE / ABSENT), then another job (BUSY)
     people: people.map((p) => {
       const busy = bp.filter((b) => b.user_id === p.id).map(strip);
-      return { user_id: p.id, full_name: p.full_name, role: p.role, available: busy.length === 0, reason: busy.length ? "BUSY" : null, busy };
+      const off = away.find((a) => a.user_id === p.id);
+      const reason = off ? (off.kind === "leave" ? "LEAVE" : "ABSENT") : busy.length ? "BUSY" : null;
+      return { user_id: p.id, full_name: p.full_name, role: p.role, available: !reason, reason, busy, away: off ? { kind: off.kind, starts_at: off.starts_at, ends_at: off.ends_at } : null };
     }),
     vehicles: vehicles.map((v) => {
       const busy = bv.filter((b) => b.vehicle_id === v.id).map(strip);
@@ -154,7 +169,8 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     if (!service) throw new AppError("SERVICE_REQUIRED", 400);
     const minutes = await durationOf(t, user.companyId, b.service_item_id);
     const w = window(parseTime(b.scheduled_at, "INVALID_VALUE"), parseTime(b.ends_at, "INVALID_VALUE"), minutes);
-    if (w.start) assertFuture(w.start);
+    if (!w.start) throw new AppError("SCHEDULE_REQUIRED", 400); // D2: every booking has the agreed appointment time
+    assertFuture(w.start);
     if (b.vehicle_id) {
       await assertVehicle(t, user.companyId, b.vehicle_id);
       if (w.start) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start, w.end!, null);
@@ -189,28 +205,18 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
     const vehicle = has("vehicle_id") ? ((p.vehicle_id as string) || null) : old.vehicle_id;
     if (has("vehicle_id") && vehicle) await assertVehicle(t, user.companyId, vehicle); // F-M2-01
     const serviceItem = has("service_item_id") ? ((p.service_item_id as string) || null) : old.service_item_id;
-    // R3: every edit re-runs the time rules. A changed start keeps the job length unless a new end is given.
-    const timeTouched = has("scheduled_at") || has("ends_at") || has("service_item_id");
-    let start = old.scheduled_at, end = old.ends_at;
-    if (timeTouched) {
-      const newStart = has("scheduled_at") ? parseTime(p.scheduled_at as string, "INVALID_VALUE") : old.scheduled_at;
-      let newEnd = has("ends_at") ? parseTime(p.ends_at as string, "INVALID_VALUE") : null;
-      if (!newEnd && !has("ends_at") && newStart && old.scheduled_at && old.ends_at && !has("service_item_id"))
-        newEnd = new Date(newStart.getTime() + (old.ends_at.getTime() - old.scheduled_at.getTime()));
-      const w = window(newStart, newEnd, await durationOf(t, user.companyId, serviceItem));
-      if (w.start && (has("scheduled_at") && w.start.getTime() !== old.scheduled_at?.getTime())) assertFuture(w.start);
-      start = w.start; end = w.end;
+    // D2: the agreed appointment only moves through reschedule (who asked + why + history)
+    if (has("scheduled_at") || has("ends_at")) {
+      const sameStart = (p.scheduled_at === undefined || p.scheduled_at === "" ? null : new Date(p.scheduled_at as string).getTime()) === (old.scheduled_at?.getTime() ?? null);
+      const sameEnd = !has("ends_at") || (p.ends_at === "" ? null : new Date(p.ends_at as string).getTime()) === (old.ends_at?.getTime() ?? null);
+      if (!(has("scheduled_at") ? sameStart : true) || !sameEnd) throw new AppError("USE_RESCHEDULE", 400);
     }
-    if (start && end && (timeTouched || has("vehicle_id"))) {
-      const team = (await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`).map((r) => r.user_id);
-      await assertTeamFree(t, user.companyId, team, start, end, id);
-      if (vehicle) await assertVehicleFree(t, user.companyId, vehicle, start, end, id);
-    }
+    const start = old.scheduled_at, end = old.ends_at;
+    if (start && end && has("vehicle_id") && vehicle) await assertVehicleFree(t, user.companyId, vehicle, start, end, id);
     await t`update bookings set
         service_text = coalesce(${(p.service_text as string) ?? null}, service_text),
         category = coalesce(${(p.category as string) ?? null}::service_category, category),
         service_item_id = ${serviceItem}::uuid,
-        scheduled_at = ${start}, ends_at = ${end},
         address = case when ${has("address")} then ${(p.address as string) || null} else address end,
         lat = case when ${has("lat")} then ${(p.lat as number) ?? null} else lat end,
         lng = case when ${has("lng")} then ${(p.lng as number) ?? null} else lng end,
@@ -225,30 +231,30 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
 // ---------- assign (R1/R2/R3/R5) -------------------------------------------------------------------------
 const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
-export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string; ends_at: string | null }) {
+export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
   return tx(user.id, async (t) => {
     const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
     if (!b) throw notFound();
     if (!ASSIGNABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400);
     if (b.type === "B" && user.role === "admin") throw new AppError("FORBIDDEN_TYPE_B", 403); // BR-02
-    if (!a.scheduled_at) throw new AppError("SCHEDULE_REQUIRED", 400);
+    if (!b.scheduled_at || !b.ends_at) throw new AppError("SCHEDULE_REQUIRED", 400);
+    // D2: assigning keeps the agreed time — a different time must go through reschedule
+    if ((a.scheduled_at && new Date(a.scheduled_at).getTime() !== b.scheduled_at.getTime()) || (a.ends_at && new Date(a.ends_at).getTime() !== b.ends_at.getTime())) throw new AppError("USE_RESCHEDULE", 400);
     if (a.lead && a.assistants.includes(a.lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
     const team = [...(a.lead ? [a.lead] : []), ...a.assistants];
     if (team.length === 0) throw new AppError("TEAM_REQUIRED", 400); // R5: at least one technician
     const ok = await t<{ id: string }[]>`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role in ('tech', 'gm')`;
     if (ok.length !== new Set(team).size) throw new AppError("TECH_NOT_FOUND", 404);
     if (a.vehicle_id) await assertVehicle(t, user.companyId, a.vehicle_id);
-    // R3: dispatching always needs a future start; the job length stays unless a new end is given
-    const start = parseTime(a.scheduled_at, "INVALID_VALUE")!;
-    const keep = b.scheduled_at && b.ends_at ? (b.ends_at.getTime() - b.scheduled_at.getTime()) / 60_000 : await durationOf(t, user.companyId, b.service_item_id);
-    const w = window(start, parseTime(a.ends_at, "INVALID_VALUE"), keep);
-    assertFuture(w.start!);
+    // R3: dispatching needs a future appointment (an overdue booking is rescheduled first)
+    const w = { start: b.scheduled_at, end: b.ends_at };
+    assertFuture(w.start);
     // R2: the server decides — busy technicians / vehicle are refused, whatever the UI showed
-    await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
-    if (a.vehicle_id) await assertVehicleFree(t, user.companyId, a.vehicle_id, w.start!, w.end!, id);
+    await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
+    if (a.vehicle_id) await assertVehicleFree(t, user.companyId, a.vehicle_id, w.start, w.end, id);
     // old crew out → new time → new crew in (the insert trigger copies the new range onto each row)
     await t`delete from booking_technicians where booking_id = ${id}`;
-    await t`update bookings set status = 'assigned', vehicle_id = ${a.vehicle_id}, scheduled_at = ${w.start}, ends_at = ${w.end} where id = ${id}`;
+    await t`update bookings set status = 'assigned', vehicle_id = ${a.vehicle_id} where id = ${id}`;
     if (a.lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${a.lead}, 'lead')`;
     for (const x of a.assistants) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
     const reason = b.status === "assigned" ? `reassigned:${Math.floor(Date.now() / 1000)}` : "assigned";
@@ -257,6 +263,39 @@ export async function assignBooking(user: SessionUser, ip: string | null, id: st
     await enqueueBookingConfirmed(t, id, reason);
     return { id, status: "assigned" as const, conflicts: [] as unknown[] };
   });
+}
+
+// ---------- reschedule (D2) ------------------------------------------------------------------------------
+export async function rescheduleBooking(user: SessionUser, ip: string | null, id: string, r: { scheduled_at: string; ends_at: string | null; requested_by: RescheduleRequester | undefined; reason: string }) {
+  return tx(user.id, async (t) => {
+    const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
+    if (!b) throw notFound();
+    if (!EDITABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400);
+    if (!r.requested_by) throw new AppError("REQUESTER_REQUIRED", 400);
+    if (r.reason.trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
+    const start = parseTime(r.scheduled_at, "INVALID_VALUE")!;
+    const keep = b.scheduled_at && b.ends_at ? (b.ends_at.getTime() - b.scheduled_at.getTime()) / 60_000 : await durationOf(t, user.companyId, b.service_item_id);
+    const w = window(start, parseTime(r.ends_at, "INVALID_VALUE"), keep);
+    assertFuture(w.start!);
+    if (w.start!.getTime() === b.scheduled_at?.getTime() && w.end!.getTime() === b.ends_at?.getTime()) throw new AppError("SAME_TIME", 400);
+    // every availability rule again: crew (jobs + leave/absence) and vehicle
+    const team = (await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`).map((x) => x.user_id);
+    await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
+    if (b.vehicle_id) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start!, w.end!, id);
+    await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
+    await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
+      values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${r.requested_by}::reschedule_requester, ${r.reason.trim()}, ${user.id})`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,
+      old: { scheduled_at: b.scheduled_at, ends_at: b.ends_at }, new: { scheduled_at: w.start, ends_at: w.end, requested_by: r.requested_by, reason: r.reason.trim() }, ip });
+    if (team.length) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: r.requested_by, reason: r.reason.trim() });
+    return { id, scheduled_at: w.start, ends_at: w.end };
+  });
+}
+
+export async function rescheduleHistory(user: SessionUser, id: string) {
+  await getBooking(user, id); // visibility (technicians: own bookings only)
+  return sql`select r.id, r.old_start, r.old_end, r.new_start, r.new_end, r.requested_by, r.reason, r.at, u.full_name as by_name
+    from booking_reschedules r left join users u on u.id = r.by_user where r.booking_id = ${id} order by r.at, r.id`;
 }
 
 // ---------- cancel (R4) ------------------------------------------------------------------------------------

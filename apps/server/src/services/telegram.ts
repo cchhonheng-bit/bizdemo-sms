@@ -100,6 +100,40 @@ export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason:
   }
 }
 
+const REQUESTER_KM: Record<string, string> = { customer: "អតិថិជន", creator: "អ្នកបង្កើត Booking", technician: "ជាង", lead: "មេជាង", gm: "GM" };
+
+/** D2: the group + every linked technician of the team get «Booking Rescheduled» (old → new, who asked, why) + in-app notice. */
+export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { oldStart: Date | null; requestedBy: string; reason: string }): Promise<void> {
+  const b = (await db<{ number: string; company_id: string; scheduled_at: Date; ends_at: Date; cname: string; timezone: string }[]>`
+    select bk.number, bk.company_id, bk.scheduled_at, bk.ends_at, c.name as cname, co.timezone from bookings bk join customers c on c.id = bk.customer_id join companies co on co.id = bk.company_id
+    where bk.id = ${bookingId}`)[0]!;
+  const tz = b.timezone || "Asia/Phnom_Penh";
+  const text = [
+    `🔁 Booking Rescheduled (${b.number})`,
+    `❌ ពីមុន: ${r.oldStart ? fmtLocal(r.oldStart, tz) : "—"}`,
+    `✅ ថ្មី: ${fmtLocal(b.scheduled_at, tz)}–${fmtLocal(b.ends_at, tz).slice(-5)}`,
+    `👤 អតិថិជន: ${b.cname}`,
+    `🙋 ស្នើដោយ: ${REQUESTER_KM[r.requestedBy] ?? r.requestedBy}`,
+    `📝 មូលហេតុ: ${r.reason}`,
+  ].join("\n");
+  const key = `resched:${bookingId}:${Date.now()}`;
+  const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
+  if (group) await enqueue(db, b.company_id, group, text, null, `${key}:group`);
+  const team = await db<{ id: string; telegram_chat_id: string | null }[]>`select u.id, u.telegram_chat_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
+  for (const m of team) {
+    await db`insert into notifications (company_id, user_id, kind, title, body, link)
+             values (${b.company_id}, ${m.id}, 'booking.rescheduled', ${b.number + " · ប្ដូរម៉ោង"}, ${text.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+    if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, text, null, `${key}:${m.id}`);
+  }
+}
+
+/** a personal Telegram message + in-app notification to one user (leave requests / decisions) */
+export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string, body: string, link: string | null, dedupe: string): Promise<void> {
+  await db`insert into notifications (company_id, user_id, kind, title, body, link) values (${companyId}, ${userId}, ${kind}, ${title}, ${body.slice(0, 300)}, ${link})`;
+  const chat = (await db<{ telegram_chat_id: string | null }[]>`select telegram_chat_id from users where id = ${userId} and is_active`)[0]?.telegram_chat_id;
+  if (chat) await enqueue(db, companyId, chat, `${title}\n${body}`, null, dedupe);
+}
+
 /** R4: the group + every linked technician of the (former) team get a cancel notice; technicians an in-app notification. */
 export async function enqueueBookingCancelled(db: Db, bookingId: string, reason: string): Promise<void> {
   const b = (await db<{ number: string; company_id: string; scheduled_at: Date | null; cname: string; timezone: string }[]>`

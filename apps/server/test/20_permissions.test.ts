@@ -24,7 +24,7 @@ describe("permissions in the API (rule 5)", () => {
   it("company isolation: B never sees A's customers, bookings, users, settings — even by id", async () => {
     expect((await ceoB.req("GET", "/api/customers")).json.map((c: any) => c.name)).toEqual(["Customer B"]);
     expect((await ceo.req("GET", "/api/customers")).json.map((c: any) => c.name)).toEqual(["លោក សុខា"]);
-    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: custA, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside" })).json;
+    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: custA, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", scheduled_at: new Date(Date.now() + 3 * 86400_000).toISOString() })).json;
     expect((await ceoB.req("GET", `/api/bookings/${bk.id}`)).status).toBe(404);
     expect((await ceoB.req("GET", "/api/bookings")).json).toEqual([]);
     expect((await ceoB.req("PATCH", `/api/bookings/${bk.id}`, { notes: "x" })).status).toBe(404);

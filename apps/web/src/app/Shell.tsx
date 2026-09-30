@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { Bell, Building2, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { Bell, Building2, CalendarOff, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -39,6 +39,8 @@ export default function Shell() {
     { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
+    // D3: own leave (GM/Admin) or approvals (leave.approve.*)
+    { to: "/leave", label: t("nav.leave"), icon: CalendarOff, hidden: !(["gm", "admin"].includes(me.role) || can("leave.approve.tech") || can("leave.approve.admin") || can("leave.approve.gm")) },
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
     { to: "/me", label: t("nav.me"), icon: User },
@@ -48,6 +50,7 @@ export default function Shell() {
   const techItems: Item[] = [
     { to: "/tech", label: t("nav.today"), icon: ClipboardList },
     { to: "/notifications", label: t("nav.notifications"), icon: Bell },
+    { to: "/leave", label: t("nav.leave"), icon: CalendarOff },
     { to: "/me", label: t("nav.me"), icon: User },
   ];
   const items = isTech ? techItems : desktopItems;

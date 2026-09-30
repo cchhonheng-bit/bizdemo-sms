@@ -22,11 +22,11 @@ export function legalHtml(doc: LegalDoc, company: string): string {
     `<p class="muted">${esc(LEGAL_VERSION)}</p>`;
 }
 
-export function legalPage(which: "terms" | "privacy", lang: LegalLang): string {
-  const doc = (which === "terms" ? TERMS : PRIVACY)[lang];
-  const company = lang === "km" ? "ហាងដែលអ្នកប្រើ ឬចុះឈ្មោះ" : "the shop you use or subscribe to";
-  const tabs = `<p class="tabs"><a href="?lang=km">ខ្មែរ</a><a href="?lang=en">English</a></p>`;
-  return layout(doc.title, `<div class="card">${tabs}${legalHtml(doc, company)}</div>`);
+/** owner I2: one page — Khmer first, English below, no language switch */
+export function legalPage(which: "terms" | "privacy"): string {
+  const docs = which === "terms" ? TERMS : PRIVACY;
+  const part = (lang: LegalLang) => `<div class="card" lang="${lang}">${legalHtml(docs[lang], lang === "km" ? "ហាងដែលអ្នកប្រើ ឬចុះឈ្មោះ" : "the shop you use or subscribe to")}</div>`;
+  return layout(`${docs.km.title} · ${docs.en.title}`, part("km") + part("en"));
 }
 
 export function landingPage(bot: string): string {

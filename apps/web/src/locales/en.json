@@ -36,7 +36,8 @@
     "attendance": "Attendance",
     "notifications": "Notifications",
     "subscribe": "Telegram customers",
-    "more": "More"
+    "more": "More",
+    "leave": "Leave"
   },
   "roles": {
     "ceo": "CEO",
@@ -310,7 +311,10 @@
       "REASON_REQUIRED": "Please give a reason",
       "SERVICE_NOT_FOUND": "Service not found",
       "SCHEDULE_CONFLICT": "Time conflict",
-      "DURATION_RANGE": "15–1440 minutes"
+      "DURATION_RANGE": "15–1440 minutes",
+      "USE_RESCHEDULE": "Use «Reschedule» to change the time",
+      "REQUESTER_REQUIRED": "Choose who asked",
+      "SAME_TIME": "This is the current time"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -336,7 +340,24 @@
     "cancel_reason_hint": "Required · the team sees it",
     "cancelled_ok": "{{number}} cancelled",
     "cancelled_banner": "Cancelled",
-    "show_cancelled": "Show cancelled"
+    "show_cancelled": "Show cancelled",
+    "appointment": "Appointment",
+    "reschedule": "Reschedule",
+    "reschedule_confirm": "Save new time",
+    "reschedule_first": "Reschedule this booking first",
+    "reschedule_history": "Reschedule history",
+    "requested_by": "Requested by",
+    "reschedule_reason": "Reason",
+    "rescheduled_ok": "New time saved · team notified",
+    "reschedule_notify_hint": "Assigned technicians and the Telegram group get the new time.",
+    "time_readonly_hint": "Change the time with «Reschedule» on the booking page",
+    "requester": {
+      "customer": "Customer",
+      "creator": "Booking creator",
+      "technician": "Technician",
+      "lead": "Lead technician",
+      "gm": "GM"
+    }
   },
   "tech": {
     "hello": "Hello {{name}}",
@@ -384,5 +405,49 @@
     "terms": "Terms of Service",
     "privacy": "Privacy Policy",
     "back": "Back"
+  },
+  "leave": {
+    "title": "Leave & absence",
+    "request": "Request leave",
+    "from": "From",
+    "to": "To",
+    "part_label": "Time",
+    "part": {
+      "full": "Full day",
+      "am": "Morning",
+      "pm": "Afternoon"
+    },
+    "reason": "Reason",
+    "send": "Send request",
+    "sent": "Request sent",
+    "mine": "My requests",
+    "none": "Nothing yet",
+    "approvals": "Requests to approve",
+    "approve": "Approve",
+    "reject": "Reject",
+    "note": "Note (optional)",
+    "approved_ok": "Approved",
+    "absent": "Absent",
+    "mark_absent": "Mark absent",
+    "person": "Person",
+    "absent_ok": "Marked absent",
+    "affected_title": "Jobs to re-assign",
+    "affected_text": "This person is on these jobs during that time — open each one and re-assign:",
+    "affected_none": "No job is affected.",
+    "status": {
+      "pending": "Pending",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "cancelled": "Cancelled"
+    },
+    "err": {
+      "OWN_REQUEST": "You cannot approve your own request",
+      "FORBIDDEN": "No permission",
+      "LEAVE_NOT_PENDING": "Already decided",
+      "NO_ATTENDANCE_ROLE": "CEO/CFO do not request leave",
+      "START_IN_PAST": "The date has passed",
+      "END_BEFORE_START": "End date is before the start",
+      "HALF_DAY_ONE_DATE": "Half a day = one date"
+    }
   }
 }
