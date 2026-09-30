@@ -22,7 +22,8 @@
     "logout": "Log out",
     "active": "Active",
     "inactive": "Inactive",
-    "back": "Back"
+    "back": "Back",
+    "add": "Add"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -41,7 +42,8 @@
     "quotes": "Quotes",
     "invoices": "Invoices",
     "reports": "Reports",
-    "reminders": "Reminders"
+    "reminders": "Reminders",
+    "inventory": "Stock"
   },
   "roles": {
     "ceo": "CEO",
@@ -573,7 +575,8 @@
       "NOTE_REQUIRED": "Write what to fix",
       "NOT_PENDING_REVIEW": "Not waiting for review",
       "FORBIDDEN": "No permission",
-      "NETWORK": "No internet"
+      "NETWORK": "No internet",
+      "MATERIALS_CONFIRMED": "Admin already took the stock — materials are locked"
     }
   },
   "quote": {
@@ -926,5 +929,74 @@
     "summary": "{{n}} jobs · about {{amount}}",
     "none": "No job waiting for an invoice ✅",
     "age": "{{n}} days"
+  },
+  "inventory": {
+    "title": "Stock",
+    "tab": {
+      "stock": "Stock",
+      "jobs": "Jobs to confirm",
+      "locations": "Locations"
+    },
+    "op": {
+      "in": "Stock in",
+      "adjust": "Adjust",
+      "transfer": "Transfer",
+      "opening": "Opening balance"
+    },
+    "value_total": "Stock value",
+    "track": "Track item",
+    "none": "No tracked items yet",
+    "avg": "avg cost",
+    "low": "Low (< {{level}})",
+    "item": "Item",
+    "location": "Location",
+    "from": "From",
+    "to": "To",
+    "qty": "Quantity",
+    "unit_cost": "Unit cost ($)",
+    "supplier": "Supplier",
+    "total": "Total",
+    "minus": "− Remove",
+    "plus": "+ Add",
+    "track_first": "Track an item first",
+    "card": "Stock card",
+    "opening": "Opening",
+    "ending": "Ending",
+    "reorder": "Reorder level",
+    "reorder_hint": "Below this → alert (empty = none)",
+    "no_products": "No other products to track (add them in the catalog as «product»)",
+    "confirm": "Confirm, take stock",
+    "confirmed": "Stock taken",
+    "no_jobs": "No job waiting for materials confirmation",
+    "new_location": "New location",
+    "pay": {
+      "cash_usd": "Cash $",
+      "cash_khr": "Cash ៛",
+      "aba": "ABA",
+      "acleda": "ACLEDA",
+      "credit": "On credit"
+    },
+    "kind": {
+      "opening": "Opening",
+      "in": "Stock in",
+      "out_job": "Used in job",
+      "out_sale": "Sold",
+      "adjust": "Adjustment",
+      "transfer_out": "Transfer out",
+      "transfer_in": "Transfer in",
+      "reverse": "Reversal"
+    },
+    "err": {
+      "INSUFFICIENT_STOCK": "Not enough stock",
+      "OPENING_EXISTS": "This item already has moves",
+      "NOT_TRACKED": "This item is not tracked",
+      "NOT_A_PRODUCT": "Only products can be tracked",
+      "REASON_REQUIRED": "Please enter a reason",
+      "SAME_LOCATION": "Same location",
+      "ALREADY_CONFIRMED": "Already confirmed",
+      "NOT_FINISHED": "The job is not finished",
+      "LOCATION_NOT_FOUND": "Location not found",
+      "FORBIDDEN": "Not allowed"
+    }
   }
 }

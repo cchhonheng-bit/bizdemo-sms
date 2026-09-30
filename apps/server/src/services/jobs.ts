@@ -145,6 +145,7 @@ export async function setMaterials(user: SessionUser, perms: string[], ip: strin
   return tx(user.id, async (t) => {
     const b = await loadForCrew(t, user, id, perms);
     if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    if ((await t`select 1 from bookings where id = ${id} and materials_confirmed_at is not null`).length) throw new AppError("MATERIALS_CONFIRMED", 400); // D-87: stock already taken
     const ids = [...new Set(items.map((i) => i.catalog_item_id))];
     if (ids.length) {
       const okIds = (await t<{ id: string }[]>`select id from catalog_items where id = any(${t.array(ids)}::uuid[]) and company_id = ${user.companyId} and is_active`).map((r) => r.id);

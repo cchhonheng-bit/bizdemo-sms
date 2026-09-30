@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -31,6 +31,7 @@ export default function Shell() {
   const unread = useUnreadCount();
   const subscribeOn = useFeature("subscribe");
   const remindersOn = useFeature("reminders");
+  const inventoryOn = useFeature("inventory");
   const [more, setMore] = useState(false);
   if (!me) return null;
   const isTech = me.role === "tech";
@@ -43,6 +44,7 @@ export default function Shell() {
     { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
     { to: "/reminders", label: t("nav.reminders"), icon: BellRing, perm: "customer.manage", hidden: !remindersOn },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
+    { to: "/inventory", label: t("nav.inventory"), icon: Boxes, perm: "inventory.view", hidden: !inventoryOn },
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)
     { to: "/leave", label: t("nav.leave"), icon: CalendarOff, hidden: !(["gm", "admin"].includes(me.role) || can("leave.approve.tech") || can("leave.approve.admin") || can("leave.approve.gm")) },

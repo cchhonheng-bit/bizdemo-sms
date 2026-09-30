@@ -10,6 +10,7 @@ import { audit } from "./audit.js";
 import { notifyUser } from "./telegram.js";
 import { applyDeposits } from "./deposits.js";
 import { postInvoiceIssue, postPayment, reverseSource } from "./ledger-hooks.js";
+import { deductSale, reverseRef } from "./inventory.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
@@ -194,6 +195,7 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
       else if (deposited > 0) await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.issue", table: "invoices", rowId: id, new: { number: i.number, total, fx }, ip });
+    if (!i.booking_id) await deductSale(t, user, id); // direct sale: tracked products leave stock now (job materials are confirmed on the job)
     await postInvoiceIssue(t, user, id);
     return { id, status: "issued" as const };
   });
@@ -243,6 +245,7 @@ async function doVoid(t: Db, user: SessionUser, i: Inv, reason: string, ip: stri
   if (i.booking_id) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
   await audit(t, { companyId: i.company_id, userId: user.id, action: "invoice.void", table: "invoices", rowId: i.id, new: { number: i.number, reason }, ip });
   await reverseSource(t, user, "invoice", i.id, `VOID: ${reason}`);
+  await reverseRef(t, user, "invoice", i.id); // a direct sale gives its stock back
   await tellBoss(t, i, user, "invoice.void", `🚫 VOID · ${i.number}`, `👤 ${i.customer_name}\nដោយ ${user.fullName}\n📝 ${reason}`);
 }
 

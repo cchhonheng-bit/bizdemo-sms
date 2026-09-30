@@ -97,6 +97,12 @@ export type CustomerHistory = { customer: Customer;
   warranties: { booking_id: string; number: string; until: string; days_left: number }[];
   invoices?: { id: string; number: string; status: "draft" | "issued" | "void"; issued_at: string | null; created_at: string; booking_number: string | null; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid" }[];
   debt?: number };
+export type StockLocation = { id: string; name: string; kind: "warehouse" | "vehicle"; vehicle_id: string | null; vehicle_code: string | null; is_active: boolean };
+export type StockItem = { item_id: string; name: string; unit: string; qty: number; value: number; avg_cost: number; reorder_level: number | null; low: boolean; by_location: { location_id: string; name: string; qty: number }[] };
+export type StockCardRow = { id: number; date: string; kind: string; qty: number; value: number | null; balance_qty: number; balance_value: number | null; ref_label: string | null; reason: string | null; supplier: string | null; location: string; by_name: string | null };
+export type StockCard = { opening: { qty: number; value: number | null }; rows: StockCardRow[]; ending: { qty: number; value: number | null } };
+export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; materials: { item_id: string; name: string; unit: string; qty: number }[] };
+export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -227,6 +233,19 @@ export const api = {
     save: (customerId: string, v: Partial<CustomerUnit> & { label: string }) => post<{ id: string }>(`/api/customers/${customerId}/units`, v),
   },
   customerTgLink: (customerId: string) => post<{ link: string; expires_days: number }>(`/api/customers/${customerId}/tg-link`, {}),
+  inventory: {
+    locations: () => get<StockLocation[]>("/api/inventory/locations"),
+    saveLocation: (v: { id?: string; name: string; kind: "warehouse" | "vehicle"; is_active?: boolean }) => post<{ id: string }>("/api/inventory/locations", v),
+    items: () => get<StockItem[]>("/api/inventory/items"),
+    track: (itemId: string, track: boolean, reorder_level?: number | null) => post(`/api/inventory/items/${itemId}/track`, { track, reorder_level }),
+    opening: (v: { item_id: string; location_id: string; qty: number; unit_cost: number }) => post("/api/inventory/opening", v),
+    stockIn: (v: { item_id: string; location_id: string; qty: number; unit_cost: number; pay: StockPay; supplier: string; note: string }) => post("/api/inventory/in", v),
+    adjust: (v: { item_id: string; location_id: string; qty: number; reason: string }) => post("/api/inventory/adjust", v),
+    transfer: (v: { item_id: string; from: string; to: string; qty: number }) => post("/api/inventory/transfer", v),
+    card: (item: string, from: string, to: string, location?: string) => get<StockCard>(`/api/inventory/card?item=${item}&from=${from}&to=${to}${location ? `&location=${location}` : ""}`),
+    pendingJobs: () => get<PendingJob[]>("/api/inventory/jobs/pending"),
+    confirmJob: (bookingId: string, location_id: string | null) => post(`/api/inventory/jobs/${bookingId}/confirm`, { location_id }),
+  },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),
