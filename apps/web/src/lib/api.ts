@@ -63,6 +63,12 @@ export type InvoiceRow = { id: string; number: string; status: Invoice["status"]
   booking_number: string | null; total: number; paid: number; payment_status: Invoice["payment_status"]; discount_status: Invoice["discount_status"]; void_pending: boolean };
 export type DebtRow = { customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; invoices: number; oldest: string };
 export type InvoicePrefill = { booking_id: string; booking_number: string; customer_id: string; customer_name: string; service_text: string; lines: QuoteLine[] };
+export type AttendanceToday = { tracks: boolean; office_set: boolean; geofence_m: number; work_start: string; work_end: string;
+  record: { in_at: string; in_distance_m: number | null; in_out_of_range: boolean; in_no_gps: boolean; out_at: string | null; out_distance_m: number | null; out_out_of_range: boolean; out_no_gps: boolean } | null };
+export type AttendanceCheck = { kind: "in" | "out"; at: string; distance_m: number | null; out_of_range: boolean; no_gps: boolean; already: boolean };
+export type AttendanceDay = { date: string; status: "present" | "late" | "absent" | "leave" | "holiday" | "off" | "pending" | "none"; in?: string; out?: string | null; late_min?: number; ot_min?: number;
+  out_of_range?: boolean; no_gps?: boolean; distance_in?: number | null; distance_out?: number | null; leave_part?: "full" | "am" | "pm" | null; missing_out?: boolean; marked?: boolean };
+export type AttendancePerson = { user_id: string; full_name: string; role: string; since: string; days: AttendanceDay[]; present: number; late_count: number; late_min: number; absent: number; leave: number; ot_min: number; out_of_range: number };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -149,6 +155,12 @@ export const api = {
     void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
     decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
     debts: () => get<DebtRow[]>("/api/invoices/debts"),
+  },
+  attendance: {
+    today: () => get<AttendanceToday>("/api/attendance/today"),
+    check: (v: { kind: "in" | "out"; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean }) => post<AttendanceCheck>("/api/attendance/check", v),
+    me: (from: string, to: string) => get<AttendancePerson | null>(`/api/attendance/me?from=${from}&to=${to}`),
+    report: (from: string, to: string) => get<{ from: string; to: string; work_start: string; work_end: string; users: AttendancePerson[] }>(`/api/attendance/report?from=${from}&to=${to}`),
   },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
   survey: {

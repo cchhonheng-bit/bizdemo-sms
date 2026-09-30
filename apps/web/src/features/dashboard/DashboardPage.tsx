@@ -8,6 +8,7 @@ import { timeRange } from "@/features/bookings/time";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, Empty, Skeleton } from "@/components/ui";
 import { StatusBadge } from "@/features/bookings/parts";
+import AttendanceCard from "@/features/attendance/AttendanceCard";
 
 /** M2 dashboard: today's jobs + pipeline counts (full KPIs in M6) */
 export default function DashboardPage() {
@@ -28,6 +29,7 @@ export default function DashboardPage() {
         <h1>{t("dashboard.title")}</h1>
         {can("booking.create") && <Button variant="primary" onClick={() => nav("/bookings/new")}><Plus size={16} /> {t("booking.new")}</Button>}
       </div>
+      <AttendanceCard />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {(["new", "survey", "assigned", "in_progress"] as const).map((k) => (
           <Link key={k} to="/bookings" className="card p-4 hover:border-blue"><div className="text-xs text-muted">{t(`board.${k}`)}</div><div className="text-2xl font-bold tabular">{counts[k]}</div></Link>

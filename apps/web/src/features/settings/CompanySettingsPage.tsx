@@ -5,7 +5,8 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
 import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
-import { Copy, ImageUp, Plus, Send } from "lucide-react";
+import { Copy, ImageUp, MapPin, Plus, Send } from "lucide-react";
+import { readGps } from "@/lib/offline";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 
@@ -92,6 +93,7 @@ export default function CompanySettingsPage() {
             <Field label={t("settings.geofence")} error={errors.geofence_m?.message}><Input type="number" {...num("geofence_m")} /></Field>
             <Field label={t("settings.out_of_range")} error={errors.out_of_range_m?.message}><Input type="number" {...num("out_of_range_m")} /></Field>
           </div>
+          <Button type="button" onClick={() => void readGps().then((g) => { if (!g) { toast.error(t("attendance.saved_no_gps")); return; } setValue("office_lat", g.lat, { shouldDirty: true }); setValue("office_lng", g.lng, { shouldDirty: true }); toast.success(t("settings.office_here_ok", { m: g.accuracy })); })} data-testid="office-here"><MapPin size={16} /> {t("settings.office_here")}</Button>
         </Card>
 
         <Card title="Finance · Telegram">

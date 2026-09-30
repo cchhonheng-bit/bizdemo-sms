@@ -146,7 +146,9 @@
     "invoice_images": "Invoice: logo + ACLEDA QR",
     "logo": "Logo",
     "acleda_qr": "ACLEDA QR",
-    "upload": "Upload"
+    "upload": "Upload",
+    "office_here": "Use my current location as the office",
+    "office_here_ok": "Location filled (±{{m}} m) — press Save"
   },
   "me": {
     "title": "Me",
@@ -668,6 +670,62 @@
       "INVOICE_PAID": "The invoice is paid — cannot void",
       "ITEM_NOT_FOUND": "Item not found",
       "FORBIDDEN": "Not allowed"
+    }
+  },
+  "attendance": {
+    "title": "Attendance",
+    "today_title": "Attendance today",
+    "check_in": "Check in",
+    "check_out": "Check out",
+    "in": "In",
+    "out": "Out",
+    "in_ok": "Checked in at {{time}} ✅",
+    "out_ok": "Checked out at {{time}} ✅",
+    "done": "Today is recorded",
+    "saved_far": "Recorded · outside the office circle ({{m}} m) — the GM will review",
+    "saved_no_gps": "Recorded · no GPS — the GM will review (turn Location on)",
+    "far": "Out of range {{m}} m",
+    "no_gps": "No GPS",
+    "need_online": "Internet is needed to record attendance",
+    "office_not_set": "The CEO has not set the office location in Settings yet",
+    "view_team": "Team",
+    "view_mine": "Mine",
+    "range_week": "This week",
+    "range_month": "This month",
+    "range_last": "Last month",
+    "from": "From",
+    "to": "To",
+    "none": "No data",
+    "ot": "After hours",
+    "late_by": "Late {{t}}",
+    "missing_out": "No check-out",
+    "min": "{{n}} min",
+    "h_min": "{{h}} h {{m}} min",
+    "s": {
+      "present": "Present",
+      "late": "Late",
+      "absent": "Absent",
+      "leave": "Leave",
+      "holiday": "Holiday",
+      "off": "Day off",
+      "pending": "—",
+      "none": "—"
+    },
+    "dow": {
+      "0": "Sun",
+      "1": "Mon",
+      "2": "Tue",
+      "3": "Wed",
+      "4": "Thu",
+      "5": "Fri",
+      "6": "Sat"
+    },
+    "err": {
+      "NO_ATTENDANCE_ROLE": "CEO/CFO do not record attendance",
+      "NOT_CHECKED_IN": "Check in first",
+      "BAD_RANGE": "Invalid date range",
+      "RANGE_TOO_LONG": "At most 62 days",
+      "range": "Invalid date range (at most 62 days)"
     }
   }
 }

@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge } from "@/features/bookings/parts";
 import JobExecution from "./JobExecution";
+import AttendanceCard from "@/features/attendance/AttendanceCard";
 
 const OPEN = ["assigned", "en_route", "on_site", "working", "work_done", "pending_review", "revision"];
 
@@ -26,6 +27,7 @@ export default function TechTodayPage() {
   return (
     <div className="space-y-4">
       <h1>{t("tech.hello", { name: me?.full_name ?? "" })}</h1>
+      <AttendanceCard />
       <section>
         <h2 className="text-base mb-2">{t("tech.today")} <Badge tone="navy">{today.length}</Badge></h2>
         {jobs.isLoading ? <Skeleton rows={3} /> : jobs.isError ? <ErrorState text={t("app.error")} onRetry={() => void jobs.refetch()} /> : today.length === 0 ? <Card><Empty text={t("tech.no_jobs")} /></Card> : (

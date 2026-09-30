@@ -27,6 +27,7 @@ import InvoiceEditorPage from "@/features/invoices/InvoiceEditorPage";
 import InvoiceDetailPage from "@/features/invoices/InvoiceDetailPage";
 import InvoicePrintPage from "@/features/invoices/InvoicePrintPage";
 import { INVOICE_VIEW } from "@/features/invoices/util";
+import AttendancePage from "@/features/attendance/AttendancePage";
 import LegalPage from "@/features/legal/LegalPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
@@ -63,6 +64,7 @@ export default function App() {
               <Route path="/tech/job/:id" element={<TechJobPage />} />
               <Route path="/notifications" element={<NotificationsPage />} />
               <Route path="/leave" element={<LeavePage />} />
+              <Route path="/attendance" element={<AttendancePage />} />
               <Route element={<RequirePerm perm="quote.manage" />}>
                 <Route path="/quotes" element={<QuotesPage />} />
                 <Route path="/quotes/new" element={<QuoteEditorPage />} />
