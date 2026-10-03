@@ -129,8 +129,7 @@ describe("lead technician, managers, CEO, CFO", () => {
     expect(labels(await start(CHAT.kim))).not.toContain("🔎 ពិនិត្យការងារ");
   });
   it("admin: waiting for invoice, due for cleaning, find customer (pending → search), requests; GM: approvals, where technicians, summary", async () => {
-    await sql`update bookings set status = 'reviewed' where id = ${kimJob}`;
-    expect((await say(CHAT.admin, "🧾 រង់ចាំវិក្កយបត្រ")).text).toContain("អតិថិជន Bot");
+    expect((await say(CHAT.admin, "🧾 រង់ចាំវិក្កយបត្រ")).text).toContain("អតិថិជន Bot"); // the job is in «revision»: done, not invoiced
     expect((await say(CHAT.admin, "🔔 ដល់ពេលលាង")).text).toBeTruthy();
     const ask = await say(CHAT.admin, "🔍 រកអតិថិជន");
     expect(ask.text).toMatch(/ឈ្មោះ|លេខ/);

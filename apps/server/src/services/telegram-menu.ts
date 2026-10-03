@@ -121,8 +121,8 @@ async function takePending(chatId: number): Promise<Pending | null> {
 // ---------- helpers ----------
 /** [day 00:00, day+1 00:00) in the company time zone, day = today + offset */
 async function dayRange(tz: string, offset = 0): Promise<{ from: string; to: string; day: string }> {
-  const r = (await sql<{ f: Date; t: Date; d: string }[]>`select ((date_trunc('day', now() at time zone ${tz}) + make_interval(days => ${offset})) at time zone ${tz}) as f,
-    ((date_trunc('day', now() at time zone ${tz}) + make_interval(days => ${offset + 1})) at time zone ${tz}) as t, ((now() at time zone ${tz})::date + ${offset})::text as d`)[0]!;
+  const r = (await sql<{ f: Date; t: Date; d: string }[]>`select ((date_trunc('day', now() at time zone ${tz}) + make_interval(days => ${offset}::int)) at time zone ${tz}) as f,
+    ((date_trunc('day', now() at time zone ${tz}) + make_interval(days => ${offset + 1}::int)) at time zone ${tz}) as t, ((now() at time zone ${tz})::date + ${offset}::int)::text as d`)[0]!;
   return { from: r.f.toISOString(), to: r.t.toISOString(), day: r.d };
 }
 const hhmm = (d: Date, tz: string) => fmtLocal(d, tz).slice(-5);
