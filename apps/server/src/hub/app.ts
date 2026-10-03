@@ -15,6 +15,7 @@ import { botByPath, invalidateBots, masterBot, shopBot } from "./bots.js";
 import { ALERT_KINDS, sendAlert } from "./alerts.js";
 import { platformRoutes } from "./platform.js";
 import { landingPage, legalPage } from "./pages.js";
+import { brandRoutes } from "../routes/brand.js";
 
 // shops may attach link buttons only — never callback buttons (a forged "sub:" consent button — R12)
 const urlButton = z.object({ text: z.string().min(1).max(64), url: z.string().url().max(512).refine((u) => u.startsWith("https://"), "HTTPS_ONLY") }).strict();
@@ -45,6 +46,7 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
 
   // ---- public ----------------------------------------------------------------
   app.get("/healthz", async () => { await sql`select 1`; return { ok: true, mode: "hub" }; });
+  app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
   app.get("/", async (req, reply) => reply.type("text/html; charset=utf-8").send(landingPage((await masterBot())?.username ?? config.hub.masterUsername,
     (req.query as { lang?: string } | undefined)?.lang === "en" ? "en" : "km")));
   for (const which of ["terms", "privacy"] as const) {

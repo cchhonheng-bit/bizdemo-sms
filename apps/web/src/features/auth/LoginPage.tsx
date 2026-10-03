@@ -7,6 +7,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { Button, Field, Input } from "@/components/ui";
 import { setLanguage } from "@/lib/i18n";
+import PoweredBy from "@/components/PoweredBy";
 
 export default function LoginPage() {
   const { t, i18n } = useTranslation();
@@ -25,7 +26,7 @@ export default function LoginPage() {
   });
 
   return (
-    <div className="min-h-dvh flex items-center justify-center p-4">
+    <div className="min-h-dvh flex items-center justify-center p-4 relative">
       <form onSubmit={onSubmit} className="card w-full max-w-sm p-6" noValidate>
         <div className="flex items-center justify-between mb-4">
           <div><div className="text-navy font-bold text-lg">{t("app.name")}</div><h1 className="text-base font-normal text-muted">{t("auth.title")}</h1></div>
@@ -43,6 +44,7 @@ export default function LoginPage() {
         <p className="text-xs text-muted mt-4 text-center">{t("auth.forgot")}</p>
         <p className="text-xs text-muted mt-2 text-center"><Link to="/terms" className="underline inline-flex items-center min-h-[44px] px-2">{t("legal.terms")}</Link> · <Link to="/privacy" className="underline inline-flex items-center min-h-[44px] px-2">{t("legal.privacy")}</Link></p>
       </form>
+      <PoweredBy className="absolute bottom-4 inset-x-0 justify-center" />
     </div>
   );
 }

@@ -13,13 +13,13 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg", "icons/icon-192.png", "icons/icon-512.png"],
+      includeAssets: ["favicon.png", "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"],
       manifest: {
         name: APP_NAME,
         short_name: APP_SHORT,
         description: "ប្រព័ន្ធគ្រប់គ្រងសេវាកម្ម",
         lang: "km",
-        theme_color: "#2E3A78",
+        theme_color: "#14213D",
         background_color: "#F4F6FB",
         display: "standalone",
         start_url: "/",

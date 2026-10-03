@@ -25,7 +25,8 @@
     "back": "Back",
     "add": "Add",
     "delete": "Delete",
-    "remove": "Remove"
+    "remove": "Remove",
+    "powered_by": "Powered by"
   },
   "nav": {
     "dashboard": "Dashboard",

@@ -7,6 +7,7 @@ import { formatKhr, formatUsd } from "@sms/shared";
 import { Printer } from "lucide-react";
 import { api, fmtDate } from "@/lib/api";
 import { Button, ErrorState, Skeleton } from "@/components/ui";
+import PoweredBy from "@/components/PoweredBy";
 
 export default function InvoicePrintPage() {
   const { t, i18n } = useTranslation();
@@ -80,6 +81,7 @@ export default function InvoicePrintPage() {
             <div className="border-t border-ink pt-1">{t("print.customer")}</div>
           </div>
         </section>
+        <PoweredBy className="mt-8 justify-end text-[10px]" />
       </article>
     </div>
   );

@@ -1,4 +1,5 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
 import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -91,14 +92,15 @@ export default function Shell() {
           <div className="bg-white rounded-md px-3 py-2 mb-4 text-navy font-bold truncate">{me.company.name}</div>
           <nav className="flex-1 space-y-0.5">
             {items.map((i) => (
-              <NavLink key={i.to} to={i.to} className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${isActive ? "bg-[#3A4890] text-white font-semibold" : "hover:bg-[#2A3670]"}`}>
+              <NavLink key={i.to} to={i.to} className={({ isActive }) => `flex items-center gap-2.5 px-3 py-2 rounded-md text-sm ${isActive ? "bg-navy text-white font-semibold" : "hover:bg-[#1B2A4D70]"}`}>
                 <i.icon size={18} /> {i.label}
               </NavLink>
             ))}
           </nav>
-          <button className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#2A3670] rounded-md" onClick={() => void logout().then(() => nav("/login"))}>
+          <button className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-[#1B2A4D] rounded-md" onClick={() => void logout().then(() => nav("/login"))}>
             <LogOut size={16} /> {t("app.logout")}
           </button>
+          <PoweredBy light className="px-3 pt-3 border-t border-white/10 mt-2" />
         </aside>
       )}
 
@@ -146,6 +148,7 @@ export default function Shell() {
             ))}
             <li><button className="flex items-center gap-3 py-3 min-h-[48px] text-base text-danger w-full" onClick={() => void logout().then(() => nav("/login"))}><LogOut size={20} /> {t("app.logout")}</button></li>
           </ul>
+          <PoweredBy className="mt-4 justify-center" />
         </Dialog>
       </div>
     </div>

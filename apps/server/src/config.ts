@@ -59,6 +59,7 @@ export const config = {
   },
   /** directory with the built web app (index.html, assets/) */
   webDist: env("WEB_DIST", resolve(here, "../../web/dist")),
+  brandDir: env("BRAND_DIR", resolve(here, "../brand")), // HangKH brand files (/brand/*), copied to dist/brand by build.mjs
   migrationsDir: env("MIGRATIONS_DIR", resolve(here, "migrations")),
   /** photos + signatures (job reports); the uploads_<shop> volume in production */
   uploadsDir: env("UPLOADS_DIR", resolve(here, "../../../.local/uploads")),

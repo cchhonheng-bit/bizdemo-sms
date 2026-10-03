@@ -23,7 +23,7 @@ COPY --from=build --chown=node:node /src/apps/server/dist ./dist
 COPY --from=build --chown=node:node /src/apps/web/dist ./web
 RUN mkdir -p /app/data/uploads && chown -R node:node /app/data
 USER node
-ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 WEB_DIST=/app/web MIGRATIONS_DIR=/app/dist/migrations HUB_MIGRATIONS_DIR=/app/dist/migrations_hub UPLOADS_DIR=/app/data/uploads
+ENV NODE_ENV=production PORT=3000 HOST=0.0.0.0 WEB_DIST=/app/web MIGRATIONS_DIR=/app/dist/migrations HUB_MIGRATIONS_DIR=/app/dist/migrations_hub BRAND_DIR=/app/dist/brand UPLOADS_DIR=/app/data/uploads
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 CMD wget -qO- http://127.0.0.1:3000/healthz || exit 1
 ENTRYPOINT ["/sbin/tini", "--"]

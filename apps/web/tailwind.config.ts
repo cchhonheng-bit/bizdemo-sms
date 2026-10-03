@@ -1,13 +1,15 @@
 import type { Config } from "tailwindcss";
 
-// Design tokens — UI Design v1 §1
+// Design tokens — UI Design v1 §1 · brand tokens D-90 (navy primary, teal accent, gold highlights only; status colours unchanged)
 export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        navy: { DEFAULT: "#2E3A78", 700: "#1F2A5C" },
-        blue: { DEFAULT: "#2F5BD3", 50: "#E6EDFD" },
+        navy: { DEFAULT: "#14213D", 700: "#0E172B" },
+        blue: { DEFAULT: "#0F766E", 50: "#E6F7F4" }, // text-safe teal (links, badges)
+        teal: { DEFAULT: "#14B8A6", 50: "#E6F7F4" },   // bright teal: fills, icons, borders — never small text
+        gold: "#C9A227",                                // small highlights only, never small text
         grey: { DEFAULT: "#8A8B8F", line: "#E3E6EE", bg: "#F4F6FB" },
         ink: "#1B2033",
         muted: "#6B7280",

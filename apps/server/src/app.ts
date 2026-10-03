@@ -34,6 +34,7 @@ import { telegramRoutes } from "./routes/telegram.js";
 import { mapsRoutes } from "./routes/maps.js";
 import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
+import { brandRoutes } from "./routes/brand.js";
 
 export const SESSION_COOKIE = "ots";
 
@@ -142,6 +143,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(telegramRoutes, { prefix: "/api/telegram" });
   app.register(mapsRoutes, { prefix: "/api/maps" });
   app.register(subscribeRoutes, { prefix: "/api/subscribe" });
+  app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
   // hub → shop (compose network only; caddy blocks /internal/* from the internet)
   app.register(internalRoutes, { prefix: "/internal" });
 
