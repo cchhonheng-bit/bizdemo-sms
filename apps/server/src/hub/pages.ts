@@ -17,7 +17,7 @@ footer{max-width:980px;margin:24px auto 0;padding:12px 16px;font-size:12px;color
 
 export function layout(title: string, body: string): string {
   return `<!doctype html><html lang="km"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="${BRAND.navy}">
-<link rel="icon" href="/brand/hangkh-favicon.svg" type="image/svg+xml"><title>${esc(title)}</title><style>${CSS}</style></head>
+<link rel="icon" href="/brand/hangkh-favicon.svg" type="image/svg+xml"><link rel="alternate icon" href="/brand/hangkh-favicon.ico" sizes="32x32"><title>${esc(title)}</title><style>${CSS}</style></head>
 <body><header><div class="bar"><a href="/" aria-label="HangKH"><img src="/brand/hangkh-wordmark-white.svg" alt="HangKH"></a></div></header><main>${body}</main><footer>© HangKH</footer></body></html>`;
 }
 
