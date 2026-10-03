@@ -76,6 +76,11 @@
     "changed": "Password changed",
     "wrong_current": "Current password is wrong"
   },
+  "tg": {
+    "opening": "Opening from Telegram…",
+    "failed": "Could not sign in through Telegram. Please sign in with your password.",
+    "to_login": "Sign in with password"
+  },
   "users": {
     "title": "Users",
     "new": "New user",
@@ -89,6 +94,7 @@
     "linked": "Linked",
     "not_linked": "Not linked",
     "tracks_attendance": "Track attendance",
+    "is_lead": "Lead technician (reviews jobs · site survey)",
     "password_optional": "Password (leave empty = generate)",
     "reset_password": "Reset password",
     "deactivate": "Deactivate",

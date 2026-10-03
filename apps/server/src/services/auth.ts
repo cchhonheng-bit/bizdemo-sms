@@ -36,12 +36,17 @@ export async function login(identifier: string, password: string, companySlug: s
     await verifyPassword(password, await DUMMY_HASH_PROMISE); // constant-ish timing
     throw new AppError("INVALID_CREDENTIALS", 401);
   }
+  return createSession(userId, ip, userAgent, "password");
+}
+
+/** a new session for a known user (password login, or a Telegram Mini App opened by a linked staff member — D-91) */
+export async function createSession(userId: string, ip: string, userAgent: string | undefined, via: "password" | "telegram") {
   const token = randomBytes(32).toString("base64url");
   const expires = new Date(Date.now() + config.sessionDays * 86400_000);
   await sql`insert into sessions (user_id, token_hash, expires_at, ip, user_agent)
             values (${userId}, ${hashToken(token)}, ${expires}, ${ip}, ${(userAgent ?? "").slice(0, 200)})`;
   const u = (await sql<{ company_id: string; must_change_password: boolean }[]>`select company_id, must_change_password from users where id = ${userId}`)[0]!;
-  await audit(sql, { companyId: u.company_id, userId, action: "auth.login", table: "users", rowId: userId, ip });
+  await audit(sql, { companyId: u.company_id, userId, action: "auth.login", table: "users", rowId: userId, new: { via }, ip });
   return { token, expires, userId, mustChangePassword: u.must_change_password };
 }
 

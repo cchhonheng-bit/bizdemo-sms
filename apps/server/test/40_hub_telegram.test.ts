@@ -2,7 +2,7 @@
 // Subscribe/Consent (A4/T5), Broadcast isolation (A5/T7), encrypted bot registry (T2), platform bot management (T6), alerts (T4).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { CONSENT_VERSION } from "@sms/shared";
 import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { config } from "../src/config.js";
@@ -534,13 +534,16 @@ describe("I1 Telegram inline menus", () => {
     expect((await sql`select s.stopped_at from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.stopped_at).not.toBeNull();
   });
 
-  it("staff: /start in the shop bot → own menu (today / upcoming / app) → job details with Direction + back; data comes from the shop", async () => {
+  it("staff: /start in the shop bot → role keyboard with the greeting + quick inline buttons (today / upcoming / app) → job details with Direction + back; data comes from the shop", async () => {
     await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values ('ONETEAM', 700001, 'staff') on conflict do nothing`;
     await sql`update users set telegram_chat_id = 700001, telegram_user_id = 700001 where id = ${s.users.kim!}`;
     sent = [];
     await privateMsg(700001, "/start");
+    const kb = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && x.payload.reply_markup?.keyboard)!;
+    expect(kb.payload.text).toContain("Kim"); // D-91: the role keyboard rides on the greeting
+    expect(kb.payload.reply_markup).toMatchObject({ resize_keyboard: true, is_persistent: true });
+    expect(kb.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toContain("📋 ការងារថ្ងៃនេះ");
     const home = lastSent(700001);
-    expect(home.payload.text).toContain("Kim");
     expect(datas(home)).toEqual(expect.arrayContaining(["v:today", "v:next"]));
     expect(datas(home).some((d) => d.startsWith("https://hub.test"))).toBe(true); // open the app
     await cb(700001, "v:next");
@@ -570,12 +573,13 @@ describe("I1 Telegram inline menus", () => {
     expect(sent.filter((x) => x.method === "answerCallbackQuery")).toHaveLength(2);
   });
 
-  it("group: registered work group gets a group menu (today's jobs); an unregistered group gets /register help", async () => {
+  it("group: a registered work group gets notifications only (D-91) — /start explains, no menu; a staff view never renders in a group; an unregistered group gets /register help", async () => {
     sent = [];
     await groupMsg(700020, -1001234, "/start");
-    expect(datas(lastSent(-1001234))).toContain("v:gtoday");
-    await cb(700020, "v:gtoday", "oneteam", { id: -1001234, type: "supergroup" });
-    expect(lastEdit(-1001234)!.payload.text).toBeTruthy();
+    expect(lastSent(-1001234).payload.text).toContain("ក្រុមការងារ");
+    expect(lastSent(-1001234).payload.reply_markup).toBeUndefined();
+    await cb(700020, "v:today", "oneteam", { id: -1001234, type: "supergroup" });
+    expect(sent.filter((x) => x.method === "editMessageText")).toHaveLength(0);
     await groupMsg(700020, -1005555, "/help");
     expect(lastSent(-1005555).payload.text).toContain("/register");
   });
@@ -610,12 +614,13 @@ describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
     await link("kim", 700001); await link("gm01", 700777); await link("admin", 700888);
   });
 
-  it("staff menu has «📍 វត្តមាន»; pressing it shows today's state and a «send my location» keyboard", async () => {
+  it("the role keyboard has «📍 វត្តមាន»; pressing it (a plain text to the bot) shows today's state and a «send my location» keyboard", async () => {
     sent = [];
     await privateMsg(700001, "/start");
-    expect((lastSent(700001).payload.reply_markup.inline_keyboard as any[]).flat().map((b: any) => b.callback_data)).toContain("v:att");
+    const kb = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && x.payload.reply_markup?.keyboard)!;
+    expect(kb.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toContain("📍 វត្តមាន");
     sent = [];
-    await cb(700001, "v:att");
+    await privateMsg(700001, "📍 វត្តមាន");
     const ask = sent.filter((x) => x.method === "sendMessage").at(-1)!;
     expect(ask.payload.reply_markup.keyboard[0][0]).toMatchObject({ request_location: true });
   });
@@ -624,7 +629,7 @@ describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
     sent = [];
     await loc(700001, OFFICE.lat + 0.0002, OFFICE.lng);
     expect(lastText(700001)).toContain("ចូលធ្វើការ");
-    expect(lastSent(700001).payload.reply_markup).toMatchObject({ remove_keyboard: true });
+    expect(lastSent(700001).payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toContain("📍 វត្តមាន"); // D-91: the role keyboard comes back
     expect(await att("kim")).toMatchObject({ in_out_of_range: false, out_at: null });
     await loc(700001, OFFICE.lat + 0.003, OFFICE.lng);
     expect(lastText(700001)).toContain("ចេញពីការងារ"); expect(lastText(700001)).toContain("ក្រៅរង្វង់");
@@ -681,5 +686,51 @@ describe("A2 customer's own subscribe link + service reminders through the hub (
     await privateMsg(860001, "/stop");
     expect((await notify(Number(sub))).json()).toMatchObject({ ok: false, error: "NOT_SUBSCRIBED" });
     config.shop.features = "subscribe";
+  });
+});
+
+describe("D-91: reply keyboards, Mini App buttons and WebApp initData verification on the hub", () => {
+  const key = () => process.env.HUB_KEY_ONETEAM!;
+  it("/internal/send accepts a reply keyboard with Mini App buttons (https only) and remove_keyboard; callback buttons stay forbidden", async () => {
+    sent = [];
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "menu",
+      reply_markup: { keyboard: [[{ text: "📋 ថ្ងៃនេះ" }, { text: "🗓 ច្បាប់", web_app: { url: "https://oneteam.test/tg?to=%2Fleave" } }]], resize_keyboard: true, is_persistent: true } })).json().ok).toBe(true);
+    expect(lastSent(700001).payload.reply_markup.keyboard[0][1].web_app.url).toContain("https://oneteam.test/tg");
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "x", reply_markup: { keyboard: [[{ text: "a", web_app: { url: "http://oneteam.test/tg" } }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "x", reply_markup: { keyboard: [[{ text: "a", callback_data: "sub:SHOPB:x" }]] } })).statusCode).toBe(400);
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "x", reply_markup: { inline_keyboard: [[{ text: "app", web_app: { url: "https://oneteam.test/tg?to=%2Ftech" } }]] } })).json().ok).toBe(true);
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "bye", reply_markup: { remove_keyboard: true } })).json().ok).toBe(true);
+  });
+  it("/internal/tg-verify checks Telegram WebApp initData with the shop's own bot token: good → tg_user; tampered / stale / another bot → not ok", async () => {
+    const token = TOKENS.ONETEAM!.token;
+    const sign = (params: Record<string, string>, tok = token) => {
+      const check = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join("\n");
+      const secret = createHmac("sha256", "WebAppData").update(tok).digest();
+      return new URLSearchParams({ ...params, hash: createHmac("sha256", secret).update(check).digest("hex") }).toString();
+    };
+    const base = { auth_date: String(Math.floor(Date.now() / 1000)), query_id: "AAH1", user: JSON.stringify({ id: 700001, first_name: "Kim", language_code: "km" }) };
+    const verify = (init_data: string, code = "ONETEAM", k = key()) => internal(code, k, "POST", "/internal/tg-verify", { init_data });
+    expect((await verify(sign(base))).json()).toMatchObject({ ok: true, tg_user: 700001 });
+    expect((await verify(sign(base) + "x")).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" });
+    const goodHash = sign(base).match(/hash=([0-9a-f]+)/)![1]!;
+    expect((await verify(sign({ ...base, user: JSON.stringify({ id: 999, first_name: "Evil" }) }).replace(/hash=[0-9a-f]+/, `hash=${goodHash}`))).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" });
+    expect((await verify(sign({ ...base, auth_date: String(Math.floor(Date.now() / 1000) - 3600) }))).json()).toMatchObject({ ok: false, error: "EXPIRED" });
+    expect((await verify(sign(base, TOKENS.SHOPB!.token))).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" }); // signed by another shop's bot
+    expect((await verify(sign(base), "SHOPB", process.env.HUB_KEY_SHOPB!)).json()).toMatchObject({ ok: false }); // SHOPB asks → checked with SHOPB's token
+    expect((await verify("nohash=1")).json()).toMatchObject({ ok: false, error: "NO_HASH" });
+  });
+  it("a keyboard label in a linked staff chat is answered by the shop (inline buttons, screen text never stored); a stranger's text never reaches the shop", async () => {
+    await sql`insert into hub_shop_chats (shop_code, chat_id, kind) values ('ONETEAM', 700001, 'staff') on conflict do nothing`;
+    await sql`update users set telegram_chat_id = 700001, telegram_user_id = 700001, language = 'km' where id = ${s.users.kim!}`;
+    sent = []; const before = shopCalls;
+    await privateMsg(700001, "📋 ការងារថ្ងៃនេះ");
+    expect(shopCalls).toBeGreaterThan(before);
+    expect(lastSent(700001).payload.text).toContain("ការងារថ្ងៃនេះ");
+    expect(datas(lastSent(700001))).toContain("v:home");
+    expect((await sql`select count(*)::int as n from hub_message_log where chat_id = 700001 and text like '%ការងារថ្ងៃនេះ%'`)[0]!.n).toBe(0);
+    const b2 = shopCalls; sent = [];
+    await privateMsg(700042, "hello?");
+    expect(shopCalls).toBe(b2); expect(sent).toHaveLength(0);
+    expect((await sql`select count(*)::int as n from hub_message_log where chat_id = 700042`)[0]!.n).toBe(0);
   });
 });

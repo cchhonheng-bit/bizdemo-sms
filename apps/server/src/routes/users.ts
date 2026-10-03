@@ -9,7 +9,7 @@ import { audit } from "../services/audit.js";
 import { revokeUserSessions } from "../services/auth.js";
 import { hubForgetChat } from "../services/telegram.js";
 
-const USER_COLS = sql`id, company_id, username, phone, email, full_name, role, language, is_active, must_change_password, tracks_attendance,
+const USER_COLS = sql`id, company_id, username, phone, email, full_name, role, language, is_active, must_change_password, tracks_attendance, is_lead,
   telegram_user_id is not null as telegram_linked, created_at, updated_at`;
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
@@ -61,6 +61,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
           email = case when ${patch.email !== undefined} then ${patch.email || null} else email end,
           role = coalesce(${patch.role ?? null}::user_role, role),
           is_active = coalesce(${patch.is_active ?? null}, is_active),
+          is_lead = coalesce(${patch.is_lead ?? null}, is_lead),
           tracks_attendance = coalesce(${patch.tracks_attendance ?? null}, tracks_attendance),
           language = coalesce(${patch.language ?? null}, language)
         where id = ${id} returning ${USER_COLS}`;

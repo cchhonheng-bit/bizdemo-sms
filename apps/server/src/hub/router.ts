@@ -12,7 +12,7 @@ import { sql } from "../db.js";
 import { masterBot, shopBot, type Bot } from "./bots.js";
 import { sendMessage, tg } from "./telegram-api.js";
 import { linkAdminChat } from "./alerts.js";
-import { customerMenu, groupHelp, masterMenu, onCustomerAction, parseCallback, shopMenu, show } from "./menus.js";
+import { customerMenu, groupHelp, masterMenu, onCustomerAction, parseCallback, shopMenu, show, toKeyboard, toScreen, type ShopScreen } from "./menus.js";
 import { resumePromo } from "./subscribers.js";
 
 type Chat = { id: number; type: "private" | "group" | "supergroup" | "channel"; title?: string };
@@ -30,9 +30,9 @@ export function parseCommand(text: string, botUsername: string): { cmd: string; 
   return { cmd: m[1]!.toLowerCase(), arg: (m[3] ?? "").trim() };
 }
 
-async function reply(bot: Bot, chatId: number, text: string, shop: string | null, kind: string, markup?: unknown): Promise<void> {
+async function reply(bot: Bot, chatId: number, text: string, shop: string | null, kind: string, markup?: unknown, logText = true): Promise<void> {
   const r = await sendMessage(bot, chatId, text, markup);
-  await logMessage({ direction: "out", bot: bot.code, shop, chatId, kind, text, ok: r.ok, error: r.ok ? null : r.error });
+  await logMessage({ direction: "out", bot: bot.code, shop, chatId, kind, text: logText ? text : null, ok: r.ok, error: r.ok ? null : r.error });
 }
 
 const shopHelp = (name: string) => [
@@ -104,21 +104,62 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
     return reply(bot, msg.chat.id, lines.length ? lines.join("\n") : "ℹ️ អ្នកមិនមានការចុះឈ្មោះសកម្មទេ។", shop.code, promoOnly ? "stop.promo" : "stop.all");
   }
   if (isGroup && c.cmd === "register") return forwardCode(bot, "group", c.arg, msg, log);
-  if (isGroup && (c.cmd === "start" || c.cmd === "help")) {
-    const g = await shopMenu(shop, msg.chat.id, "ghome");
-    return g ? show(bot, msg.chat.id, null, g.text, g.markup, "menu.group", shop.code) : reply(bot, msg.chat.id, groupHelp, shop.code, "help");
+  if (isGroup && (c.cmd === "start" || c.cmd === "help")) { // D-91: work groups get notifications only — no menu
+    const known = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'group'`).length > 0;
+    return reply(bot, msg.chat.id, known ? `👥 ក្រុមការងារ · ${shop.name}\nការងារថ្មី ការប្ដូរម៉ោង ជំហានការងារ និងការលុបចោល ផ្ញើមកទីនេះដោយស្វ័យប្រវត្តិ។` : groupHelp, shop.code, known ? "group.info" : "help");
   }
   if (isPrivate && c.cmd === "help") return show(bot, msg.chat.id, null, shopHelp(shop.name), { inline_keyboard: [[{ text: "🏠 ម៉ឺនុយ", callback_data: "v:home" }]] }, "help", shop.code);
   if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");
   if (c.cmd === "help") return reply(bot, msg.chat.id, isPrivate ? shopHelp(shop.name) : SHOP_HELP_GROUP, shop.code, "help");
 }
 
-/** owner I1: /start opens a button menu — the staff menu when the shop knows this chat, otherwise the customer menu */
+/** the hub subscriber id of this Telegram user when they hold a live subscription to THIS shop (the shop maps it to its customer) */
+const subscriberOf = async (tgUser: number, shopCode: string): Promise<number | null> =>
+  (await sql<{ id: number }[]>`select u.id from hub_subscribers u join hub_subscriptions s on s.subscriber_id = u.id
+    where u.telegram_user_id = ${tgUser} and s.shop_code = ${shopCode} and s.stopped_at is null and u.blocked_at is null`)[0]?.id ?? null;
+const LOC_ASK = { km: "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", en: "👇 Tap the button below to send your current location (GPS)" };
+const LOC_BTN = { km: "📍 ផ្ញើទីតាំង", en: "📍 Send location" };
+const QUICK = { km: "⚡ មើលរហ័ស", en: "⚡ Quick view" };
+/** D-91: deliver a screen the shop rendered — the reply keyboard (role menu) rides on the text, inline buttons get their own message,
+ *  a location request is a one-time keyboard. Screens hold the shop's data: never stored in the hub log (R5). */
+async function sendScreen(bot: Bot, shop: Shop, chatId: number, s: ShopScreen, kind: string): Promise<void> {
+  const inline = s.markup.inline_keyboard.length > 0;
+  if (s.keyboard) { await reply(bot, chatId, s.text, shop.code, `${kind}.keyboard`, s.keyboard, false); if (!inline && !s.ask_location) return; }
+  if (s.remove_keyboard) return reply(bot, chatId, s.text, shop.code, kind, { remove_keyboard: true }, false);
+  if (s.ask_location) {
+    if (inline) await show(bot, chatId, null, s.keyboard ? QUICK[s.lang] : s.text, s.markup, kind, shop.code);
+    return reply(bot, chatId, inline || s.keyboard ? LOC_ASK[s.lang] : `${s.text}\n${LOC_ASK[s.lang]}`, shop.code, "attendance.ask",
+      { keyboard: [[{ text: LOC_BTN[s.lang], request_location: true }]], resize_keyboard: true, one_time_keyboard: true }, false);
+  }
+  return inline ? show(bot, chatId, null, s.keyboard ? QUICK[s.lang] : s.text, s.markup, kind, shop.code) : reply(bot, chatId, s.text, shop.code, kind, undefined, false);
+}
+/** /start opens the menu: the shop's role keyboard for linked staff, the customer keyboard for a subscriber linked to a customer, else the hub's customer menu */
 async function startMenu(bot: Bot, shop: Shop, chatId: number, tgUser: number): Promise<void> {
-  const staff = await shopMenu(shop, chatId, "home");
-  if (staff) return show(bot, chatId, null, staff.text, staff.markup, "menu.staff", shop.code);
+  const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: tgUser, subscriber_id: await subscriberOf(tgUser, shop.code) });
+  const s = r && r.status === 200 ? toScreen(r.json) : null;
+  if (s && (s.kind === "staff" || s.kind === "customer")) {
+    await sendScreen(bot, shop, chatId, s, s.kind === "staff" ? "menu.staff" : "menu.customer");
+    if (s.kind === "staff") return;
+  }
   const m = await customerMenu(shop, tgUser);
   return show(bot, chatId, null, m.text, m.markup, "menu.customer", shop.code);
+}
+/** D-91: a keyboard label or free text in a private chat with a shop bot → the shop answers. Only chats the hub knows (linked staff,
+ *  subscribers of this shop) reach the shop; a stranger's text is ignored and never stored. */
+async function onShopText(bot: Bot, msg: Message): Promise<void> {
+  const shop = await getShop(bot.shop_code!);
+  if (!shop || shop.status !== "active" || !msg.text || !msg.from) return;
+  const staff = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'staff'`).length > 0;
+  const subscriber = staff ? null : await subscriberOf(msg.from.id, shop.code);
+  if (!staff && !subscriber) return;
+  if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
+  const r = await callShop(shop, "POST", "/internal/tg-text", { chat_id: msg.chat.id, tg_user: msg.from.id, text: msg.text.slice(0, 1000), subscriber_id: subscriber });
+  const kind = r && r.status === 200 ? String(r.json?.kind ?? "") : "";
+  const s = r && r.status === 200 ? toScreen(r.json) : null;
+  if (kind === "none" || (!s && kind !== "customer_menu")) return; // the shop does not know this chat (any more)
+  await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: `text.${kind}`, text: null });
+  if (kind === "customer_menu") { const m = await customerMenu(shop, msg.from.id); return show(bot, msg.chat.id, null, m.text, m.markup, "menu.customer", shop.code); }
+  return sendScreen(bot, shop, msg.chat.id, s!, `text.${kind}`);
 }
 
 async function onMasterMessage(bot: Bot, msg: Message, c: { cmd: string; arg: string }): Promise<void> {
@@ -162,10 +203,11 @@ async function onLocation(bot: Bot, msg: Message): Promise<void> {
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
   await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: "location", text: null });
   const l = msg.location;
-  const r = await callShop(shop, "POST", "/internal/tg-attendance", { chat_id: msg.chat.id, tg_user: msg.from.id, lat: l.latitude, lng: l.longitude,
-    accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0 });
+  const r = await callShop(shop, "POST", "/internal/tg-location", { chat_id: msg.chat.id, tg_user: msg.from.id, lat: l.latitude, lng: l.longitude,
+    accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0 }); // the shop decides: a job «arrive» step or attendance
   const text = r && r.status === 200 && typeof r.json?.reply === "string" ? String(r.json.reply).slice(0, 1000) : "❌ មិនអាចកត់វត្តមានបានទេ — សូមព្យាយាមម្ដងទៀត ឬប្រើកម្មវិធី។";
-  return reply(bot, msg.chat.id, text, shop.code, "attendance.location", { remove_keyboard: true });
+  const kb = r && r.status === 200 ? toKeyboard(r.json?.keyboard) : null; // D-91: the role keyboard replaces the one-time location keyboard
+  return reply(bot, msg.chat.id, text, shop.code, "attendance.location", kb ?? { remove_keyboard: true });
 }
 
 async function onMessage(bot: Bot, msg: Message, log: FastifyBaseLogger): Promise<void> {
@@ -174,7 +216,7 @@ async function onMessage(bot: Bot, msg: Message, log: FastifyBaseLogger): Promis
   if (msg.location && !msg.text) return bot.kind === "shop" && msg.chat.type === "private" ? onLocation(bot, msg) : undefined;
   if (!msg.text) return;
   const c = parseCommand(msg.text, bot.username);
-  if (!c) return; // free text: ignored, not stored
+  if (!c) return bot.kind === "shop" && msg.chat.type === "private" ? onShopText(bot, msg) : undefined; // free text: only private shop chats the hub knows (keyboard labels)
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return; // S-06, per bot
   await logMessage({ direction: "in", bot: bot.code, shop: bot.shop_code, chatId: msg.chat.id, tgUser: msg.from.id, kind: `/${c.cmd}`, text: null });
   return bot.kind === "shop" ? onShopMessage(bot, msg, c, log) : onMasterMessage(bot, msg, c);
@@ -237,18 +279,19 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
       promoOn: () => resumePromo(q.from.id, shop.code),
     });
   }
-  // v: staff (private) or work-group views, rendered by the shop from its own data
-  const isGroupView = p.action === "ghome" || p.action === "gtoday";
-  if (isGroupView !== (chat.type === "group" || chat.type === "supergroup")) return;
+  // v: staff views (private chats only — groups get notifications, D-91), rendered by the shop from its own data
+  if (chat.type !== "private") return;
   const v = await shopMenu(shop, chat.id, p.action, p.id, p.back);
-  if (v && p.action === "att") { // FR-902: a reply keyboard can only come with a new message
-    await show(bot, chat.id, mid, v.text, v.markup, "menu.att", shop.code);
-    const en = v.lang === "en"; // the staff member's app language, told by the shop
-    return reply(bot, chat.id, en ? "👇 Tap the button below to send your current location (GPS)" : "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", shop.code, "attendance.ask",
-      { keyboard: [[{ text: en ? "📍 Send location (in/out)" : "📍 ផ្ញើទីតាំង (ចូល/ចេញ)", request_location: true }]], resize_keyboard: true, one_time_keyboard: true });
+  if (v && v.keyboard) { // language changed → the role keyboard is sent again (a reply keyboard needs a new message)
+    await show(bot, chat.id, mid, QUICK[v.lang], v.markup, `menu.${p.action}`, shop.code);
+    return reply(bot, chat.id, v.text, shop.code, "menu.keyboard", v.keyboard, false);
+  }
+  if (v && v.remove_keyboard) return reply(bot, chat.id, v.text, shop.code, `menu.${p.action}`, { remove_keyboard: true }, false);
+  if (v && v.ask_location) { // FR-902 / job «arrive»: a reply keyboard can only come with a new message
+    await show(bot, chat.id, mid, v.text, v.markup, `menu.${p.action}`, shop.code);
+    return reply(bot, chat.id, LOC_ASK[v.lang], shop.code, "attendance.ask", { keyboard: [[{ text: LOC_BTN[v.lang], request_location: true }]], resize_keyboard: true, one_time_keyboard: true }, false);
   }
   if (v) return show(bot, chat.id, mid, v.text, v.markup, `menu.${p.action}`, shop.code);
-  if (isGroupView) return show(bot, chat.id, mid, groupHelp, { inline_keyboard: [] }, "help", shop.code);
   const cm = await customerMenu(shop, q.from.id); // not staff (any more) → the customer menu, never staff data
   return show(bot, chat.id, mid, cm.text, cm.markup, "menu.customer", shop.code);
 }

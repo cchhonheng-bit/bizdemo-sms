@@ -34,6 +34,7 @@ import InventoryPage from "@/features/inventory/InventoryPage";
 import AccountingPage from "@/features/accounting/AccountingPage";
 import SubscribePrintPage from "@/features/subscribe/SubscribePrintPage";
 import LegalPage from "@/features/legal/LegalPage";
+import TelegramEntryPage from "@/features/auth/TelegramEntryPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
 
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/terms" element={<LegalPage which="terms" />} />
           <Route path="/privacy" element={<LegalPage which="privacy" />} />
+          <Route path="/tg" element={<TelegramEntryPage />} />
           <Route element={<RequireAuth />}>
             <Route path="/first-login" element={<FirstLoginPage />} />
             <Route element={<RequirePerm perm="quote.manage" />}><Route path="/quotes/:id/print" element={<QuotePrintPage />} /></Route>

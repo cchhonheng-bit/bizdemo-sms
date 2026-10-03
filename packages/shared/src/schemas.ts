@@ -26,6 +26,7 @@ export type CreateUserInput = z.infer<typeof createUserSchema>;
 
 export const updateUserSchema = createUserSchema.omit({ password: true }).partial().extend({
   tracks_attendance: z.boolean().optional(),
+  is_lead: z.boolean().optional(), // lead technician (D-91): reviews jobs, site survey, team view in the bot
   language: z.enum(["km", "en"]).optional(),
 });
 

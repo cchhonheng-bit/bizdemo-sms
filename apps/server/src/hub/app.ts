@@ -1,5 +1,6 @@
 // Hub (MODE=hub, hub.hangkh.com): webhooks of every bot (/tg/<path> — one bot per shop + the master bot), router,
 // shop internal API, subscriber/consent, owner alerts, platform page.
+import { createHmac, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import { z, ZodError } from "zod";
@@ -17,11 +18,34 @@ import { platformRoutes } from "./platform.js";
 import { landingPage, legalPage } from "./pages.js";
 import { brandRoutes } from "../routes/brand.js";
 
-// shops may attach link buttons only — never callback buttons (a forged "sub:" consent button — R12)
-const urlButton = z.object({ text: z.string().min(1).max(64), url: z.string().url().max(512).refine((u) => u.startsWith("https://"), "HTTPS_ONLY") }).strict();
-const replyMarkup = z.object({ inline_keyboard: z.array(z.array(urlButton).max(4)).max(4) }).strict();
+// shops may attach link / Mini App buttons and reply keyboards — never callback buttons (a forged "sub:" consent button — R12)
+const https = z.string().url().max(512).refine((u) => u.startsWith("https://"), "HTTPS_ONLY");
+const urlButton = z.object({ text: z.string().min(1).max(64), url: https.optional(), web_app: z.object({ url: https }).strict().optional() }).strict().refine((b) => !!b.url !== !!b.web_app, "ONE_TARGET");
+const kbButton = z.object({ text: z.string().min(1).max(64), web_app: z.object({ url: https }).strict().optional(), request_location: z.literal(true).optional() }).strict();
+const replyMarkup = z.union([
+  z.object({ inline_keyboard: z.array(z.array(urlButton).max(4)).max(6) }).strict(),
+  z.object({ keyboard: z.array(z.array(kbButton).max(2)).min(1).max(8), resize_keyboard: z.boolean().optional(), is_persistent: z.boolean().optional(), one_time_keyboard: z.boolean().optional() }).strict(),
+  z.object({ remove_keyboard: z.literal(true) }).strict(),
+]);
 const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z.string().min(1).max(4096), reply_markup: replyMarkup.optional().nullable() }).strict();
 const broadcastSchema = z.object({ kind: z.enum(["service", "promo"]), text: z.string().trim().min(1).max(1000), created_by_name: z.string().max(120).optional().nullable() }).strict();
+
+/** Telegram WebApp initData check (HMAC-SHA256, key = HMAC("WebAppData", bot token)); auth_date at most 10 min old */
+export function verifyWebAppData(initData: string, token: string): { ok: true; tg_user: number; auth_date: number } | { ok: false; error: string } {
+  const p = new URLSearchParams(initData);
+  const hash = p.get("hash"); if (!hash) return { ok: false, error: "NO_HASH" };
+  p.delete("hash");
+  const check = [...p.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([k, v]) => `${k}=${v}`).join("\n");
+  const secret = createHmac("sha256", "WebAppData").update(token).digest();
+  const expect = createHmac("sha256", secret).update(check).digest("hex");
+  if (expect.length !== hash.length || !timingSafeEqual(Buffer.from(expect), Buffer.from(hash))) return { ok: false, error: "BAD_SIGNATURE" };
+  const authDate = Number(p.get("auth_date") ?? 0);
+  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 600) return { ok: false, error: "EXPIRED" };
+  let user: { id?: unknown } = {};
+  try { user = JSON.parse(p.get("user") ?? "{}") as { id?: unknown }; } catch { /* no user */ }
+  if (typeof user.id !== "number") return { ok: false, error: "NO_USER" };
+  return { ok: true, tg_user: user.id, auth_date: authDate };
+}
 
 export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
@@ -82,6 +106,14 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
   });
 
   // ---- shop → hub (compose network only; caddy answers 404 for /internal/*) --------
+  // D-91: Telegram Mini App login — the shop asks the hub to check WebApp initData with the shop's own bot token (never shared)
+  app.post("/internal/tg-verify", async (req) => {
+    const shop = await authShop(req);
+    const { init_data } = z.object({ init_data: z.string().min(1).max(4000) }).strict().parse(req.body);
+    const bot = await shopBot(shop.code);
+    if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
+    return verifyWebAppData(init_data, bot.token);
+  });
   app.post("/internal/send", async (req) => {
     const shop = await authShop(req);
     const b = sendSchema.parse(req.body);

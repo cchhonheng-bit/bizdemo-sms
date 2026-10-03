@@ -9,8 +9,20 @@ import { callShop, getShop, logMessage, type Shop } from "./shops.js";
 import { consentMarkup, privacyUrl } from "./subscribers.js";
 import { sendMessage, tg } from "./telegram-api.js";
 
-export type Btn = { text: string; callback_data?: string; url?: string };
+export type Btn = { text: string; callback_data?: string; url?: string; web_app?: { url: string } };
 export type Markup = { inline_keyboard: Btn[][] };
+/** D-91: a reply keyboard (persistent role menu) built from the shop's screen; https only (R12) */
+export type ReplyKb = { keyboard: { text: string; web_app?: { url: string } }[][]; resize_keyboard: true; is_persistent: true };
+const HTTPS = /^https:\/\/[^\s]{3,500}$/;
+export function toKeyboard(rows: unknown): ReplyKb | null {
+  if (!Array.isArray(rows)) return null;
+  const kb = rows.slice(0, 8).map((r) => (Array.isArray(r) ? r : []).slice(0, 2).flatMap((b: { text?: unknown; web_app?: unknown }) => {
+    const text = String(b?.text ?? "").slice(0, 64); if (!text) return [];
+    const wa = typeof b.web_app === "string" && HTTPS.test(b.web_app) ? { web_app: { url: b.web_app } } : {};
+    return [{ text, ...wa }];
+  })).filter((r) => r.length);
+  return kb.length ? { keyboard: kb, resize_keyboard: true, is_persistent: true } : null;
+}
 
 /** show a screen: edit the pressed message in place (callbacks) or send a new one (commands) */
 export async function show(bot: Bot, chatId: number, messageId: number | null, text: string, markup: Markup, kind: string, shop: string | null): Promise<void> {
@@ -46,25 +58,34 @@ export async function customerMenu(shop: Shop, tgUser: number): Promise<{ text: 
 }
 
 // ---------- staff + work groups (rendered by the shop) ----------
-type ShopBtn = { text: string; view?: string; id?: string; back?: string; url?: string };
-const VIEWS = new Set(["home", "today", "next", "job", "att", "ghome", "gtoday"]);
+type ShopBtn = { text: string; view?: string; id?: string; arg?: string; back?: string; url?: string; web_app?: string };
+const VIEW = /^[a-z_]{2,20}$/, ARG = /^[a-z_]{1,12}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-function toMarkup(buttons: ShopBtn[][]): Markup {
+const WITH_ID = new Set(["job", "step", "review", "req"]);
+export function toMarkup(buttons: ShopBtn[][]): Markup {
   const rows = buttons.map((r) => r.flatMap((b): Btn[] => {
     const text = String(b.text ?? "").slice(0, 64);
-    if (b.url) return /^https:\/\/[^\s]{3,500}$/.test(b.url) ? [{ text, url: b.url }] : []; // https only (R12)
-    if (!b.view || !VIEWS.has(b.view)) return [];
-    if (b.view === "job") return b.id && UUID.test(b.id) ? [{ text, callback_data: `v:job:${b.id}:${b.back === "today" ? "today" : "next"}` }] : [];
+    if (b.web_app) return HTTPS.test(b.web_app) ? [{ text, web_app: { url: b.web_app } }] : []; // Mini App (https only, R12)
+    if (b.url) return HTTPS.test(b.url) ? [{ text, url: b.url }] : [];
+    if (!b.view || !VIEW.test(b.view)) return [];
+    const arg = b.arg ?? b.back;
+    if (WITH_ID.has(b.view)) return b.id && UUID.test(b.id) && arg && ARG.test(arg) ? [{ text, callback_data: `v:${b.view}:${b.id}:${arg}` }] : [];
     return [{ text, callback_data: `v:${b.view}` }];
   })).filter((r) => r.length);
   return { inline_keyboard: rows.slice(0, 20) };
 }
-/** ask the shop for a staff / group screen; null = this chat is not staff / not the shop's work group */
-export async function shopMenu(shop: Shop, chatId: number, view: string, id?: string, back?: string): Promise<{ text: string; markup: Markup; lang: "km" | "en" } | null> {
-  const r = await callShop(shop, "POST", "/internal/tg-menu", { chat_id: chatId, view, ...(id ? { id } : {}), ...(back ? { back } : {}) });
-  const m = r && r.status === 200 ? r.json?.menu : null;
-  if (!m || typeof m.text !== "string") return null;
-  return { text: m.text.slice(0, 4000), markup: toMarkup(Array.isArray(m.buttons) ? m.buttons : []), lang: m.lang === "en" ? "en" : "km" };
+export type ShopScreen = { text: string; markup: Markup; keyboard: ReplyKb | null; lang: "km" | "en"; ask_location: boolean; remove_keyboard: boolean; kind: string };
+/** a screen the shop rendered (menu view, start, text) → Telegram markup; null = not for this chat */
+export function toScreen(m: unknown): ShopScreen | null {
+  const x = m as { text?: unknown; buttons?: unknown; keyboard?: unknown; lang?: unknown; ask_location?: unknown; remove_keyboard?: unknown; kind?: unknown } | null;
+  if (!x || typeof x.text !== "string") return null;
+  return { text: x.text.slice(0, 4000), markup: toMarkup(Array.isArray(x.buttons) ? x.buttons : []), keyboard: toKeyboard(x.keyboard), lang: x.lang === "en" ? "en" : "km",
+    ask_location: x.ask_location === true, remove_keyboard: x.remove_keyboard === true, kind: typeof x.kind === "string" ? x.kind : "" };
+}
+/** ask the shop for a staff screen (inline callback view); null = this chat is not staff */
+export async function shopMenu(shop: Shop, chatId: number, view: string, id?: string, arg?: string): Promise<ShopScreen | null> {
+  const r = await callShop(shop, "POST", "/internal/tg-menu", { chat_id: chatId, view, ...(id ? { id } : {}), ...(arg ? { arg } : {}) });
+  return r && r.status === 200 ? toScreen(r.json?.menu) : null;
 }
 
 export const groupHelp = "🤖 កំណត់ក្រុមការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
@@ -109,10 +130,10 @@ export async function onCustomerAction(bot: Bot, chatId: number, messageId: numb
 export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; action: string; id?: string; back?: string; shop?: string; version?: string; code?: string } | null {
   let m = data.match(/^c:(home|sub|about|promo_off|promo_on|stop_ask|stop_yes)$/);
   if (m) return { kind: "c", action: m[1]! };
-  m = data.match(/^v:(home|today|next|att|ghome|gtoday)$/);
+  m = data.match(/^v:([a-z_]{2,20})$/);
   if (m) return { kind: "v", action: m[1]! };
-  m = data.match(/^v:job:([0-9a-f-]{36}):(today|next)$/);
-  if (m && UUID.test(m[1]!)) return { kind: "v", action: "job", id: m[1]!, back: m[2]! };
+  m = data.match(/^v:(job|step|review|req):([0-9a-f-]{36}):([a-z_]{1,12})$/);
+  if (m && UUID.test(m[2]!)) return { kind: "v", action: m[1]!, id: m[2]!, back: m[3]! };
   m = data.match(/^m:(home|follow|unfollow|about)$/);
   if (m) return { kind: "m", action: m[1]! };
   m = data.match(/^sub:([A-Z0-9]{2,20}):([\w-]{1,40})(?::([A-HJ-NP-Z2-9]{8}))?$/);

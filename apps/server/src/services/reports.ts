@@ -185,7 +185,7 @@ function localParts(at: Date, tz: string) {
 }
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
-function summaryText(kind: "daily" | "weekly" | "monthly", from: string, to: string, s: Awaited<ReturnType<typeof summaryData>>, lang: Lang): string {
+export function summaryText(kind: "daily" | "weekly" | "monthly", from: string, to: string, s: Awaited<ReturnType<typeof summaryData>>, lang: Lang): string {
   const x = s as Record<string, any>;
   const L = (km: string, en: string) => pick({ km, en }, lang);
   const title = kind === "daily" ? L(`📊 របាយការណ៍ប្រចាំថ្ងៃ · ${from}`, `📊 Daily report · ${from}`)

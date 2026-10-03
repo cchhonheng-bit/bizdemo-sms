@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { assignSchema, bookingSchema, cancelSchema, rescheduleSchema, BOOKING_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
+import { sql } from "../db.js";
 import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
@@ -110,7 +111,9 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     return submitReport(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
   });
   app.post("/:id/review", async (req) => {
-    if (!req.perms.includes("job.review")) throw new AppError("FORBIDDEN", 403);
+    // GM (job.review) or a lead technician (D-91)
+    const lead = req.user!.role === "tech" && (await sql<{ l: boolean }[]>`select is_lead as l from users where id = ${req.user!.id}`)[0]?.l === true;
+    if (!req.perms.includes("job.review") && !lead) throw new AppError("FORBIDDEN", 403);
     const v = z.object({ decision: z.enum(["approve", "revision"]), note: z.string().max(500).default("") }).strict().parse(req.body);
     const r = await reviewReport(req.user!, req.ip, idParam.parse(req.params).id, v.decision, v.note);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));

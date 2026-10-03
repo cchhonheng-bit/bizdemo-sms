@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
-type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; language: string };
+type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; language: string };
 
 export default function UsersPage() {
   const { t } = useTranslation();
@@ -65,7 +65,7 @@ export default function UsersPage() {
                   <tr key={u.id}>
                     <td className="font-semibold">{u.full_name}</td>
                     <td className="font-mono text-xs">{u.username}</td>
-                    <td><Badge tone={u.role === "tech" ? "green" : u.role === "gm" ? "purple" : "navy"}>{t(`roles.${u.role}`)}</Badge></td>
+                    <td><Badge tone={u.role === "tech" ? "green" : u.role === "gm" ? "purple" : "navy"}>{t(`roles.${u.role}`)}{u.is_lead ? " ★" : ""}</Badge></td>
                     <td className="tabular">{u.phone ?? "—"}</td>
                     <td>{u.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</td>
                     <td>{u.is_active ? <Badge tone="green">{t("app.active")}</Badge> : <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
@@ -108,16 +108,18 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [tracks, setTracks] = useState(user?.tracks_attendance ?? true);
-  const { register, handleSubmit, formState: { errors, isSubmitting }, setError } = useForm<CreateUserInput>({
+  const [lead, setLead] = useState(user?.is_lead ?? false); // lead technician (D-91)
+  const { register, handleSubmit, watch, formState: { errors, isSubmitting }, setError } = useForm<CreateUserInput>({
     resolver: zodResolver(createUserSchema),
     defaultValues: user ? { username: user.username, full_name: user.full_name, role: user.role as CreateUserInput["role"], phone: user.phone ?? "", email: user.email ?? "" } : { role: "tech", phone: "", email: "" },
   });
   const errText = (code?: string) => (code ? t(`users.err.${code}`, { defaultValue: code }) : undefined);
+  const isTech = watch("role") === "tech";
 
   const submit = handleSubmit(async (v) => {
     if (user) {
       try {
-        await api.updateUser(user.id, { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks });
+        await api.updateUser(user.id, { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks, is_lead: v.role === "tech" && lead });
       } catch (e) { toast.error(errText(errCode(e)) ?? t("app.error")); return; }
       toast.success(t("app.saved"));
       void qc.invalidateQueries({ queryKey: ["profiles"] });
@@ -132,7 +134,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
         if (field) setError(field, { message: code }); else toast.error(errText(code) ?? t("app.error"));
         return;
       }
-      if (!tracks) await api.updateUser(r.id, { tracks_attendance: false });
+      if (!tracks || (v.role === "tech" && lead)) await api.updateUser(r.id, { tracks_attendance: tracks, is_lead: v.role === "tech" && lead });
       void qc.invalidateQueries({ queryKey: ["profiles"] });
       toast.success(t("app.saved"));
       onCreated(v.username, r.temp_password);
@@ -156,6 +158,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
         <Field label={t("users.email")} error={errText(errors.email?.message)}><Input type="email" invalid={!!errors.email} {...register("email")} /></Field>
         {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><Input type="text" autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}
         <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={tracks} onChange={(e) => setTracks(e.target.checked)} /> {t("users.tracks_attendance")}</label>
+        {isTech && <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={lead} onChange={(e) => setLead(e.target.checked)} /> {t("users.is_lead")}</label>}
       </form>
     </Dialog>
   );
