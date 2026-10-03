@@ -30,7 +30,8 @@ beforeAll(async () => {
   const off = (await ceo.req("POST", "/api/catalog", { name_km: "សេវាចាស់", kind: "service", category: "mep", unit: "unit", sell_price: 100 })).json.id;
   await ceo.req("POST", `/api/catalog/${off}/active`, { active: false });
   await ceoB.req("POST", "/api/catalog", { name_km: "សេវារបស់ក្រុមហ៊ុន B", kind: "service", category: "mep", unit: "unit", sell_price: 100 });
-  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន គេហទំព័រ", phones: ["012 777 888"], zone: "inside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន គេហទំព័រ", phones: ["012777888"], zone: "inside" })).json.id;
+  expect(cust).toBeTruthy();
 });
 beforeEach(() => resetRateLimits());
 afterAll(async () => { config.shop.features = ""; await app.close(); });
@@ -69,11 +70,11 @@ describe("the public page", () => {
 
 describe("request form → service request", () => {
   it("a valid request: saved (source website, matched to the existing customer by phone), Admin + GM notified, listed in the app; done once", async () => {
-    const r = await form({ name: "សុខ ដារ៉ា", phone: "012777888", service: acId, date: "2099-01-05", area: "បុរីប៉េងហួត ផ្ទះ 12", message: "ម៉ាស៊ីនត្រជាក់មិនត្រជាក់", ts: oldToken(), company_url: "" });
+    const r = await form({ name: "សុខ ដារ៉ា", phone: "012 777 888", service: acId, date: "2099-01-05", area: "បុរីប៉េងហួត ផ្ទះ 12", message: "ម៉ាស៊ីនត្រជាក់មិនត្រជាក់", ts: oldToken(), company_url: "" });
     expect(r.statusCode).toBe(303); expect(r.headers.location).toBe("/site/thanks");
     const rows = await requests();
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ source: "website", name: "សុខ ដារ៉ា", phone: "012777888", customer_id: cust, status: "new" });
+    expect(rows[0]).toMatchObject({ source: "website", name: "សុខ ដារ៉ា", phone: "012 777 888", customer_id: cust, status: "new" }); // typed with spaces, matched by digits
     expect(rows[0]!.text).toContain("លាងម៉ាស៊ីនត្រជាក់"); expect(rows[0]!.text).toContain("បុរីប៉េងហួត"); expect(rows[0]!.text).toContain("មិនត្រជាក់"); expect(rows[0]!.text).toContain("2099-01-05");
     expect(rows[0]!.meta).toMatchObject({ service_item_id: acId, date: "2099-01-05", lang: "km" });
     for (const u of ["admin", "gm01"]) expect((await sql`select link from notifications where kind = 'service.request' and user_id = ${s.users[u]!}`)[0]).toMatchObject({ link: "/requests" });
