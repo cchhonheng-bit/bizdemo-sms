@@ -202,7 +202,7 @@ describe("catalog: CEO / CFO / Admin / GM edit; Excel template → preview → a
 
   it("every change is in the audit log with old → new of exactly the changed fields; the list shows who changed it last", async () => {
     expect((await gm.req("POST", "/api/catalog", { id: ID["EL-CHECK"], name_km: "ពិនិត្យប្រព័ន្ធភ្លើង", name_en: "Electrical inspection", kind: "service", category: "mep", unit: "ផ្ទះ", sell_price: 2000, code: "EL-CHECK", web_category: "electric", from_price: 2500, duration_min: 90 })).status).toBe(200);
-    const a = (await sql<{ old_data: any; new_data: any; user_id: string }[]>`select old_data, new_data, user_id from audit_log where action = 'catalog.upsert' and row_id = ${ID["EL-CHECK"]} order by id desc limit 1`)[0]!;
+    const a = (await sql<{ old_data: any; new_data: any; user_id: string }[]>`select old_data, new_data, user_id from audit_log where action = 'catalog.upsert' and row_id = ${ID["EL-CHECK"]!} order by id desc limit 1`)[0]!;
     expect(a).toMatchObject({ user_id: s.users.gm01, old_data: { from_price: 2000, duration_min: 120 }, new_data: { from_price: 2500, duration_min: 90 } });
     expect(Object.keys(a.new_data).sort()).toEqual(["duration_min", "from_price"]);
     const meta = (await ceo.req("GET", "/api/catalog/meta")).json;
