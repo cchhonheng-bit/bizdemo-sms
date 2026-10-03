@@ -24,7 +24,7 @@ export type StatusLog = { id: number; booking_id: string; from_status: BookingSt
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
 export type UserRow = {
   id: string; company_id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; language: string;
-  is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
+  is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; is_lead: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
 };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
