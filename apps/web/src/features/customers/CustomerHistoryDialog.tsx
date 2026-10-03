@@ -1,10 +1,12 @@
 // Customer history (FR-203): running warranties, debt, bookings and invoices of one customer — bottom sheet on phones.
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@sms/shared";
 import { api, fmtDate, type Customer } from "@/lib/api";
-import { Badge, Dialog, ErrorState, Skeleton } from "@/components/ui";
+import { Badge, Button, Dialog, ErrorState, Skeleton } from "@/components/ui";
+import { useAuth } from "@/lib/auth";
+import { toast } from "@/lib/toast";
 import { StatusBadge } from "@/features/bookings/parts";
 import { InvoiceBadge } from "@/features/invoices/shared";
 import { useFeature } from "@/lib/config";
@@ -14,11 +16,25 @@ export default function CustomerHistoryDialog({ customer, onClose }: { customer:
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["customer-history", customer.id], queryFn: () => api.customerHistory(customer.id) });
   const remindersOn = useFeature("reminders");
+  const { can } = useAuth();
+  const qc = useQueryClient();
+  // D-104: too many wrong passwords lock the customer's website login — Admin / GM can open it again (the password stays secret)
+  const unlock = useMutation({
+    mutationFn: () => api.unlockCustomerLogin(customer.id),
+    onSuccess: () => { toast.success(t("customers.login_unlocked")); void qc.invalidateQueries({ queryKey: ["customer-history", customer.id] }); },
+    onError: () => toast.error(t("app.error")),
+  });
   const d = q.data;
   return (
     <Dialog open onClose={onClose} title={`${t("customers.history")} · ${customer.name}`}>
       {q.isLoading ? <Skeleton /> : q.isError || !d ? <ErrorState text={t("app.error")} /> : (
         <div className="space-y-4" data-testid="history">
+          {d.login && d.login.locked !== "none" && (
+            <div className="rounded-md p-3 bg-warning-50 text-warning flex flex-wrap items-center gap-2 text-sm" data-testid="login-locked">
+              <span>🔒 {t(`customers.login_locked_${d.login.locked}`)}</span>
+              {can("customer.manage") && <Button className="ml-auto" loading={unlock.isPending} onClick={() => unlock.mutate()} data-testid="login-unlock">{t("customers.login_unlock")}</Button>}
+            </div>
+          )}
           {d.warranties.length > 0 && (
             <section>
               <h3 className="text-sm font-semibold mb-1">🛡 {t("booking.warranty")}</h3>

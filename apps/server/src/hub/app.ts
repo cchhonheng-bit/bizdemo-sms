@@ -1,6 +1,6 @@
 // Hub (MODE=hub, hub.hangkh.com): webhooks of every bot (/tg/<path> — one bot per shop + the master bot), router,
 // shop internal API, subscriber/consent, owner alerts, platform page.
-import { createHash, createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import Fastify, { type FastifyInstance } from "fastify";
 import cookie from "@fastify/cookie";
 import { z, ZodError } from "zod";
@@ -30,8 +30,9 @@ const replyMarkup = z.union([
 const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z.string().min(1).max(4096), reply_markup: replyMarkup.optional().nullable() }).strict();
 const broadcastSchema = z.object({ kind: z.enum(["service", "promo"]), text: z.string().trim().min(1).max(1000), created_by_name: z.string().max(120).optional().nullable() }).strict();
 
-/** Telegram WebApp initData check (HMAC-SHA256, key = HMAC("WebAppData", bot token)); auth_date at most 10 min old */
-export function verifyWebAppData(initData: string, token: string): { ok: true; tg_user: number; auth_date: number; first_name: string | null } | { ok: false; error: string } {
+/** Telegram WebApp initData check (HMAC-SHA256, key = HMAC("WebAppData", bot token)); auth_date at most 10 min old for a
+ *  staff login — the customer site may ask for up to 24 h (D-103: a customer keeps the Mini App open) */
+export function verifyWebAppData(initData: string, token: string, maxAge = 600): { ok: true; tg_user: number; auth_date: number; first_name: string | null } | { ok: false; error: string } {
   const p = new URLSearchParams(initData);
   const hash = p.get("hash"); if (!hash) return { ok: false, error: "NO_HASH" };
   p.delete("hash");
@@ -40,26 +41,11 @@ export function verifyWebAppData(initData: string, token: string): { ok: true; t
   const expect = createHmac("sha256", secret).update(check).digest("hex");
   if (expect.length !== hash.length || !timingSafeEqual(Buffer.from(expect), Buffer.from(hash))) return { ok: false, error: "BAD_SIGNATURE" };
   const authDate = Number(p.get("auth_date") ?? 0);
-  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 600) return { ok: false, error: "EXPIRED" };
+  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > maxAge) return { ok: false, error: "EXPIRED" };
   let user: { id?: unknown; first_name?: unknown } = {};
   try { user = JSON.parse(p.get("user") ?? "{}") as { id?: unknown; first_name?: unknown }; } catch { /* no user */ }
   if (typeof user.id !== "number") return { ok: false, error: "NO_USER" };
   return { ok: true, tg_user: user.id, auth_date: authDate, first_name: typeof user.first_name === "string" ? user.first_name.slice(0, 100) : null };
-}
-
-/** Telegram Login Widget check (D-96, customer home of a shop's website): hash = HMAC-SHA256(data-check-string, SHA256(bot token)),
- *  the data-check-string being every received field except hash as "key=value", sorted, joined by \n; auth_date at most a day old */
-export function verifyLoginWidget(data: Record<string, string>, token: string): { ok: true; tg_user: number; auth_date: number; first_name: string | null } | { ok: false; error: string } {
-  const { hash, ...rest } = data;
-  if (!hash) return { ok: false, error: "NO_HASH" };
-  const check = Object.keys(rest).sort().map((k) => `${k}=${rest[k]}`).join("\n");
-  const expect = Buffer.from(createHmac("sha256", createHash("sha256").update(token).digest()).update(check).digest("hex")), given = Buffer.from(hash);
-  if (expect.length !== given.length || !timingSafeEqual(expect, given)) return { ok: false, error: "BAD_SIGNATURE" };
-  const authDate = Number(rest.auth_date ?? 0);
-  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 86400) return { ok: false, error: "EXPIRED" };
-  const id = Number(rest.id);
-  if (!Number.isSafeInteger(id) || id <= 0) return { ok: false, error: "NO_USER" };
-  return { ok: true, tg_user: id, auth_date: authDate, first_name: rest.first_name ? rest.first_name.slice(0, 100) : null };
 }
 
 /** who a Telegram user is for ONE shop: the hub subscriber id when that person ever subscribed to this shop. Identity, not
@@ -132,20 +118,11 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
   // D-91: Telegram Mini App login — the shop asks the hub to check WebApp initData with the shop's own bot token (never shared)
   app.post("/internal/tg-verify", async (req) => {
     const shop = await authShop(req);
-    const { init_data } = z.object({ init_data: z.string().min(1).max(4000) }).strict().parse(req.body);
+    const { init_data, max_age } = z.object({ init_data: z.string().min(1).max(4000), max_age: z.number().int().min(60).max(86_400).optional() }).strict().parse(req.body);
     const bot = await shopBot(shop.code);
     if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
-    const v = verifyWebAppData(init_data, bot.token);
+    const v = verifyWebAppData(init_data, bot.token, max_age);
     return v.ok ? { ...v, subscriber_id: await subscriberIdentity(v.tg_user, shop.code) } : v; // D-96: customers sign in to the shop's website the same way
-  });
-  // D-96: Telegram Login Widget on the shop's website — the fields Telegram signed, checked with the shop's own bot token
-  app.post("/internal/tg-login-verify", async (req) => {
-    const shop = await authShop(req);
-    const { data } = z.object({ data: z.record(z.string().max(40), z.string().max(400)).refine((d) => Object.keys(d).length <= 10, "TOO_MANY_FIELDS") }).strict().parse(req.body);
-    const bot = await shopBot(shop.code);
-    if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
-    const v = verifyLoginWidget(data, bot.token);
-    return v.ok ? { ...v, subscriber_id: await subscriberIdentity(v.tg_user, shop.code) } : v;
   });
   app.post("/internal/send", async (req) => {
     const shop = await authShop(req);

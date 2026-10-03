@@ -43,6 +43,18 @@ export async function siteData() {
 }
 export type SiteView = NonNullable<Awaited<ReturnType<typeof siteData>>>;
 
+/** «One Team» out of «One Team Engineering»: the short name of Settings → Website when the full name starts with it, else the first two words */
+export function shortName(full: string, own?: string | null): string {
+  const f = full.trim(), o = (own ?? "").trim(), words = f.split(/\s+/);
+  return o && f.startsWith(o) ? o : words.length > 2 ? words.slice(0, 2).join(" ") : f;
+}
+/** the shop's short Khmer-page name (bot keyboard «call …») */
+export async function shopShortName(companyId: string): Promise<string> {
+  const r = (await sql<{ name: string; info: Record<string, string> | null; website: SiteContent | null }[]>`select c.name, s.company_info as info, s.website
+    from companies c join company_settings s on s.company_id = c.id where c.id = ${companyId}`)[0];
+  return r ? shortName(r.info?.name_km || r.info?.name_en || r.name, r.website?.short_name) : "";
+}
+
 // ---------- forms without a login: signed timestamp (page age 2 s … 6 h) + honeypot + rate limits instead of a CAPTCHA ----------
 const sign = (ts: number) => createHmac("sha256", config.sessionSecret).update(`site-form:${ts}`).digest("base64url").slice(0, 22);
 export const formToken = (now = Date.now()): string => { const ts = Math.floor(now / 1000); return `${ts}.${sign(ts)}`; };

@@ -4,18 +4,21 @@ import { sql } from "../db.js";
 import { notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { warrantyJson } from "./bookings.js";
+import { customerLoginState } from "./customer-auth.js";
 
 const INVOICE_VIEW = ["invoice.issue", "payment.record", "discount.give", "discount.approve", "void.request", "void.approve", "report.finance"];
 
 export async function customerHistory(user: SessionUser, perms: string[], id: string) {
-  const customer = (await sql`select id, name, phones, address, zone, lat, lng, notes, is_active, created_at, tg_subscriber_id is not null as telegram from customers where id = ${id} and company_id = ${user.companyId}`)[0];
+  const customer = (await sql`select id, name, phones, address, zone, lat, lng, notes, is_active, created_at, tg_subscriber_id is not null as telegram, password_hash is not null as has_password from customers where id = ${id} and company_id = ${user.companyId}`)[0];
   if (!customer) throw notFound();
   const bookings = await sql<{ id: string; number: string; status: string; warranty: { until: string; days_left: number; active: boolean } | null }[]>`
     select b.id, b.number, b.status, b.type, b.category, b.service_text, b.scheduled_at, b.closed_at, b.cancel_reason, b.parent_booking_id as warranty_of, ${warrantyJson(sql)} as warranty
     from bookings b join companies co on co.id = b.company_id where b.customer_id = ${id} and b.company_id = ${user.companyId}
     order by b.scheduled_at desc nulls last, b.created_at desc limit 200`;
   const warranties = bookings.filter((b) => b.warranty?.active).map((b) => ({ booking_id: b.id, number: b.number, until: b.warranty!.until, days_left: b.warranty!.days_left }));
-  const out: Record<string, unknown> = { customer, bookings, warranties };
+  // D-104: is the customer's website login locked by wrong passwords? (Admin / GM can unlock it; no secret is ever shown)
+  const login = { linked: customer.telegram === true, has_password: customer.has_password === true, locked: await customerLoginState(user.companyId, (customer.phones as string[]) ?? []) };
+  const out: Record<string, unknown> = { customer, bookings, warranties, login };
   if (perms.some((p) => INVOICE_VIEW.includes(p))) {
     const invoices = (await sql<{ id: string; status: string; total: number; paid: number }[]>`select i.id, i.number, i.status, i.created_at, i.issued_at, b.number as booking_number,
         (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = i.id) - i.discount as total,

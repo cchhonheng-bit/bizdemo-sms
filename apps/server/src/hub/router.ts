@@ -104,8 +104,10 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
       if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
       const x = await callShop(shop, "POST", "/internal/customer-subscribed", { code: web[0], subscriber_id: subscriber });
       const ok = !!(x && x.status === 200 && x.json?.ok);
-      return reply(bot, msg.chat.id, ok ? `✅ ការកក់ ${String(x!.json.booking ?? "").slice(0, 20)} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង ពី «${shop.name}» នឹងមកដល់ទីនេះ។`
+      await reply(bot, msg.chat.id, ok ? `✅ ការកក់ ${String(x!.json.booking ?? "").slice(0, 20)} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង ពី «${shop.name}» នឹងមកដល់ទីនេះ។`
         : "⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។", shop.code, ok ? "booking.linked" : "booking.link_failed", undefined, false);
+      if (ok) await afterBookingLink(bot, shop, msg.chat.id, msg.from!.id, x!.json);
+      return;
     }
     return forwardCode(bot, "link", c.arg, msg, log);
   }
@@ -127,6 +129,19 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
   if (isPrivate && c.cmd === "help") return show(bot, msg.chat.id, null, shopHelp(shop.name), { inline_keyboard: [[{ text: "🏠 ម៉ឺនុយ", callback_data: "v:home" }]] }, "help", shop.code);
   if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");
   if (c.cmd === "help") return reply(bot, msg.chat.id, isPrivate ? shopHelp(shop.name) : SHOP_HELP_GROUP, shop.code, "help");
+}
+
+/** D-103 / D-105: a website booking was linked to this chat → the shop's follow-up message (it may carry the customer's first
+ *  password: sent, never kept in the hub log), the chat's menu button opens the shop's site as a Mini App, and the customer
+ *  keyboard appears when the shop knows this chat as a customer. */
+async function afterBookingLink(bot: Bot, shop: Shop, chatId: number, tgUser: number, json: Record<string, unknown>): Promise<void> {
+  if (typeof json.after === "string" && json.after) await reply(bot, chatId, json.after.slice(0, 1000), shop.code, "customer.password", undefined, false);
+  if (typeof json.menu_url === "string" && /^https:\/\/[^\s"]{1,200}$/.test(json.menu_url)) {
+    await tg(bot, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app", text: "ការកក់", web_app: { url: json.menu_url } } });
+  }
+  const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: tgUser, subscriber_id: await subscriberOf(tgUser, shop.code) });
+  const s = r && r.status === 200 ? toScreen(r.json) : null;
+  if (s && s.kind === "customer") await sendScreen(bot, shop, chatId, s, "menu.customer");
 }
 
 /** the hub subscriber id of this Telegram user when they hold a live subscription to THIS shop (the shop maps it to its customer) */
@@ -260,16 +275,17 @@ async function onCallback(bot: Bot, q: CallbackQuery): Promise<void> {
     await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: q.message!.message_id, reply_markup: consentMarkup(null, master?.status === "active" ? master.username : null) });
     // A2: came through the customer's own link → the shop links this subscriber to that customer (service reminders)
     // D-96: came through the link of a website booking (b-<token>) → the shop links this chat to that booking (single use)
-    let linked = false, booking = "";
+    let linked = false, booking = "", linkJson: Record<string, unknown> | null = null;
     const web = !!p?.code?.startsWith("b-");
     if (p?.code) {
       const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId });
       linked = !!(x && x.status === 200 && x.json?.ok);
-      if (web && linked) booking = String(x!.json.booking ?? "").slice(0, 20);
+      if (web && linked) { booking = String(x!.json.booking ?? "").slice(0, 20); linkJson = x!.json as Record<string, unknown>; }
     }
     const extra = web ? (linked ? `\n🗓 ការកក់ ${booking} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង នឹងមកដល់ទីនេះ។` : "\n⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។") : "";
     // the booking number is the shop's data: it is sent, not kept in the hub log (R5)
     await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»${linked && !web ? " (រួមទាំងការរំលឹកថែទាំ)" : ""}។${extra}\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok", undefined, !web);
+    if (linkJson) await afterBookingLink(bot, r.shop, chat.id, q.from.id, linkJson);
   } else {
     await reply(bot, chat.id, r.error === "OLD_CONSENT" ? "⚠️ អត្ថបទយល់ព្រមនេះចាស់ហើយ។ សូមបើកតំណរបស់ហាងម្ដងទៀត។" : "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", m[1]!, "subscribe.fail");
   }

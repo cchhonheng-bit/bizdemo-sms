@@ -37,6 +37,7 @@ import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
 import { pubRoutes, requestsRoutes, siteHome, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
 import { APP_BASE } from "./lib/app-url.js";
+import { CUSTOMER_COOKIE, resolveCustomerSession } from "./services/customer-home.js";
 
 export const SESSION_COOKIE = "ots";
 
@@ -110,11 +111,15 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   // D-96: "/" is the public website, the staff app lives under /app. Pages of the app as they were addressed before
   // (bookmarks, old bot buttons, the installed app) are sent to the same page under /app.
   const LEGACY_APP = /^\/(login|first-login|dashboard|bookings|customers|requests|catalog|subscribe|tech|notifications|leave|attendance|inventory|accounting|reminders|reports|quotes|invoices|me|settings|tg|terms|privacy)(\/|\?|$)/;
-  app.setNotFoundHandler((req, reply) => {
+  /** D-103: a customer session never opens the staff app — its pages go to the customer home. (Staff sign in with their own
+   *  account; someone who is both signs out of the customer home first, or already holds a staff session.) */
+  const customerOnly = async (req: FastifyRequest) => !req.cookies[SESSION_COOKIE] && !!req.cookies[CUSTOMER_COOKIE] && !!(await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]));
+  app.setNotFoundHandler(async (req, reply) => {
     const path = req.url.split("?")[0]!;
     if (path.startsWith("/api/") || path.startsWith("/internal/")) return reply.status(404).send({ error: "NOT_FOUND" });
     if (req.method === "GET" && LEGACY_APP.test(req.url)) return reply.redirect(`${APP_BASE}${req.url}`, 302);
     if (req.method === "GET" && hasWeb && path.startsWith(`${APP_BASE}/`) && !/\.[a-z0-9]{2,5}$/i.test(path)) { // a page of the app (a missing FILE stays a 404)
+      if (await customerOnly(req)) return reply.redirect("/my", 302);
       reply.header("Cache-Control", "no-cache");
       return reply.sendFile("index.html");
     }
@@ -163,7 +168,8 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(siteRoutes);
   app.get("/", async (req, reply) => (features().includes("website") ? siteHome(req, reply) : reply.redirect(`${APP_BASE}/`, 302)));
   app.get(APP_BASE, async (_req, reply) => reply.redirect(`${APP_BASE}/`, 302));
-  app.get(`${APP_BASE}/`, async (_req, reply) => {
+  app.get(`${APP_BASE}/`, async (req, reply) => {
+    if (await customerOnly(req)) return reply.redirect("/my", 302);
     if (!hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
     reply.header("Cache-Control", "no-cache");
     return reply.sendFile("index.html");

@@ -97,6 +97,8 @@ export type Dashboard = { date: string; pending_review: number; today: { jobs: n
   techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
 export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null };
 export type CustomerHistory = { customer: Customer;
+  /** D-104: the customer's website login — linked to Telegram, has a password, locked by wrong passwords? (never a secret) */
+  login?: { linked: boolean; has_password: boolean; locked: "none" | "timed" | "permanent" };
   bookings: { id: string; number: string; status: BookingStatus; type: BookingType; category: ServiceCategory; service_text: string; scheduled_at: string | null; closed_at: string | null; warranty_of: string | null; warranty: { until: string; days_left: number; active: boolean } | null }[];
   warranties: { booking_id: string; number: string; until: string; days_left: number }[];
   invoices?: { id: string; number: string; status: "draft" | "issued" | "void"; issued_at: string | null; created_at: string; booking_number: string | null; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid" }[];
@@ -255,6 +257,7 @@ export const api = {
     audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),
+  unlockCustomerLogin: (id: string) => post<{ ok: true }>(`/api/customers/${id}/unlock-login`),
   fx: {
     get: () => get<{ current: number; history: { rate: number; note: string | null; set_at: string; set_by_name: string | null }[] }>("/api/settings/fx"),
     set: (rate: number, note: string) => post("/api/settings/fx", { rate, note }),

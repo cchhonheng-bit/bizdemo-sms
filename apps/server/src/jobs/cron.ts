@@ -6,6 +6,7 @@ import { cleanupSessions } from "../services/auth.js";
 import { flushOutbox } from "../services/telegram.js";
 import { hubAlert } from "../services/hub-client.js";
 import { lateAlerts } from "../services/jobs.js";
+import { customerNotices } from "../services/customer-notify.js";
 import { sendSummaries } from "../services/reports.js";
 
 export function startCron(log: FastifyBaseLogger): () => void {
@@ -27,6 +28,8 @@ export function startCron(log: FastifyBaseLogger): () => void {
       if (f) hubAlert("outbox", `${f} Telegram message(s) failed in the last hour (chat blocked, bot removed from the group, or no shop bot).`);
     } catch (e) { log.warn(e, "housekeeping"); }
   }, 3600_000);
-  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref();
-  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); };
+  // D-105: customers who linked Telegram hear about their booking — reminder a day before, technician on the way, job done
+  const notices = setInterval(() => { customerNotices().then((n) => { if (n) log.info({ notices: n }, "customer notices"); }).catch((e) => log.warn(e, "customer notices")); }, 60_000);
+  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref();
+  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); };
 }

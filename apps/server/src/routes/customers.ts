@@ -5,6 +5,7 @@ import { customerSchema } from "@sms/shared";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
+import { unlockCustomerLogin } from "../services/customer-auth.js";
 import { customerHistory } from "../services/customers.js";
 
 const COLS = sql`id, company_id, name, phones, address, zone, lat, lng, notes, is_active, created_at, updated_at`;
@@ -43,6 +44,9 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
     });
     return { id };
   });
+
+  /** D-104: clear the wrong-password lock of this customer's website login (Admin / GM); written to the audit log */
+  app.post("/:id/unlock-login", { preHandler: app.requirePerm("customer.manage") }, async (req) => unlockCustomerLogin(req.user!, req.ip, z.object({ id: z.string().uuid() }).parse(req.params).id));
 
   app.post("/:id/active", { preHandler: app.requirePerm("customer.manage") }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);

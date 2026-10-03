@@ -20,7 +20,9 @@ import { items as stockItems } from "./inventory.js";
 import { recordCheckpoint, reviewReport, STEPS, type Step } from "./jobs.js";
 import { permissionsFor } from "./permissions.js";
 import { createRequest, markRequestDone } from "./requests.js";
+import { resetPasswordFromBot } from "./customer-auth.js";
 import { decideReschedule } from "./customer-home.js";
+import { shopShortName } from "./site.js";
 import { decideWebBooking } from "./web-booking.js";
 import { listReminders } from "./reminders.js";
 import { summaryData, summaryText, verification } from "./reports.js";
@@ -57,8 +59,9 @@ const T = (u: { language: string }) => (km: string, en: string) => pick(tx(km, e
 type Action = "today" | "steps" | "report" | "att" | "leave" | "tomorrow" | "review" | "survey" | "team"
   | "new_booking" | "waiting_invoice" | "due_cleaning" | "find_customer" | "receive_payment" | "requests"
   | "approvals" | "where_techs" | "summary_today" | "summary" | "alerts" | "staff_today" | "cash_today" | "to_verify" | "finance" | "low_stock"
-  | "c_bookings" | "c_warranty" | "c_contact" | "c_history" | "c_request" | "c_promo" | "me" | "help";
+  | "c_bookings" | "c_warranty" | "c_contact" | "c_history" | "c_request" | "c_promo" | "c_forgot" | "me" | "help";
 const LABEL: Record<Action, { km: string; en: string; app?: string }> = {
+  c_forgot: { km: "🔑 ភ្លេចពាក្យសម្ងាត់", en: "🔑 Forgot password" },
   today: { km: "📋 ការងារថ្ងៃនេះ", en: "📋 Today's jobs" }, steps: { km: "🔧 ជំហានការងារ", en: "🔧 Job steps" },
   report: { km: "📝 របាយការណ៍ការងារ", en: "📝 Job report" }, att: { km: "📍 វត្តមាន", en: "📍 Attendance" },
   leave: { km: "🗓 សុំច្បាប់ឈប់", en: "🗓 Leave request", app: "/leave" }, tomorrow: { km: "📅 ការងារថ្ងៃស្អែក", en: "📅 Tomorrow's jobs" },
@@ -109,10 +112,15 @@ async function staffKeyboard(u: Staff): Promise<KbButton[][]> {
   return rows2((await actionsFor(u)).map((a) => { const app = LABEL[a].app ? miniApp(LABEL[a].app!) : undefined; return { text: LABEL[a][lang], ...(app ? { web_app: app } : {}) }; }));
 }
 const CUSTOMER_ACTIONS: Action[] = ["c_bookings", "c_warranty", "c_contact", "c_history", "c_request", "c_promo", "me", "help"];
-/** D-96: with the website module, the customer's keyboard opens the booking site and the customer home inside Telegram (Mini App) */
-const siteButtons = (): KbButton[][] => (featureOn("website") && config.publicUrl.startsWith("https://")
-  ? [[{ text: "🗓 កក់សេវា", web_app: `${config.publicUrl}/` }, { text: "👤 ការកក់របស់ខ្ញុំ", web_app: `${config.publicUrl}/my` }]] : []);
-const customerKeyboard = (): KbButton[][] => [...siteButtons(), ...rows2(CUSTOMER_ACTIONS.map((a) => ({ text: LABEL[a].km })))];
+const CALL = "📞 ហៅ ";
+/** D-105 (website module): «my bookings» and «book a service» open the shop's site inside Telegram (Mini App — the launch data
+ *  signs the customer in), «call <shop>» answers with the phone numbers, «forgot password» sends a new password to this chat.
+ *  Without the module (or without https) the D-91 keyboard stays. */
+async function customerKeyboard(c: Customer): Promise<KbButton[][]> {
+  if (!featureOn("website") || !config.publicUrl.startsWith("https://")) return rows2(CUSTOMER_ACTIONS.map((a) => ({ text: LABEL[a].km })));
+  return [[{ text: "📋 ការកក់របស់ខ្ញុំ", web_app: `${config.publicUrl}/my` }, { text: "🗓 កក់សេវា", web_app: `${config.publicUrl}/?book` }],
+    [{ text: `${CALL}${await shopShortName(c.company_id)}` }, { text: LABEL.c_forgot.km }]];
+}
 
 // ---------- pending next-message actions (10 min) ----------
 type Pending = { kind: "arrive"; booking_id: string } | { kind: "find_customer" } | { kind: "request_service" } | { kind: "review_note"; booking_id: string } | { kind: "decline_note"; request_id: string };
@@ -457,7 +465,7 @@ async function customerBookings(c: Customer, which: "open" | "warranty" | "histo
 async function customerContact(c: Customer): Promise<Menu> {
   const r = (await sql<{ name: string; info: Record<string, string> | null }[]>`select co.name, s.company_info as info from companies co join company_settings s on s.company_id = co.id where co.id = ${c.company_id}`)[0]!;
   const i = r.info ?? {};
-  return { text: [`📞 ${i.name_km || r.name}`, i.phone ? `☎ ${i.phone}` : "", i.address ? `📍 ${i.address}` : "", "សូមទូរស័ព្ទ ឬចុច «🛠 ស្នើសេវាកម្ម» ដើម្បីទុកសារ"].filter(Boolean).join("\n") };
+  return { text: [`📞 ${i.name_km || r.name}`, i.phone ? `☎ ${i.phone}` : "", i.address ? `📍 ${i.address}` : "", featureOn("website") ? "សូមទូរស័ព្ទមកយើង ឬចុច «🗓 កក់សេវា» ដើម្បីកក់តាមគេហទំព័រ។" : "សូមទូរស័ព្ទ ឬចុច «🛠 ស្នើសេវាកម្ម» ដើម្បីទុកសារ"].filter(Boolean).join("\n") };
 }
 async function customerPromos(): Promise<Menu> {
   if (!hubConfigured()) return { text: "🎁 មិនមានប្រូម៉ូសិនពេលនេះ" };
@@ -506,7 +514,7 @@ export async function botStart(chatId: number, subscriberId?: number | null): Pr
   const u = await staffByChat(chatId);
   if (u) return staffReply(u, await staffHome(u));
   const c = await customerBySubscriber(subscriberId);
-  if (c) return { kind: "customer", text: `👋 សួស្តី ${c.name}\nជ្រើសខាងក្រោម 👇`, keyboard: customerKeyboard(), lang: "km" };
+  if (c) return { kind: "customer", text: `👋 សួស្តី ${c.name}\nជ្រើសខាងក្រោម 👇`, keyboard: await customerKeyboard(c), lang: "km" };
   return { kind: "none" };
 }
 
@@ -540,16 +548,18 @@ export async function botText(chatId: number, text: string, subscriberId?: numbe
   const pending = await takePending(chatId);
   const cr = (m: Menu): BotReply => ({ kind: "customer", lang: "km", ...(m ?? { text: "" }) });
   if (pending?.kind === "request_service" && !label) return cr(await saveRequest(c, subscriberId!, text));
+  if (!label && text.trim().startsWith(CALL)) return cr(await customerContact(c));
   switch (label) {
     case "c_bookings": return cr(await customerBookings(c, "open"));
     case "c_warranty": return cr(await customerBookings(c, "warranty"));
     case "c_history": return cr(await customerBookings(c, "history"));
     case "c_contact": return cr(await customerContact(c));
+    case "c_forgot": return cr({ text: await resetPasswordFromBot(c.company_id, subscriberId!) }); // the new password goes to this chat only; never logged
     case "c_promo": return cr(await customerPromos());
     case "c_request": await setPending(chatId, c.company_id, { kind: "request_service" }); return cr({ text: "🛠 សូមសរសេរប្រាប់យើង៖ ត្រូវការសេវាអ្វី នៅឯណា និងពេលណា (ផ្ញើជាសារ)" });
     case "me": return { kind: "customer_menu" };
     case "help": return cr({ text: HELP_CUSTOMER });
-    default: return cr({ text: "👇 សូមប្រើប៊ូតុងខាងក្រោម", keyboard: customerKeyboard() });
+    default: return cr({ text: "👇 សូមប្រើប៊ូតុងខាងក្រោម", keyboard: await customerKeyboard(c) });
   }
 }
 

@@ -1,6 +1,6 @@
 // Public shop website v2 (flag "website", D-96) — no staff login anywhere here.
-//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done · /my · /my/auth · /robots.txt
-//   public API /api/public/slots · bookings · quotes · tg-login          (signed form token, honeypot, rate limits)
+//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done · /my · /robots.txt
+//   public API /api/public/slots · bookings · quotes · login · password-reset · tg-login   (form token, honeypot, rate limits, locks)
 //   customer   /api/my …                                                  (customer session cookie "otc" — own data only)
 //   files      /pub/<file> + /pub/fonts/<file> (the site's css, js, fonts) · /pub/img/<id> (website photos) · /pub/logo
 // And the staff side: Settings → Website, and the customer requests inbox with its decisions (confirm / decline / approve / reject).
@@ -14,6 +14,7 @@ import { config } from "../config.js";
 import { sql } from "../db.js";
 import { AppError, unauthenticated } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
+import { changeCustomerPassword, passwordLogin, requestPasswordReset } from "../services/customer-auth.js";
 import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myHome, mySlots, requestReschedule, resolveCustomerSession } from "../services/customer-home.js";
 import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, type SiteView } from "../services/site.js";
@@ -77,7 +78,6 @@ const bookingBody = z.object({ service_id: uuid, at: z.string().max(40), address
   note: z.string().max(600).nullable().optional(), ...formGuard }).strict();
 const quoteBody = z.object({ category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(), name: z.string().max(200).default(""),
   phone: z.string().max(40).default(""), location: z.string().max(500).optional(), ...coord, service_id: uuid.nullable().optional(), ...formGuard }).strict();
-const WIDGET_KEYS = ["id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"] as const;
 
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireFeature("website"));
@@ -112,18 +112,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get("/my", async (req, reply) => {
     const lang = langOf(req, reply), d = await site();
     const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
-    if (!s) return html(reply, 200, loginPage(d, lang, { error: (req.query as { e?: string } | undefined)?.e ?? null, path: "/my" }), "no-store");
+    if (!s) return html(reply, 200, loginPage(d, lang, "/my"), "no-store");
     return html(reply, 200, myPage(d, lang, await myHome(s), "/my"), "no-store");
-  });
-  /** the Telegram Login Widget sends the visitor back here with the signed fields; the hub checks them with the bot token */
-  app.get("/my/auth", async (req, reply) => {
-    if (!checkRate(`site:login:ip:${req.ip}`, 10, 60)) throw new AppError("RATE_LIMITED", 429);
-    const q = (req.query ?? {}) as Record<string, unknown>, data: Record<string, string> = {};
-    for (const k of WIDGET_KEYS) if (typeof q[k] === "string" && (q[k] as string).length <= 400) data[k] = q[k] as string;
-    const r = await customerLogin({ widget: data });
-    if ("error" in r) return reply.redirect(`/my?e=${r.error}`, 302);
-    reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
-    return reply.redirect("/my", 302);
   });
   app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").header("Cache-Control", "no-cache").send(robotsTxt((await siteData())?.website.published === true)));
   app.get("/pub/img/:id", async (req, reply) => image(reply, await readSiteImage(z.object({ id: uuid }).parse(req.params).id)));
@@ -147,6 +137,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
   });
+  /** browser login (D-103): phone + password. Every failure looks the same; the locks are per phone (services/customer-auth.ts) */
+  app.post("/api/public/login", async (req, reply) => {
+    const b = z.object({ phone: z.string().max(40), password: z.string().max(200) }).strict().parse(req.body);
+    const r = await passwordLogin(req.ip, b.phone, b.password);
+    reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
+    return { ok: true };
+  });
+  /** «forgot password»: always the same answer, at once; a new password goes to the Telegram chat linked to that phone, if any */
+  app.post("/api/public/password-reset", async (req) => requestPasswordReset(req.ip, z.object({ phone: z.string().max(40) }).strict().parse(req.body).phone));
   /** opened inside Telegram (Mini App): the launch data is the login */
   app.post("/api/public/tg-login", async (req, reply) => {
     if (!checkRate(`site:login:ip:${req.ip}`, 10, 60)) throw new AppError("RATE_LIMITED", 429);
@@ -162,6 +161,12 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     await customerLogout(req.cookies[CUSTOMER_COOKIE]);
     reply.clearCookie(CUSTOMER_COOKIE, { path: "/" });
     return { ok: true };
+  });
+  /** profile → change password: needs the current one; the other sessions of this customer end */
+  app.post("/api/my/password", async (req) => {
+    const s = await customer(req);
+    const b = z.object({ current: z.string().max(200), next: z.string().max(200) }).strict().parse(req.body);
+    return changeCustomerPassword(s, req.ip, b.current, b.next);
   });
   app.get("/api/my/bookings/:id/slots", async (req) => mySlots(await customer(req), z.object({ id: uuid }).parse(req.params).id));
   app.post("/api/my/bookings/:id/cancel", async (req) => {

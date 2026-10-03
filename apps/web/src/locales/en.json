@@ -339,7 +339,11 @@
     "deactivate": "Deactivate customer",
     "activate": "Activate customer",
     "history": "History",
-    "phone_used": "This number already belongs to: {{names}}"
+    "phone_used": "This number already belongs to: {{names}}",
+    "login_locked_timed": "This customer's website login is locked for a while (too many wrong passwords)",
+    "login_locked_permanent": "This customer's website login is locked (30 wrong passwords)",
+    "login_unlock": "Unlock",
+    "login_unlocked": "Unlocked"
   },
   "catalog": {
     "title": "Products & Services",

@@ -8,7 +8,7 @@ import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
-import { tellCustomerTechnician } from "./customer-notify.js";
+import { issueInitialPassword, passwordMessage, tellSubscriber } from "./customer-auth.js";
 import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
 
@@ -271,7 +271,7 @@ const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
 export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
   const out = await assignIn(user, ip, id, a);
-  if (out.website) await tellCustomerTechnician(id); // D-96: the customer of a website booking hears who is coming
+  if (out.account) await tellSubscriber(out.account.subscriber, passwordMessage(out.account.password, "initial")); // the customer record was linked just now
   return { id: out.id, status: out.status, conflicts: out.conflicts };
 }
 async function assignIn(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
@@ -306,20 +306,23 @@ async function assignIn(user: SessionUser, ip: string | null, id: string, a: { l
       new: { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id, scheduled_at: w.start, ends_at: w.end }, ip });
     await enqueueBookingConfirmed(t, id, reason);
     // D-96: sending a technician to a website booking that still waits for an answer IS the confirmation
-    if (b.origin === "website" && b.web_status === "pending") await confirmWebBookingIn(t, user.companyId, user.id, id, ip);
-    return { id, status: "assigned" as const, conflicts: [] as unknown[], website: b.origin === "website" };
+    const account = b.origin === "website" && b.web_status === "pending" ? await confirmWebBookingIn(t, user.companyId, user.id, id, ip) : null;
+    return { id, status: "assigned" as const, conflicts: [] as unknown[], account };
   });
 }
 
 /** D-96: a website booking is confirmed — its request is done, and the Telegram chat that holds the booking's link becomes the
- *  customer's own link when the customer has none yet (the staff called the number before confirming). */
-export async function confirmWebBookingIn(t: Db, companyId: string, userId: string, bookingId: string, ip: string | null): Promise<void> {
+ *  customer's own link when the customer has none yet (the staff called the number before confirming). A record linked here gets
+ *  its first password (D-103): returned so the caller sends it to that chat AFTER the transaction — never stored in plain. */
+export async function confirmWebBookingIn(t: Db, companyId: string, userId: string, bookingId: string, ip: string | null): Promise<{ subscriber: number; password: string } | null> {
   const b = (await t<{ customer_id: string; web_subscriber_id: string | null }[]>`update bookings set web_status = 'confirmed', web_decided_by = ${userId}, web_decided_at = now()
     where id = ${bookingId} and company_id = ${companyId} and web_status = 'pending' returning customer_id, web_subscriber_id::text`)[0];
-  if (!b) return;
-  if (b.web_subscriber_id) await t`update customers set tg_subscriber_id = ${b.web_subscriber_id}::bigint where id = ${b.customer_id} and tg_subscriber_id is null`;
+  if (!b) return null;
+  const linked = b.web_subscriber_id ? (await t`update customers set tg_subscriber_id = ${b.web_subscriber_id}::bigint where id = ${b.customer_id} and tg_subscriber_id is null returning id`).length > 0 : false;
   await t`update service_requests set status = 'done', outcome = 'confirmed', handled_by = ${userId}, handled_at = now() where booking_id = ${bookingId} and kind = 'booking' and status = 'new'`;
   await audit(t, { companyId, userId, action: "booking.web_confirm", table: "bookings", rowId: bookingId, new: { web_status: "confirmed" }, ip });
+  const password = linked ? await issueInitialPassword(t, b.customer_id) : null;
+  return password ? { subscriber: Number(b.web_subscriber_id), password } : null;
 }
 
 // ---------- reschedule (D2) ------------------------------------------------------------------------------
@@ -370,7 +373,15 @@ export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | nu
   await t`update bookings set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${actor.userId} where id = ${id}`;
   await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;
   // D-96: a website booking the staff cancel before answering = declined; open requests about this booking are closed with it
-  if (b.origin === "website" && b.web_status === "pending" && actor.userId) await t`update bookings set web_status = 'declined', web_decided_by = ${actor.userId}, web_decided_at = now() where id = ${id}`;
+  if (b.origin === "website" && b.web_status === "pending" && actor.userId) {
+    await t`update bookings set web_status = 'declined', web_decided_by = ${actor.userId}, web_decided_at = now() where id = ${id}`;
+    // a customer record that exists only because of this declined request loses its Telegram link and login (nobody keeps an
+    // account on a phone number the staff never accepted); a new booking links again
+    const gone = await t<{ id: string }[]>`update customers c set tg_subscriber_id = null, password_hash = null, password_set_at = null
+      where c.id = ${b.customer_id as string} and c.origin = 'website' and c.tg_subscriber_id is not null
+        and not exists (select 1 from bookings b2 where b2.customer_id = c.id and b2.id <> ${id} and b2.status <> 'cancelled') returning c.id`;
+    if (gone.length) await t`delete from customer_sessions where customer_id = ${gone[0]!.id}`;
+  }
   await t`update service_requests set status = 'done', outcome = case when kind = 'booking' and ${actor.userId !== null} then 'declined' when kind = 'reschedule' then 'rejected' else outcome end,
       note = coalesce(note, ${reason.slice(0, 300)}), handled_by = ${actor.userId}, handled_at = now() where booking_id = ${id} and status = 'new'`;
   await audit(t, { companyId: actor.companyId, userId: actor.userId, action: "booking.cancel", source: actor.userId ? "app" : "system", table: "bookings", rowId: id, old: { status: b.status }, new: { status: "cancelled", reason }, ip });

@@ -1,11 +1,9 @@
-// Customer home (D-96): a customer logs in with Telegram — the Login Widget on the website, or the launch data when the site
-// is opened inside Telegram as a Mini App. The hub checks the signature with the shop bot's token (the shop never holds it) and
-// says which subscriber of THIS shop it is. The shop maps the subscriber to bookings: the ones whose Telegram link this chat
-// holds, and every booking of a customer record linked to it. Every function here takes the session and filters by it —
-// a customer only ever reads or changes own data (IDOR tests in 210_website).
-import { randomBytes } from "node:crypto";
+// Customer home (D-101 · login D-103): in a browser the customer signs in with phone + password (services/customer-auth.ts);
+// opened inside Telegram as a Mini App the launch data signs in — the hub checks its signature with the shop bot's token (the
+// shop never holds it), not older than 24 hours, and says which subscriber of THIS shop it is. A session maps to bookings: the
+// ones whose Telegram link the chat holds, and every booking of a customer record linked to it. Every function here takes the
+// session and filters by it — a customer only ever reads or changes own data (IDOR tests in 210_website).
 import { DEFAULT_DURATION_MIN, EDITABLE_STATUSES, type BookingStatus } from "@sms/shared";
-import { config } from "../config.js";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
@@ -13,6 +11,7 @@ import { sha256 } from "../lib/secure.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { cancelBookingIn, rescheduleBooking, warrantyJson } from "./bookings.js";
+import { newCustomerSession } from "./customer-auth.js";
 import { tellCustomer } from "./customer-notify.js";
 import { hubCall, hubConfigured } from "./hub-client.js";
 import { notifyRequestStaff } from "./requests.js";
@@ -21,25 +20,32 @@ import { fmtLocal } from "./telegram.js";
 import { customerState, publicDays, slotGrid } from "./web-booking.js";
 
 export const CUSTOMER_COOKIE = "otc";
-export type CustomerSession = { id: string; companyId: string; subscriberId: number; name: string | null };
+/** customerId: the account of a phone + password login; null for a login from inside Telegram (the chat is the identity) */
+export type CustomerSession = { id: string; companyId: string; subscriberId: number; customerId: string | null; name: string | null };
+/** Telegram launch data may be this old (final brief: reject auth_date older than 24 h) */
+const MINI_APP_MAX_AGE = 86_400;
 
-/** Telegram says who it is (checked by the hub); only someone the hub knows as a subscriber of this shop gets a session */
-export async function customerLogin(v: { widget: Record<string, string> } | { init_data: string }): Promise<{ token: string } | { error: "auth" | "nolink" }> {
+/** opened inside Telegram: the launch data says who it is (checked by the hub with the shop bot's token); only someone the hub
+ *  knows as a subscriber of this shop gets a session */
+export async function customerLogin(v: { init_data: string }): Promise<{ token: string } | { error: "auth" | "nolink" }> {
   const companyId = await siteCompanyId();
   if (!companyId || !hubConfigured()) return { error: "auth" };
-  const r = await ("widget" in v ? hubCall("POST", "/internal/tg-login-verify", { data: v.widget }) : hubCall("POST", "/internal/tg-verify", { init_data: v.init_data })).catch(() => null);
+  const r = await hubCall("POST", "/internal/tg-verify", { init_data: v.init_data, max_age: MINI_APP_MAX_AGE }).catch(() => null);
   if (!r || r.status !== 200 || r.json?.ok !== true || typeof r.json.tg_user !== "number") return { error: "auth" };
   if (typeof r.json.subscriber_id !== "number") return { error: "nolink" };
-  const token = randomBytes(32).toString("base64url");
-  await sql`insert into customer_sessions (company_id, subscriber_id, tg_user, name, token_hash, expires_at)
-    values (${companyId}, ${r.json.subscriber_id}, ${r.json.tg_user}, ${typeof r.json.first_name === "string" ? r.json.first_name.slice(0, 100) : null}, ${sha256(token)}, now() + ${config.sessionDays}::int * interval '1 day')`;
-  return { token };
+  return { token: await newCustomerSession({ companyId, subscriberId: r.json.subscriber_id, customerId: null, tgUser: r.json.tg_user,
+    name: typeof r.json.first_name === "string" ? r.json.first_name : null, via: "telegram" }) };
 }
+/** a password session lives only while its customer record is active and linked to a Telegram chat (that chat decides what it sees) */
 export async function resolveCustomerSession(token: string | undefined): Promise<CustomerSession | null> {
   if (!token) return null;
-  const r = (await sql<{ id: string; company_id: string; sub: string; name: string | null }[]>`update customer_sessions set last_seen_at = now()
-    where token_hash = ${sha256(token)} and expires_at > now() returning id, company_id, subscriber_id::text as sub, name`)[0];
-  return r ? { id: r.id, companyId: r.company_id, subscriberId: Number(r.sub), name: r.name } : null;
+  const r = (await sql<{ id: string; company_id: string; sub: string | null; name: string | null; customer_id: string | null; stale: boolean }[]>`
+    select s.id, s.company_id, s.name, s.customer_id, s.last_seen_at < now() - interval '1 hour' as stale,
+      (case when s.customer_id is null then s.subscriber_id else c.tg_subscriber_id end)::text as sub
+    from customer_sessions s left join customers c on c.id = s.customer_id and c.is_active where s.token_hash = ${sha256(token)} and s.expires_at > now()`)[0];
+  if (!r?.sub) return null;
+  if (r.stale) await sql`update customer_sessions set last_seen_at = now() where id = ${r.id}`;
+  return { id: r.id, companyId: r.company_id, subscriberId: Number(r.sub), customerId: r.customer_id, name: r.name };
 }
 export async function customerLogout(token: string | undefined): Promise<void> {
   if (token) await sql`delete from customer_sessions where token_hash = ${sha256(token)}`;

@@ -37,7 +37,15 @@
       var tg = window.Telegram && window.Telegram.WebApp;
       if (!tg) return;
       try { tg.ready(); tg.expand(); } catch (e) { /* older clients */ }
-      if (page === "login" && tg.initData) send("POST", "/api/public/tg-login", { init_data: tg.initData }).then(function (r) { if (r.ok) location.replace("/my"); });
+      // the launch data signs a linked customer in (checked by the hub). The bot's menu button opens "/": a customer lands on
+      // the customer home; «book a service» opens "/?book" and stays on the booking screen.
+      var tried = false;
+      try { tried = !!sessionStorage.getItem("otcTried"); sessionStorage.setItem("otcTried", "1"); } catch (e) { /* storage blocked */ }
+      if (tg.initData && (page === "login" || (page === "home" && !tried))) {
+        send("POST", "/api/public/tg-login", { init_data: tg.initData }).then(function (r) {
+          if (r.ok && (page === "login" || (location.pathname === "/" && !location.search))) location.replace("/my");
+        });
+      }
     };
     document.head.appendChild(tgs);
   }
@@ -100,6 +108,34 @@
     });
     root.innerHTML = h;
   }
+
+  // ---- sign in: phone + password; «forgot password» always answers the same
+  if (page === "login") (function () {
+    var err = $("#err"), ok = $("#reset-ok"), go = $("#login");
+    clearOnEdit($("main"), err);
+    var digits = function () { return $("#phone").value.replace(/\D/g, "").length; };
+    go.addEventListener("click", function () {
+      var pw = $("#pw").value;
+      ok.hidden = true;
+      if (digits() < 8) return showErr(err, "INVALID_PHONE");
+      if (!pw) return showErr(err, "INVALID_CREDENTIALS");
+      busy(go, true);
+      send("POST", "/api/public/login", { phone: $("#phone").value.trim(), password: pw }).then(function (r) {
+        if (r.ok) return location.assign("/my");
+        busy(go, false);
+        var code = r.json.error || "ERROR";
+        showErr(err, code);
+        if (code === "LOCKED" && r.json.details) err.textContent = msg(code).replace("{n}", r.json.details.minutes);
+      }).catch(function () { busy(go, false); showErr(err, "ERROR"); });
+    });
+    $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
+    $("#forgot").addEventListener("click", function () {
+      if (digits() < 8) return showErr(err, "INVALID_PHONE");
+      hideErr(err);
+      var done = function () { ok.hidden = false; };
+      send("POST", "/api/public/password-reset", { phone: $("#phone").value.trim() }).then(done, done);
+    });
+  })();
 
   // ---- 1 · home: the services beyond the first four
   if (page === "home") {
@@ -238,6 +274,22 @@
   // ---- 6 · customer home: cancel with a reason, ask for another time, sign out
   if (page === "my") (function () {
     $("#logout").addEventListener("click", function () { send("POST", "/api/my/logout", {}).then(function () { location.assign("/"); }); });
+    // profile → change password (needs the current one)
+    var card = $("#pw-card"), perr = $("#pw-err"), pok = $("#pw-ok");
+    $("#pw-open").addEventListener("click", function () { card.hidden = false; pok.hidden = true; hideErr(perr); $("#pw-cur").focus(); });
+    $("#pw-close").addEventListener("click", function () { card.hidden = true; });
+    clearOnEdit(card, perr);
+    $("#pw-save").addEventListener("click", function () {
+      var btn = this, cur = $("#pw-cur").value, next = $("#pw-new").value;
+      pok.hidden = true;
+      if (next.length < 4) return showErr(perr, "PASSWORD_TOO_SHORT");
+      btn.disabled = true;
+      send("POST", "/api/my/password", { current: cur, next: next }).then(function (r) {
+        btn.disabled = false;
+        if (!r.ok) return showErr(perr, r.json.error || "ERROR");
+        $("#pw-cur").value = ""; $("#pw-new").value = ""; hideErr(perr); pok.hidden = false;
+      }).catch(function () { btn.disabled = false; showErr(perr, "ERROR"); });
+    });
     $$("[data-booking]").forEach(function (card) {
       var id = card.dataset.booking, err = $(".err", card), pc = $('[data-panel="cancel"]', card), pm = $('[data-panel="move"]', card), st = null;
       function close() { if (pc) pc.hidden = true; if (pm) pm.hidden = true; hideErr(err); }

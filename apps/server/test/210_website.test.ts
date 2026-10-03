@@ -1,8 +1,10 @@
 // Public shop website v2 (D-96, flag "website") — tests first. Routing ("/" is always the customer site, the staff app lives
 // under /app), "from" prices (who may set them), online booking (slots only when a technician is free, consent, hold, race),
 // the single-use Telegram link of a booking, confirm / decline by Admin + GM, quote requests with photos (metadata stripped),
-// the customer home (Telegram login, own data only) and what stays from v1 (Settings → Website, indexing, one language per page).
-// The Telegram signature checks themselves run on the hub: see 40_hub_telegram (the hub is a stub here).
+// the customer login (phone + password sent by the bot — no Login Widget: hashing, every lock step, counter reset, unlock paths,
+// reset only to the linked chat, no enumeration, session invalidation, /app closed to customers), the customer home (own data
+// only), the bot tracking messages, and what stays from v1 (Settings → Website, indexing, one language per page).
+// The Telegram launch-data signature itself is checked on the hub: see 40_hub_telegram (the hub is a stub here).
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
@@ -14,6 +16,8 @@ import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
+import { resetSettled } from "../src/services/customer-auth.js";
+import { customerNotices } from "../src/services/customer-notify.js";
 import { resetBotCache, setHubTransport } from "../src/services/hub-client.js";
 import { formToken } from "../src/services/site.js";
 import { webLimits } from "../src/services/web-booking.js";
@@ -59,10 +63,13 @@ const bookingOf = async (ref: string) => (await sql<Record<string, any>[]>`selec
   from bookings b join customers c on c.id = b.customer_id where b.web_ref = ${ref}`)[0]!;
 const requestOf = async (bookingId: string, kind = "booking") => (await sql<Record<string, any>[]>`select * from service_requests where booking_id = ${bookingId} and kind = ${kind} order by created_at desc limit 1`)[0]!;
 const linkToken = async (ref: string) => /start=(b-[A-Za-z0-9_-]{20})"/.exec((await page(`/book/done/${ref}`)).body)?.[1] ?? null;
-/** the Telegram Login Widget comes back to /my/auth — the hub (stub) says who it is */
-async function tgLogin(hash: string): Promise<Client> {
+/** the password a bot message carries (a line of its own) */
+const pwIn = (text: unknown): string | null => /^(\d{4})$/m.exec(String(text ?? ""))?.[1] ?? null;
+let pwA = ""; // customer A's first password — set when A's chat is linked
+const tryLogin = (phone: string, password: string) => pub("POST", "/api/public/login", { phone, password });
+async function signIn(phone: string, password: string): Promise<Client> {
   const c = client(app);
-  await c.req("GET", `/my/auth?id=1&first_name=x&auth_date=${Math.floor(Date.now() / 1000)}&hash=${hash}`);
+  await c.req("POST", "/api/public/login", { phone, password });
   return c;
 }
 const counts = async () => (await sql`select (select count(*) from customers)::int as c, (select count(*) from bookings)::int as b, (select count(*) from service_requests)::int as r`)[0];
@@ -90,12 +97,12 @@ beforeAll(async () => {
   setHubTransport(async (_method, path, body) => {
     hubCalls.push({ path, body });
     if (path === "/internal/bot") return { status: 200, json: { username: "Oneteam_app_bot" } };
-    if (path === "/internal/tg-login-verify") {
-      const who = ({ "good-a": { tg_user: 501, subscriber_id: SUB.a, first_name: "Sok" }, "good-b": { tg_user: 502, subscriber_id: SUB.b, first_name: "Bopha" },
-        "good-c": { tg_user: 503, subscriber_id: SUB.c, first_name: "Chan" }, "good-none": { tg_user: 504, subscriber_id: null, first_name: "New" } } as Record<string, object>)[String((body as any).data.hash)];
+    if (path === "/internal/tg-verify") {
+      const who = ({ "mini-a": { tg_user: 501, subscriber_id: SUB.a, first_name: "Sok" }, "mini-b": { tg_user: 502, subscriber_id: SUB.b, first_name: "Bopha" },
+        "mini-c": { tg_user: 503, subscriber_id: SUB.c, first_name: "Chan" }, "mini-none": { tg_user: 504, subscriber_id: null, first_name: "New" } } as Record<string, object>)[String((body as any).init_data)];
       return { status: 200, json: who ? { ok: true, ...who } : { ok: false, error: "BAD_SIGNATURE" } };
     }
-    if (path === "/internal/tg-verify") return { status: 200, json: (body as any).init_data === "mini-a" ? { ok: true, tg_user: 501, subscriber_id: SUB.a, first_name: "Sok" } : { ok: false, error: "BAD_SIGNATURE" } };
+    if (path === "/internal/notify-subscriber" && (body as any).subscriber_id === 99) return { status: 200, json: { ok: false, error: "NOT_SUBSCRIBED" } }; // stopped the bot
     return { status: 200, json: { ok: true } };
   });
   resetBotCache();
@@ -344,9 +351,12 @@ describe("«request sent» screen + the single-use Telegram link", () => {
   it("the token works once: the first chat is linked to this booking, a second use is refused; unknown and expired tokens are refused", async () => {
     const token = (await linkToken(ref1))!;
     expect(token).toBeTruthy();
-    expect((await internal("customer-subscribed", { code: token, subscriber_id: SUB.a })).json()).toMatchObject({ ok: true, booking: (await bookingOf(ref1)).number });
+    const linked = (await internal("customer-subscribed", { code: token, subscriber_id: SUB.a })).json();
+    expect(linked).toMatchObject({ ok: true, booking: (await bookingOf(ref1)).number, menu_url: "https://oneteam.test/" }); // the hub sets the chat's menu button to the site
+    pwA = pwIn(linked.after)!; // the first password: ONE bot message, with the hint and the advice to change it
+    expect(pwA).toMatch(/^\d{4}$/); expect(linked.after).toContain("កុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើត"); expect(linked.after).toContain("សូមប្ដូរ");
     expect(Number((await bookingOf(ref1)).web_subscriber_id)).toBe(SUB.a);
-    expect((await bookingOf(ref1)).csub).toBeNull(); // the customer record itself is linked when the staff confirm (they called the number)
+    expect(Number((await bookingOf(ref1)).csub)).toBe(SUB.a); // a record made by this very booking is linked at once; an older record waits for the staff (see «a known phone number…»)
     expect((await internal("customer-subscribed", { code: token, subscriber_id: SUB.b })).json()).toMatchObject({ ok: false, error: "CODE_USED" });
     expect(Number((await bookingOf(ref1)).web_subscriber_id)).toBe(SUB.a);
     expect((await internal("customer-subscribed", { code: "b-AAAAAAAAAAAAAAAAAAAA", subscriber_id: SUB.b })).json()).toMatchObject({ ok: false, error: "CODE_INVALID" });
@@ -373,6 +383,7 @@ describe("Admin / GM confirm or decline (app and bot)", () => {
     expect(b).toMatchObject({ status: "new", web_status: "confirmed", web_decided_by: s.users.admin }); expect(Number(b.csub)).toBe(SUB.a);
     expect(await requestOf(bk1)).toMatchObject({ status: "done", outcome: "confirmed", handled_by: s.users.admin });
     expect(told(SUB.a).join("\n")).toContain(b.number); expect(told(SUB.a).join("\n")).toContain("បានបញ្ជាក់");
+    expect(told(SUB.a).some((x) => pwIn(x) !== null)).toBe(false); // the password was sent once, with the link — not again
     expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`)).status).toBe(404); // once
     expect((await page(`/book/done/${ref1}`)).body).toContain("បានបញ្ជាក់");
     expect((await sql`select 1 from audit_log where action = 'booking.web_confirm' and row_id = ${bk1}`).length).toBe(1);
@@ -411,10 +422,10 @@ describe("Admin / GM confirm or decline (app and bot)", () => {
     expect(await bookingOf(r2)).toMatchObject({ status: "cancelled", web_status: "declined", cancel_reason: "ក្រៅតំបន់សេវា", web_decided_by: s.users.gm01 });
   });
 
-  it("when a technician is assigned, the customer hears who is coming", async () => {
+  it("assigning a technician sends the customer nothing by itself — the tracking messages come from the sweep (reminder, on the way, done)", async () => {
     hubCalls.length = 0;
     expect((await gm.req("POST", `/api/bookings/${bk1}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
-    expect(told(SUB.a).join("\n")).toContain("Kim");
+    expect(told(SUB.a)).toHaveLength(0);
   });
 });
 
@@ -463,26 +474,182 @@ describe("quote request (services without a price) with photos", () => {
   });
 });
 
-describe("customer home: Telegram login, own data only", () => {
-  let bkB: string, closedB: string, bkC: string, refC: string;
-  let A: Client, B: Client;
-  it("without a session: the Telegram Login Widget of the shop's own bot; a wrong signature, or a Telegram account without any link, gets no session", async () => {
+describe("customer login: phone + password from the bot — no Telegram Login Widget", () => {
+  const PHONE_B = "012666555";
+  let pwB = "";
+  const guard = async (phone: string) => (await sql<{ failed: number; locked_until: Date | null; permanent: boolean }[]>`select failed, locked_until, permanent from customer_login_guards where phone = ${phone}`)[0] ?? null;
+  /** n wrong passwords in a row → [status, code, minutes] of each answer */
+  const wrong = async (phone: string, n: number) => {
+    const out: unknown[][] = [];
+    for (let i = 0; i < n; i++) { resetRateLimits(); const r = await tryLogin(phone, "9z9z"); out.push([r.statusCode, r.json().error, r.json().details?.minutes]); }
+    return out;
+  };
+  const lockOver = (phone: string) => sql`update customer_login_guards set locked_until = now() - interval '1 second' where phone = ${phone}`;
+  const forgotInBot = async () => pwIn((await internal("tg-text", { chat_id: 930002, tg_user: 930002, text: "🔑 ភ្លេចពាក្យសម្ងាត់", subscriber_id: SUB.b })).json().text)!;
+
+  it("the sign-in screen: phone + password, «forgot password», «link Telegram first» with the bot button — and no Login Widget", async () => {
     const r = await page("/my");
     expect(r.statusCode).toBe(200);
-    expect(r.body).toContain('src="https://telegram.org/js/telegram-widget.js?22"'); expect(r.body).toContain('data-telegram-login="Oneteam_app_bot"'); expect(r.body).toContain('data-auth-url="https://oneteam.test/my/auth"');
+    for (const x of ['id="phone"', 'id="pw"', 'type="password"', "ភ្លេចពាក្យសម្ងាត់?", "សូមភ្ជាប់ Telegram ជាមុនសិន", 'href="https://t.me/Oneteam_app_bot"', 'content="noindex,nofollow"']) expect(r.body).toContain(x);
+    expect(r.body).not.toContain("telegram-widget"); expect(r.body).not.toContain("data-telegram-login");
+    expect((await page("/my/auth?id=1&hash=x")).statusCode).toBe(404); // the widget's return address is gone
     expect((await pub("GET", "/api/my")).statusCode).toBe(401);
     expect((await page("/api/my", { cookie: ceo.cookie! })).statusCode).toBe(401); // a staff session is not a customer session
-    hubCalls.length = 0;
-    const bad = await page(`/my/auth?id=501&first_name=Sok&auth_date=${Math.floor(Date.now() / 1000)}&hash=forged`);
-    expect(bad.statusCode).toBe(302); expect(bad.headers.location).toBe("/my?e=auth"); expect(bad.headers["set-cookie"]).toBeUndefined();
-    expect(hubCalls.find((c) => c.path === "/internal/tg-login-verify")!.body.data).toMatchObject({ id: "501", first_name: "Sok", hash: "forged" }); // the hub checks the hash with the bot token
-    const none = await page(`/my/auth?id=504&auth_date=${Math.floor(Date.now() / 1000)}&hash=good-none`);
-    expect(none.headers.location).toBe("/my?e=nolink"); expect(none.headers["set-cookie"]).toBeUndefined();
-    expect((await pub("POST", "/api/public/tg-login", { init_data: "forged" })).statusCode).toBe(401);
   });
 
-  it("logged in: the upcoming booking with status and technician, past jobs with the warranty end and «book again» — and nothing of other customers", async () => {
-    // customer B (linked by the staff link): one upcoming job + one closed job
+  it("the first password came ONCE in the bot message of the link; only an argon2 hash is stored; nothing else carries it", async () => {
+    expect(pwA).toMatch(/^\d{4}$/);
+    const c = (await sql<{ password_hash: string; phones: string[] }[]>`select password_hash, phones from customers where tg_subscriber_id = ${SUB.a}`)[0]!;
+    expect(c.password_hash).toMatch(/^\$argon2id\$/); expect(c.password_hash).not.toContain(pwA);
+    expect((await sql`select new_data from audit_log where action = 'customer.password_sent'`).map((x) => x.new_data)).toEqual([{ kind: "initial" }]); // sent — and no secret in the log
+    expect((await sql`select 1 from telegram_outbox where text like '%ពាក្យសម្ងាត់%'`).length).toBe(0);   // never through the stored outbox
+    expect((await sql`select 1 from notifications where body like '%ពាក្យសម្ងាត់%' or title like '%ពាក្យសម្ងាត់%'`).length).toBe(0);
+    // a second link of the same customer sends no second password
+    const again = await sql`select password_set_at from customers where tg_subscriber_id = ${SUB.a}`;
+    expect(again).toHaveLength(1);
+  });
+
+  it("login: the right phone + password opens a customer session; a wrong password and an unknown number get the same answer", async () => {
+    const bad = await tryLogin("12 345 678", "0000"), unknown = await tryLogin("099 111 222", "0000");
+    expect(bad.statusCode).toBe(401); expect(bad.json()).toEqual({ error: "INVALID_CREDENTIALS" });
+    expect([unknown.statusCode, unknown.json()]).toEqual([bad.statusCode, bad.json()]); // no hint whether the number has an account
+    expect(bad.headers["set-cookie"]).toBeUndefined();
+    const ok = await tryLogin("+855 12 345 678", pwA);
+    expect(ok.statusCode).toBe(200); expect(String(ok.headers["set-cookie"])).toMatch(/^otc=[^;]+;.*HttpOnly/i);
+    expect(await guard("012345678")).toBeNull(); // counter reset on success
+    const A = await signIn("12 345 678", pwA);
+    expect((await A.req("GET", "/api/my")).status).toBe(200);
+    expect((await sql`select via, customer_id is not null as account from customer_sessions where subscriber_id = ${SUB.a} order by created_at desc limit 1`)[0]).toMatchObject({ via: "password", account: true });
+  });
+
+  it("locks per phone: 10 wrong → 3 min, 15 → 5 min, 20 → 30 min, 30 → until a reset; while locked even the right password is refused", async () => {
+    await sql`update users set telegram_chat_id = null where telegram_chat_id = 930002`;
+    pwB = await forgotInBot(); // customer B was linked by the staff: «forgot password» in the bot gives the first password
+    expect(pwB).toMatch(/^\d{4}$/);
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
+    const nine = await wrong(PHONE_B, 9);
+    expect(nine.every((x) => x[0] === 401 && x[1] === "INVALID_CREDENTIALS")).toBe(true);
+    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 3]);
+    const locked = await tryLogin(PHONE_B, pwB);
+    expect([locked.statusCode, locked.json().error]).toEqual([423, "LOCKED"]); expect((await guard(PHONE_B))!.failed).toBe(10); // refused, not counted
+    await lockOver(PHONE_B);
+    expect((await wrong(PHONE_B, 4)).every((x) => x[0] === 401)).toBe(true);
+    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 5]);
+    await lockOver(PHONE_B);
+    expect((await wrong(PHONE_B, 4)).every((x) => x[0] === 401)).toBe(true);
+    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 30]);
+    await lockOver(PHONE_B);
+    expect((await wrong(PHONE_B, 9)).every((x) => x[0] === 401)).toBe(true);
+    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED_PERMANENT", undefined]);
+    expect(await guard(PHONE_B)).toMatchObject({ failed: 30, permanent: true });
+    await lockOver(PHONE_B); // time does not end this one
+    const still = await tryLogin(PHONE_B, pwB);
+    expect([still.statusCode, still.json().error]).toEqual([423, "LOCKED_PERMANENT"]);
+    expect((await sql`select new_data from audit_log where action = 'customer.login_locked' order by id`).map((x) => x.new_data.minutes)).toEqual([3, 5, 30, null]);
+  });
+
+  it("no enumeration: a number without an account climbs exactly the same ladder", async () => {
+    const ghost = await wrong("097 000 111", 10);
+    expect(ghost.slice(0, 9).every((x) => x[0] === 401 && x[1] === "INVALID_CREDENTIALS")).toBe(true);
+    expect(ghost[9]).toEqual([423, "LOCKED", 3]);
+  });
+
+  it("unlock paths: Admin / GM unlock in the app (audit logged) or a reset through the bot — nothing else; a success restarts the counter", async () => {
+    expect((await kim.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(403);
+    expect((await cfo.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(403);
+    expect((await ceoB.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(404);
+    expect((await admin.req("GET", `/api/customers/${custB}/history`)).json.login).toEqual({ linked: true, has_password: true, locked: "permanent" });
+    expect((await admin.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(200);
+    expect((await sql`select user_id from audit_log where action = 'customer.login_unlocked' and row_id = ${custB}`)[0]).toMatchObject({ user_id: s.users.admin });
+    expect((await admin.req("GET", `/api/customers/${custB}/history`)).json.login.locked).toBe("none");
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200); // the password itself was never changed by the unlock
+    // counter reset: 3 wrong, 1 right, then the next wrong one counts as the first again
+    await wrong(PHONE_B, 3);
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
+    await wrong(PHONE_B, 1);
+    expect((await guard(PHONE_B))!.failed).toBe(1);
+    // the other way out of a permanent lock: a new password through the bot (to the linked chat itself)
+    await sql`update customer_login_guards set failed = 30, permanent = true where phone = ${PHONE_B}`;
+    expect((await gm.req("GET", `/api/customers/${custB}/history`)).json.login.locked).toBe("permanent");
+    const old = pwB;
+    pwB = await forgotInBot();
+    expect(pwB).toMatch(/^\d{4}$/); expect(await guard(PHONE_B)).toBeNull();
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
+    if (old !== pwB) expect((await tryLogin(PHONE_B, old)).statusCode).toBe(401);
+  });
+
+  it("forgot password on the page: the new password goes ONLY to the Telegram chat linked to that phone; the screen answers the same for any number; 3 an hour; every session ends", async () => {
+    const before = await signIn(PHONE_B, pwB);
+    expect((await before.req("GET", "/api/my")).status).toBe(200);
+    hubCalls.length = 0;
+    const known = await pub("POST", "/api/public/password-reset", { phone: "12 666 555" }); await resetSettled();
+    const sentTo = hubCalls.filter((c) => c.path === "/internal/notify-subscriber");
+    expect(sentTo).toHaveLength(1); expect(sentTo[0]!.body.subscriber_id).toBe(SUB.b); // the linked chat, nobody else
+    const fresh = pwIn(sentTo[0]!.body.text)!;
+    expect(fresh).toMatch(/^\d{4}$/); expect(sentTo[0]!.body.text).toContain("កុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើត");
+    expect((await before.req("GET", "/api/my")).status).toBe(401); // every session of that customer ended
+    expect((await tryLogin(PHONE_B, fresh)).statusCode).toBe(200);
+    pwB = fresh;
+    hubCalls.length = 0;
+    const unknown = await pub("POST", "/api/public/password-reset", { phone: "097 000 222" }); await resetSettled();
+    const unlinked = await pub("POST", "/api/public/password-reset", { phone: "011 555 000" }); await resetSettled(); // a customer without Telegram
+    for (const r of [unknown, unlinked]) expect([r.statusCode, r.json()]).toEqual([known.statusCode, known.json()]); // {"ok":true} every time
+    expect(hubCalls.filter((c) => c.path === "/internal/notify-subscriber")).toHaveLength(0);
+    // at most 3 new passwords an hour per phone (the first one above counted)
+    for (let i = 0; i < 4; i++) { await pub("POST", "/api/public/password-reset", { phone: PHONE_B }); await resetSettled(); }
+    const more = hubCalls.filter((c) => c.path === "/internal/notify-subscriber");
+    expect(more).toHaveLength(2);
+    pwB = pwIn(more.at(-1)!.body.text)!;
+    expect((await sql`select count(*)::int as n from audit_log where action = 'customer.password_reset' and row_id = ${custB}`)[0]!.n).toBeGreaterThanOrEqual(4);
+    expect((await sql`select new_data from audit_log where action = 'customer.password_reset' order by id desc limit 1`)[0]!.new_data).toEqual({ via: "web" });
+  });
+
+  it("change password: needs the current one, at least 4 characters, nothing easy to guess; the other sessions end", async () => {
+    resetRateLimits();
+    const one = await signIn(PHONE_B, pwB), two = await signIn(PHONE_B, pwB);
+    const change = (c: Client, current: string, next: string) => c.req("POST", "/api/my/password", { current, next });
+    expect((await change(one, "0000", "2580")).json).toMatchObject({ error: "WRONG_PASSWORD" });
+    expect((await change(one, pwB, "258")).json).toMatchObject({ error: "PASSWORD_TOO_SHORT" });
+    for (const weak of ["1111", "1234", "4321", "6555" /* last 4 digits of the own phone */]) expect((await change(one, pwB, weak)).json).toMatchObject({ error: "WEAK_PASSWORD" });
+    expect((await change(one, pwB, "1212")).status).toBe(200); // repeats like 1212 are allowed
+    expect((await one.req("GET", "/api/my")).status).toBe(200); expect((await two.req("GET", "/api/my")).status).toBe(401);
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(pwB === "1212" ? 200 : 401);
+    pwB = "1212";
+    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
+    expect((await sql`select password_hash from customers where id = ${custB}`)[0]!.password_hash).toMatch(/^\$argon2id\$/);
+    expect((await sql`select 1 from audit_log where action = 'customer.password_changed' and row_id = ${custB}`).length).toBe(1);
+    expect((await pub("POST", "/api/my/password", { current: pwB, next: "2580" })).statusCode).toBe(401); // no session, no change
+  });
+
+  it("a customer session never opens the staff app; inside Telegram the launch data signs in (checked by the hub, up to 24 h old)", async () => {
+    const B = await signIn(PHONE_B, pwB);
+    for (const u of ["/app/", "/app/bookings/5", "/app/requests"]) { const r = await page(u, { cookie: B.cookie! }); expect(r.statusCode).toBe(302); expect(r.headers.location).toBe("/my"); }
+    for (const u of ["/api/bookings", "/api/customers", "/api/me", "/api/requests"]) expect((await page(u, { cookie: B.cookie! })).statusCode).toBe(401);
+    expect((await pub("POST", "/api/auth/login", { identifier: PHONE_B, password: pwB })).statusCode).toBe(401); // a customer password is no staff login
+    expect((await page("/app/", { cookie: `${ceo.cookie}; ${B.cookie}` })).body).toContain("SPA-INDEX"); // a staff session keeps the app
+    hubCalls.length = 0;
+    const mini = client(app);
+    expect((await mini.req("POST", "/api/public/tg-login", { init_data: "mini-b" })).status).toBe(200);
+    expect(hubCalls.find((c) => c.path === "/internal/tg-verify")!.body).toEqual({ init_data: "mini-b", max_age: 86400 });
+    expect(mini.cookie).toMatch(/^otc=/); expect((await mini.req("GET", "/api/my")).json.name).toBe("បុប្ផា");
+    expect(await code(pub("POST", "/api/public/tg-login", { init_data: "forged" }))).toEqual([401, "INVALID_CREDENTIALS"]);
+    expect(await code(pub("POST", "/api/public/tg-login", { init_data: "mini-none" }))).toEqual([409, "NOT_LINKED"]);
+  });
+
+  it("per visitor: after 50 failed logins in an hour the next one is refused, whatever the number", async () => {
+    resetRateLimits();
+    for (let i = 0; i < 50; i++) expect((await tryLogin(`0965550${String(i).padStart(2, "0")}`, "9z9z")).statusCode).toBe(401);
+    expect(await code(tryLogin("096555099", "9z9z"))).toEqual([429, "RATE_LIMITED"]);
+    expect(await code(tryLogin(PHONE_B, pwB))).toEqual([429, "RATE_LIMITED"]);
+    resetRateLimits();
+  });
+});
+
+describe("customer home: own data only", () => {
+  let bkB: string, closedB: string, bkC: string, refC: string;
+  let A: Client, B: Client;
+  it("the upcoming booking with status and technician, past jobs with the warranty end and «book again» — and nothing of other customers", async () => {
+    // customer B (linked by the staff): one upcoming job + one closed job
     bkB = await staffJob((await slotOf(5, "15:00")).at, [s.users.dara!], custB);
     closedB = await staffJob((await slotOf(6, "15:00")).at, [s.users.dara!], custB);
     await sql`update bookings set service_item_id = ${acId} where id = ${closedB}`;
@@ -491,7 +658,8 @@ describe("customer home: Telegram login, own data only", () => {
     await admin.req("POST", `/api/invoices/${inv}/issue`);
     await admin.req("POST", `/api/invoices/${inv}/payments`, { amount: 1500, currency: "usd", method: "cash_usd" });
     expect((await ceo.req("GET", `/api/bookings/${closedB}`)).json.status).toBe("closed");
-    A = await tgLogin("good-a"); B = await tgLogin("good-b");
+    const pwB = pwIn((await internal("tg-text", { chat_id: 930002, tg_user: 930002, text: "🔑 ភ្លេចពាក្យសម្ងាត់", subscriber_id: SUB.b })).json().text)!;
+    A = await signIn("12 345 678", pwA); B = await signIn("012666555", pwB);
     expect(A.cookie).toMatch(/^otc=/); expect(B.cookie).toMatch(/^otc=/);
     const a = (await A.req("GET", "/api/my")).json;
     expect(a.name).toBe("សុខ ដារ៉ា");
@@ -499,10 +667,10 @@ describe("customer home: Telegram login, own data only", () => {
     const b = (await B.req("GET", "/api/my")).json;
     expect(b.upcoming.map((x: any) => x.id)).toEqual([bkB]); expect(b.past.map((x: any) => x.id)).toEqual([closedB]);
     expect(b.past[0].warranty).toMatchObject({ active: true }); expect(b.past[0].rebook).toBe(`/book?service=${acId}`);
-    expect(JSON.stringify(a)).not.toContain(bkB); expect(JSON.stringify(b)).not.toContain(bk1); expect(JSON.stringify(a)).not.toMatch(/sell_price|012666555|បុប្ផា/);
+    expect(JSON.stringify(a)).not.toContain(bkB); expect(JSON.stringify(b)).not.toContain(bk1); expect(JSON.stringify(a)).not.toMatch(/sell_price|012666555|បុប្ផា|password/);
     const html = (await page("/my", { cookie: A.cookie! })).body;
     expect(html).toContain("សួស្តី"); expect(html).toContain("សុខ ដារ៉ា"); expect(html).toContain(`#${(await bookingOf(ref1)).number}`); expect(html).toContain("បានបញ្ជាក់"); expect(html).toContain("ជាង Kim");
-    expect(html).toContain("ស្នើប្ដូរម៉ោង"); expect(html).toContain("កក់សេវាថ្មី"); expect(html).not.toContain("បុប្ផា");
+    expect(html).toContain("ស្នើប្ដូរម៉ោង"); expect(html).toContain("កក់សេវាថ្មី"); expect(html).toContain("ប្ដូរពាក្យសម្ងាត់"); expect(html).toContain("កុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើត"); expect(html).not.toContain("បុប្ផា");
     const htmlB = (await page("/my", { cookie: B.cookie! })).body;
     expect(htmlB).toContain("ធានាដល់"); expect(htmlB).toContain("កក់ម្ដងទៀត"); expect(htmlB).toContain(`href="/book?service=${acId}"`);
   });
@@ -517,20 +685,40 @@ describe("customer home: Telegram login, own data only", () => {
     expect((await sql`select 1 from service_requests where kind = 'reschedule'`).length).toBe(0);
   });
 
-  it("a known phone number does not open that customer's history: the chat sees only the booking it made until the staff confirm", async () => {
+  it("a known phone number opens neither that customer's history nor an account: the chat sees only the booking it made, until the staff confirm — then the password arrives", async () => {
     await staffJob((await slotOf(1, "08:00")).at, [], custK); // custK has other jobs
     refC = (await book((await slotOf(5, "11:00")).at, { phone: "012777888", name: "មិនមែនម្ចាស់" })).json().ref;
     bkC = (await bookingOf(refC)).id;
-    expect((await internal("customer-subscribed", { code: (await linkToken(refC))!, subscriber_id: SUB.c })).json()).toMatchObject({ ok: true });
-    const C = await tgLogin("good-c");
+    const linked = (await internal("customer-subscribed", { code: (await linkToken(refC))!, subscriber_id: SUB.c })).json();
+    expect(linked).toMatchObject({ ok: true }); expect(linked.after).toBeUndefined(); // no password: the record is older than this booking
+    expect((await sql`select tg_subscriber_id, password_hash from customers where id = ${custK}`)[0]).toMatchObject({ tg_subscriber_id: null, password_hash: null });
+    expect(await code(tryLogin("012777888", "0000"))).toEqual([401, "INVALID_CREDENTIALS"]);
+    const C = client(app);
+    expect((await C.req("POST", "/api/public/tg-login", { init_data: "mini-c" })).status).toBe(200); // inside Telegram the chat itself is known
     const c = (await C.req("GET", "/api/my")).json;
     expect(c.upcoming.map((x: any) => x.id)).toEqual([bkC]); expect(c.upcoming[0].status).toBe("pending");
     expect(c.name).toBe("Chan"); // the Telegram name, not the customer record's
     expect(JSON.stringify(c)).not.toContain("អតិថិជន ចាស់");
-    expect((await sql`select tg_subscriber_id from customers where id = ${custK}`)[0]!.tg_subscriber_id).toBeNull();
+    hubCalls.length = 0;
     expect((await admin.req("POST", `/api/requests/${(await requestOf(bkC)).id}/confirm`)).status).toBe(200); // the staff called the number
     expect(Number((await sql`select tg_subscriber_id::text as t from customers where id = ${custK}`)[0]!.t)).toBe(SUB.c);
+    const pwC = told(SUB.c).map(pwIn).find(Boolean)!;
+    expect(pwC).toMatch(/^\d{4}$/); // …and the first password went to that chat
     expect(((await C.req("GET", "/api/my")).json.upcoming as any[]).length).toBeGreaterThan(1);
+    expect((await tryLogin("012 777 888", pwC)).statusCode).toBe(200);
+  });
+
+  it("a declined first request leaves no account behind: the record made by it loses its Telegram link and password", async () => {
+    const ref = (await book((await slotOf(5, "08:00")).at, { phone: "011444000", name: "ភ្ញៀវ ថ្មី" })).json().ref as string;
+    const b = await bookingOf(ref);
+    const linked = (await internal("customer-subscribed", { code: (await linkToken(ref))!, subscriber_id: 74 })).json();
+    const pw = pwIn(linked.after)!;
+    expect((await tryLogin("011444000", pw)).statusCode).toBe(200);
+    const sess = await signIn("011444000", pw);
+    expect((await gm.req("POST", `/api/requests/${(await requestOf(b.id)).id}/decline`, { reason: "លេខនេះមិនមែនជារបស់អ្នកកក់" })).status).toBe(200);
+    expect((await sql`select tg_subscriber_id, password_hash from customers where id = ${b.customer_id}`)[0]).toMatchObject({ tg_subscriber_id: null, password_hash: null });
+    expect((await sess.req("GET", "/api/my")).status).toBe(401);
+    expect(await code(tryLogin("011444000", pw))).toEqual([401, "INVALID_CREDENTIALS"]);
   });
 
   it("reschedule is a REQUEST (requested_by = customer): the time moves only when the staff approve; one open request per booking", async () => {
@@ -560,22 +748,48 @@ describe("customer home: Telegram login, own data only", () => {
     expect(await requestOf(bk1, "reschedule")).toMatchObject({ status: "done", outcome: "rejected" });
   });
 
-  it("cancel needs a reason; the booking is cancelled (never deleted), the staff are told; Mini App login and logout", async () => {
-    expect(await code(app.inject({ method: "POST", url: `/api/my/bookings/${bk1}/cancel`, headers: { cookie: A.cookie!, "content-type": "application/json" }, payload: JSON.stringify({ reason: "" }) }))).toEqual([400, "REASON_REQUIRED"]);
-    expect((await A.req("POST", `/api/my/bookings/${bk1}/cancel`, { reason: "ជួសជុលរួចហើយ" })).status).toBe(200);
-    const b = await bookingOf(ref1);
+  it("the bot follows the booking (Khmer, once each): reminder a day before, technician on the way, job done with the warranty end", async () => {
+    hubCalls.length = 0;
+    expect(await customerNotices()).toBe(1); // only B's job that was closed a moment ago is due
+    expect(told(SUB.b).join("\n")).toMatch(/រួចរាល់[\s\S]*ធានាដល់ថ្ងៃ \d{2}-\d{2}-\d{4}/);
+    // A's booking: made 3 days ago for tomorrow → the reminder; then the technician leaves → «on the way»
+    await sql`update bookings set created_at = now() - interval '3 days', scheduled_at = now() + interval '20 hours', ends_at = now() + interval '22 hours' where id = ${bk1}`;
+    expect(await customerNotices()).toBe(1);
+    expect(told(SUB.a).at(-1)).toContain("រំលឹក"); expect(told(SUB.a).at(-1)).toContain((await bookingOf(ref1)).number); expect(told(SUB.a).at(-1)).toContain("Kim");
+    await sql`update bookings set status = 'en_route' where id = ${bk1}`;
+    expect(await customerNotices()).toBe(1);
+    expect(told(SUB.a).at(-1)).toContain("កំពុងធ្វើដំណើរ"); expect(told(SUB.a).at(-1)).toContain("Kim");
+    const n = hubCalls.length;
+    expect(await customerNotices()).toBe(0); expect(hubCalls.length).toBe(n); // each message once
+    expect((await sql`select kind from customer_notices where booking_id = ${bk1} order by kind`).map((x) => x.kind)).toEqual(["on_the_way", "reminder"]);
+    // a chat that stopped the bot: the hub refuses for good → marked, not tried again
+    await sql`update bookings set web_subscriber_id = 99, created_at = now() - interval '3 days', scheduled_at = now() + interval '21 hours', ends_at = now() + interval '23 hours' where id = ${bkC}`;
+    expect(await customerNotices()).toBe(0);
+    expect((await sql`select ok from customer_notices where booking_id = ${bkC}`)[0]).toMatchObject({ ok: false });
+    await sql`update bookings set status = 'assigned' where id = ${bk1}`.catch(() => undefined);
+  });
+
+  it("the customer's bot keyboard: my bookings · book a service (Mini App) · call the shop · forgot password", async () => {
+    const m = (await internal("tg-start", { chat_id: 930001, tg_user: 930001, subscriber_id: SUB.a })).json();
+    expect(m.kind).toBe("customer");
+    expect(m.keyboard).toEqual([[{ text: "📋 ការកក់របស់ខ្ញុំ", web_app: "https://oneteam.test/my" }, { text: "🗓 កក់សេវា", web_app: "https://oneteam.test/?book" }], [{ text: "📞 ហៅ One Team" }, { text: "🔑 ភ្លេចពាក្យសម្ងាត់" }]]);
+    await ceo.req("PATCH", "/api/settings/company", { company_info: { phone: "077 632 899" } });
+    const call = (await internal("tg-text", { chat_id: 930001, tg_user: 930001, text: "📞 ហៅ One Team", subscriber_id: SUB.a })).json();
+    expect(call.text).toContain("077 632 899");
+    await ceo.req("PATCH", "/api/settings/company", { company_info: {} });
+  });
+
+  it("cancel needs a reason; the booking is cancelled (never deleted), the staff are told; sign out ends the session", async () => {
+    expect(await code(app.inject({ method: "POST", url: `/api/my/bookings/${bkB}/cancel`, headers: { cookie: B.cookie!, "content-type": "application/json" }, payload: JSON.stringify({ reason: "" }) }))).toEqual([400, "REASON_REQUIRED"]);
+    expect((await B.req("POST", `/api/my/bookings/${bkB}/cancel`, { reason: "ជួសជុលរួចហើយ" })).status).toBe(200);
+    const b = (await sql<Record<string, any>[]>`select status, cancelled_by, cancel_reason, number from bookings where id = ${bkB}`)[0]!;
     expect(b).toMatchObject({ status: "cancelled", cancelled_by: null }); expect(b.cancel_reason).toContain("ជួសជុលរួចហើយ");
     expect((await sql`select 1 from notifications where kind = 'booking.cancelled' and user_id = ${s.users.admin!} and title like ${"%" + b.number + "%"}`).length).toBe(1);
-    expect(((await A.req("GET", "/api/my")).json.upcoming as any[]).some((x) => x.id === bk1)).toBe(false);
-    expect((await A.req("POST", `/api/my/bookings/${bk1}/cancel`, { reason: "ម្ដងទៀត" })).status).toBe(400); // already cancelled
-    // opened inside Telegram (Mini App): the launch data is checked by the hub → the same session
-    const mini = client(app);
-    expect((await mini.req("POST", "/api/public/tg-login", { init_data: "mini-a" })).status).toBe(200);
-    expect(mini.cookie).toMatch(/^otc=/); expect((await mini.req("GET", "/api/my")).json.name).toBe("សុខ ដារ៉ា");
-    expect((await mini.req("POST", "/api/my/logout")).status).toBe(200);
-    expect((await sql`select count(*)::int as n from customer_sessions where subscriber_id = ${SUB.a}`)[0]!.n).toBe(1); // A's first session is still there
-    expect((await A.req("POST", "/api/my/logout")).status).toBe(200);
-    expect((await A.req("GET", "/api/my")).status).toBe(401);
+    expect(((await B.req("GET", "/api/my")).json.upcoming as any[]).some((x) => x.id === bkB)).toBe(false);
+    expect((await B.req("POST", `/api/my/bookings/${bkB}/cancel`, { reason: "ម្ដងទៀត" })).status).toBe(400); // already cancelled
+    expect((await B.req("POST", "/api/my/logout")).status).toBe(200);
+    expect((await B.req("GET", "/api/my")).status).toBe(401);
+    expect((await A.req("GET", "/api/my")).status).toBe(200); // other customers' sessions are untouched
   });
 });
 

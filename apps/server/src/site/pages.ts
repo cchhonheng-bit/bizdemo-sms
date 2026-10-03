@@ -2,13 +2,13 @@
 // 1 home · 2 choose a time · 3 your details · 4 request sent · 5 quote request · 6 customer home. Server-rendered, everything
 // escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in /pub/site.css,
 // the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). Text in the design's [brackets] is data.
-import { fromPriceText, kmDigits, siteConsentText, WEB_CONFIRM_MIN, WEB_MAX_PHOTOS, SERVICE_CATEGORIES } from "@sms/shared";
+import { CUSTOMER_PASSWORD_HINT, fromPriceText, kmDigits, siteConsentText, WEB_CONFIRM_MIN, WEB_MAX_PHOTOS, SERVICE_CATEGORIES } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
 import { APP_BASE } from "../lib/app-url.js";
 import { WARRANTY_DAYS } from "../services/bookings.js";
 import type { MyHome } from "../services/customer-home.js";
-import type { SiteService, SiteView } from "../services/site.js";
+import { shortName, type SiteService, type SiteView } from "../services/site.js";
 import type { CustomerState, WebDay } from "../services/web-booking.js";
 
 export type SiteLang = "km" | "en";
@@ -28,7 +28,7 @@ const TXT = {
     note_ph: "ឧ. ម៉ាស៊ីន ២ គ្រឿង ជាន់ទី ២", send: "ផ្ញើសំណើកក់", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`,
     sent: "បានផ្ញើសំណើកក់", held: "ម៉ោងនេះត្រូវបានរក្សាទុកសម្រាប់អ្នក។", no: "លេខកក់", status: "ស្ថានភាព", tg: "ទទួលការបញ្ជាក់ ការរំលឹក និងព័ត៌មានជាង តាម Telegram", tg_btn: "ភ្ជាប់ Telegram (១ ចុច)",
     tg_ok: "បានភ្ជាប់ Telegram", mine: "មើលការកក់របស់ខ្ញុំ", home: "ត្រឡប់ទំព័រដើម",
-    h_confirmed: "ការកក់បានបញ្ជាក់", p_confirmed: "យើងនឹងជូនដំណឹង ពេលជាងត្រូវបានចាត់ឲ្យ។", h_declined: "មិនអាចទទួលការកក់នេះបានទេ", p_declined: "សូមជ្រើសម៉ោងផ្សេង ឬហៅទូរស័ព្ទមកយើង។",
+    h_confirmed: "ការកក់បានបញ្ជាក់", p_confirmed: "យើងនឹងរំលឹកអ្នក ១ ថ្ងៃមុន ហើយជូនដំណឹងពេលជាងចេញដំណើរ។", h_declined: "មិនអាចទទួលការកក់នេះបានទេ", p_declined: "សូមជ្រើសម៉ោងផ្សេង ឬហៅទូរស័ព្ទមកយើង។",
     h_cancelled: "ការកក់ត្រូវបានបោះបង់", p_cancelled: "អ្នកអាចកក់ម្ដងទៀតបានគ្រប់ពេល។", h_done: "ការងាររួចរាល់", p_done: "សូមអរគុណ។",
     st: { pending: "រង់ចាំបញ្ជាក់", confirmed: "បានបញ្ជាក់", on_the_way: "ជាងកំពុងធ្វើដំណើរ", working: "កំពុងធ្វើការ", done: "រួចរាល់", declined: "មិនអាចទទួលបាន", cancelled: "បានបោះបង់" } as Record<CustomerState, string>,
     q_sub: "ផ្ញើរូបថត ហើយយើងនឹងទាក់ទងវិញ", q_type: "ប្រភេទការងារ", q_desc: "ពិពណ៌នាការងារ", q_desc_ph: "ឧ. ចង់ធ្វើពិដានបន្ទប់ទទួលភ្ញៀវ ទំហំប្រហែល 4×5 ម៉ែត្រ", q_photos: "រូបថត", q_max: `(អតិបរមា ${WEB_MAX_PHOTOS})`,
@@ -37,12 +37,17 @@ const TXT = {
     hello: "សួស្តី", upcoming: "ការកក់ខាងមុខ", tech: (n: string) => `ជាង ${n}`, resched: "ស្នើប្ដូរម៉ោង", cancel: "បោះបង់", past: "ការងារមុនៗ", until: (d: string) => `ធានាដល់ ${d}`, expired: "ផុតការធានា",
     again: "កក់ម្ដងទៀត", call_shop: (shop: string) => `ហៅ ${shop}`, new: "កក់សេវាថ្មី", no_up: "មិនមានការកក់ខាងមុខទេ។", logout: "ចាកចេញ", pending_move: "សំណើប្ដូរម៉ោងកំពុងរង់ចាំការឆ្លើយតប",
     why_cancel: "មូលហេតុបោះបង់", confirm_cancel: "បញ្ជាក់ការបោះបង់", keep: "មិនបោះបង់", new_time: "ជ្រើសម៉ោងថ្មី", why_move: "មូលហេតុ (មិនចាំបាច់)", send_move: "ផ្ញើសំណើប្ដូរម៉ោង", close: "បិទ",
-    l_h1: "ចូលគណនី", l_p: "ចូលដោយ Telegram ដើម្បីមើលការកក់ ប្ដូរម៉ោង ឬកក់ម្ដងទៀត។", l_auth: "មិនអាចផ្ទៀងផ្ទាត់ Telegram បានទេ។ សូមព្យាយាមម្ដងទៀត។",
-    l_nolink: "Telegram នេះមិនទាន់ភ្ជាប់ជាមួយការកក់ណាមួយទេ។ សូមកក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។", l_nobot: "ការចូលតាម Telegram មិនទាន់ដំណើរការទេ។", l_open: "បើក Telegram របស់ហាង", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
+    l_h1: "ចូលគណនី", l_p: "ប្រើលេខទូរស័ព្ទរបស់អ្នក និងពាក្យសម្ងាត់ដែលអ្នកបានទទួលតាម Telegram។", l_pw: "ពាក្យសម្ងាត់", l_go: "ចូល", l_forgot: "ភ្លេចពាក្យសម្ងាត់?",
+    l_reset: "បើលេខនេះបានភ្ជាប់ Telegram ពាក្យសម្ងាត់ថ្មីត្រូវបានផ្ញើទៅ Telegram នោះហើយ។", l_link: "សូមភ្ជាប់ Telegram ជាមុនសិន",
+    l_link_p: "មិនទាន់មានគណនី? សូមកក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។ ពាក្យសម្ងាត់នឹងមកដល់ក្នុង Telegram របស់អ្នក។", l_open: "បើក Telegram របស់ហាង",
+    pw_title: "ប្ដូរពាក្យសម្ងាត់", pw_cur: "ពាក្យសម្ងាត់បច្ចុប្បន្ន", pw_new: "ពាក្យសម្ងាត់ថ្មី", pw_save: "រក្សាទុក", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     nf: "រកមិនឃើញទំព័រនេះទេ", wd: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], wds: ["ច", "អ", "ពុ", "ព្រ", "សុ", "ស", "អា"],
     mon: ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"],
     msg: { PICK_SLOT: "សូមជ្រើសថ្ងៃ និងម៉ោង", ADDRESS_REQUIRED: "សូមបញ្ចូលទីតាំង ឬចុច «ប្រើទីតាំងបច្ចុប្បន្ន»", LOCATION_REQUIRED: "សូមបញ្ចូលទីតាំង", NAME_REQUIRED: "សូមបញ្ចូលឈ្មោះ", INVALID_PHONE: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ",
       CONSENT_REQUIRED: "សូមគូសយល់ព្រម ដើម្បីបន្ត", SLOT_TAKEN: "ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសម៉ោងផ្សេង។", SLOT_INVALID: "ម៉ោងនេះលែងកក់បានហើយ។ សូមជ្រើសម៉ោងផ្សេង។", RATE_LIMITED: "សំណើច្រើនពេក។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬហៅទូរស័ព្ទមកយើង។", TOO_MANY_PENDING: "ពេលនេះមានការកក់រង់ចាំច្រើន។ សូមហៅទូរស័ព្ទមកយើង។",
+      INVALID_CREDENTIALS: "លេខទូរស័ព្ទ ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ", LOCKED: "សូមព្យាយាមម្ដងទៀតក្រោយ {n} នាទី", LOCKED_PERMANENT: "សូមកំណត់ពាក្យសម្ងាត់ថ្មីតាម Telegram",
+      WEAK_PASSWORD: "ពាក្យសម្ងាត់នេះងាយទាយពេក សូមជ្រើសលេខផ្សេង", WRONG_PASSWORD: "ពាក្យសម្ងាត់បច្ចុប្បន្នមិនត្រឹមត្រូវ", PASSWORD_TOO_SHORT: "ពាក្យសម្ងាត់ត្រូវមានយ៉ាងតិច ៤ តួ", PASSWORD_TOO_LONG: "ពាក្យសម្ងាត់វែងពេក",
+      NOT_LINKED: "សូមភ្ជាប់ Telegram ជាមុនសិន", PW_CHANGED: "បានប្ដូរពាក្យសម្ងាត់",
       FORM_EXPIRED: "ទំព័រនេះបើកយូរពេក។ សូមបើកម្ដងទៀត។", DESCRIPTION_REQUIRED: "សូមពិពណ៌នាការងារ", TOO_MANY_PHOTOS: "រូបថតច្រើនបំផុត ៥ សន្លឹក", BAD_IMAGE: "ឯកសារនេះមិនមែនជារូបថតទេ", IMAGE_TOO_LARGE: "រូបថតធំពេក",
       REASON_REQUIRED: "សូមសរសេរមូលហេតុ", ALREADY_REQUESTED: "អ្នកបានស្នើប្ដូរម៉ោងរួចហើយ។ សូមរង់ចាំការឆ្លើយតប។", SAME_TIME: "នេះជាម៉ោងដដែល", BOOKING_LOCKED: "ការកក់នេះលែងប្ដូរបានហើយ។ សូមហៅទូរស័ព្ទមកយើង។",
       BOOKING_NOT_CANCELLABLE: "ការកក់នេះលែងបោះបង់បានហើយ។ សូមហៅទូរស័ព្ទមកយើង។", GPS_FAILED: "មិនអាចយកទីតាំងបានទេ។ សូមសរសេរទីតាំង។", ERROR: "មានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។", SENT_MOVE: "បានផ្ញើសំណើប្ដូរម៉ោង", SENDING: "កំពុងផ្ញើ..." },
@@ -59,7 +64,7 @@ const TXT = {
     note_ph: "e.g. 2 units, 2nd floor", send: "Send booking request", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`,
     sent: "Booking request sent", held: "This time is held for you.", no: "Booking no.", status: "Status", tg: "Get the confirmation, reminders and technician details on Telegram", tg_btn: "Connect Telegram (1 tap)",
     tg_ok: "Telegram connected", mine: "See my bookings", home: "Back to the home page",
-    h_confirmed: "Booking confirmed", p_confirmed: "We will tell you when a technician is assigned.", h_declined: "We cannot take this booking", p_declined: "Please choose another time or call us.",
+    h_confirmed: "Booking confirmed", p_confirmed: "We will remind you a day before and tell you when the technician is on the way.", h_declined: "We cannot take this booking", p_declined: "Please choose another time or call us.",
     h_cancelled: "Booking cancelled", p_cancelled: "You can book again at any time.", h_done: "Job completed", p_done: "Thank you.",
     st: { pending: "Waiting for confirmation", confirmed: "Confirmed", on_the_way: "Technician on the way", working: "In progress", done: "Completed", declined: "Not possible", cancelled: "Cancelled" } as Record<CustomerState, string>,
     q_sub: "Send photos and we will get back to you", q_type: "Type of work", q_desc: "Describe the work", q_desc_ph: "e.g. a new ceiling for the living room, about 4×5 m", q_photos: "Photos", q_max: `(up to ${WEB_MAX_PHOTOS})`,
@@ -68,12 +73,17 @@ const TXT = {
     hello: "Hello", upcoming: "Upcoming booking", tech: (n: string) => `Technician ${n}`, resched: "Ask to reschedule", cancel: "Cancel", past: "Past jobs", until: (d: string) => `Warranty until ${d}`, expired: "Warranty ended",
     again: "Book again", call_shop: (shop: string) => `Call ${shop}`, new: "New booking", no_up: "No upcoming booking.", logout: "Sign out", pending_move: "Your reschedule request is waiting for an answer",
     why_cancel: "Reason for cancelling", confirm_cancel: "Confirm cancellation", keep: "Keep the booking", new_time: "Choose a new time", why_move: "Reason (optional)", send_move: "Send reschedule request", close: "Close",
-    l_h1: "Sign in", l_p: "Sign in with Telegram to see your bookings, change a time or book again.", l_auth: "Telegram could not be verified. Please try again.",
-    l_nolink: "This Telegram account is not connected to a booking yet. Book a service, then tap \"Connect Telegram (1 tap)\".", l_nobot: "Telegram sign-in is not available yet.", l_open: "Open the shop on Telegram", l_staff: "Staff: open the work app",
+    l_h1: "Sign in", l_p: "Use your phone number and the password you received on Telegram.", l_pw: "Password", l_go: "Sign in", l_forgot: "Forgot password?",
+    l_reset: "If this number is connected to Telegram, a new password was sent to that Telegram.", l_link: "Please connect Telegram first",
+    l_link_p: "No account yet? Book a service, then tap \"Connect Telegram (1 tap)\". The password arrives in your Telegram.", l_open: "Open the shop on Telegram",
+    pw_title: "Change password", pw_cur: "Current password", pw_new: "New password", pw_save: "Save", l_staff: "Staff: open the work app",
     nf: "Page not found", wd: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wds: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     mon: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     msg: { PICK_SLOT: "Please choose a day and a time", ADDRESS_REQUIRED: "Please enter the location or tap \"Use my current location\"", LOCATION_REQUIRED: "Please enter the location", NAME_REQUIRED: "Please enter your name", INVALID_PHONE: "Please enter a valid phone number",
       CONSENT_REQUIRED: "Please tick the box to continue", SLOT_TAKEN: "This time was just taken. Please choose another one.", SLOT_INVALID: "This time can no longer be booked. Please choose another one.", RATE_LIMITED: "Too many requests. Please try again later or call us.", TOO_MANY_PENDING: "Many bookings are waiting right now. Please call us.",
+      INVALID_CREDENTIALS: "Wrong phone number or password", LOCKED: "Please try again in {n} minutes", LOCKED_PERMANENT: "Please set a new password through Telegram",
+      WEAK_PASSWORD: "This password is too easy to guess. Please choose other digits.", WRONG_PASSWORD: "The current password is not correct", PASSWORD_TOO_SHORT: "The password needs at least 4 characters", PASSWORD_TOO_LONG: "The password is too long",
+      NOT_LINKED: "Please connect Telegram first", PW_CHANGED: "Password changed",
       FORM_EXPIRED: "This page was open too long. Please open it again.", DESCRIPTION_REQUIRED: "Please describe the work", TOO_MANY_PHOTOS: "At most 5 photos", BAD_IMAGE: "This file is not a photo", IMAGE_TOO_LARGE: "The photo is too large",
       REASON_REQUIRED: "Please write the reason", ALREADY_REQUESTED: "You already asked to reschedule. Please wait for the answer.", SAME_TIME: "This is the same time", BOOKING_LOCKED: "This booking can no longer be changed. Please call us.",
       BOOKING_NOT_CANCELLABLE: "This booking can no longer be cancelled. Please call us.", GPS_FAILED: "Could not get your location. Please type it.", ERROR: "Something went wrong. Please try again.", SENT_MOVE: "Reschedule request sent", SENDING: "Sending..." },
@@ -111,8 +121,7 @@ const svcName = (s: { name_km: string; name_en: string | null }, lang: SiteLang)
 /** header: short name («One Team») + the rest of the full name («Engineering») + initials for the round mark */
 export function names(d: SiteView, lang: SiteLang) {
   const full = ((lang === "en" ? d.info.name_en : d.info.name_km) || (lang === "en" ? "" : d.info.name_en) || d.name).trim();
-  const words = full.split(/\s+/), own = (d.website.short_name ?? "").trim();
-  const short = own && full.startsWith(own) ? own : words.length > 2 ? words.slice(0, 2).join(" ") : full;
+  const short = shortName(full, d.website.short_name);
   const latin = /[A-Za-z]/.test(short) ? short : (d.info.name_en || d.name || "").trim();
   return { full, short, rest: full.slice(short.length).trim(), initials: latin.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "•" };
 }
@@ -264,15 +273,19 @@ ${d.bot ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18
 }
 
 // ---------- 6 · customer home (and its login) ----------
-export function loginPage(d: SiteView, lang: SiteLang, o: { error: string | null; path: string }): string {
+export function loginPage(d: SiteView, lang: SiteLang, path: string): string {
   const t = TXT[lang], n = names(d, lang);
-  const err = o.error === "auth" ? t.l_auth : o.error === "nolink" ? t.l_nolink : "";
+  // D-103: phone + password (the password comes from the shop's bot). Whatever fails, the page says the same thing; someone
+  // without an account is told to link Telegram first — shown to everybody, so it tells nothing about a number.
   const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
-<section class="ok"><div class="okc">${svg(I.user, 26)}</div><h1>${t.l_h1}</h1><p>${t.l_p}</p>${err ? `<p class="err">${err}</p>` : ""}
-<div class="tgw" id="tgw">${d.bot ? `<script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="${esc(d.bot)}" data-size="large" data-radius="20" data-auth-url="${esc(config.publicUrl)}/my/auth"></script>` : `<p class="err">${t.l_nobot}</p>`}</div>${d.bot ? `<a class="ob m w" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}</section>
-<a class="btn" href="/">${svg(I.cal, 16, 2.2)}${t.book}</a>
-<footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a>${langLink(t, lang, o.path)}${powered(t)}</nav></footer></main>`;
-  return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path: o.path, body });
+<section class="card s"><div class="okc mid">${svg(I.user, 26)}</div><h1 class="ctr">${t.l_h1}</h1><p class="sub ctr">${t.l_p}</p>
+<div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="username" placeholder="12 345 678"></div></div>
+<div class="f"><label class="lb s" for="pw">${t.l_pw}</label><input class="in" id="pw" type="password" inputmode="numeric" maxlength="64" autocomplete="current-password"></div>
+${errBox}<p class="note g" id="reset-ok" hidden>${t.l_reset}</p>
+<button type="button" class="btn" id="login">${t.l_go}</button><button type="button" class="lk mid" id="forgot">${t.l_forgot}</button></section>
+<section class="card s"><h2 class="h2">${t.l_link}</h2><p class="sub">${t.l_link_p}</p>${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}<a class="ob m" href="/">${svg(I.cal, 15)}${t.book}</a></section>
+<footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
+  return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path, body });
 }
 
 export function myPage(d: SiteView, lang: SiteLang, h: MyHome, path: string): string {
@@ -294,7 +307,12 @@ ${b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<b
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
-<footer class="ft low"><nav><button type="button" class="lk" id="logout">${t.logout}</button>${langLink(t, lang, path)}${powered(t)}</nav></footer>
+<section class="card s g8" id="pw-card" hidden><h2 class="h2">${t.pw_title}</h2>
+<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</label><input class="in sm" id="pw-cur" type="password" inputmode="numeric" maxlength="64" autocomplete="current-password"></div>
+<div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label><input class="in sm" id="pw-new" type="password" inputmode="numeric" maxlength="64" autocomplete="new-password"></div>
+<p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
+<div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></section>
+<footer class="ft low"><nav><button type="button" class="lk" id="pw-open">${t.pw_title}</button><button type="button" class="lk" id="logout">${t.logout}</button>${langLink(t, lang, path)}${powered(t)}</nav></footer>
 <div class="bar"><a class="btn" href="/">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
   return shell(d, lang, { title: `${t.upcoming} — ${n.full}`, page: "my", path, body });
 }

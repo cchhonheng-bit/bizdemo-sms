@@ -18,6 +18,7 @@ import { sha256 } from "../lib/secure.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { cancelBookingIn, confirmWebBookingIn, nextBookingNumber } from "./bookings.js";
+import { issueInitialPassword, passwordMessage, tellSubscriber } from "./customer-auth.js";
 import { tellCustomer } from "./customer-notify.js";
 import { checkImage, writeImage } from "./jobs.js";
 import { customerByPhone, notifyRequestStaff } from "./requests.js";
@@ -105,9 +106,16 @@ export async function consumeBookingToken(token: string, subscriberId: number) {
     if (r.used_at) return { ok: false, error: "CODE_USED" };
     await t`update booking_link_tokens set used_at = now(), used_by = ${subscriberId} where booking_id = ${r.booking_id}`;
     await t`update bookings set web_subscriber_id = ${subscriberId} where id = ${r.booking_id}`;
-    if (r.web_status === "confirmed") await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${r.customer_id} and tg_subscriber_id is null`;
+    // The customer RECORD is linked at once only when that is safe: the staff already confirmed the booking, or the record
+    // exists only because of this booking (nothing older to see). Else the link waits for the confirmation.
+    const fresh = (await t`select 1 from bookings b2 where b2.customer_id = ${r.customer_id} and b2.id <> ${r.booking_id} and b2.status <> 'cancelled' limit 1`).length === 0;
+    const linked = r.web_status === "confirmed" || fresh
+      ? (await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${r.customer_id} and tg_subscriber_id is null returning id`).length > 0 : false;
     await audit(t, { companyId: r.company_id, userId: null, action: "booking.tg_link", source: "telegram", table: "bookings", rowId: r.booking_id });
-    return { ok: true, booking: r.number };
+    // D-103: a record linked just now gets its first password — the hub sends `after` to that chat as its own message (not logged)
+    const password = linked ? await issueInitialPassword(t, r.customer_id) : null;
+    const https = config.publicUrl.startsWith("https://");
+    return { ok: true, booking: r.number, ...(password ? { after: passwordMessage(password, "initial") } : {}), ...(https ? { menu_url: `${config.publicUrl}/` } : {}) };
   });
 }
 
@@ -201,21 +209,24 @@ export async function doneView(ref: string) {
 
 // ---------- Admin / GM: confirm or decline ----------
 export async function decideWebBooking(user: SessionUser, ip: string | null, requestId: string, decision: "confirm" | "decline", reason = "") {
-  const bookingId = await tx(user.id, async (t) => {
+  const done = await tx(user.id, async (t) => {
     const r = (await t<{ booking_id: string | null; web_status: string | null }[]>`select r.booking_id, b.web_status from service_requests r left join bookings b on b.id = r.booking_id
       where r.id = ${requestId} and r.company_id = ${user.companyId} and r.kind = 'booking' and r.status = 'new' for update of r`)[0];
     if (!r?.booking_id) throw notFound();
     if (r.web_status !== "pending") throw new AppError("NOT_PENDING", 409);
-    if (decision === "confirm") await confirmWebBookingIn(t, user.companyId, user.id, r.booking_id, ip);
+    let account: { subscriber: number; password: string } | null = null;
+    if (decision === "confirm") account = await confirmWebBookingIn(t, user.companyId, user.id, r.booking_id, ip);
     else { // cancelled with the reason: the slot is free again; the request closes as «declined» inside
       await cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, r.booking_id, reason);
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_decline", table: "bookings", rowId: r.booking_id, new: { web_status: "declined", reason }, ip });
     }
-    return r.booking_id;
+    return { bookingId: r.booking_id, account };
   });
-  await tellCustomer(bookingId, (b) => (decision === "confirm"
-    ? `✅ ការកក់ ${b.number} បានបញ្ជាក់\n🛠 ${b.service}\n🕒 ${b.when}\nយើងនឹងជូនដំណឹង ពេលជាងត្រូវបានចាត់ឲ្យ។`
+  await tellCustomer(done.bookingId, (b) => (decision === "confirm"
+    ? `✅ ការកក់ ${b.number} បានបញ្ជាក់\n🛠 ${b.service}\n🕒 ${b.when}\nយើងនឹងរំលឹកអ្នក ១ ថ្ងៃមុន ហើយជូនដំណឹងពេលជាងចេញដំណើរ។`
     : `❌ សូមអភ័យទោស — យើងមិនអាចទទួលការកក់ ${b.number} បានទេ\n📝 ${reason}\nសូមជ្រើសម៉ោងផ្សេង៖ ${config.publicUrl}/`));
+  // the customer record was linked by this confirmation → its first password, to that chat only (D-103)
+  if (done.account) await tellSubscriber(done.account.subscriber, passwordMessage(done.account.password, "initial"));
   return { ok: true };
 }
 

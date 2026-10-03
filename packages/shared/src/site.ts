@@ -32,3 +32,31 @@ export function fromPriceText(cents: number): string {
 const KM_DIGITS = "០១២៣៤៥៦៧៨៩";
 /** 30 → "៣០" (the Khmer page writes counts in Khmer numerals; dates, times and prices stay in Latin digits) */
 export const kmDigits = (n: number | string): string => String(n).replace(/[0-9]/g, (d) => KM_DIGITS[Number(d)]!);
+
+// ---------- customer login (final brief): phone + password, the password is sent to the linked Telegram chat ----------
+/** shown on the change form and in the bot message that carries a password */
+export const CUSTOMER_PASSWORD_HINT = {
+  km: "សូមជ្រើសលេខ ៤ ខ្ទង់ដែលអ្នកងាយស្រួលចងចាំ។\nកុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើតរបស់អ្នក ឬលេខ ៤ ខ្ទង់ចុងក្រោយនៃទូរស័ព្ទរបស់អ្នក។",
+  en: "Choose 4 digits that are easy for you to remember.\nDo not use your date or year of birth, or the last 4 digits of your phone number.",
+} as const;
+export const CUSTOMER_PASSWORD_MIN = 4;
+export const CUSTOMER_PASSWORD_MAX = 64;
+/** too easy to guess: the last 4 digits of the own phone, one character repeated (1111), a straight run of digits up or
+ *  down (1234, 4321, 7890). Repeats like 1212 are allowed. */
+export function weakCustomerPassword(pw: string, phone: string): boolean {
+  if (/^(.)\1+$/.test(pw)) return true;
+  const digits = phone.replace(/\D/g, "");
+  if (digits.length >= 4 && pw === digits.slice(-4)) return true;
+  if (/^\d+$/.test(pw) && pw.length >= 3) {
+    const d = [...pw].map(Number);
+    const run = (step: number) => d.every((x, i) => i === 0 || x === (d[i - 1]! + step + 10) % 10);
+    if (run(1) || run(-1)) return true;
+  }
+  return false;
+}
+/** wrong passwords per phone → lock: [failures reached, minutes] (null = until a reset through Telegram or an unlock by Admin / GM) */
+export const CUSTOMER_LOGIN_LOCKS: readonly (readonly [number, number | null])[] = [[30, null], [20, 30], [15, 5], [10, 3]];
+export function customerLockFor(failed: number): { minutes: number | null } | null {
+  const hit = CUSTOMER_LOGIN_LOCKS.find(([n]) => failed === n);
+  return hit ? { minutes: hit[1] } : failed > 30 ? { minutes: null } : null;
+}

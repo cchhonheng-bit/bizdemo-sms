@@ -64,3 +64,32 @@ create table customer_sessions (
   expires_at    timestamptz not null
 );
 create index customer_sessions_expires_idx on customer_sessions(expires_at);
+
+-- customer login (owner brief «WEBSITE v2 + CUSTOMER LOGIN — final»): phone + password, no Telegram Login Widget.
+--  * customers.password_hash: argon2id hash only (the password itself is sent once to the linked Telegram chat, never stored)
+--  * customer_login_guards: wrong-password counter and locks PER PHONE, whether an account exists or not (no enumeration)
+--  * customer_notices: tracking messages sent once per booking (reminder 1 day before, technician on the way, job done)
+alter table customers add column if not exists password_hash text;
+alter table customers add column if not exists password_set_at timestamptz;
+alter table customer_sessions add column if not exists customer_id uuid references customers(id) on delete cascade;
+alter table customer_sessions add column if not exists via text not null default 'telegram' check (via in ('password', 'telegram'));
+create index if not exists customer_sessions_customer_idx on customer_sessions(customer_id) where customer_id is not null;
+create index if not exists customer_sessions_sub_idx on customer_sessions(subscriber_id);
+
+create table customer_login_guards (
+  company_id   uuid not null references companies(id) on delete cascade,
+  phone        text not null check (phone ~ '^0[0-9]{8,9}$'),
+  failed       integer not null default 0,
+  locked_until timestamptz,
+  permanent    boolean not null default false,
+  updated_at   timestamptz not null default now(),
+  primary key (company_id, phone)
+);
+
+create table customer_notices (
+  booking_id  uuid not null references bookings(id) on delete cascade,
+  kind        text not null check (kind in ('reminder', 'on_the_way', 'done')),
+  ok          boolean not null,
+  sent_at     timestamptz not null default now(),
+  primary key (booking_id, kind)
+);
