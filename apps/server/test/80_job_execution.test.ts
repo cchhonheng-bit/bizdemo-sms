@@ -140,7 +140,7 @@ describe("job report + GM review (M7)", () => {
     expect((await kim.req("PUT", `/api/bookings/${id}/materials`, { items: [{ catalog_item_id: product, qty: 0 }] })).status).toBe(400);
     const j = await job(kim, id);
     expect(j.materials).toEqual([expect.objectContaining({ name_km: "ទុយោ PVC", qty: 3.5, unit: "m" })]);
-    expect(JSON.stringify(j)).not.toMatch(/sell_price|cost_price|250|120/);
+    expect(JSON.stringify(j)).not.toMatch(/sell_price|cost_price|:(250|120)[,}]]/) // prices as values only (a UUID may contain the digits);
   });
 
   it("submit: needs work finished, ≥ 1 before + ≥ 1 after photo, and the customer signature (BR-08, AC-09); → pending review + GM notified", async () => {
