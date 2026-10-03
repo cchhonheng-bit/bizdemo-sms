@@ -17,7 +17,7 @@ const start = async (chat: number, extra: Record<string, unknown> = {}) => (awai
 const say = async (chat: number, text: string, extra: Record<string, unknown> = {}) => (await internal("tg-text", { chat_id: chat, tg_user: chat, text, ...extra })).json();
 const labels = (m: any): string[] => (m.keyboard ?? []).flat().map((b: any) => b.text);
 const inlineViews = (m: any): string[] => (m.buttons ?? []).flat().map((b: any) => b.view ?? b.web_app ?? b.url ?? "");
-let hubCalls: { path: string; body: any }[] = [];
+const hubCalls: { path: string; body: any }[] = [];
 let cust: string, kimJob: string;
 
 beforeAll(async () => {
