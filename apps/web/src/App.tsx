@@ -36,6 +36,7 @@ import SubscribePrintPage from "@/features/subscribe/SubscribePrintPage";
 import LegalPage from "@/features/legal/LegalPage";
 import TelegramEntryPage from "@/features/auth/TelegramEntryPage";
 import RequestsPage from "@/features/requests/RequestsPage";
+import WebPricesPage from "@/features/catalog/WebPricesPage";
 import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
 
@@ -46,7 +47,7 @@ export default function App() {
   useEffect(() => { void load(); }, [load]);
   return (
     <QueryClientProvider client={qc}>
-      <BrowserRouter>
+      <BrowserRouter basename="/app">{/* D-96: "/" is the public website; the server sends old page addresses here */}
         <Routes>
           <Route path="/login" element={<LoginPage />} />
           <Route path="/terms" element={<LegalPage which="terms" />} />
@@ -69,6 +70,7 @@ export default function App() {
               <Route element={<RequirePerm perm="customer.manage" />}><Route path="/customers" element={<CustomersPage />} /></Route>
               <Route element={<RequireAnyPerm perms={["booking.create", "customer.manage"]} />}><Route path="/requests" element={<RequestsPage />} /></Route>
               <Route element={<RequirePerm perm="catalog.manage" />}><Route path="/catalog" element={<CatalogPage />} /></Route>
+              <Route element={<RequireFeature flag="website" />}><Route path="/web-prices" element={<WebPricesPage />} /></Route>
               <Route element={<RequireFeature flag="subscribe" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/subscribe" element={<SubscribePage />} /></Route></Route>
               <Route path="/tech" element={<TechTodayPage />} />
               <Route path="/tech/job/:id" element={<TechJobPage />} />

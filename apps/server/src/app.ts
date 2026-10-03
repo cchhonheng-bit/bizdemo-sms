@@ -35,7 +35,8 @@ import { mapsRoutes } from "./routes/maps.js";
 import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
-import { requestsRoutes, siteHome, siteRoutes, websiteRoutes } from "./routes/site.js";
+import { pubRoutes, requestsRoutes, siteHome, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
+import { APP_BASE } from "./lib/app-url.js";
 
 export const SESSION_COOKIE = "ots";
 
@@ -106,10 +107,19 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     return reply.status(500).send({ error: "INTERNAL" });
   });
   const hasWeb = existsSync(join(config.webDist, "index.html"));
+  // D-96: "/" is the public website, the staff app lives under /app. Pages of the app as they were addressed before
+  // (bookmarks, old bot buttons, the installed app) are sent to the same page under /app.
+  const LEGACY_APP = /^\/(login|first-login|dashboard|bookings|customers|requests|catalog|subscribe|tech|notifications|leave|attendance|inventory|accounting|reminders|reports|quotes|invoices|me|settings|tg|terms|privacy)(\/|\?|$)/;
   app.setNotFoundHandler((req, reply) => {
-    if (req.url.startsWith("/api/") || req.url.startsWith("/internal/") || !hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
-    reply.header("Cache-Control", "no-cache");
-    return reply.sendFile("index.html"); // SPA fallback
+    const path = req.url.split("?")[0]!;
+    if (path.startsWith("/api/") || path.startsWith("/internal/")) return reply.status(404).send({ error: "NOT_FOUND" });
+    if (req.method === "GET" && LEGACY_APP.test(req.url)) return reply.redirect(`${APP_BASE}${req.url}`, 302);
+    if (req.method === "GET" && hasWeb && path.startsWith(`${APP_BASE}/`) && !/\.[a-z0-9]{2,5}$/i.test(path)) { // a page of the app (a missing FILE stays a 404)
+      reply.header("Cache-Control", "no-cache");
+      return reply.sendFile("index.html");
+    }
+    if (req.method === "GET" && features().includes("website")) return siteNotFound(req, reply);
+    return reply.status(404).send({ error: "NOT_FOUND" });
   });
 
   // ---- public ----------------------------------------------------------------
@@ -147,20 +157,35 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
   app.register(websiteRoutes, { prefix: "/api/website" });
   app.register(requestsRoutes, { prefix: "/api/requests" });
-  // public shop website (flag "website", D-95): "/" shows it to visitors without a session — staff (session cookie) keep the app
+  // public shop website (flag "website", D-95 · v2 D-96): "/" ALWAYS shows it — also to staff and on phones with the app
+  // installed. Without the module "/" sends everybody to the app.
+  app.register(pubRoutes, { prefix: "/pub" });
   app.register(siteRoutes);
-  app.get("/", async (req, reply) => {
-    if (features().includes("website") && !req.cookies[SESSION_COOKIE]) return siteHome(req, reply, "/");
+  app.get("/", async (req, reply) => (features().includes("website") ? siteHome(req, reply) : reply.redirect(`${APP_BASE}/`, 302)));
+  app.get(APP_BASE, async (_req, reply) => reply.redirect(`${APP_BASE}/`, 302));
+  app.get(`${APP_BASE}/`, async (_req, reply) => {
     if (!hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
     reply.header("Cache-Control", "no-cache");
     return reply.sendFile("index.html");
   });
+  // A service worker installed from "/" before D-96 would keep answering "/" with the old app shell: this one replaces it,
+  // unregisters, drops that worker's cache and reloads the open pages (the app then registers its own worker under /app/).
+  app.get("/sw.js", async (_req, reply) => reply.type("text/javascript; charset=utf-8").header("Cache-Control", "no-cache").send(
+    'self.addEventListener("install",()=>self.skipWaiting());self.addEventListener("activate",(e)=>e.waitUntil((async()=>{await self.registration.unregister();'
+    + 'for(const k of await caches.keys())if(k.endsWith(self.registration.scope))await caches.delete(k);for(const c of await self.clients.matchAll({type:"window"}))c.navigate(c.url)})()));'));
+  // apps installed before D-96 look for their manifest and icon at the old addresses
+  app.get("/manifest.webmanifest", async (_req, reply) => {
+    if (!hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
+    reply.header("Cache-Control", "no-cache");
+    return reply.sendFile("manifest.webmanifest");
+  });
+  for (const p of ["/favicon.ico", "/favicon.png"]) app.get(p, async (_req, reply) => reply.redirect(`${APP_BASE}/favicon.png`, 302));
   // hub → shop (compose network only; caddy blocks /internal/* from the internet)
   app.register(internalRoutes, { prefix: "/internal" });
 
   // ---- web app (static; SPA fallback in the not-found handler) ------------------
   if (hasWeb) app.register(fstatic, {
-    root: config.webDist, prefix: "/", wildcard: false, index: false, maxAge: "1h", // "/" is routed above (website or app)
+    root: config.webDist, prefix: `${APP_BASE}/`, wildcard: false, index: false, maxAge: "1h", // the page addresses are routed above and in the not-found handler
     setHeaders: (res, path) => { if (!/[\\/]assets[\\/]/.test(path)) res.setHeader("Cache-Control", "no-cache"); }, // index.html / sw.js / manifest always revalidate
   });
   return app;

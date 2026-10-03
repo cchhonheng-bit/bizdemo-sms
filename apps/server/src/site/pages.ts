@@ -1,120 +1,310 @@
-// Public shop website (D-95): server-rendered, no script, one language per page (Khmer default, ?lang=en), everything escaped.
-// Sections appear only when the shop has the content; prices are never shown.
-import { BRAND } from "@sms/shared";
+// Public shop website v2 (D-96) — the approved design «Style C v2» (Doc_Sup/10_Brand/website_design, mobile-first 390×844):
+// 1 home · 2 choose a time · 3 your details · 4 request sent · 5 quote request · 6 customer home. Server-rendered, everything
+// escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in /pub/site.css,
+// the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). Text in the design's [brackets] is data.
+import { fromPriceText, kmDigits, siteConsentText, WEB_CONFIRM_MIN, WEB_MAX_PHOTOS, SERVICE_CATEGORIES } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
-import type { SiteView } from "../services/site.js";
+import { APP_BASE } from "../lib/app-url.js";
+import { WARRANTY_DAYS } from "../services/bookings.js";
+import type { MyHome } from "../services/customer-home.js";
+import type { SiteService, SiteView } from "../services/site.js";
+import type { CustomerState, WebDay } from "../services/web-booking.js";
 
 export type SiteLang = "km" | "en";
+/** version of /pub/site.css + /pub/site.js (hash of the files, set when the routes start) */
+export const assets = { v: "0" };
+
 const TXT = {
   km: {
-    tagline: "ស្នើសេវាកម្មតាមអនឡាញ — យើងនឹងទូរស័ព្ទទៅអ្នកវិញឆាប់ៗ", services: "សេវាកម្មរបស់យើង", request: "ស្នើសេវាកម្ម", call: "ទូរស័ព្ទ", about: "អំពីយើង", gallery: "រូបភាពការងារ",
-    area: "តំបន់សេវាកម្ម", hours: "ម៉ោងធ្វើការ", contact: "ទំនាក់ទំនង", address: "អាសយដ្ឋាន", map: "មើលក្នុង Google Maps", facebook: "ទំព័រហ្វេសប៊ុក", tg: "ទទួលដំណឹងតាម Telegram",
-    form_hint: "បំពេញព័ត៌មានខាងក្រោម។ បុគ្គលិករបស់យើងនឹងទូរស័ព្ទទៅអ្នកវិញ ដើម្បីបញ្ជាក់ថ្ងៃ និងម៉ោង។", name: "ឈ្មោះ", phone: "លេខទូរស័ព្ទ", service: "សេវាកម្មដែលត្រូវការ", choose: "— ជ្រើសរើស —", other: "ផ្សេងៗ",
-    area_f: "ទីតាំង (បុរី · ផ្លូវ · ផ្ទះ)", date: "ថ្ងៃដែលចង់បាន", message: "ព័ត៌មានបន្ថែម", send: "ផ្ញើសំណើ", consent: "ដោយផ្ញើសំណើ អ្នកយល់ព្រមឲ្យយើងទាក់ទងអ្នកតាមលេខនេះអំពីសំណើនេះ។",
-    err_name: "សូមបញ្ចូលឈ្មោះ", err_phone: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ", err_rate: "សំណើច្រើនពេក — សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬទូរស័ព្ទមកយើង", err_token: "ទំព័រនេះបើកយូរពេក — សូមផ្ញើម្ដងទៀត",
-    thanks_h: "✅ បានទទួលសំណើរបស់អ្នក", thanks_p: "យើងនឹងទូរស័ព្ទទៅអ្នកវិញឆាប់ៗ ដើម្បីបញ្ជាក់ថ្ងៃ និងម៉ោង។", back: "ត្រឡប់ទៅទំព័រដើម", staff: "ចូលប្រព័ន្ធបុគ្គលិក", terms: "លក្ខខណ្ឌប្រើប្រាស់",
-    privacy: "គោលការណ៍ឯកជនភាព", powered: "ដំណើរការដោយ", switch: "English",
-    cat: { mep: "ប្រព័ន្ធទឹក ភ្លើង ម៉ាស៊ីនត្រជាក់", construction: "សំណង់", decor: "ដេគ័រ", camera: "កាមេរ៉ាសុវត្ថិភាព", direct: "ផ្សេងៗ" } as Record<string, string>,
+    s1: "ជ្រើសសេវា", s2: "ជ្រើសម៉ោង", s3: "ទទួលបញ្ជាក់", steps: "កក់ងាយៗ ៣ ជំហាន",
+    h1: "ផ្ទះអ្នកត្រូវការជួសជុលអ្វី?", sub: "ជ្រើសសេវា រួចជ្រើសម៉ោងដែលជាងទំនេរ។", from: "ចាប់ពី", quote: "ស្នើសុំតម្លៃ", book: "កក់សេវា", call: "ហៅទូរស័ព្ទ", login: "ចូលគណនី",
+    more: (n: number) => `សេវាផ្សេងទៀត (${n})`, none: "សេវានឹងបង្ហាញនៅទីនេះឆាប់ៗ។",
+    t1: "បញ្ជាក់ក្នុង<br>៣០ នាទី", t2: (n: string) => `ធានាការងារ<br>${n} ខែ`, t3: "តាមដានតាម<br>Telegram",
+    privacy: "ឯកជនភាព", terms: "លក្ខខណ្ឌ", powered: "ដំណើរការដោយ", other: "English", about: "អំពីយើង", gallery: "រូបភាពការងារ", contact: "ទំនាក់ទំនង", map: "មើលក្នុង Google Maps", facebook: "ទំព័រហ្វេសប៊ុក",
+    back: "ត្រឡប់ក្រោយ", change: "ប្ដូរ", about_h: (h: string) => `ប្រហែល ${h} ម៉ោង`, day: "ជ្រើសថ្ងៃ", time: "ជ្រើសម៉ោង", hint: "បង្ហាញតែម៉ោងជាងទំនេរ", loc: "ទីតាំង", loc_ph: "ផ្ទះលេខ ផ្លូវ សង្កាត់ ...",
+    gps: "ប្រើទីតាំងបច្ចុប្បន្ន", gps_ok: "បានយកទីតាំង", chosen: "បានជ្រើស", next: "បន្ត", full: "មិនមានម៉ោងទំនេរក្នុង ៧ ថ្ងៃខាងមុខទេ។ សូមហៅទូរស័ព្ទមកយើង។",
+    details: "ព័ត៌មានរបស់អ្នក", r_svc: "សេវា", r_when: "ពេលវេលា", r_loc: "ទីតាំង", r_price: "តម្លៃ", name: "ឈ្មោះ", name_ph: "ឈ្មោះរបស់អ្នក", phone: "លេខទូរស័ព្ទ", note: "កំណត់ចំណាំ", opt: "(មិនចាំបាច់)",
+    note_ph: "ឧ. ម៉ាស៊ីន ២ គ្រឿង ជាន់ទី ២", send: "ផ្ញើសំណើកក់", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`,
+    sent: "បានផ្ញើសំណើកក់", held: "ម៉ោងនេះត្រូវបានរក្សាទុកសម្រាប់អ្នក។", no: "លេខកក់", status: "ស្ថានភាព", tg: "ទទួលការបញ្ជាក់ ការរំលឹក និងព័ត៌មានជាង តាម Telegram", tg_btn: "ភ្ជាប់ Telegram (១ ចុច)",
+    tg_ok: "បានភ្ជាប់ Telegram", mine: "មើលការកក់របស់ខ្ញុំ", home: "ត្រឡប់ទំព័រដើម",
+    h_confirmed: "ការកក់បានបញ្ជាក់", p_confirmed: "យើងនឹងជូនដំណឹង ពេលជាងត្រូវបានចាត់ឲ្យ។", h_declined: "មិនអាចទទួលការកក់នេះបានទេ", p_declined: "សូមជ្រើសម៉ោងផ្សេង ឬហៅទូរស័ព្ទមកយើង។",
+    h_cancelled: "ការកក់ត្រូវបានបោះបង់", p_cancelled: "អ្នកអាចកក់ម្ដងទៀតបានគ្រប់ពេល។", h_done: "ការងាររួចរាល់", p_done: "សូមអរគុណ។",
+    st: { pending: "រង់ចាំបញ្ជាក់", confirmed: "បានបញ្ជាក់", on_the_way: "ជាងកំពុងធ្វើដំណើរ", working: "កំពុងធ្វើការ", done: "រួចរាល់", declined: "មិនអាចទទួលបាន", cancelled: "បានបោះបង់" } as Record<CustomerState, string>,
+    q_sub: "ផ្ញើរូបថត ហើយយើងនឹងទាក់ទងវិញ", q_type: "ប្រភេទការងារ", q_desc: "ពិពណ៌នាការងារ", q_desc_ph: "ឧ. ចង់ធ្វើពិដានបន្ទប់ទទួលភ្ញៀវ ទំហំប្រហែល 4×5 ម៉ែត្រ", q_photos: "រូបថត", q_max: `(អតិបរមា ${WEB_MAX_PHOTOS})`,
+    q_add: "បន្ថែម", q_add_aria: "បន្ថែមរូបថត", q_phone: "ទូរស័ព្ទ", q_loc_ph: "សង្កាត់ ខណ្ឌ", q_send: "ផ្ញើសំណើតម្លៃ", q_sent: "បានផ្ញើសំណើតម្លៃ", q_sent_p: "យើងនឹងមើលរូបថត ហើយទាក់ទងអ្នកវិញឆាប់ៗ។", remove: "ដករូបចេញ",
+    cat: { mep: "អគ្គិសនី ទឹក ម៉ាស៊ីនត្រជាក់", construction: "សំណង់", decor: "តុបតែង", camera: "កាមេរ៉ា", other: "ផ្សេងៗ" } as Record<string, string>,
+    hello: "សួស្តី", upcoming: "ការកក់ខាងមុខ", tech: (n: string) => `ជាង ${n}`, resched: "ស្នើប្ដូរម៉ោង", cancel: "បោះបង់", past: "ការងារមុនៗ", until: (d: string) => `ធានាដល់ ${d}`, expired: "ផុតការធានា",
+    again: "កក់ម្ដងទៀត", call_shop: (shop: string) => `ហៅ ${shop}`, new: "កក់សេវាថ្មី", no_up: "មិនមានការកក់ខាងមុខទេ។", logout: "ចាកចេញ", pending_move: "សំណើប្ដូរម៉ោងកំពុងរង់ចាំការឆ្លើយតប",
+    why_cancel: "មូលហេតុបោះបង់", confirm_cancel: "បញ្ជាក់ការបោះបង់", keep: "មិនបោះបង់", new_time: "ជ្រើសម៉ោងថ្មី", why_move: "មូលហេតុ (មិនចាំបាច់)", send_move: "ផ្ញើសំណើប្ដូរម៉ោង", close: "បិទ",
+    l_h1: "ចូលគណនី", l_p: "ចូលដោយ Telegram ដើម្បីមើលការកក់ ប្ដូរម៉ោង ឬកក់ម្ដងទៀត។", l_auth: "មិនអាចផ្ទៀងផ្ទាត់ Telegram បានទេ។ សូមព្យាយាមម្ដងទៀត។",
+    l_nolink: "Telegram នេះមិនទាន់ភ្ជាប់ជាមួយការកក់ណាមួយទេ។ សូមកក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។", l_nobot: "ការចូលតាម Telegram មិនទាន់ដំណើរការទេ។", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
+    nf: "រកមិនឃើញទំព័រនេះទេ", wd: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], wds: ["ច", "អ", "ពុ", "ព្រ", "សុ", "ស", "អា"],
+    mon: ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"],
+    msg: { PICK_SLOT: "សូមជ្រើសថ្ងៃ និងម៉ោង", ADDRESS_REQUIRED: "សូមបញ្ចូលទីតាំង ឬចុច «ប្រើទីតាំងបច្ចុប្បន្ន»", LOCATION_REQUIRED: "សូមបញ្ចូលទីតាំង", NAME_REQUIRED: "សូមបញ្ចូលឈ្មោះ", INVALID_PHONE: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ",
+      CONSENT_REQUIRED: "សូមគូសយល់ព្រម ដើម្បីបន្ត", SLOT_TAKEN: "ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសម៉ោងផ្សេង។", SLOT_INVALID: "ម៉ោងនេះលែងកក់បានហើយ។ សូមជ្រើសម៉ោងផ្សេង។", RATE_LIMITED: "សំណើច្រើនពេក។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬហៅទូរស័ព្ទមកយើង។",
+      FORM_EXPIRED: "ទំព័រនេះបើកយូរពេក។ សូមបើកម្ដងទៀត។", DESCRIPTION_REQUIRED: "សូមពិពណ៌នាការងារ", TOO_MANY_PHOTOS: "រូបថតច្រើនបំផុត ៥ សន្លឹក", BAD_IMAGE: "ឯកសារនេះមិនមែនជារូបថតទេ", IMAGE_TOO_LARGE: "រូបថតធំពេក",
+      REASON_REQUIRED: "សូមសរសេរមូលហេតុ", ALREADY_REQUESTED: "អ្នកបានស្នើប្ដូរម៉ោងរួចហើយ។ សូមរង់ចាំការឆ្លើយតប។", SAME_TIME: "នេះជាម៉ោងដដែល", BOOKING_LOCKED: "ការកក់នេះលែងប្ដូរបានហើយ។ សូមហៅទូរស័ព្ទមកយើង។",
+      BOOKING_NOT_CANCELLABLE: "ការកក់នេះលែងបោះបង់បានហើយ។ សូមហៅទូរស័ព្ទមកយើង។", GPS_FAILED: "មិនអាចយកទីតាំងបានទេ។ សូមសរសេរទីតាំង។", ERROR: "មានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។", SENT_MOVE: "បានផ្ញើសំណើប្ដូរម៉ោង", SENDING: "កំពុងផ្ញើ..." },
   },
   en: {
-    tagline: "Request a service online — we will call you back shortly", services: "Our services", request: "Request service", call: "Call", about: "About us", gallery: "Our work",
-    area: "Service area", hours: "Working hours", contact: "Contact", address: "Address", map: "Open in Google Maps", facebook: "Facebook page", tg: "Get updates on Telegram",
-    form_hint: "Fill in the form below. Our staff will call you back to confirm the day and time.", name: "Name", phone: "Phone number", service: "Service needed", choose: "— choose —", other: "Other",
-    area_f: "Location (borey · street · house)", date: "Preferred day", message: "More details", send: "Send request", consent: "By sending, you agree that we contact you on this number about this request.",
-    err_name: "Please enter your name", err_phone: "Please enter a valid phone number", err_rate: "Too many requests — please try again later or call us", err_token: "This page was open too long — please send again",
-    thanks_h: "✅ We received your request", thanks_p: "We will call you back shortly to confirm the day and time.", back: "Back to the home page", staff: "Staff login", terms: "Terms of use",
-    privacy: "Privacy policy", powered: "Powered by", switch: "ខ្មែរ",
-    cat: { mep: "Plumbing, electrical, air conditioning", construction: "Construction", decor: "Decoration", camera: "Security camera", direct: "Other" } as Record<string, string>,
+    s1: "Service", s2: "Time", s3: "Confirmation", steps: "Book in 3 easy steps",
+    h1: "What needs fixing at home?", sub: "Choose a service, then a time when a technician is free.", from: "From", quote: "Request a quote", book: "Book a service", call: "Call", login: "Sign in",
+    more: (n: number) => `More services (${n})`, none: "Services will be listed here soon.",
+    t1: "Confirmed in<br>30 minutes", t2: (n: string) => `Work warranty<br>${n} ${n === "1" ? "month" : "months"}`, t3: "Follow on<br>Telegram",
+    privacy: "Privacy", terms: "Terms", powered: "Powered by", other: "ខ្មែរ", about: "About us", gallery: "Our work", contact: "Contact", map: "Open in Google Maps", facebook: "Facebook page",
+    back: "Back", change: "Change", about_h: (h: string) => `about ${h} ${h === "1" ? "hour" : "hours"}`, day: "Choose a day", time: "Choose a time", hint: "Only times with a free technician", loc: "Location", loc_ph: "House no., street, sangkat ...",
+    gps: "Use my current location", gps_ok: "Location added", chosen: "Selected", next: "Continue", full: "No free time in the next 7 days. Please call us.",
+    details: "Your details", r_svc: "Service", r_when: "Time", r_loc: "Location", r_price: "Price", name: "Name", name_ph: "Your name", phone: "Phone number", note: "Note", opt: "(optional)",
+    note_ph: "e.g. 2 units, 2nd floor", send: "Send booking request", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`,
+    sent: "Booking request sent", held: "This time is held for you.", no: "Booking no.", status: "Status", tg: "Get the confirmation, reminders and technician details on Telegram", tg_btn: "Connect Telegram (1 tap)",
+    tg_ok: "Telegram connected", mine: "See my bookings", home: "Back to the home page",
+    h_confirmed: "Booking confirmed", p_confirmed: "We will tell you when a technician is assigned.", h_declined: "We cannot take this booking", p_declined: "Please choose another time or call us.",
+    h_cancelled: "Booking cancelled", p_cancelled: "You can book again at any time.", h_done: "Job completed", p_done: "Thank you.",
+    st: { pending: "Waiting for confirmation", confirmed: "Confirmed", on_the_way: "Technician on the way", working: "In progress", done: "Completed", declined: "Not possible", cancelled: "Cancelled" } as Record<CustomerState, string>,
+    q_sub: "Send photos and we will get back to you", q_type: "Type of work", q_desc: "Describe the work", q_desc_ph: "e.g. a new ceiling for the living room, about 4×5 m", q_photos: "Photos", q_max: `(up to ${WEB_MAX_PHOTOS})`,
+    q_add: "Add", q_add_aria: "Add a photo", q_phone: "Phone", q_loc_ph: "Sangkat, khan", q_send: "Send quote request", q_sent: "Quote request sent", q_sent_p: "We will look at the photos and contact you shortly.", remove: "Remove photo",
+    cat: { mep: "Plumbing, electrical, AC", construction: "Construction", decor: "Decoration", camera: "Camera", other: "Other" } as Record<string, string>,
+    hello: "Hello", upcoming: "Upcoming booking", tech: (n: string) => `Technician ${n}`, resched: "Ask to reschedule", cancel: "Cancel", past: "Past jobs", until: (d: string) => `Warranty until ${d}`, expired: "Warranty ended",
+    again: "Book again", call_shop: (shop: string) => `Call ${shop}`, new: "New booking", no_up: "No upcoming booking.", logout: "Sign out", pending_move: "Your reschedule request is waiting for an answer",
+    why_cancel: "Reason for cancelling", confirm_cancel: "Confirm cancellation", keep: "Keep the booking", new_time: "Choose a new time", why_move: "Reason (optional)", send_move: "Send reschedule request", close: "Close",
+    l_h1: "Sign in", l_p: "Sign in with Telegram to see your bookings, change a time or book again.", l_auth: "Telegram could not be verified. Please try again.",
+    l_nolink: "This Telegram account is not connected to a booking yet. Book a service, then tap \"Connect Telegram (1 tap)\".", l_nobot: "Telegram sign-in is not available yet.", l_staff: "Staff: open the work app",
+    nf: "Page not found", wd: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wds: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+    mon: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    msg: { PICK_SLOT: "Please choose a day and a time", ADDRESS_REQUIRED: "Please enter the location or tap \"Use my current location\"", LOCATION_REQUIRED: "Please enter the location", NAME_REQUIRED: "Please enter your name", INVALID_PHONE: "Please enter a valid phone number",
+      CONSENT_REQUIRED: "Please tick the box to continue", SLOT_TAKEN: "This time was just taken. Please choose another one.", SLOT_INVALID: "This time can no longer be booked. Please choose another one.", RATE_LIMITED: "Too many requests. Please try again later or call us.",
+      FORM_EXPIRED: "This page was open too long. Please open it again.", DESCRIPTION_REQUIRED: "Please describe the work", TOO_MANY_PHOTOS: "At most 5 photos", BAD_IMAGE: "This file is not a photo", IMAGE_TOO_LARGE: "The photo is too large",
+      REASON_REQUIRED: "Please write the reason", ALREADY_REQUESTED: "You already asked to reschedule. Please wait for the answer.", SAME_TIME: "This is the same time", BOOKING_LOCKED: "This booking can no longer be changed. Please call us.",
+      BOOKING_NOT_CANCELLABLE: "This booking can no longer be cancelled. Please call us.", GPS_FAILED: "Could not get your location. Please type it.", ERROR: "Something went wrong. Please try again.", SENT_MOVE: "Reschedule request sent", SENDING: "Sending..." },
   },
 };
+type T = (typeof TXT)["km"];
 
-const CSS = `*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:'Noto Sans Khmer','Khmer OS Battambang','Khmer UI','Segoe UI',system-ui,sans-serif;color:${BRAND.ink};background:#fff;line-height:1.75;font-size:16px}
-a{color:${BRAND.tealText}}img{max-width:100%}.wrap{max-width:1040px;margin:0 auto;padding:0 16px}
-.top{position:sticky;top:0;z-index:5;background:#fff;border-bottom:1px solid ${BRAND.line}}.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:62px}
-.brand{display:flex;align-items:center;gap:10px;text-decoration:none;color:${BRAND.navy};font-weight:700;font-size:17px;min-width:0;line-height:1.4}.brand img{height:42px;width:auto;flex:none}
-.top nav{display:flex;align-items:center;gap:6px;flex:none}.lang{font-size:14px;padding:12px 8px;text-decoration:none;color:${BRAND.muted}}
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:10px 18px;border-radius:10px;border:1px solid ${BRAND.navy};color:${BRAND.navy};background:#fff;font:inherit;font-weight:700;text-decoration:none;cursor:pointer}
-.btn.primary{background:${BRAND.navy};color:#fff}.btn.sm{min-height:44px;padding:8px 12px;font-size:15px}
-.hero{background:${BRAND.navy};color:#fff;padding:40px 0 44px;position:relative;overflow:hidden}.hero-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.28}.hero .wrap{position:relative}
-.hero h1{font-size:30px;line-height:1.45;margin:0 0 8px}.hero p{margin:0 0 22px;font-size:17px;color:#E6EDF7;max-width:640px}
-.cta{display:flex;flex-wrap:wrap;gap:10px}.cta .btn{border-color:#fff;color:#fff;background:transparent}.cta .btn.primary{background:${BRAND.teal};border-color:${BRAND.teal};color:${BRAND.navy}}
-section{padding:34px 0}section.alt{background:${BRAND.bg}}h2{color:${BRAND.navy};font-size:22px;margin:0 0 16px;line-height:1.5}
-.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}.card{background:#fff;border:1px solid ${BRAND.line};border-radius:14px;padding:16px}
-.card h3{margin:0 0 8px;color:${BRAND.navy};font-size:17px;line-height:1.5}.card ul{margin:0;padding-left:20px}
-.pts{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}.pts li::before{content:"✓ ";color:${BRAND.tealText};font-weight:700}.pre{white-space:pre-line;margin:0;max-width:760px}
-.gal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}.gal img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:10px;display:block}
-form{display:grid;gap:14px;max-width:640px}label{display:block;font-weight:600;font-size:15px;margin-bottom:4px}.req{color:#B42318}
-input,select,textarea{width:100%;font:inherit;padding:12px;border:1px solid #C9CEDA;border-radius:10px;background:#fff;min-height:48px;color:inherit}textarea{min-height:110px}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media(max-width:560px){.row2{grid-template-columns:1fr}.hero h1{font-size:26px}}
-.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}.alert{border:1px solid #F1B5B0;background:#FDF2F1;color:#9A2A1F;border-radius:10px;padding:12px 14px;max-width:640px;margin-bottom:14px}
-.muted{color:${BRAND.muted};font-size:14px;margin:0}.contact{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px}.contact p{margin:0 0 10px}
-iframe{width:100%;height:260px;border:0;border-radius:12px;display:block}.tel{font-size:19px;font-weight:700;text-decoration:none;white-space:nowrap}
-footer{background:${BRAND.navy};color:#C9D2E3;padding:22px 0;font-size:14px}footer a{color:#fff}footer .wrap{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center;justify-content:space-between}
-.pw{display:inline-flex;align-items:center;gap:6px}.pw img{height:16px;width:auto}.center{text-align:center;padding:64px 0}`;
+// ---------- icons (the design's own line icons) ----------
+const svg = (d: string, size = 18, sw = 2) => `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const I = {
+  ac: '<path d="M12 2v20M4.9 4.9l14.2 14.2M2 12h20M4.9 19.1 19.1 4.9"/>', bolt: '<path d="M13 2 3 14h9l-1 8 10-12h-9z"/>', cam: '<path d="M23 7l-7 5 7 5z"/><rect x="1" y="5" width="15" height="14" rx="2"/>',
+  build: '<rect x="4" y="2" width="16" height="20" rx="1"/><path d="M9 22v-4h6v4M8 6h1M15 6h1M8 10h1M15 10h1M8 14h1M15 14h1"/>', drop: '<path d="M12 3s6 6.2 6 10.5a6 6 0 0 1-12 0C6 9.2 12 3 12 3z"/>',
+  brush: '<path d="M18 3 9 12l3 3 9-9z"/><path d="M9 12c-3 0-5 2-5 5 0 1.5-1 3-2 3 4 2 9 0 10-5"/>',
+  tool: '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>', cal: '<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>',
+  phone: '<path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.4c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/>',
+  send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>', clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
+  back: '<path d="m15 18-6-6 6-6"/>', chev: '<path d="m9 18 6-6-6-6"/>', check: '<path d="M20 6 9 17l-5-5"/>', pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
+  photo: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>', plus: '<path d="M12 5v14M5 12h14"/>',
+};
+/** the icon of a service: by what its name says, else by its category */
+function iconOf(s: { name_km: string; name_en: string | null; category: string }): string {
+  const n = `${s.name_km} ${s.name_en ?? ""}`.toLowerCase();
+  if (/ត្រជាក់|air ?con|\bac\b|aircon/.test(n)) return I.ac;
+  if (/កាមេរ៉ា|camera|cctv/.test(n) || s.category === "camera") return I.cam;
+  if (/ទឹក|plumb|water|pipe/.test(n)) return I.drop;
+  if (/ភ្លើង|អគ្គិសនី|electric/.test(n) || s.category === "mep") return I.bolt;
+  return s.category === "construction" ? I.build : s.category === "decor" ? I.brush : I.tool;
+}
 
-const nameOf = (d: SiteView, lang: SiteLang) => (lang === "en" ? d.info.name_en : d.info.name_km) || d.name;
+// ---------- names, dates ----------
 const phonesOf = (d: SiteView) => (d.info.phone ?? "").split(/[/,;]+/).map((p) => p.trim()).filter((p) => p.replace(/\D/g, "").length >= 8).slice(0, 4);
 const tel = (p: string) => `tel:${p.replace(/[^0-9+]/g, "")}`;
-const q = (lang: SiteLang) => (lang === "en" ? "?lang=en" : "");
-
-function shell(d: SiteView, lang: SiteLang, o: { title: string; description: string; path: string; body: string }): string {
-  const t = TXT[lang], name = nameOf(d, lang), phones = phonesOf(d), base = config.publicUrl;
-  const other = lang === "en" ? o.path : `${o.path}?lang=en`;
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="${BRAND.navy}">
-<title>${esc(o.title)}</title><meta name="description" content="${esc(o.description)}">${d.website.published ? "" : '<meta name="robots" content="noindex,nofollow">'}
-<link rel="canonical" href="${esc(base)}/${lang === "en" ? "?lang=en" : ""}"><link rel="alternate" hreflang="km" href="${esc(base)}/"><link rel="alternate" hreflang="en" href="${esc(base)}/?lang=en">
-<meta property="og:type" content="website"><meta property="og:title" content="${esc(o.title)}"><meta property="og:description" content="${esc(o.description)}"><meta property="og:image" content="${esc(base)}${d.hasLogo ? "/site/logo" : "/icons/icon-512.png"}">
-<link rel="icon" href="/favicon.png"><style>${CSS}</style></head><body>
-<header class="top"><div class="wrap"><a class="brand" href="${o.path}${q(lang)}">${d.hasLogo ? `<img src="/site/logo" alt="">` : ""}<span>${esc(name)}</span></a>
-<nav><a class="lang" href="${other}" hreflang="${lang === "en" ? "km" : "en"}">${t.switch}</a>${phones[0] ? `<a class="btn sm primary" href="${esc(tel(phones[0]))}">📞 ${t.call}</a>` : ""}</nav></div></header>
-${o.body}
-<footer><div class="wrap"><span>© ${esc(name)}</span><span><a href="/terms">${t.terms}</a> · <a href="/privacy">${t.privacy}</a> · <a href="/app" rel="nofollow">${t.staff}</a></span>
-<span class="pw">${t.powered} <img src="/brand/hangkh-wordmark-white.svg" alt="HangKH"></span></div></footer></body></html>`;
+const svcName = (s: { name_km: string; name_en: string | null }, lang: SiteLang) => (lang === "en" && s.name_en ? s.name_en : s.name_km);
+/** header: short name («One Team») + the rest of the full name («Engineering») + initials for the round mark */
+export function names(d: SiteView, lang: SiteLang) {
+  const full = ((lang === "en" ? d.info.name_en : d.info.name_km) || (lang === "en" ? "" : d.info.name_en) || d.name).trim();
+  const words = full.split(/\s+/), own = (d.website.short_name ?? "").trim();
+  const short = own && full.startsWith(own) ? own : words.length > 2 ? words.slice(0, 2).join(" ") : full;
+  const latin = /[A-Za-z]/.test(short) ? short : (d.info.name_en || d.name || "").trim();
+  return { full, short, rest: full.slice(short.length).trim(), initials: latin.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]!.toUpperCase()).join("") || "•" };
 }
+type Parts = { dow: number; day: number; month: number; year: number; time: string };
+const WD_EN = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function partsOf(d: Date, tz: string): Parts {
+  const p = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", day: "numeric", month: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).formatToParts(d);
+  const g = (k: string) => p.find((x) => x.type === k)?.value ?? "";
+  return { dow: WD_EN.indexOf(g("weekday")) + 1, day: Number(g("day")), month: Number(g("month")), year: Number(g("year")), time: `${g("hour")}:${g("minute")}` };
+}
+/** «ច័ន្ទ 5 តុលា · 09:00» */
+const whenText = (t: T, p: Parts) => `${t.wd[p.dow - 1]} ${p.day} ${t.mon[p.month - 1]} · ${p.time}`;
+const hoursText = (minutes: number, lang: SiteLang) => { const h = String(Math.round(minutes / 6) / 10); return lang === "km" ? kmDigits(h) : h; };
 
-export function homePage(d: SiteView, lang: SiteLang, o: { token: string; path: "/" | "/site"; errors?: string[]; values?: Record<string, string> }): string {
-  const t = TXT[lang], w = d.website, name = nameOf(d, lang), phones = phonesOf(d), v = o.values ?? {};
+// ---------- shell + shared pieces ----------
+type Shell = { title: string; page: string; body: string; path: string; index?: boolean; description?: string; data?: Record<string, string>; msg?: boolean };
+function shell(d: SiteView, lang: SiteLang, o: Shell): string {
+  const t = TXT[lang], base = config.publicUrl, noindex = !(o.index && d.website.published);
+  const data = Object.entries(o.data ?? {}).map(([k, v]) => ` data-${k}="${esc(v)}"`).join("");
+  const msg = o.msg === false ? "" : `<script type="application/json" id="msg">${JSON.stringify({ ...t.msg, wd: t.wd, wds: t.wds, mon: t.mon }).replace(/</g, "\\u003c")}</script>`;
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#EEF6F5">
+<title>${esc(o.title)}</title>${o.description ? `<meta name="description" content="${esc(o.description)}">` : ""}${noindex ? '<meta name="robots" content="noindex,nofollow">' : ""}
+${o.index ? `<link rel="canonical" href="${esc(base)}/${lang === "en" ? "?lang=en" : ""}"><link rel="alternate" hreflang="km" href="${esc(base)}/"><link rel="alternate" hreflang="en" href="${esc(base)}/?lang=en"><meta property="og:type" content="website"><meta property="og:title" content="${esc(o.title)}">${o.description ? `<meta property="og:description" content="${esc(o.description)}">` : ""}` : ""}
+<link rel="icon" href="${APP_BASE}/favicon.png"><link rel="stylesheet" href="/pub/site.css?v=${assets.v}"></head>
+<body data-page="${o.page}" data-lang="${lang}"${data}>${o.body}${msg}<script src="/pub/site.js?v=${assets.v}" defer></script></body></html>`;
+}
+const mark = (d: SiteView, n: { initials: string }) => `<span class="av">${d.hasLogo ? '<img src="/pub/logo" alt="">' : esc(n.initials)}</span>`;
+const steps = (t: T, now: 1 | 2 | 3) => {
+  // home: three plain steps (the last one teal); later screens: done ✓ · the current one · still to do
+  const st = (i: 1 | 2 | 3, label: string) => (now > 1 && i < now ? `<span class="st done"><i>${svg(I.check, 12, 3)}</i>${label}</span>`
+    : `<span class="st${now === 1 ? (i === 3 ? " go" : "") : i === now ? " now" : " todo"}"><i>${kmOrEn(t, i)}</i>${label}</span>`);
+  const chev = `<span class="cv">${svg(I.chev, 14)}</span>`;
+  return `<section class="steps" aria-label="${t.steps}">${st(1, t.s1)}${chev}${st(2, t.s2)}${chev}${st(3, t.s3)}</section>`;
+};
+const kmOrEn = (t: T, n: number) => (t === TXT.km ? kmDigits(n) : String(n));
+const langLink = (t: T, lang: SiteLang, path: string) => `<a href="${esc(path)}${path.includes("?") ? "&amp;" : "?"}lang=${lang === "en" ? "km" : "en"}" hreflang="${lang === "en" ? "km" : "en"}">${t.other}</a>`;
+const powered = (t: T) => `<span>${t.powered} <b class="hk">Hang</b><b class="kh">KH</b></span>`;
+const backHeader = (t: T, href: string, title: string, sub = "", step = false) => `<header class="hd l"><a class="back" href="${href}"${step ? " data-back" : ""} aria-label="${t.back}">${svg(I.back, 18, 2.2)}</a><div class="ttl">${title}${sub ? `<small>${sub}</small>` : ""}</div></header>`;
+const consent = (d: SiteView, t: T, lang: SiteLang, small = false) => `<label class="cs${small ? " s" : ""}"><input type="checkbox" id="consent"><span>${esc(siteConsentText(names(d, lang).short, lang))} <a href="${APP_BASE}/privacy">${t.privacy}</a></span></label>`;
+const honeypot = '<div class="hp" aria-hidden="true"><input id="company_url" tabindex="-1" autocomplete="off"></div>';
+const errBox = '<p class="err" id="err" role="alert" hidden></p>';
+
+// ---------- 1 · home ----------
+export function homePage(d: SiteView, lang: SiteLang, path = "/"): string {
+  const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
-  const tagline = pick(w.tagline_km, w.tagline_en) || t.tagline;
-  const about = pick(w.about_km, w.about_en), area = pick(w.area_km, w.area_en), hours = pick(w.hours_km, w.hours_en);
-  const points = ((lang === "en" ? w.highlights_en : w.highlights_km) ?? []).map((x) => x.trim()).filter(Boolean);
-  const cats = [...new Set(d.services.map((s) => s.category))];
-  const svcName = (s: { name_km: string; name_en: string | null }) => (lang === "en" && s.name_en ? s.name_en : s.name_km);
-  const messages: Record<string, string> = { name: t.err_name, phone: t.err_phone, rate: t.err_rate, token: t.err_token };
-  const err = (o.errors ?? []).map((e) => messages[e]).filter((x): x is string => !!x);
-  const bad = (k: string) => (o.errors ?? []).includes(k);
-  const first = bad("name") ? "name" : bad("phone") ? "phone" : "";
-  const hero = `<section class="hero">${w.hero ? `<img class="hero-bg" src="/site/img/${esc(w.hero)}" alt="">` : ""}<div class="wrap"><h1>${esc(name)}</h1><p>${esc(tagline)}</p><div class="cta">
-<a class="btn primary" href="#request">${t.request}</a>${phones[0] ? `<a class="btn" href="${esc(tel(phones[0]))}">📞 ${esc(phones[0])}</a>` : ""}${d.bot ? `<a class="btn" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">Telegram</a>` : ""}</div></div></section>`;
-  const services = cats.length ? `<section id="services"><div class="wrap"><h2>${t.services}</h2><div class="cards">${cats.map((c) => `<div class="card"><h3>${esc(t.cat[c] ?? c)}</h3><ul>${d.services.filter((s) => s.category === c).map((s) => `<li>${esc(svcName(s))}</li>`).join("")}</ul></div>`).join("")}</div></div></section>` : "";
-  const aboutS = about || points.length ? `<section class="alt" id="about"><div class="wrap"><h2>${t.about}</h2>${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</div></section>` : "";
-  const gallery = (w.gallery ?? []).length ? `<section id="gallery"><div class="wrap"><h2>${t.gallery}</h2><div class="gal">${w.gallery!.map((g) => `<img src="/site/img/${esc(g)}" alt="" loading="lazy">`).join("")}</div></div></section>` : "";
-  const form = `<section class="alt" id="request"><div class="wrap"><h2>${t.request}</h2>${err.length ? `<div class="alert" role="alert">${err.map((e) => esc(e)).join("<br>")}</div>` : ""}
-<form method="post" action="/site/request${q(lang)}" autocomplete="on"><p class="muted">${t.form_hint}</p>
-<div class="row2"><div><label for="f-name">${t.name} <span class="req">*</span></label><input id="f-name" name="name" required maxlength="80" autocomplete="name" value="${esc(v.name ?? "")}"${first === "name" ? " autofocus" : ""}></div>
-<div><label for="f-phone">${t.phone} <span class="req">*</span></label><input id="f-phone" name="phone" type="tel" inputmode="tel" required maxlength="20" autocomplete="tel" value="${esc(v.phone ?? "")}"${first === "phone" ? " autofocus" : ""}></div></div>
-<div class="row2"><div><label for="f-service">${t.service}</label><select id="f-service" name="service"><option value="">${t.choose}</option>${cats.map((c) => `<optgroup label="${esc(t.cat[c] ?? c)}">${d.services.filter((s) => s.category === c).map((s) => `<option value="${esc(s.id)}"${v.service === s.id ? " selected" : ""}>${esc(svcName(s))}</option>`).join("")}</optgroup>`).join("")}<option value="other"${v.service === "other" ? " selected" : ""}>${t.other}</option></select></div>
-<div><label for="f-date">${t.date}</label><input id="f-date" name="date" type="date" min="${esc(d.today)}" value="${esc(v.date ?? "")}"></div></div>
-<div><label for="f-area">${t.area_f}</label><input id="f-area" name="area" maxlength="120" autocomplete="street-address" value="${esc(v.area ?? "")}"></div>
-<div><label for="f-msg">${t.message}</label><textarea id="f-msg" name="message" maxlength="500">${esc(v.message ?? "")}</textarea></div>
-<div class="hp" aria-hidden="true"><label for="f-url">URL</label><input id="f-url" name="company_url" tabindex="-1" autocomplete="off"></div><input type="hidden" name="ts" value="${esc(o.token)}">
-<button class="btn primary" type="submit">${t.send}</button><p class="muted">${t.consent}</p></form></div></section>`;
-  const map = d.office ? `<div><iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe>
-<p><a href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a></p></div>` : "";
-  const lines = [phones.length ? `<p>${phones.map((p) => `<a class="tel" href="${esc(tel(p))}">📞 ${esc(p)}</a>`).join("<br>")}</p>` : "",
-    d.info.address ? `<p><b>${t.address}</b><br>${esc(d.info.address)}</p>` : "", area ? `<p><b>${t.area}</b><br>${esc(area)}</p>` : "", hours ? `<p><b>${t.hours}</b><br>${esc(hours)}</p>` : "",
-    d.bot ? `<p><a href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">${t.tg}</a></p>` : "", w.facebook ? `<p><a href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a></p>` : ""].join("");
-  const contact = lines || map ? `<section id="contact"><div class="wrap"><h2>${t.contact}</h2><div class="contact"><div>${lines}</div>${map}</div></div></section>` : "";
-  return shell(d, lang, { title: `${name} — ${t.request}`, description: tagline, path: o.path, body: hero + services + aboutS + gallery + form + contact });
+  const first = d.services.find((s) => s.from_price != null);
+  const tile = (s: SiteService, i: number) => `<a class="tile" href="${s.from_price != null ? `/book?service=${s.id}` : `/quote?service=${s.id}`}"${i >= 4 ? " hidden data-more" : ""}><span class="ic">${svg(iconOf(s))}</span><span class="tx"><span class="tn">${esc(svcName(s, lang))}</span><span class="tp">${s.from_price != null ? `${t.from} ${fromPriceText(s.from_price)}` : t.quote}</span></span></a>`;
+  const months = String(Math.max(1, Math.round(WARRANTY_DAYS / 30)));
+  const area = [pick(w.area_km, w.area_en), pick(w.hours_km, w.hours_en)].filter(Boolean).join(" · ");
+  const about = pick(w.about_km, w.about_en), points = ((lang === "en" ? w.highlights_en : w.highlights_km) ?? []).map((x) => x.trim()).filter(Boolean);
+  const extra = [
+    about || points.length ? `<section class="card s"><h2 class="h2">${t.about}</h2>${w.hero ? `<img class="hero" src="/pub/img/${esc(w.hero)}" alt="" loading="lazy">` : ""}${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</section>` : "",
+    (w.gallery ?? []).length ? `<section class="card s"><h2 class="h2">${t.gallery}</h2><div class="gal">${w.gallery!.map((g) => `<img src="/pub/img/${esc(g)}" alt="" loading="lazy">`).join("")}</div></section>` : "",
+    d.info.address || d.office || w.facebook || phones.length > 1 ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}${d.office ? `<iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe><a class="ln" href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a>` : ""}</section>` : "",
+  ].join("");
+  const body = `<main class="scr home">
+<header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a><a class="pill" href="/my">${svg(I.user, 14)}${t.login}</a></header>
+${steps(t, 1)}
+<section class="card"><div><h1>${t.h1}</h1><p class="sub">${t.sub}</p></div>
+${d.services.length ? `<div class="tiles" id="services">${d.services.map(tile).join("")}</div>${d.services.length > 4 ? `<button type="button" class="morel" id="more">${t.more(d.services.length - 4)}</button>` : ""}` : `<p class="sub">${t.none}</p>`}
+<a class="btn" href="${first ? `/book?service=${first.id}` : "/quote"}">${svg(I.cal, 16, 2.2)}${first ? t.book : t.quote}</a>
+<div class="row2">${phones[0] ? `<a class="ob" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
+<section class="trust"><div><span class="tl">${svg(I.clock)}</span><span>${t.t1}</span></div><div><span class="tl">${svg(I.shield)}</span><span>${t.t2(lang === "km" ? kmDigits(months) : months)}</span></div><div><span class="gd">${svg(I.send)}</span><span>${t.t3}</span></div></section>
+${extra}<footer class="ft">${area ? `<div>${esc(area)}</div>` : ""}<nav><a href="${APP_BASE}/privacy">${t.privacy}</a><a href="${APP_BASE}/terms">${t.terms}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
+  return shell(d, lang, { title: `${n.full} — ${t.book}`, description: pick(w.tagline_km, w.tagline_en) || t.sub, page: "home", path, index: true, body, msg: false });
 }
 
-export function thanksPage(d: SiteView, lang: SiteLang): string {
-  const t = TXT[lang];
-  return shell(d, lang, { title: `${nameOf(d, lang)} — ${t.request}`, description: t.thanks_p, path: "/site",
-    body: `<section class="center"><div class="wrap"><h2>${t.thanks_h}</h2><p>${t.thanks_p}</p>${d.bot ? `<p><a class="btn" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">${t.tg}</a></p>` : ""}<p><a href="/site${q(lang)}">${t.back}</a></p></div></section>` });
+// ---------- 2 + 3 · choose a time, your details (one document, two steps) ----------
+function picker(t: T, days: WebDay[]): string {
+  const sel = days.findIndex((d) => d.slots.some((s) => s.free));
+  const month = (d: WebDay) => `${t.mon[Number(d.date.slice(5, 7)) - 1]} ${d.date.slice(0, 4)}`;
+  const label = (d: WebDay, time: string) => `${t.wd[d.dow - 1]} ${Number(d.date.slice(8, 10))} ${t.mon[Number(d.date.slice(5, 7)) - 1]} · ${time}`;
+  return `<div class="hr"><h2 class="h2">${t.day}</h2><span class="mut" id="month">${sel >= 0 ? month(days[sel]!) : days[0] ? month(days[0]) : ""}</span></div>
+<div class="days" id="days">${days.map((d, i) => `<button type="button" class="day" data-day="${d.date}" data-month="${month(d)}" aria-pressed="${i === sel}"${d.slots.some((s) => s.free) ? "" : " disabled"}><small>${t.wds[d.dow - 1]}</small><b>${Number(d.date.slice(8, 10))}</b></button>`).join("")}</div>
+<div class="hr t"><h2 class="h2">${t.time}</h2><span class="mut xs">${t.hint}</span></div>
+${days.map((d, i) => `<div class="slots" data-for="${d.date}"${i === sel ? "" : " hidden"}>${d.slots.map((s) => `<button type="button" class="slot" data-at="${s.at}" data-label="${esc(label(d, s.time))}" aria-pressed="false"${s.free ? "" : " disabled"}>${s.time}</button>`).join("")}</div>`).join("")}
+${sel < 0 ? `<p class="err">${t.full}</p>` : ""}`;
+}
+
+export function bookPage(d: SiteView, lang: SiteLang, o: { service: SiteService & { from_price: number }; days: WebDay[]; token: string; path: string }): string {
+  const t = TXT[lang], n = names(d, lang), s = o.service, phones = phonesOf(d);
+  const price = `${t.from} ${fromPriceText(s.from_price)}`;
+  const body = `<main class="scr bar-pad" id="s2">
+${backHeader(t, "/", t.book)}
+${steps(t, 2)}
+<div class="svc"><span class="ic sm">${svg(iconOf(s), 16)}</span><div class="tx"><b>${esc(svcName(s, lang))}</b><span>${price} · ${t.about_h(hoursText(s.duration_min, lang))}</span></div><a href="/#services">${t.change}</a></div>
+<section class="card s" id="picker">${picker(t, o.days)}</section>
+<section class="card s g8"><label class="lb" for="addr">${t.loc}</label><input class="in" id="addr" maxlength="300" autocomplete="street-address" placeholder="${t.loc_ph}">
+<button type="button" class="gps" id="gps" data-ok="${t.gps_ok}">${svg(I.pin, 14)}<span>${t.gps}</span></button><input type="hidden" id="lat"><input type="hidden" id="lng"></section>
+${errBox}
+<div class="bar"><div class="sel"><small>${t.chosen}</small><b id="pick">—</b></div>${phones[0] && !o.days.some((x) => x.slots.some((y) => y.free)) ? `<a class="btn go" href="${esc(tel(phones[0]))}">${t.call}</a>` : `<button type="button" class="btn go" id="next">${t.next}</button>`}</div></main>
+<main class="scr bar-pad" id="s3" hidden>
+${backHeader(t, "#", t.details, "", true)}
+${steps(t, 3)}
+<section class="sum"><div><span>${t.r_svc}</span><b>${esc(svcName(s, lang))}</b></div><div><span>${t.r_when}</span><b id="sum-when">—</b></div><div><span>${t.r_loc}</span><b id="sum-loc">—</b></div><div class="pr"><span>${t.r_price}</span><b>${price}</b></div></section>
+<section class="card s"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in" id="name" maxlength="80" autocomplete="name" placeholder="${t.name_ph}"></div>
+<div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="12 345 678"></div></div>
+<div class="f"><label class="lb s" for="note">${t.note} <span class="opt">${t.opt}</span></label><textarea class="ta" id="note" rows="2" maxlength="500" placeholder="${t.note_ph}"></textarea></div>
+${consent(d, t, lang)}${honeypot}</section>
+<p class="err" id="err3" role="alert" hidden></p>
+<div class="bar col"><button type="button" class="btn" id="send">${t.send}</button><div class="sla">${esc(t.sla(n.short))}</div></div></main>`;
+  return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { service: s.id, ts: o.token } });
+}
+
+// ---------- 4 · request sent ----------
+export function donePage(d: SiteView, lang: SiteLang, b: { number: string; state: CustomerState; service_km: string; service_en: string | null; at: Date; linked: boolean; token: string | null }, path: string): string {
+  const t = TXT[lang], n = names(d, lang);
+  const head = b.state === "pending" ? [t.sent, `${esc(t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
+    : b.state === "declined" ? [t.h_declined, t.p_declined] : b.state === "cancelled" ? [t.h_cancelled, t.p_cancelled] : [t.h_done, t.p_done];
+  const bad = b.state === "declined" || b.state === "cancelled";
+  const body = `<main class="scr end">
+<header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header>
+<section class="ok"><div class="okc${bad ? " r" : ""}">${svg(bad ? '<path d="M18 6 6 18M6 6l12 12"/>' : I.check, 28, 2.5)}</div><h1>${head[0]}</h1><p>${head[1]}</p></section>
+<section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}">${t.st[b.state]}</span></div>
+<div><span>${t.r_svc}</span><b>${esc(lang === "en" && b.service_en ? b.service_en : b.service_km)}</b></div><div><span>${t.r_when}</span><b>${whenText(t, partsOf(b.at, d.tz))}</b></div></section>
+${b.linked ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div><a class="btn tgb" href="/my">${t.mine}</a></section>`
+    : b.token && d.bot ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" href="https://t.me/${esc(d.bot)}?start=${esc(b.token)}" rel="noopener">${t.tg_btn}</a></section>` : ""}
+<a class="ob b" href="/">${t.home}</a></main>`;
+  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, msg: false });
+}
+
+// ---------- 5 · quote request ----------
+export function quotePage(d: SiteView, lang: SiteLang, o: { service: SiteService | null; token: string; path: string }): string {
+  const t = TXT[lang], n = names(d, lang);
+  const cats = [...SERVICE_CATEGORIES.filter((c) => d.services.some((s) => s.category === c)), "other"];
+  const on = o.service && cats.includes(o.service.category) ? o.service.category : cats[0]!;
+  const body = `<main class="scr bar-pad">
+${backHeader(t, "/", t.quote, t.q_sub)}
+<section class="card s"><div class="lb s">${t.q_type}</div><div class="chips" id="cats">${cats.map((c) => `<button type="button" class="chip" data-cat="${c}" aria-pressed="${c === on}">${t.cat[c]}</button>`).join("")}</div>
+<div class="f"><label class="lb s" for="desc">${t.q_desc}</label><textarea class="ta" id="desc" rows="3" maxlength="600" placeholder="${t.q_desc_ph}">${o.service ? esc(svcName(o.service, lang)) : ""}</textarea></div>
+<div class="lb s">${t.q_photos} <span class="opt">${t.q_max}</span></div>
+<div class="photos" id="photos" data-remove="${t.remove}"><button type="button" class="pa" id="add" aria-label="${t.q_add_aria}">${svg(I.photo)}${t.q_add}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden></section>
+<section class="card s g8"><div class="g2"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in sm" id="name" maxlength="80" autocomplete="name"></div>
+<div class="f"><label class="lb s" for="phone">${t.q_phone}</label><input class="in sm" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="+855"></div></div>
+<div class="lr"><div class="f"><label class="lb s" for="addr">${t.loc}</label><input class="in sm" id="addr" maxlength="200" placeholder="${t.q_loc_ph}"></div><button type="button" class="gi" id="gps" aria-label="${t.gps}">${svg(I.pin, 16)}</button><input type="hidden" id="lat"><input type="hidden" id="lng"></div>
+${consent(d, t, lang, true)}${honeypot}</section>
+${errBox}
+<div class="bar"><button type="button" class="btn" id="send">${t.q_send}</button></div></main>`;
+  return shell(d, lang, { title: `${t.quote} — ${n.full}`, page: "quote", path: o.path, body, data: { ts: o.token, ...(o.service ? { service: o.service.id } : {}) } });
+}
+export function quoteDonePage(d: SiteView, lang: SiteLang, path: string): string {
+  const t = TXT[lang], n = names(d, lang);
+  const body = `<main class="scr end"><header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header>
+<section class="ok"><div class="okc">${svg(I.check, 28, 2.5)}</div><h1>${t.q_sent}</h1><p>${t.q_sent_p}</p></section>
+${d.bot ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">Telegram</a></section>` : ""}
+<a class="ob b" href="/">${t.home}</a></main>`;
+  return shell(d, lang, { title: `${t.q_sent} — ${n.full}`, page: "done", path, body, msg: false });
+}
+
+// ---------- 6 · customer home (and its login) ----------
+export function loginPage(d: SiteView, lang: SiteLang, o: { error: string | null; path: string }): string {
+  const t = TXT[lang], n = names(d, lang);
+  const err = o.error === "auth" ? t.l_auth : o.error === "nolink" ? t.l_nolink : "";
+  const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
+<section class="ok"><div class="okc">${svg(I.user, 26)}</div><h1>${t.l_h1}</h1><p>${t.l_p}</p>${err ? `<p class="err">${err}</p>` : ""}
+<div class="tgw" id="tgw">${d.bot ? `<script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="${esc(d.bot)}" data-size="large" data-radius="20" data-auth-url="${esc(config.publicUrl)}/my/auth"></script>` : `<p class="err">${t.l_nobot}</p>`}</div></section>
+<a class="btn" href="/">${svg(I.cal, 16, 2.2)}${t.book}</a>
+<footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a>${langLink(t, lang, o.path)}${powered(t)}</nav></footer></main>`;
+  return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path: o.path, body });
+}
+
+export function myPage(d: SiteView, lang: SiteLang, h: MyHome, path: string): string {
+  const t = TXT[lang], n = names(d, lang), phones = phonesOf(d);
+  const up = h.upcoming.map((b) => {
+    const p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
+    return `<section class="card s" data-booking="${b.id}"><div class="hr"><h2 class="h2">${t.upcoming}</h2><span class="pl sm ${b.status === "pending" ? "w" : "g"}">${t.st[b.status]}</span></div>
+<div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${esc(lang === "en" && b.service_en ? b.service_en : b.service_km)}</b><span>${p ? p.time : ""}${b.technician ? ` · ${esc(t.tech(b.technician))}` : ""}</span><span>#${esc(b.number)}</span></div></div>
+${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}
+${b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<button type="button" class="sb" data-move="${b.id}"${b.reschedule_pending ? " disabled" : ""}>${t.resched}</button>` : ""}${b.can_cancel ? `<button type="button" class="sb d" data-cancel="${b.id}">${t.cancel}</button>` : ""}</div>
+<div class="pn" data-panel="cancel" hidden><label class="lb s" for="why-${b.id}">${t.why_cancel}</label><textarea class="ta" id="why-${b.id}" rows="2" maxlength="200"></textarea><div class="row2"><button type="button" class="sb" data-close>${t.keep}</button><button type="button" class="sb d" data-cancel-go="${b.id}">${t.confirm_cancel}</button></div></div>
+<div class="pn" data-panel="move" hidden><div class="pk" data-day="${t.day}" data-time="${t.new_time}"></div><label class="lb s" for="mv-${b.id}">${t.why_move}</label><input class="in sm" id="mv-${b.id}" maxlength="200"><div class="row2"><button type="button" class="sb" data-close>${t.close}</button><button type="button" class="sb p" data-move-go="${b.id}">${t.send_move}</button></div></div>
+<p class="err" role="alert" hidden></p>` : ""}</section>`;
+  }).join("");
+  const dm = (s: string | Date | null) => { if (!s) return ""; const p = typeof s === "string" ? { day: Number(s.slice(8, 10)), month: Number(s.slice(5, 7)) } : partsOf(s, d.tz); return `${p.day} ${t.mon[p.month - 1]}`; };
+  const past = h.past.length ? `<section class="card s g4"><h2 class="h2">${t.past}</h2>${h.past.map((j) => `<div class="pj"><span class="ic m">${svg(iconOf({ name_km: j.service_km, name_en: j.service_en, category: "" }), 16)}</span><div class="tx"><b>${esc(lang === "en" && j.service_en ? j.service_en : j.service_km)}</b><span>${dm(j.date)} · ${j.warranty?.active ? `<span class="w">${t.until(dm(j.warranty.until))}</span>` : t.expired}</span></div><a href="${esc(j.rebook)}">${t.again}</a></div>`).join("")}</section>` : "";
+  const body = `<main class="scr bar-pad">
+<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div><span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span></header>
+${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
+${past}
+<section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
+<footer class="ft in"><nav><button type="button" class="lk" id="logout">${t.logout}</button>${langLink(t, lang, path)}${powered(t)}</nav></footer>
+<div class="bar"><a class="btn" href="/">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
+  return shell(d, lang, { title: `${t.upcoming} — ${n.full}`, page: "my", path, body });
+}
+
+export function notFoundPage(d: SiteView, lang: SiteLang): string {
+  const t = TXT[lang], n = names(d, lang);
+  return shell(d, lang, { title: `${t.nf} — ${n.full}`, page: "nf", path: "/", msg: false,
+    body: `<main class="scr end"><header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header><section class="ok"><h1>${t.nf}</h1></section><a class="ob b" href="/">${t.home}</a></main>` });
 }
 
 export function robotsTxt(published: boolean): string {
-  return ["User-agent: *", "Disallow: /api/", "Disallow: /app", "Disallow: /login", "Disallow: /site/request", published ? "Allow: /" : "Disallow: /", ""].join("\n");
+  return ["User-agent: *", "Disallow: /api/", `Disallow: ${APP_BASE}/`, "Disallow: /my", "Disallow: /book", "Disallow: /quote", published ? "Allow: /" : "Disallow: /", ""].join("\n");
 }

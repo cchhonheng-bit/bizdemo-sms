@@ -91,6 +91,22 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
       const master = await masterBot();
       return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null, cust[1]!.toUpperCase()));
     }
+    // D-96: the one-click link of a website booking, t.me/<shop bot>?start=b-<token>. Someone who already agreed (a live
+    // subscription to this shop) is linked at once; everybody else sees the consent first (A4) and is linked with the tick.
+    const web = c.arg.match(/^b-[A-Za-z0-9_-]{20}$/);
+    if (web) {
+      if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", shop.code, "subscribe.unavailable");
+      const subscriber = await subscriberOf(msg.from!.id, shop.code);
+      if (!subscriber) {
+        const master = await masterBot();
+        return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null, web[0]));
+      }
+      if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
+      const x = await callShop(shop, "POST", "/internal/customer-subscribed", { code: web[0], subscriber_id: subscriber });
+      const ok = !!(x && x.status === 200 && x.json?.ok);
+      return reply(bot, msg.chat.id, ok ? `✅ ការកក់ ${String(x!.json.booking ?? "").slice(0, 20)} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង ពី «${shop.name}» នឹងមកដល់ទីនេះ។`
+        : "⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។", shop.code, ok ? "booking.linked" : "booking.link_failed", undefined, false);
+    }
     return forwardCode(bot, "link", c.arg, msg, log);
   }
   if (isPrivate && c.cmd === "stop") {
@@ -241,9 +257,17 @@ async function onCallback(bot: Bot, q: CallbackQuery): Promise<void> {
     const master = await masterBot();
     await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: q.message!.message_id, reply_markup: consentMarkup(null, master?.status === "active" ? master.username : null) });
     // A2: came through the customer's own link → the shop links this subscriber to that customer (service reminders)
-    let linked = false;
-    if (p?.code) { const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId }); linked = !!(x && x.status === 200 && x.json?.ok); }
-    await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»${linked ? " (រួមទាំងការរំលឹកថែទាំ)" : ""}។\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok");
+    // D-96: came through the link of a website booking (b-<token>) → the shop links this chat to that booking (single use)
+    let linked = false, booking = "";
+    const web = !!p?.code?.startsWith("b-");
+    if (p?.code) {
+      const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId });
+      linked = !!(x && x.status === 200 && x.json?.ok);
+      if (web && linked) booking = String(x!.json.booking ?? "").slice(0, 20);
+    }
+    const extra = web ? (linked ? `\n🗓 ការកក់ ${booking} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង នឹងមកដល់ទីនេះ។` : "\n⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។") : "";
+    // the booking number is the shop's data: it is sent, not kept in the hub log (R5)
+    await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»${linked && !web ? " (រួមទាំងការរំលឹកថែទាំ)" : ""}។${extra}\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok", undefined, !web);
   } else {
     await reply(bot, chat.id, r.error === "OLD_CONSENT" ? "⚠️ អត្ថបទយល់ព្រមនេះចាស់ហើយ។ សូមបើកតំណរបស់ហាងម្ដងទៀត។" : "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", m[1]!, "subscribe.fail");
   }

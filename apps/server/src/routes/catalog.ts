@@ -1,7 +1,7 @@
 // Catalog (services/products). S-02: technicians never see prices; cost_price only with cost.read.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { catalogItemSchema } from "@sms/shared";
+import { catalogItemSchema, FROM_PRICE_ROLES } from "@sms/shared";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
@@ -10,7 +10,7 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { preHandler: app.requireAuth }, async (req) => {
     const isTech = req.user!.role === "tech";
     const withCost = req.perms.includes("cost.read");
-    const rows = await sql<Record<string, unknown>[]>`select id, company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, is_active, created_at, updated_at, income_account_id
+    const rows = await sql<Record<string, unknown>[]>`select id, company_id, name_km, name_en, kind, category, unit, sell_price, cost_price, duration_min, is_active, created_at, updated_at, income_account_id, from_price
       from catalog_items where company_id = ${req.user!.companyId} ${isTech ? sql`and is_active` : sql``} order by category, name_km`;
     return rows.map((r) => ({ ...r, sell_price: isTech ? null : r.sell_price, cost_price: withCost ? r.cost_price : null }));
   });
@@ -40,6 +40,21 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
       return id;
     });
     return { id };
+  });
+
+  /** D-96: the «from» price shown on the public website (cents; null = «request a quote»). GM, Admin, CEO and CFO only —
+   *  not part of the catalog form, every change is in the audit log. */
+  app.post("/:id/from-price", { preHandler: app.requireAuth }, async (req) => {
+    if (!FROM_PRICE_ROLES.includes(req.user!.role)) throw new AppError("FORBIDDEN", 403);
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const { from_price } = z.object({ from_price: z.number().int().min(0).max(100_000_000).nullable() }).strict().parse(req.body);
+    return tx(req.user!.id, async (t) => {
+      const old = (await t<{ from_price: number | null }[]>`select from_price from catalog_items where id = ${id} and company_id = ${req.user!.companyId} and kind = 'service' for update`)[0];
+      if (!old) throw notFound();
+      await t`update catalog_items set from_price = ${from_price} where id = ${id}`;
+      await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: "catalog.from_price", table: "catalog_items", rowId: id, old: { from_price: old.from_price }, new: { from_price }, ip: req.ip });
+      return { ok: true };
+    });
   });
 
   app.post("/:id/active", { preHandler: app.requirePerm("catalog.manage") }, async (req) => {

@@ -15,3 +15,5 @@ mkdirSync("dist/migrations_hub", { recursive: true });
 cpSync("src/migrations_hub", "dist/migrations_hub", { recursive: true });
 mkdirSync("dist/brand", { recursive: true });
 cpSync("brand", "dist/brand", { recursive: true });
+mkdirSync("dist/pub", { recursive: true });
+cpSync("pub", "dist/pub", { recursive: true });

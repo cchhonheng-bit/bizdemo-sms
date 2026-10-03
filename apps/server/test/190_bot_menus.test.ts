@@ -54,7 +54,7 @@ describe("keyboards per role (permissions of the app)", () => {
     expect(l).toEqual(["📋 ការងារថ្ងៃនេះ", "🔧 ជំហានការងារ", "📝 របាយការណ៍ការងារ", "📍 វត្តមាន", "🗓 សុំច្បាប់ឈប់", "📅 ការងារថ្ងៃស្អែក", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
     for (const row of m.keyboard) expect(row.length).toBeLessThanOrEqual(2);
     expect(JSON.stringify(labels(m))).not.toMatch(/[A-Za-z]{3,}/); // Khmer only for a Khmer-mode user (icons aside)
-    expect(m.keyboard.flat().find((b: any) => b.text.includes("សុំច្បាប់")).web_app).toBe("https://oneteam.test/tg?to=%2Fleave");
+    expect(m.keyboard.flat().find((b: any) => b.text.includes("សុំច្បាប់")).web_app).toBe("https://oneteam.test/app/tg?to=%2Fleave"); // D-96: the staff app lives under /app
     expect(inlineViews(m)).toEqual(expect.arrayContaining(["today", "next"])); // the quick inline buttons stay
   });
   it("lead technician adds Review jobs · Site survey · My team today; the English-mode user gets English labels", async () => {
@@ -107,7 +107,7 @@ describe("technician actions", () => {
   });
   it("job report and leave open the Mini App; tomorrow lists tomorrow only", async () => {
     const r = await say(CHAT.dara, "📝 របាយការណ៍ការងារ");
-    expect((r.buttons as any[][]).flat().some((b) => String(b.web_app).startsWith("https://oneteam.test/tg?to=%2Ftech%2Fjob%2F"))).toBe(true);
+    expect((r.buttons as any[][]).flat().some((b) => String(b.web_app).startsWith("https://oneteam.test/app/tg?to=%2Ftech%2Fjob%2F"))).toBe(true);
     const t = await say(CHAT.dara, "📅 ការងារថ្ងៃស្អែក");
     expect(t.text).toMatch(/ស្អែក/);
   });

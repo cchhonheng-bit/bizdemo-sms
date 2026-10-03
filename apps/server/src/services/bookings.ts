@@ -8,6 +8,7 @@ import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
+import { tellCustomerTechnician } from "./customer-notify.js";
 import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
 
@@ -182,6 +183,13 @@ async function setUnits(t: Db, companyId: string, bookingId: string, customerId:
   for (const u of ids) await t`insert into booking_units (booking_id, unit_id) values (${bookingId}, ${u})`;
 }
 
+/** the next booking number of the company (BK-0001 …) — one counter for bookings made by the staff and on the website */
+export async function nextBookingNumber(t: Db, companyId: string): Promise<string> {
+  const no = (await t<{ last_no: number }[]>`insert into booking_counters (company_id, last_no) values (${companyId}, 1)
+    on conflict (company_id) do update set last_no = booking_counters.last_no + 1 returning last_no`)[0]!.last_no;
+  return `BK-${String(no).padStart(4, "0")}`;
+}
+
 export async function createBooking(user: SessionUser, ip: string | null, b: CreateInput) {
   return tx(user.id, async (t) => {
     const c = (await t<{ id: string; name: string; address: string | null; lat: number | null; lng: number | null; zone: string }[]>`
@@ -205,9 +213,7 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
       await assertVehicle(t, user.companyId, b.vehicle_id);
       if (w.start) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start, w.end!, null);
     }
-    const no = (await t<{ last_no: number }[]>`insert into booking_counters (company_id, last_no) values (${user.companyId}, 1)
-      on conflict (company_id) do update set last_no = booking_counters.last_no + 1 returning last_no`)[0]!.last_no;
-    const number = `BK-${String(no).padStart(4, "0")}`;
+    const number = await nextBookingNumber(t, user.companyId);
     const status: BookingStatus = b.type === "B" ? "survey" : "new";
     const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, zone, vehicle_id, notes, created_by, parent_booking_id)
       values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${b.service_item_id}, ${w.start}, ${w.end},
@@ -264,6 +270,11 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
 const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
 export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
+  const out = await assignIn(user, ip, id, a);
+  if (out.website) await tellCustomerTechnician(id); // D-96: the customer of a website booking hears who is coming
+  return { id: out.id, status: out.status, conflicts: out.conflicts };
+}
+async function assignIn(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
   return tx(user.id, async (t) => {
     const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
     if (!b) throw notFound();
@@ -294,8 +305,21 @@ export async function assignBooking(user: SessionUser, ip: string | null, id: st
     await audit(t, { companyId: user.companyId, userId: user.id, action: b.status === "assigned" ? "booking.reassign" : "booking.assign", table: "bookings", rowId: id, old: { status: b.status },
       new: { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id, scheduled_at: w.start, ends_at: w.end }, ip });
     await enqueueBookingConfirmed(t, id, reason);
-    return { id, status: "assigned" as const, conflicts: [] as unknown[] };
+    // D-96: sending a technician to a website booking that still waits for an answer IS the confirmation
+    if (b.origin === "website" && b.web_status === "pending") await confirmWebBookingIn(t, user.companyId, user.id, id, ip);
+    return { id, status: "assigned" as const, conflicts: [] as unknown[], website: b.origin === "website" };
   });
+}
+
+/** D-96: a website booking is confirmed — its request is done, and the Telegram chat that holds the booking's link becomes the
+ *  customer's own link when the customer has none yet (the staff called the number before confirming). */
+export async function confirmWebBookingIn(t: Db, companyId: string, userId: string, bookingId: string, ip: string | null): Promise<void> {
+  const b = (await t<{ customer_id: string; web_subscriber_id: string | null }[]>`update bookings set web_status = 'confirmed', web_decided_by = ${userId}, web_decided_at = now()
+    where id = ${bookingId} and company_id = ${companyId} and web_status = 'pending' returning customer_id, web_subscriber_id::text`)[0];
+  if (!b) return;
+  if (b.web_subscriber_id) await t`update customers set tg_subscriber_id = ${b.web_subscriber_id}::bigint where id = ${b.customer_id} and tg_subscriber_id is null`;
+  await t`update service_requests set status = 'done', outcome = 'confirmed', handled_by = ${userId}, handled_at = now() where booking_id = ${bookingId} and kind = 'booking' and status = 'new'`;
+  await audit(t, { companyId, userId, action: "booking.web_confirm", table: "bookings", rowId: bookingId, new: { web_status: "confirmed" }, ip });
 }
 
 // ---------- reschedule (D2) ------------------------------------------------------------------------------
@@ -333,19 +357,28 @@ export async function rescheduleHistory(user: SessionUser, id: string) {
 
 // ---------- cancel (R4) ------------------------------------------------------------------------------------
 export async function cancelBooking(user: SessionUser, ip: string | null, id: string, reason: string) {
-  return tx(user.id, async (t) => {
-    const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
-    if (!b) throw notFound();
-    if (!CANCELLABLE_STATUSES.includes(b.status)) throw new AppError("BOOKING_NOT_CANCELLABLE", 400);
-    // status → cancelled (never deleted); the exclusion constraints stop counting it → technicians + vehicle are free
-    await t`update bookings set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${user.id} where id = ${id}`;
-    await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.cancel", table: "bookings", rowId: id, old: { status: b.status }, new: { status: "cancelled", reason }, ip });
-    await enqueueBookingCancelled(t, id, reason);
-    // BR-21 · FR-1002: CEO + CFO hear about every deletion (never the person who did it)
-    const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
-    for (const u of await t<{ id: string }[]>`select id from users where company_id = ${user.companyId} and is_active and role in ('ceo', 'cfo') and id <> ${user.id}`)
-      await notifyUser(t, user.companyId, u.id, "booking.cancelled", { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` }, { km: `👤 ${cname}\nដោយ ${user.fullName}\n📝 ${reason}`, en: `👤 ${cname}\nby ${user.fullName}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
-    return { id, status: "cancelled" as const };
-  });
+  return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason));
+}
+
+/** who cancels: a staff member, or (D-96, customer home) the customer — then userId is null and Admin + GM are told as well */
+export type CancelActor = { companyId: string; userId: string | null; name: { km: string; en: string } };
+export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string) {
+  const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${actor.companyId} for update`)[0];
+  if (!b) throw notFound();
+  if (!CANCELLABLE_STATUSES.includes(b.status)) throw new AppError("BOOKING_NOT_CANCELLABLE", 400);
+  // status → cancelled (never deleted); the exclusion constraints stop counting it → technicians + vehicle are free
+  await t`update bookings set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${actor.userId} where id = ${id}`;
+  await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;
+  // D-96: a website booking the staff cancel before answering = declined; open requests about this booking are closed with it
+  if (b.origin === "website" && b.web_status === "pending" && actor.userId) await t`update bookings set web_status = 'declined', web_decided_by = ${actor.userId}, web_decided_at = now() where id = ${id}`;
+  await t`update service_requests set status = 'done', outcome = case when kind = 'booking' and ${actor.userId !== null} then 'declined' when kind = 'reschedule' then 'rejected' else outcome end,
+      note = coalesce(note, ${reason.slice(0, 300)}), handled_by = ${actor.userId}, handled_at = now() where booking_id = ${id} and status = 'new'`;
+  await audit(t, { companyId: actor.companyId, userId: actor.userId, action: "booking.cancel", source: actor.userId ? "app" : "system", table: "bookings", rowId: id, old: { status: b.status }, new: { status: "cancelled", reason }, ip });
+  await enqueueBookingCancelled(t, id, reason);
+  // BR-21 · FR-1002: CEO + CFO hear about every deletion (never the person who did it); a customer's own cancellation also reaches Admin + GM
+  const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
+  const roles = actor.userId ? ["ceo", "cfo"] : ["ceo", "cfo", "admin", "gm"];
+  for (const u of await t<{ id: string }[]>`select id from users where company_id = ${actor.companyId} and is_active and role::text = any(${t.array(roles)}) and id::text <> ${actor.userId ?? ""}`)
+    await notifyUser(t, actor.companyId, u.id, "booking.cancelled", { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` }, { km: `👤 ${cname}\nដោយ ${actor.name.km}\n📝 ${reason}`, en: `👤 ${cname}\nby ${actor.name.en}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
+  return { id, status: "cancelled" as const };
 }

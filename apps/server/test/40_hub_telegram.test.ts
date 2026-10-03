@@ -2,7 +2,7 @@
 // Subscribe/Consent (A4/T5), Broadcast isolation (A5/T7), encrypted bot registry (T2), platform bot management (T6), alerts (T4).
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { createHmac, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import { CONSENT_VERSION } from "@sms/shared";
 import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { config } from "../src/config.js";
@@ -17,6 +17,7 @@ import { invalidateBots, listBots, rotateSecret, setBot } from "../src/hub/bots.
 import { resetAlertThrottle, sendAlert } from "../src/hub/alerts.js";
 import { resetBotCache, setHubTransport } from "../src/services/hub-client.js";
 import { flushOutbox } from "../src/services/telegram.js";
+import { formToken } from "../src/services/site.js";
 
 let shop: FastifyInstance, hub: FastifyInstance, s: Seed;
 let ceo: Client, gm: Client, admin: Client, kim: Client;
@@ -236,9 +237,9 @@ describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
     expect(sent.filter((x) => x.method === "sendMessage").every((x) => x.bot === "ONETEAM")).toBe(true);
     // I1: a 📱 button under the job message — technician → their job page, group → the booking page
     const kimMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === 700001 && String(x.payload.text).includes("បញ្ជាក់ការងារ"))!;
-    expect(kimMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/tech/job/${bk}`)).toBe(true);
+    expect(kimMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/app/tech/job/${bk}`)).toBe(true); // D-96: the staff app lives under /app
     const grpMsg = sent.find((x) => x.method === "sendMessage" && Number(x.payload.chat_id) === -1001234 && String(x.payload.text).includes("បញ្ជាក់ការងារ"))!;
-    expect(grpMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/bookings/${bk}`)).toBe(true);
+    expect(grpMsg.payload.reply_markup.inline_keyboard.flat().some((b: any) => b.url === `https://hub.test/app/bookings/${bk}`)).toBe(true);
     expect((await sql<{ status: string }[]>`select status from telegram_outbox where text like '%Hub Customer%'`).every((o) => o.status === "sent")).toBe(true);
   });
 
@@ -732,5 +733,77 @@ describe("D-91: reply keyboards, Mini App buttons and WebApp initData verificati
     await privateMsg(700042, "hello?");
     expect(shopCalls).toBe(b2); expect(sent).toHaveLength(0);
     expect((await sql`select count(*)::int as n from hub_message_log where chat_id = 700042`)[0]!.n).toBe(0);
+  });
+});
+
+describe("website v2 (D-96): Telegram Login Widget check and the booking link b-<token>", () => {
+  const key = () => process.env.HUB_KEY_ONETEAM!;
+  it("/internal/tg-login-verify: hash = HMAC-SHA256(data-check-string, SHA256(bot token)) — good → tg_user (+ the subscriber of THIS shop); forged / stale / another bot → not ok", async () => {
+    const sign = (d: Record<string, string>, tok = TOKENS.ONETEAM!.token): Record<string, string> =>
+      ({ ...d, hash: createHmac("sha256", createHash("sha256").update(tok).digest()).update(Object.keys(d).sort().map((k) => `${k}=${d[k]}`).join("\n")).digest("hex") });
+    const base = { id: "860001", first_name: "C", username: "c860001", auth_date: String(Math.floor(Date.now() / 1000)) };
+    const verify = (data: Record<string, string>, code = "ONETEAM", k = key()) => internal(code, k, "POST", "/internal/tg-login-verify", { data });
+    const ok = (await verify(sign(base))).json();
+    expect(ok).toMatchObject({ ok: true, tg_user: 860001, first_name: "C" });
+    expect(typeof ok.subscriber_id).toBe("number"); // 860001 subscribed to One Team earlier (and stopped): who it is stays known
+    expect((await verify({ ...sign(base), first_name: "Evil" })).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" });
+    expect((await verify({ ...sign(base), id: "999" })).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" });
+    expect((await verify(sign({ ...base, auth_date: String(Math.floor(Date.now() / 1000) - 2 * 86400) }))).json()).toMatchObject({ ok: false, error: "EXPIRED" });
+    expect((await verify(sign(base, TOKENS.SHOPB!.token))).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" }); // signed with another shop's bot
+    expect((await verify(sign(base), "SHOPB", process.env.HUB_KEY_SHOPB!)).json()).toMatchObject({ ok: false }); // SHOPB asks → checked with SHOPB's token
+    const noHash = sign(base); delete noHash.hash;
+    expect((await verify(noHash)).json()).toMatchObject({ ok: false, error: "NO_HASH" });
+    expect((await verify(sign(base), "ONETEAM", "wrong-key")).statusCode).toBe(401);
+    // a Telegram user who never subscribed to this shop: the signature is fine, but there is no subscriber to map to a customer
+    expect((await verify(sign({ ...base, id: "861999" }))).json()).toMatchObject({ ok: true, tg_user: 861999, subscriber_id: null });
+    // a subscriber of One Team is not handed to another shop
+    expect((await verify(sign(base, TOKENS.SHOPB!.token), "SHOPB", process.env.HUB_KEY_SHOPB!)).json()).toMatchObject({ ok: true, subscriber_id: null });
+  });
+
+  it("t.me/<bot>?start=b-<token>: consent → the chat is linked to that booking, once; the same link in a second chat is refused; a subscriber needs no second tick", async () => {
+    config.shop.features = "subscribe,website";
+    const svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់ គេហទំព័រ", kind: "service", category: "mep", unit: "unit", sell_price: 4500 })).json.id;
+    expect((await ceo.req("POST", `/api/catalog/${svc}/from-price`, { from_price: 1500 })).status).toBe(200);
+    await ceo.req("PATCH", "/api/settings/company", { work_days: [1, 2, 3, 4, 5, 6, 7] });
+    const day = (await shop.inject({ method: "GET", url: `/api/public/slots?service=${svc}` })).json().days[2] as { slots: { time: string; at: string }[] };
+    const bookAt = async (time: string, phone: string) => {
+      resetRateLimits();
+      const r = await shop.inject({ method: "POST", url: "/api/public/bookings", headers: { "content-type": "application/json" },
+        payload: JSON.stringify({ service_id: svc, at: day.slots.find((x) => x.time === time)!.at, address: "ផ្ទះ 1 ផ្លូវ 2", name: "ភ្ញៀវ គេហទំព័រ", phone, consent: true, ts: formToken(Date.now() - 60_000) }) });
+      expect(r.statusCode).toBe(200);
+      const ref = r.json().ref as string;
+      const html = (await shop.inject({ method: "GET", url: `/book/done/${ref}` })).body;
+      const token = /start=(b-[A-Za-z0-9_-]{20})"/.exec(html)![1]!;
+      expect(html).toContain(`https://t.me/Oneteam_app_bot?start=${token}`);
+      return { ref, token, number: r.json().number as string };
+    };
+    const linked = async (ref: string) => (await sql<{ s: string | null }[]>`select web_subscriber_id::text as s from bookings where web_ref = ${ref}`)[0]!.s;
+    const press = (user: number, data: string) => hook("oneteam", { callback_query: { id: `cbw${uid}`, from: { id: user, first_name: `W${user}` }, message: { message_id: 1, chat: { id: user, type: "private" } }, data } });
+    const b1 = await bookAt("09:00", "012 888 001");
+    sent = [];
+    await privateMsg(870001, `/start ${b1.token}`);
+    const cb = (lastSent(870001).payload.reply_markup.inline_keyboard as any[]).flat().find((b: any) => b.callback_data?.startsWith("sub:"))?.callback_data as string;
+    expect(cb).toBe(`sub:ONETEAM:${CONSENT_VERSION}:${b1.token}`); expect(Buffer.byteLength(cb)).toBeLessThanOrEqual(64); // Telegram's callback_data limit
+    expect(await linked(b1.ref)).toBeNull(); // START alone links nothing: the consent tick comes first (A4)
+    await press(870001, cb);
+    const sub = await linked(b1.ref);
+    expect(sub).toBeTruthy(); expect(lastText(870001)).toContain(b1.number);
+    // the same link opened in another chat: that person's consent is recorded, the booking stays with the first chat
+    await privateMsg(870002, `/start ${b1.token}`);
+    await press(870002, cb);
+    expect(await linked(b1.ref)).toBe(sub); expect(lastText(870002)).not.toContain(b1.number);
+    // someone who is already a subscriber taps START on the link of a new booking: linked at once, no second consent prompt
+    const b2 = await bookAt("13:00", "012 888 002");
+    sent = [];
+    await privateMsg(870001, `/start ${b2.token}`);
+    expect(await linked(b2.ref)).toBe(sub);
+    expect(sent.some((x) => JSON.stringify(x.payload.reply_markup ?? {}).includes("sub:ONETEAM"))).toBe(false);
+    expect(lastText(870001)).toContain(b2.number);
+    // garbage after b- is not a staff link code either: a short «not valid» answer, nothing linked
+    sent = [];
+    await privateMsg(870003, "/start b-AAAAAAAAAAAAAAAAAAAA");
+    await press(870003, `sub:ONETEAM:${CONSENT_VERSION}:b-AAAAAAAAAAAAAAAAAAAA`);
+    expect(lastText(870003)).not.toContain("BK-");
+    config.shop.features = "subscribe";
   });
 });

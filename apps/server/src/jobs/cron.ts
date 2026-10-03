@@ -20,6 +20,7 @@ export function startCron(log: FastifyBaseLogger): () => void {
     try {
       const n = await cleanupSessions();
       await sql`delete from telegram_link_codes where expires_at < now() - interval '1 day'`;
+      await sql`delete from customer_sessions where expires_at < now()`; // D-96: customer home logins
       if (n) log.info({ sessions: n }, "housekeeping");
       // T4: Telegram messages that finally failed in the last hour → one alert to the owner (hub throttles)
       const f = (await sql<{ n: number }[]>`select count(*)::int as n from telegram_outbox where status = 'failed' and created_at > now() - interval '1 hour'`)[0]!.n;

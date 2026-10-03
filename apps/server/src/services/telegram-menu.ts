@@ -6,6 +6,7 @@
 import { formatUsd } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
+import { APP_BASE } from "../lib/app-url.js";
 import { AppError } from "../lib/errors.js";
 import { featureOn } from "../lib/features.js";
 import { asLang, LEAD, pick, tx, ZONE, type Lang } from "../lib/i18n.js";
@@ -18,7 +19,9 @@ import { uninvoiced } from "./invoices.js";
 import { items as stockItems } from "./inventory.js";
 import { recordCheckpoint, reviewReport, STEPS, type Step } from "./jobs.js";
 import { permissionsFor } from "./permissions.js";
-import { createRequest } from "./requests.js";
+import { createRequest, markRequestDone } from "./requests.js";
+import { decideReschedule } from "./customer-home.js";
+import { decideWebBooking } from "./web-booking.js";
 import { listReminders } from "./reminders.js";
 import { summaryData, summaryText, verification } from "./reports.js";
 import { cashCloses } from "./reports-extra.js";
@@ -30,8 +33,8 @@ export type Menu = { text: string; buttons?: MenuButton[][]; keyboard?: KbButton
 export type BotReply = { kind: "staff" | "customer" | "customer_menu" | "none" } & Partial<NonNullable<Menu>>;
 
 const ACTIVE = ["new", "assigned", "en_route", "on_site", "working"];
-const miniApp = (path: string) => (config.publicUrl.startsWith("https://") ? `${config.publicUrl}/tg?to=${encodeURIComponent(path)}` : undefined);
-const appUrl = (path: string) => (config.publicUrl.startsWith("https://") ? `${config.publicUrl}${path}` : null);
+const miniApp = (path: string) => (config.publicUrl.startsWith("https://") ? `${config.publicUrl}${APP_BASE}/tg?to=${encodeURIComponent(path)}` : undefined);
+const appUrl = (path: string) => (config.publicUrl.startsWith("https://") ? `${config.publicUrl}${APP_BASE}${path}` : null);
 const url = (text: string, u: string | null): MenuButton[] => (u ? [{ text, url: u }] : []);
 const appBtn = (text: string, path: string): MenuButton => ({ text, web_app: miniApp(path) });
 
@@ -106,10 +109,13 @@ async function staffKeyboard(u: Staff): Promise<KbButton[][]> {
   return rows2((await actionsFor(u)).map((a) => { const app = LABEL[a].app ? miniApp(LABEL[a].app!) : undefined; return { text: LABEL[a][lang], ...(app ? { web_app: app } : {}) }; }));
 }
 const CUSTOMER_ACTIONS: Action[] = ["c_bookings", "c_warranty", "c_contact", "c_history", "c_request", "c_promo", "me", "help"];
-const customerKeyboard = (): KbButton[][] => rows2(CUSTOMER_ACTIONS.map((a) => ({ text: LABEL[a].km })));
+/** D-96: with the website module, the customer's keyboard opens the booking site and the customer home inside Telegram (Mini App) */
+const siteButtons = (): KbButton[][] => (featureOn("website") && config.publicUrl.startsWith("https://")
+  ? [[{ text: "🗓 កក់សេវា", web_app: `${config.publicUrl}/` }, { text: "👤 ការកក់របស់ខ្ញុំ", web_app: `${config.publicUrl}/my` }]] : []);
+const customerKeyboard = (): KbButton[][] => [...siteButtons(), ...rows2(CUSTOMER_ACTIONS.map((a) => ({ text: LABEL[a].km })))];
 
 // ---------- pending next-message actions (10 min) ----------
-type Pending = { kind: "arrive"; booking_id: string } | { kind: "find_customer" } | { kind: "request_service" } | { kind: "review_note"; booking_id: string };
+type Pending = { kind: "arrive"; booking_id: string } | { kind: "find_customer" } | { kind: "request_service" } | { kind: "review_note"; booking_id: string } | { kind: "decline_note"; request_id: string };
 async function setPending(chatId: number, companyId: string, action: Pending): Promise<void> {
   await sql`insert into tg_pending (chat_id, company_id, action, expires_at) values (${chatId}, ${companyId}, ${sql.json(action as never)}, now() + interval '10 minutes')
     on conflict (chat_id) do update set company_id = excluded.company_id, action = excluded.action, expires_at = excluded.expires_at`;
@@ -293,13 +299,46 @@ async function findCustomer(u: Staff, q: string): Promise<Menu> {
   const lines = rows.map((r) => `• ${r.name} · 📞 ${r.phones.join(", ")}${r.address ? `\n   📍 ${r.address}` : ""}${r.last ? `\n   🔧 ${r.last}` : ""}`);
   return { text: rows.length ? `${L("🔍 លទ្ធផល", "🔍 Results")} (${rows.length})\n${lines.join("\n")}` : L("🔍 រកមិនឃើញ", "🔍 No match"), buttons: [[appBtn(L("📱 អតិថិជន", "📱 Customers"), "/customers")], backHome(u)] };
 }
+/** who handles customer requests in the bot — the same permissions as the app page */
+async function requestPerms(u: Staff): Promise<{ see: boolean; decide: boolean }> {
+  const p = await permissionsFor(sql, u.company_id, u.role);
+  return { see: p.includes("booking.create") || p.includes("customer.manage"), decide: p.includes("booking.create") };
+}
+/** D-91/D-96: free requests and quotes → ✅ done; an online booking that waits → ✅ confirm / ❌ decline (reason asked);
+ *  a customer's wish for another time → ✅ approve / ❌ reject */
 async function requestsList(u: Staff): Promise<Menu> {
   const L = T(u);
-  const rows = await sql<{ id: string; source: string; text: string; name: string | null; phone: string | null; cname: string | null; created_at: Date }[]>`select r.id, r.source, r.text, r.name, r.phone, c.name as cname, r.created_at
-    from service_requests r left join customers c on c.id = r.customer_id where r.company_id = ${u.company_id} and r.status = 'new' order by r.created_at desc limit 10`;
-  const lines = rows.map((r, i) => `${i + 1}. ${r.source === "website" ? "🌐" : "✈️"} ${r.cname ?? r.name ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
-  const done: MenuButton[][] = rows2(rows.map((r, i): MenuButton => ({ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: "done" })));
-  return { text: rows.length ? `${L("🌐 សំណើអតិថិជន", "🌐 Customer requests")} (${rows.length})\n${lines.join("\n")}` : L("🌐 គ្មានសំណើថ្មី ✅", "🌐 No new requests ✅"), buttons: [...done, backHome(u)] };
+  const can = await requestPerms(u);
+  if (!can.see) return { text: errText(u, new AppError("FORBIDDEN", 403)), buttons: [backHome(u)] };
+  const rows = await sql<{ id: string; source: string; kind: string; text: string; name: string | null; phone: string | null; cname: string | null; created_at: Date; number: string | null; web_status: string | null }[]>`
+    select r.id, r.source, r.kind, r.text, r.name, r.phone, c.name as cname, r.created_at, b.number, b.web_status
+    from service_requests r left join customers c on c.id = r.customer_id left join bookings b on b.id = r.booking_id where r.company_id = ${u.company_id} and r.status = 'new' order by r.created_at desc limit 10`;
+  const icon = (r: { kind: string; source: string }) => (r.kind === "booking" ? "🗓" : r.kind === "quote" ? "🧱" : r.kind === "reschedule" ? "🔁" : r.source === "website" ? "🌐" : "✈️");
+  const lines = rows.map((r, i) => `${i + 1}. ${icon(r)} ${r.kind === "booking" && r.number ? `${r.number} · ` : ""}${r.name ?? r.cname ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
+  const pairs: MenuButton[][] = [], done: MenuButton[] = [];
+  rows.forEach((r, i) => {
+    const decision = r.kind === "booking" && r.web_status === "pending" ? ["confirm", "decline"] : r.kind === "reschedule" ? ["approve", "reject"] : null;
+    if (!decision) done.push({ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: "done" });
+    else if (can.decide) pairs.push([{ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: decision[0]! }, { text: `❌ ${i + 1}`, view: "req", id: r.id, arg: decision[1]! }]);
+  });
+  return { text: rows.length ? `${L("🌐 សំណើអតិថិជន", "🌐 Customer requests")} (${rows.length})\n${lines.join("\n")}` : L("🌐 គ្មានសំណើថ្មី ✅", "🌐 No new requests ✅"), buttons: [...pairs, ...rows2(done), backHome(u)] };
+}
+async function doRequest(u: Staff, chatId: number, id: string, arg: string): Promise<Menu> {
+  const L = T(u);
+  const can = await requestPerms(u);
+  const again: MenuButton[][] = [[{ text: L("🌐 សំណើ", "🌐 Requests"), view: "req" }, ...backHome(u)]];
+  if (!can.see || (arg !== "done" && !can.decide)) return { text: errText(u, new AppError("FORBIDDEN", 403)), buttons: [backHome(u)] };
+  try {
+    switch (arg) {
+      case "done": await markRequestDone(sessionOf(u), null, id); return { text: L("✅ បានកត់ថាដោះស្រាយរួច", "✅ Marked as done"), buttons: again };
+      case "confirm": await decideWebBooking(sessionOf(u), null, id, "confirm"); return { text: L("✅ បានបញ្ជាក់ការកក់ — អតិថិជនទទួលដំណឹង", "✅ Booking confirmed — the customer is told"), buttons: again };
+      case "decline": await setPending(chatId, u.company_id, { kind: "decline_note", request_id: id });
+        return { text: L("📝 សូមសរសេរមូលហេតុដែលមិនអាចទទួលការកក់នេះ (ផ្ញើជាសារ)", "📝 Write the reason for declining this booking (send it as a message)"), buttons: again };
+      case "approve": await decideReschedule(sessionOf(u), null, id, "approve"); return { text: L("✅ បានប្ដូរម៉ោង — អតិថិជនទទួលដំណឹង", "✅ Rescheduled — the customer is told"), buttons: again };
+      case "reject": await decideReschedule(sessionOf(u), null, id, "reject"); return { text: L("↩️ មិនប្ដូរម៉ោងទេ — អតិថិជនទទួលដំណឹង", "↩️ Time kept — the customer is told"), buttons: again };
+      default: return requestsList(u);
+    }
+  } catch (e) { return { text: errText(u, e), buttons: again }; }
 }
 async function approvals(u: Staff): Promise<Menu> {
   const L = T(u);
@@ -483,6 +522,15 @@ export async function botText(chatId: number, text: string, subscriberId?: numbe
         try { await reviewReport(sessionOf(u), null, pending.booking_id, "revision", text.trim()); return staffReply(u, { text: T(u)("↩️ បានផ្ញើត្រឡប់ទៅជាង ជាមួយមូលហេតុ", "↩️ Sent back to the technician with your note"), buttons: [[{ text: T(u)("🔎 បន្ទាប់", "🔎 Next"), view: "review" }, ...backHome(u)]] }); }
         catch (e) { return staffReply(u, { text: errText(u, e), buttons: [backHome(u)] }); }
       }
+      if (pending.kind === "decline_note") { // D-96: the reason for declining an online booking → cancelled with it, customer told
+        const again: MenuButton[][] = [[{ text: T(u)("🌐 សំណើ", "🌐 Requests"), view: "req" }, ...backHome(u)]];
+        try {
+          if (!(await requestPerms(u)).decide) throw new AppError("FORBIDDEN", 403);
+          if (text.trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
+          await decideWebBooking(sessionOf(u), null, pending.request_id, "decline", text.trim().slice(0, 200));
+          return staffReply(u, { text: T(u)("❌ មិនទទួលការកក់នេះ — អតិថិជនទទួលដំណឹង ហើយម៉ោងនោះទំនេរវិញ", "❌ Booking declined — the customer is told and the time is free again"), buttons: again });
+        } catch (e) { return staffReply(u, { text: errText(u, e), buttons: again }); }
+      }
     }
     if (!label || label.startsWith("c_")) return staffReply(u, { text: T(u)("👇 សូមប្រើប៊ូតុងខាងក្រោម", "👇 Please use the buttons below"), keyboard: await staffKeyboard(u) });
     return staffReply(u, await staffAction(u, chatId, label));
@@ -540,11 +588,7 @@ export async function renderMenu(chatId: number, view: string, id: string | null
       case "step": return id && arg ? doStep(u, chatId, id, arg) : staffHome(u);
       case "review": return id && arg ? doReview(u, chatId, id, arg) : reviewList(u);
       case "survey": return surveyList(u);
-      case "req": {
-        if (!id || arg !== "done") return requestsList(u);
-        const r = await sql`update service_requests set status = 'done', handled_by = ${u.id}, handled_at = now() where id = ${id} and company_id = ${u.company_id} and status = 'new' returning id`;
-        return r.length ? { text: L("✅ បានកត់ថាដោះស្រាយរួច", "✅ Marked as done"), buttons: [[{ text: L("🌐 សំណើ", "🌐 Requests"), view: "req" }, ...backHome(u)]] } : requestsList(u);
-      }
+      case "req": return id && arg ? doRequest(u, chatId, id, arg) : requestsList(u);
       case "att": return staffAction(u, chatId, "att");
       case "sum_day": return summaryFor(u, "daily");
       case "sum_week": return summaryFor(u, "weekly");

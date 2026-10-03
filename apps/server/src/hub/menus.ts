@@ -136,7 +136,8 @@ export function parseCallback(data: string): { kind: "c" | "v" | "m" | "sub"; ac
   if (m && UUID.test(m[2]!)) return { kind: "v", action: m[1]!, id: m[2]!, back: m[3]! };
   m = data.match(/^m:(home|follow|unfollow|about)$/);
   if (m) return { kind: "m", action: m[1]! };
-  m = data.match(/^sub:([A-Z0-9]{2,20}):([\w-]{1,40})(?::([A-HJ-NP-Z2-9]{8}))?$/);
+  // the optional tail: a customer's own subscribe code (A2) or the link token of a website booking (D-96)
+  m = data.match(/^sub:([A-Z0-9]{2,20}):([\w-]{1,40})(?::([A-HJ-NP-Z2-9]{8}|b-[A-Za-z0-9_-]{20}))?$/);
   if (m) return { kind: "sub", action: "consent", shop: m[1]!, version: m[2]!, code: m[3] };
   return null;
 }

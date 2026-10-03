@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import { config } from "../config.js";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, forbidden, notFound } from "../lib/errors.js";
+import { stripImageMeta } from "../lib/image-meta.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { enqueue, fmtLocal, notifyUser } from "./telegram.js";
@@ -93,10 +94,20 @@ function sniff(buf: Buffer): "image/jpeg" | "image/png" | "image/webp" | null {
 }
 /** checked image (magic bytes, 2 MB) written under uploads/<company>/<yyyy-mm>/ → relative path + mime */
 export async function saveImage(companyId: string, data: string, only?: "image/png", badCode = "BAD_IMAGE"): Promise<{ id: string; rel: string; mime: string; bytes: number }> {
-  const buf = Buffer.from(data, "base64");
-  if (buf.length > MAX_BYTES) throw new AppError("IMAGE_TOO_LARGE", 413);
-  const mime = sniff(buf);
+  return writeImage(companyId, checkImage(data, only, badCode));
+}
+/** base64 → checked bytes (magic bytes, 2 MB). `strip` (photos from website visitors, D-96) removes camera position, comments and other metadata. */
+export function checkImage(data: string, only?: "image/png", badCode = "BAD_IMAGE", strip = false): { buf: Buffer; mime: "image/jpeg" | "image/png" | "image/webp" } {
+  const raw = Buffer.from(data, "base64");
+  if (raw.length > MAX_BYTES) throw new AppError("IMAGE_TOO_LARGE", 413);
+  const mime = sniff(raw);
   if (!mime || (only && mime !== only)) throw new AppError(badCode, 400);
+  const buf = strip ? stripImageMeta(raw, mime) : raw;
+  if (!buf) throw new AppError(badCode, 400);
+  return { buf, mime };
+}
+export async function writeImage(companyId: string, img: { buf: Buffer; mime: string }): Promise<{ id: string; rel: string; mime: string; bytes: number }> {
+  const { buf, mime } = img;
   const id = randomUUID();
   const rel = join(companyId, new Date().toISOString().slice(0, 7), `${id}.${mime.split("/")[1]}`);
   const abs = join(config.uploadsDir, rel);

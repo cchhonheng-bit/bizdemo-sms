@@ -9,6 +9,8 @@ const APP_SHORT = process.env.VITE_APP_SHORT ?? "One Team";
 const API = process.env.API_URL ?? "http://localhost:3000";
 
 export default defineConfig({
+  // D-96: "/" is the shop's public website; the staff app, its manifest and its service worker live under /app/
+  base: "/app/",
   plugins: [
     react(),
     VitePWA({
@@ -22,15 +24,18 @@ export default defineConfig({
         theme_color: "#14213D",
         background_color: "#F4F6FB",
         display: "standalone",
-        start_url: "/app", // "/" is the public website for visitors without a session (D-95)
+        id: "/app/",
+        start_url: "/app/",
+        scope: "/app/",
+        // absolute: the same manifest is also answered at the old address /manifest.webmanifest for apps installed before D-96
         icons: [
-          { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
-          { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
+          { src: "/app/icons/icon-192.png", sizes: "192x192", type: "image/png" },
+          { src: "/app/icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
         ],
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2,ttf}"],
-        navigateFallbackDenylist: [/^\/api\//, /^\/healthz/, /^\/site/, /^\/robots\.txt$/, /^\/brand\//],
+        navigateFallbackDenylist: [/^\/api\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/"),

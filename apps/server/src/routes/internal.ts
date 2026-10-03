@@ -11,6 +11,7 @@ import { consumeGroupCode, consumeLinkCode } from "../services/telegram.js";
 import { botLocation, botStart, botText, keyboardForChat, renderMenu } from "../services/telegram-menu.js";
 import { telegramAttendance } from "../services/attendance.js";
 import { customerSubscribed } from "../services/reminders.js";
+import { consumeBookingToken } from "../services/web-booking.js";
 
 const tgSchema = z.object({
   kind: z.enum(["link", "group"]),
@@ -59,9 +60,10 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** A2: the customer ticked the consent from their own link t.me/<bot>?start=s_<code> → the shop links the hub subscriber */
+  /** D-96: the same call carries the single-use link token of a website booking (b-<token>) → the chat is linked to that booking */
   app.post("/customer-subscribed", async (req) => {
-    const b = z.object({ code: z.string().regex(/^[A-HJ-NP-Z2-9]{8}$/), subscriber_id: z.number().int().positive() }).strict().parse(req.body);
-    return customerSubscribed(b.code, b.subscriber_id);
+    const b = z.object({ code: z.string().regex(/^([A-HJ-NP-Z2-9]{8}|b-[A-Za-z0-9_-]{20})$/), subscriber_id: z.number().int().positive() }).strict().parse(req.body);
+    return b.code.startsWith("b-") ? consumeBookingToken(b.code, b.subscriber_id) : customerSubscribed(b.code, b.subscriber_id);
   });
 
   /** aggregate numbers only (A4: non-subscriber data stays in the shop; the platform sees totals) */

@@ -48,7 +48,8 @@
     "reports": "Reports",
     "reminders": "Reminders",
     "inventory": "Stock",
-    "accounting": "Accounting"
+    "accounting": "Accounting",
+    "web_prices": "Website prices"
   },
   "roles": {
     "ceo": "CEO",
@@ -91,7 +92,45 @@
     "done": "Done",
     "done_ok": "Marked as done",
     "handled": "Done by {{name}}",
-    "show_done": "Show handled requests (30 days)"
+    "show_done": "Show handled requests (30 days)",
+    "hint_web": "An online booking waits for an answer: confirm or decline within 30 minutes (its time is held).",
+    "kind": {
+      "request": "Request",
+      "booking": "Online booking",
+      "quote": "Quote request",
+      "reschedule": "Reschedule request"
+    },
+    "confirm": "Confirm",
+    "decline": "Decline",
+    "approve": "Approve new time",
+    "reject": "Keep the time",
+    "back": "Back",
+    "reason": "Reason (the customer will see it)",
+    "ok": {
+      "done": "Marked as done",
+      "confirm": "Confirmed — the customer is told",
+      "decline": "Declined — the time is free again",
+      "approve": "Rescheduled — the customer is told",
+      "reject": "Time kept — the customer is told"
+    },
+    "outcome": {
+      "confirmed": "Confirmed",
+      "declined": "Declined",
+      "approved": "Rescheduled",
+      "rejected": "Time kept"
+    },
+    "err": {
+      "REASON_REQUIRED": "Please write the reason",
+      "NOT_PENDING": "This booking was already answered",
+      "DECISION_REQUIRED": "Confirm or decline this booking first",
+      "TECH_UNAVAILABLE": "The technician is not free at that time",
+      "VEHICLE_UNAVAILABLE": "The vehicle is not free at that time",
+      "START_IN_PAST": "That time has passed",
+      "BOOKING_LOCKED": "This job can no longer be changed",
+      "SAME_TIME": "This is the same time",
+      "NOT_FOUND": "This request was already handled",
+      "FORBIDDEN": "You have no permission"
+    }
   },
   "website": {
     "title": "Shop website",
@@ -122,7 +161,8 @@
       "BAD_URL": "Invalid link",
       "BAD_IMAGE": "Invalid image",
       "IMAGE_TOO_LARGE": "Image too large"
-    }
+    },
+    "short_name": "Short name (shown at the top of the website)"
   },
   "tg": {
     "opening": "Opening from Telegram…",
@@ -1357,5 +1397,18 @@
     "step2": "2️⃣ Tap «START» in Telegram",
     "step3": "3️⃣ Tap the ☑ agree button",
     "stop": "/stop — stop anytime"
+  },
+  "webprices": {
+    "title": "Website prices",
+    "hint": "\"From\" is the price a customer sees on the website. A service with a price can be booked online. Empty = \"Request a quote\" is shown. The sell price of the catalog is never shown on the website.",
+    "from": "From (USD)",
+    "none": "Request a quote",
+    "shown": "From {{price}}",
+    "duration": "{{n}} min",
+    "empty": "No services yet",
+    "err": {
+      "FORBIDDEN": "You may not set this price",
+      "NOT_FOUND": "Service not found"
+    }
   }
 }

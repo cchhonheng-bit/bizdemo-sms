@@ -1,5 +1,6 @@
 # Caddy: automatic HTTPS (Let's Encrypt) for every HangKH domain, HTTP→HTTPS, security headers, /internal/* closed.
-# (common) takes one argument: extra script-src sources ("" = none). D-93: the shop host allows Telegram's Mini App script only.
+# (common) takes two arguments: extra script-src sources and extra frame-src sources ("" = none). D-93: the shop host allows
+# Telegram's Mini App script only; D-96: and the frame of the Telegram Login Widget (customer home of the public website).
 {
 	email {$ACME_EMAIL}
 	# D-84: port 443 also carries SSH for networks that block port 22. layer4 sees the plain "SSH-" greeting before any
@@ -26,7 +27,7 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=()"
-		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'{args[0]}; worker-src 'self'; frame-src https://maps.google.com https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'{args[0]}; worker-src 'self'; frame-src https://maps.google.com https://www.google.com{args[1]}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 	# hub ⇄ shop API is for the internal network only (D-51)
@@ -34,12 +35,12 @@
 }
 
 {$DOMAIN_HUB} {
-	import common ""
+	import common "" ""
 	reverse_proxy app-hub:3000
 }
 
 {$DOMAIN_ONETEAM} {
-	import common " https://telegram.org"
+	import common " https://telegram.org" " https://oauth.telegram.org"
 	reverse_proxy app-oneteam:3000
 }
 

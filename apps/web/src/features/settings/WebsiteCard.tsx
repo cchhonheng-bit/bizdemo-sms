@@ -10,7 +10,7 @@ import { compressPhoto } from "@/lib/offline";
 import { toast } from "@/lib/toast";
 
 const INFO = ["name_km", "name_en", "phone", "address"] as const;
-const TEXTS = ["tagline_km", "tagline_en", "about_km", "about_en", "highlights_km", "highlights_en", "area_km", "area_en", "hours_km", "hours_en", "facebook"] as const;
+const TEXTS = ["short_name", "tagline_km", "tagline_en", "about_km", "about_en", "highlights_km", "highlights_en", "area_km", "area_en", "hours_km", "hours_en", "facebook"] as const;
 const AREA = new Set(["about_km", "about_en", "highlights_km", "highlights_en"]);
 type Key = (typeof INFO)[number] | (typeof TEXTS)[number];
 
@@ -58,7 +58,7 @@ export default function WebsiteCard() {
   );
   const photo = (id: string) => (
     <div key={id} className="relative">
-      <img src={`/site/img/${id}`} alt="" className="h-24 w-32 object-cover rounded-md border border-grey-line" />
+      <img src={`/pub/img/${id}`} alt="" className="h-24 w-32 object-cover rounded-md border border-grey-line" />
       <button type="button" className="absolute top-1 right-1 min-h-[32px] min-w-[32px] grid place-items-center rounded bg-white/90 text-danger" aria-label={t("website.remove")} onClick={() => remove.mutate(id)}><Trash2 size={14} /></button>
     </div>
   );
@@ -69,7 +69,7 @@ export default function WebsiteCard() {
     </label>
   );
   return (
-    <Card title={t("website.title")} actions={<a className="btn-secondary" href="/site" target="_blank" rel="noreferrer" data-testid="web-view"><ExternalLink size={16} /> {t("website.view")}</a>}>
+    <Card title={t("website.title")} actions={<a className="btn-secondary" href="/" target="_blank" rel="noreferrer" data-testid="web-view"><ExternalLink size={16} /> {t("website.view")}</a>}>
       <p className="text-xs text-muted mb-3">{t("website.hint")}</p>
       <div className="grid sm:grid-cols-2 gap-x-3">{INFO.map(field)}</div>
       <div className="grid sm:grid-cols-2 gap-x-3">{TEXTS.map(field)}</div>

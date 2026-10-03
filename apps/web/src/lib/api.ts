@@ -9,6 +9,8 @@ export type Customer = {
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
   sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
+  /** D-96: the «from» price on the public website (cents); null = «request a quote» */
+  from_price: number | null;
 };
 export type Technician = { user_id: string; role: "lead" | "assistant"; full_name: string };
 export type Booking = {
@@ -143,8 +145,10 @@ export type CompanySettings = Record<string, unknown> & { company_id: string; fx
 
 // ---------- public website + customer requests (D-95) ----------
 export type SiteSettings = { website: { published?: boolean; hero?: string | null; gallery?: string[] } & Record<string, unknown>; company_info: Record<string, string>; url: string };
-export type ServiceRequest = { id: string; source: "telegram" | "website"; name: string | null; phone: string | null; text: string; status: "new" | "done"; meta: Record<string, unknown> | null;
-  created_at: string; handled_at: string | null; customer_id: string | null; customer_name: string | null; handled_by_name: string | null };
+export type ServiceRequest = { id: string; source: "telegram" | "website"; kind: "request" | "booking" | "quote" | "reschedule"; name: string | null; phone: string | null; text: string; status: "new" | "done";
+  outcome: "confirmed" | "declined" | "approved" | "rejected" | null; note: string | null; meta: Record<string, unknown> | null;
+  created_at: string; handled_at: string | null; customer_id: string | null; customer_name: string | null; handled_by_name: string | null;
+  booking_id: string | null; booking_number: string | null; booking_at: string | null; booking_status: BookingStatus | null; web_status: "pending" | "confirmed" | "declined" | null; photos: { id: string }[] };
 
 /** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
 export function errCode(e: unknown): string {
@@ -177,6 +181,7 @@ export const api = {
   upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null }) =>
     (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
+  setFromPrice: (id: string, from_price: number | null) => post<{ ok: true }>(`/api/catalog/${id}/from-price`, { from_price }),
 
   bookings: (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) =>
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
@@ -295,7 +300,8 @@ export const api = {
   },
   requests: {
     list: (all: boolean) => get<ServiceRequest[]>(`/api/requests${all ? "?all=1" : ""}`),
-    done: (id: string) => post<{ ok: true }>(`/api/requests/${id}/done`),
+    /** done · confirm / decline (an online booking) · approve / reject (a reschedule request); decline and reject carry the reason */
+    act: (id: string, action: "done" | "confirm" | "decline" | "approve" | "reject", reason?: string) => post<{ ok: true }>(`/api/requests/${id}/${action}`, action === "decline" || action === "reject" ? { reason: reason ?? "" } : {}),
   },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),

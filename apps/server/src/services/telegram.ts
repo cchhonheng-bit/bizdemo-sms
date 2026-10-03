@@ -5,6 +5,7 @@ import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
+import { appUrl } from "../lib/app-url.js";
 import { asLang, LEAD, pick, tx, ZONE, type Lang, type Tx } from "../lib/i18n.js";
 import { audit } from "./audit.js";
 import { hubCall, hubConfigured, sendViaHub, shopBotUsername } from "./hub-client.js";
@@ -59,7 +60,7 @@ type Row = { text: string; url: string }[];
 /** 📱 open the job in the app — technicians on their job page, the group on the booking page (https only, R12) */
 function appRow(bookingId: string, forTech: boolean, lang: Lang): Row[] {
   if (!config.publicUrl.startsWith("https://")) return [];
-  return [[{ text: pick(tx("📱 មើលក្នុងកម្មវិធី", "📱 Open in the app"), lang), url: `${config.publicUrl}${forTech ? "/tech/job/" : "/bookings/"}${bookingId}` }]];
+  return [[{ text: pick(tx("📱 មើលក្នុងកម្មវិធី", "📱 Open in the app"), lang), url: appUrl(`${forTech ? "/tech/job/" : "/bookings/"}${bookingId}`) }]];
 }
 function withApp(markup: unknown, bookingId: string, forTech: boolean, lang: Lang): unknown {
   const rows = [...(((markup as { inline_keyboard?: Row[] } | null)?.inline_keyboard) ?? []), ...appRow(bookingId, forTech, lang)];
@@ -148,11 +149,11 @@ export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { 
 }
 
 /** a personal Telegram message + in-app notification to one user, in that user's language (a plain string = the same in both) */
-export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string | Tx, body: string | Tx, link: string | null, dedupe: string): Promise<void> {
+export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string | Tx, body: string | Tx, link: string | null, dedupe: string, markup: unknown = null): Promise<void> {
   const u = (await db<{ chat: string | null; active: boolean; language: string }[]>`select telegram_chat_id as chat, is_active as active, language from users where id = ${userId}`)[0];
   const lang = asLang(u?.language), t = pick(title, lang), b = pick(body, lang);
   await db`insert into notifications (company_id, user_id, kind, title, body, link) values (${companyId}, ${userId}, ${kind}, ${t}, ${b.slice(0, 300)}, ${link})`;
-  if (u?.chat && u.active) await enqueue(db, companyId, u.chat, `${t}\n${b}`, null, dedupe);
+  if (u?.chat && u.active) await enqueue(db, companyId, u.chat, `${t}\n${b}`, markup, dedupe);
 }
 
 /** R4: the group + every linked technician of the (former) team get a cancel notice; technicians an in-app notification. */
