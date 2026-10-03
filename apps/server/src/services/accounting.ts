@@ -146,7 +146,7 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
       // carries the zone (inside / outside the borey) of the job, else of the customer
       const k = await t<{ account: string | null; kind: string; amt: string }[]>`select ci.income_account_id::text as account, l.kind::text as kind, coalesce(sum(round(l.qty * l.unit_price)), 0)::bigint::text as amt
         from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.invoice_id = ${e.invoice_id} group by ci.income_account_id, l.kind`;
-      const zone = i.zone === "inside" || i.zone === "outside" ? i.zone : null;
+      const zone: "inside" | "outside" | null = i.zone === "inside" ? "inside" : i.zone === "outside" ? "outside" : null;
       const total = k.reduce((s, x) => s + Number(x.amt), 0);
       await post(t, u, { date: b.today, memo: i.number, source: "invoice", source_id: e.invoice_id, fx: Number(i.fx), lines: [
         { account: R.ar, amount: total - i.discount, customer_id: i.customer_id, zone }, { account: R.discount, amount: i.discount, zone },
