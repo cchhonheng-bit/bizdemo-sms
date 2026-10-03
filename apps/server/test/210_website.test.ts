@@ -16,6 +16,7 @@ import { hashPassword } from "../src/lib/password.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
 import { resetBotCache, setHubTransport } from "../src/services/hub-client.js";
 import { formToken } from "../src/services/site.js";
+import { webLimits } from "../src/services/web-booking.js";
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, cfo: Client, admin: Client, gm: Client, kim: Client, ceoB: Client;
@@ -306,7 +307,9 @@ describe("online booking: consent, hold, race", () => {
     const r = await book((await slotOf(4, "15:00")).at, { phone: "012 777 888", name: "ឈ្មោះក្លែង" });
     expect(r.statusCode).toBe(200);
     const b = await bookingOf(r.json().ref);
-    expect(b.customer_id).toBe(custK); expect(b.cname).toBe("អតិថិជន ចាស់"); expect(b.corigin).toBe("staff"); expect(b.consent_at).toBeTruthy();
+    expect(b.customer_id).toBe(custK); expect(b.cname).toBe("អតិថិជន ចាស់"); expect(b.corigin).toBe("staff");
+    expect(b.consent_at).toBeNull(); // an unverified visitor changes nothing on an existing customer record — the consent is kept on the request
+    expect((await requestOf(b.id)).meta.consent.at).toBeTruthy();
     expect((await counts())!.c).toBe(n0);
     expect((await requestOf(b.id)).name).toBe("ឈ្មោះក្លែង"); // what the visitor typed stays on the request
   });
@@ -315,6 +318,15 @@ describe("online booking: consent, hold, race", () => {
     const d = (await days())[6]!;
     for (let i = 0; i < 5; i++) expect((await book(d.slots[i]!.at, { phone: `01155500${i}`, name: `ភ្ញៀវ ${i}` })).statusCode).toBe(200);
     expect(await code(book(d.slots[6]!.at, { phone: "011555006", name: "ភ្ញៀវ 6" }))).toEqual([429, "RATE_LIMITED"]);
+  });
+
+  it("abuse guard: only a fixed number of online bookings may wait for an answer at the same time", async () => {
+    const waiting = (await sql`select count(*)::int as n from bookings where web_status = 'pending' and status <> 'cancelled'`)[0]!.n as number;
+    const n0 = await counts();
+    webLimits.maxPending = waiting;
+    expect(await code(book((await slotOf(6, "14:00")).at, { phone: "011888000", name: "ភ្ញៀវ ច្រើន" }))).toEqual([429, "TOO_MANY_PENDING"]);
+    webLimits.maxPending = 30;
+    expect(await counts()).toEqual(n0);
   });
 });
 
@@ -426,9 +438,10 @@ describe("quote request (services without a price) with photos", () => {
     expect(r.statusCode).toBe(200); expect(r.json()).toEqual({ ok: true });
     const rq = (await sql<Record<string, any>[]>`select * from service_requests where kind = 'quote' order by created_at desc limit 1`)[0]!;
     expect(rq).toMatchObject({ source: "website", status: "new", name: "ចាន់ ថា", phone: "011222333", booking_id: null });
-    expect(rq.text).toContain("សំណង់"); expect(rq.text).toContain("ពិដាន"); expect(rq.text).toContain("ទួលគោក");
+    expect(rq.text).toContain("ពិដាន"); expect(rq.text).toContain("ទួលគោក");
     expect(rq.meta).toMatchObject({ category: "construction", lat: 11.5564, lng: 104.9282 }); expect(rq.meta.consent.at).toBeTruthy();
-    expect((await sql`select 1 from notifications where kind = 'service.request' and user_id = ${s.users.gm01!} and title like '%តម្លៃ%'`).length).toBe(1);
+    const gmNote = await sql<{ body: string }[]>`select body from notifications where kind = 'service.request' and user_id = ${s.users.gm01!} and title like '%តម្លៃ%'`;
+    expect(gmNote).toHaveLength(1); expect(gmNote[0]!.body).toContain("សំណង់"); // the category in the reader's language
     expect((await sql`select count(*)::int as n from notifications where kind = 'service.request' and user_id = ${s.users.admin!}`)[0]!.n).toBe(before); // a quote goes to the GM
     const files = await sql<{ id: string; path: string; mime: string }[]>`select id, path, mime from service_request_files where request_id = ${rq.id} order by created_at, id`;
     expect(files.map((f) => f.mime).sort()).toEqual(["image/jpeg", "image/png"]);

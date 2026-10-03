@@ -21,6 +21,8 @@ export type Booking = {
   technicians: Technician[] | null;
   warranty_of?: string | null; warranty_of_number?: string | null; warranty?: { until: string; days_left: number; active: boolean } | null;
   units?: { id: string; label: string }[] | null;
+  /** D-96: made on the public website; "pending" = waits for Admin / GM to confirm or decline (Customer requests) */
+  origin?: "staff" | "website"; web_status?: "pending" | "confirmed" | "declined" | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };

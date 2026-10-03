@@ -24,6 +24,10 @@ import { customerByPhone, notifyRequestStaff } from "./requests.js";
 import { checkFormToken, readUpload, siteCompanyId } from "./site.js";
 import { fmtLocal } from "./telegram.js";
 
+/** abuse guard: at most this many online bookings may wait for an answer at the same time (each one holds a technician and
+ *  rings Admin + GM); beyond it the visitor is asked to call. An object so the tests can lower it. */
+export const webLimits = { maxPending: 30 };
+
 export type WebSlot = { time: string; at: string; free: boolean; why?: "past" | "closed" | "full" };
 export type WebDay = { date: string; dow: number; open: boolean; slots: WebSlot[] };
 export type Bookable = { id: string; name_km: string; name_en: string | null; category: string; from_price: number; duration_min: number };
@@ -143,13 +147,14 @@ export async function submitWebBooking(ip: string, v: WebBookingInput): Promise<
   return tx(null, async (t) => {
     // one web booking at a time per company: the slot is checked and taken under this lock (race-safe)
     await t`select pg_advisory_xact_lock(hashtextextended(${`web-booking:${companyId}`}, 0))`;
+    if ((await t<{ n: number }[]>`select count(*)::int as n from bookings where company_id = ${companyId} and web_status = 'pending' and status <> 'cancelled'`)[0]!.n >= webLimits.maxPending) throw new AppError("TOO_MANY_PENDING", 429);
     const slot = (await slotGrid(t, companyId, svc.duration_min)).flatMap((d) => d.slots).find((s) => s.at === at.toISOString());
     if (!slot || slot.why === "past" || slot.why === "closed") throw new AppError("SLOT_INVALID", 400);
     if (!slot.free) throw new AppError("SLOT_TAKEN", 409);
-    // the customer: the one who has this phone number, else a new record — both with the consent just given
+    // the customer: the one who has this phone number — that record is NOT touched (the visitor is not verified yet) — else a
+    // new record with the consent just given. The consent itself is always kept on the request (meta.consent).
     let customerId = await customerByPhone(t, companyId, phone);
-    if (customerId) await t`update customers set consent_at = coalesce(consent_at, now()), consent_version = coalesce(consent_version, ${SITE_CONSENT_VERSION}) where id = ${customerId}`;
-    else customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version)
+    if (!customerId) customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version)
       values (${companyId}, ${name}, ${t.array([phone])}, ${address || null}, ${v.lat ?? null}, ${v.lng ?? null}, 'website', now(), ${SITE_CONSENT_VERSION}) returning id`)[0]!.id;
     const c = (await t<{ address: string | null; zone: string; tz: string }[]>`select cu.address, cu.zone::text as zone, co.timezone as tz from customers cu join companies co on co.id = cu.company_id where cu.id = ${customerId}`)[0]!;
     const number = await nextBookingNumber(t, companyId);
@@ -217,7 +222,10 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
 // ---------- quote request ----------
 export type QuoteInput = { category: string; description: string; photos?: string[]; name: string; phone: string; location?: string; lat?: number | null; lng?: number | null;
   service_id?: string | null; consent?: boolean; ts?: string; company_url?: string; lang?: "km" | "en" };
-const CATEGORY_KM: Record<string, string> = { mep: "អគ្គិសនី ទឹក ម៉ាស៊ីនត្រជាក់", construction: "សំណង់", decor: "តុបតែង", camera: "កាមេរ៉ា", other: "ផ្សេងៗ" };
+const CATEGORY: Record<"km" | "en", Record<string, string>> = {
+  km: { mep: "អគ្គិសនី ទឹក ម៉ាស៊ីនត្រជាក់", construction: "សំណង់", decor: "តុបតែង", camera: "កាមេរ៉ា", other: "ផ្សេងៗ" },
+  en: { mep: "Electrical, plumbing, AC", construction: "Construction", decor: "Decoration", camera: "Camera", other: "Other" },
+};
 export const QUOTE_CATEGORIES = [...SERVICE_CATEGORIES, "other"] as const;
 
 export async function submitQuote(ip: string, v: QuoteInput): Promise<{ ok: true }> {
@@ -236,7 +244,8 @@ export async function submitQuote(ip: string, v: QuoteInput): Promise<{ ok: true
   const svc = v.service_id ? (await sql<{ id: string; name_km: string }[]>`select id, name_km from catalog_items where id = ${v.service_id} and company_id = ${companyId} and kind = 'service' and is_active`)[0] : undefined;
   const files: { id: string; rel: string; mime: string; bytes: number }[] = [];
   for (const img of images) files.push(await writeImage(companyId, img));
-  const text = [`🧱 ${CATEGORY_KM[category]}${svc ? ` · ${svc.name_km}` : ""}`, description, location ? `📍 ${location}` : null, files.length ? `🖼 ${files.length}` : null].filter(Boolean).join("\n");
+  // the request keeps what the visitor wrote; the category is a code in meta — every reader sees it in their own language
+  const text = [svc ? `🔧 ${svc.name_km}` : null, description, location ? `📍 ${location}` : null, files.length ? `🖼 ${files.length}` : null].filter(Boolean).join("\n");
   const customerId = await customerByPhone(sql, companyId, phone);
   await tx(null, async (t) => {
     const id = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, customer_id, name, phone, text, meta)
@@ -245,7 +254,8 @@ export async function submitQuote(ip: string, v: QuoteInput): Promise<{ ok: true
           consent: { at: new Date().toISOString(), version: SITE_CONSENT_VERSION } } as never)}) returning id`)[0]!.id;
     for (const f of files) await t`insert into service_request_files (id, company_id, request_id, path, mime, bytes) values (${f.id}, ${companyId}, ${id}, ${f.rel}, ${f.mime}, ${f.bytes})`;
     await audit(t, { companyId, userId: null, action: "service.request", source: "system", table: "service_requests", rowId: id, new: { source: "website", kind: "quote", photos: files.length, customer_id: customerId }, ip });
-    await notifyRequestStaff(t, companyId, ["gm"], { km: `🌐 សំណើសុំតម្លៃ · ${name}`, en: `🌐 Quote request · ${name}` }, `📞 ${phone}\n${text}`, id); // a quote goes to the GM
+    await notifyRequestStaff(t, companyId, ["gm"], { km: `🌐 សំណើសុំតម្លៃ · ${name}`, en: `🌐 Quote request · ${name}` },
+      { km: `🧩 ${CATEGORY.km[category]}\n📞 ${phone}\n${text}`, en: `🧩 ${CATEGORY.en[category]}\n📞 ${phone}\n${text}` }, id); // a quote goes to the GM
   });
   return { ok: true };
 }

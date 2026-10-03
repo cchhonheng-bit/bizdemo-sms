@@ -61,6 +61,7 @@ export default function BookingDetailPage() {
       )}
       {bk.type === "B" && me?.role === "admin" && ASSIGNABLE_STATUSES.includes(bk.status) && <p className="text-sm text-muted mb-3">{t("booking.type_b_gm_only")}</p>}
       {bk.status === "survey" && <p className="text-sm text-purple mb-3">{t("booking.survey_hint")}</p>}
+      {bk.web_status === "pending" && <p className="text-sm text-warning mb-3" data-testid="web-pending">🌐 {t("requests.waiting_hint")}</p>}
 
       <div className="grid md:grid-cols-[1fr_320px] gap-4">
         <div className="space-y-4 min-w-0">

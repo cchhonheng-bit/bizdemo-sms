@@ -47,6 +47,7 @@ export default function RequestsPage() {
               <div className="flex flex-wrap items-center gap-2 mb-1" data-testid="req-card">
                 <Badge tone={r.source === "website" ? "blue" : "navy"}>{t(`requests.source.${r.source}`)}</Badge>
                 {r.kind !== "request" && <Badge tone={waiting ? "warning" : "grey"}>{t(`requests.kind.${r.kind}`)}</Badge>}
+                {r.kind === "quote" && typeof r.meta?.category === "string" && <Badge tone="purple">{t(`category.${r.meta.category}`, { defaultValue: r.meta.category })}</Badge>}
                 <span className="font-semibold break-words min-w-0">{r.name ?? r.customer_name ?? "—"}</span>
                 {r.customer_id && <Badge tone="green">{r.customer_name && r.customer_name !== r.name ? r.customer_name : t("requests.known")}</Badge>}
                 <span className="text-xs text-muted ml-auto whitespace-nowrap">{when(r.created_at)}</span>

@@ -75,7 +75,7 @@ const coord = { lat: z.number().min(-90).max(90).nullable().optional(), lng: z.n
 const formGuard = { ts: z.string().max(60).optional(), company_url: z.string().max(300).optional(), lang: z.enum(["km", "en"]).optional(), consent: z.boolean().optional() };
 const bookingBody = z.object({ service_id: uuid, at: z.string().max(40), address: z.string().max(500).default(""), ...coord, name: z.string().max(200).default(""), phone: z.string().max(40).default(""),
   note: z.string().max(600).nullable().optional(), ...formGuard }).strict();
-const quoteBody = z.object({ category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(2_800_000)).max(20).optional(), name: z.string().max(200).default(""),
+const quoteBody = z.object({ category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(), name: z.string().max(200).default(""),
   phone: z.string().max(40).default(""), location: z.string().max(500).optional(), ...coord, service_id: uuid.nullable().optional(), ...formGuard }).strict();
 const WIDGET_KEYS = ["id", "first_name", "last_name", "username", "photo_url", "auth_date", "hash"] as const;
 
@@ -141,7 +141,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // Admin + GM hear about it right away
     return r;
   });
-  app.post("/api/public/quotes", { bodyLimit: 15_000_000 }, async (req) => {
+  // photos arrive made smaller by the browser (≤ ~1 MB each); attempts are counted per visitor before the body is read
+  app.post("/api/public/quotes", { bodyLimit: 8_000_000, onRequest: async (req) => { if (!checkRate(`site:quote-try:ip:${req.ip}`, 30, 3600)) throw new AppError("RATE_LIMITED", 429); } }, async (req) => {
     const r = await submitQuote(req.ip, quoteBody.parse(req.body));
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;

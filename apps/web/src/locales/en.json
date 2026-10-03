@@ -130,7 +130,8 @@
       "SAME_TIME": "This is the same time",
       "NOT_FOUND": "This request was already handled",
       "FORBIDDEN": "You have no permission"
-    }
+    },
+    "waiting_hint": "Online booking — waiting for an answer. Confirm or decline it on the «Customer requests» page."
   },
   "website": {
     "title": "Shop website",
@@ -297,7 +298,8 @@
     "mep": "MEP / AC",
     "construction": "Construction",
     "decor": "Decor",
-    "camera": "Camera"
+    "camera": "Camera",
+    "other": "Other"
   },
   "status": {
     "new": "New",

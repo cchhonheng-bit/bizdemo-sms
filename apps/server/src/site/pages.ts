@@ -38,11 +38,11 @@ const TXT = {
     again: "កក់ម្ដងទៀត", call_shop: (shop: string) => `ហៅ ${shop}`, new: "កក់សេវាថ្មី", no_up: "មិនមានការកក់ខាងមុខទេ។", logout: "ចាកចេញ", pending_move: "សំណើប្ដូរម៉ោងកំពុងរង់ចាំការឆ្លើយតប",
     why_cancel: "មូលហេតុបោះបង់", confirm_cancel: "បញ្ជាក់ការបោះបង់", keep: "មិនបោះបង់", new_time: "ជ្រើសម៉ោងថ្មី", why_move: "មូលហេតុ (មិនចាំបាច់)", send_move: "ផ្ញើសំណើប្ដូរម៉ោង", close: "បិទ",
     l_h1: "ចូលគណនី", l_p: "ចូលដោយ Telegram ដើម្បីមើលការកក់ ប្ដូរម៉ោង ឬកក់ម្ដងទៀត។", l_auth: "មិនអាចផ្ទៀងផ្ទាត់ Telegram បានទេ។ សូមព្យាយាមម្ដងទៀត។",
-    l_nolink: "Telegram នេះមិនទាន់ភ្ជាប់ជាមួយការកក់ណាមួយទេ។ សូមកក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។", l_nobot: "ការចូលតាម Telegram មិនទាន់ដំណើរការទេ។", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
+    l_nolink: "Telegram នេះមិនទាន់ភ្ជាប់ជាមួយការកក់ណាមួយទេ។ សូមកក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។", l_nobot: "ការចូលតាម Telegram មិនទាន់ដំណើរការទេ។", l_open: "បើក Telegram របស់ហាង", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     nf: "រកមិនឃើញទំព័រនេះទេ", wd: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], wds: ["ច", "អ", "ពុ", "ព្រ", "សុ", "ស", "អា"],
     mon: ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"],
     msg: { PICK_SLOT: "សូមជ្រើសថ្ងៃ និងម៉ោង", ADDRESS_REQUIRED: "សូមបញ្ចូលទីតាំង ឬចុច «ប្រើទីតាំងបច្ចុប្បន្ន»", LOCATION_REQUIRED: "សូមបញ្ចូលទីតាំង", NAME_REQUIRED: "សូមបញ្ចូលឈ្មោះ", INVALID_PHONE: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ",
-      CONSENT_REQUIRED: "សូមគូសយល់ព្រម ដើម្បីបន្ត", SLOT_TAKEN: "ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសម៉ោងផ្សេង។", SLOT_INVALID: "ម៉ោងនេះលែងកក់បានហើយ។ សូមជ្រើសម៉ោងផ្សេង។", RATE_LIMITED: "សំណើច្រើនពេក។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬហៅទូរស័ព្ទមកយើង។",
+      CONSENT_REQUIRED: "សូមគូសយល់ព្រម ដើម្បីបន្ត", SLOT_TAKEN: "ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសម៉ោងផ្សេង។", SLOT_INVALID: "ម៉ោងនេះលែងកក់បានហើយ។ សូមជ្រើសម៉ោងផ្សេង។", RATE_LIMITED: "សំណើច្រើនពេក។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬហៅទូរស័ព្ទមកយើង។", TOO_MANY_PENDING: "ពេលនេះមានការកក់រង់ចាំច្រើន។ សូមហៅទូរស័ព្ទមកយើង។",
       FORM_EXPIRED: "ទំព័រនេះបើកយូរពេក។ សូមបើកម្ដងទៀត។", DESCRIPTION_REQUIRED: "សូមពិពណ៌នាការងារ", TOO_MANY_PHOTOS: "រូបថតច្រើនបំផុត ៥ សន្លឹក", BAD_IMAGE: "ឯកសារនេះមិនមែនជារូបថតទេ", IMAGE_TOO_LARGE: "រូបថតធំពេក",
       REASON_REQUIRED: "សូមសរសេរមូលហេតុ", ALREADY_REQUESTED: "អ្នកបានស្នើប្ដូរម៉ោងរួចហើយ។ សូមរង់ចាំការឆ្លើយតប។", SAME_TIME: "នេះជាម៉ោងដដែល", BOOKING_LOCKED: "ការកក់នេះលែងប្ដូរបានហើយ។ សូមហៅទូរស័ព្ទមកយើង។",
       BOOKING_NOT_CANCELLABLE: "ការកក់នេះលែងបោះបង់បានហើយ។ សូមហៅទូរស័ព្ទមកយើង។", GPS_FAILED: "មិនអាចយកទីតាំងបានទេ។ សូមសរសេរទីតាំង។", ERROR: "មានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។", SENT_MOVE: "បានផ្ញើសំណើប្ដូរម៉ោង", SENDING: "កំពុងផ្ញើ..." },
@@ -69,11 +69,11 @@ const TXT = {
     again: "Book again", call_shop: (shop: string) => `Call ${shop}`, new: "New booking", no_up: "No upcoming booking.", logout: "Sign out", pending_move: "Your reschedule request is waiting for an answer",
     why_cancel: "Reason for cancelling", confirm_cancel: "Confirm cancellation", keep: "Keep the booking", new_time: "Choose a new time", why_move: "Reason (optional)", send_move: "Send reschedule request", close: "Close",
     l_h1: "Sign in", l_p: "Sign in with Telegram to see your bookings, change a time or book again.", l_auth: "Telegram could not be verified. Please try again.",
-    l_nolink: "This Telegram account is not connected to a booking yet. Book a service, then tap \"Connect Telegram (1 tap)\".", l_nobot: "Telegram sign-in is not available yet.", l_staff: "Staff: open the work app",
+    l_nolink: "This Telegram account is not connected to a booking yet. Book a service, then tap \"Connect Telegram (1 tap)\".", l_nobot: "Telegram sign-in is not available yet.", l_open: "Open the shop on Telegram", l_staff: "Staff: open the work app",
     nf: "Page not found", wd: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wds: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     mon: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     msg: { PICK_SLOT: "Please choose a day and a time", ADDRESS_REQUIRED: "Please enter the location or tap \"Use my current location\"", LOCATION_REQUIRED: "Please enter the location", NAME_REQUIRED: "Please enter your name", INVALID_PHONE: "Please enter a valid phone number",
-      CONSENT_REQUIRED: "Please tick the box to continue", SLOT_TAKEN: "This time was just taken. Please choose another one.", SLOT_INVALID: "This time can no longer be booked. Please choose another one.", RATE_LIMITED: "Too many requests. Please try again later or call us.",
+      CONSENT_REQUIRED: "Please tick the box to continue", SLOT_TAKEN: "This time was just taken. Please choose another one.", SLOT_INVALID: "This time can no longer be booked. Please choose another one.", RATE_LIMITED: "Too many requests. Please try again later or call us.", TOO_MANY_PENDING: "Many bookings are waiting right now. Please call us.",
       FORM_EXPIRED: "This page was open too long. Please open it again.", DESCRIPTION_REQUIRED: "Please describe the work", TOO_MANY_PHOTOS: "At most 5 photos", BAD_IMAGE: "This file is not a photo", IMAGE_TOO_LARGE: "The photo is too large",
       REASON_REQUIRED: "Please write the reason", ALREADY_REQUESTED: "You already asked to reschedule. Please wait for the answer.", SAME_TIME: "This is the same time", BOOKING_LOCKED: "This booking can no longer be changed. Please call us.",
       BOOKING_NOT_CANCELLABLE: "This booking can no longer be cancelled. Please call us.", GPS_FAILED: "Could not get your location. Please type it.", ERROR: "Something went wrong. Please try again.", SENT_MOVE: "Reschedule request sent", SENDING: "Sending..." },
@@ -175,7 +175,7 @@ ${steps(t, 1)}
 <section class="card"><div><h1>${t.h1}</h1><p class="sub">${t.sub}</p></div>
 ${d.services.length ? `<div class="tiles" id="services">${d.services.map(tile).join("")}</div>${d.services.length > 4 ? `<button type="button" class="morel" id="more">${t.more(d.services.length - 4)}</button>` : ""}` : `<p class="sub">${t.none}</p>`}
 <a class="btn" href="${first ? `/book?service=${first.id}` : "/quote"}">${svg(I.cal, 16, 2.2)}${first ? t.book : t.quote}</a>
-<div class="row2">${phones[0] ? `<a class="ob" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
+${phones[0] || d.bot ? `<div class="row2">${phones[0] ? `<a class="ob" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob" href="https://t.me/${esc(d.bot)}?start=s" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div>` : ""}</section>
 <section class="trust"><div><span class="tl">${svg(I.clock)}</span><span>${t.t1}</span></div><div><span class="tl">${svg(I.shield)}</span><span>${t.t2(lang === "km" ? kmDigits(months) : months)}</span></div><div><span class="gd">${svg(I.send)}</span><span>${t.t3}</span></div></section>
 ${extra}<footer class="ft">${area ? `<div>${esc(area)}</div>` : ""}<nav><a href="${APP_BASE}/privacy">${t.privacy}</a><a href="${APP_BASE}/terms">${t.terms}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
   return shell(d, lang, { title: `${n.full} — ${t.book}`, description: pick(w.tagline_km, w.tagline_en) || t.sub, page: "home", path, index: true, body, msg: false });
@@ -269,7 +269,7 @@ export function loginPage(d: SiteView, lang: SiteLang, o: { error: string | null
   const err = o.error === "auth" ? t.l_auth : o.error === "nolink" ? t.l_nolink : "";
   const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
 <section class="ok"><div class="okc">${svg(I.user, 26)}</div><h1>${t.l_h1}</h1><p>${t.l_p}</p>${err ? `<p class="err">${err}</p>` : ""}
-<div class="tgw" id="tgw">${d.bot ? `<script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="${esc(d.bot)}" data-size="large" data-radius="20" data-auth-url="${esc(config.publicUrl)}/my/auth"></script>` : `<p class="err">${t.l_nobot}</p>`}</div></section>
+<div class="tgw" id="tgw">${d.bot ? `<script async src="https://telegram.org/js/telegram-widget.js?22" data-telegram-login="${esc(d.bot)}" data-size="large" data-radius="20" data-auth-url="${esc(config.publicUrl)}/my/auth"></script>` : `<p class="err">${t.l_nobot}</p>`}</div>${d.bot ? `<a class="ob m w" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}</section>
 <a class="btn" href="/">${svg(I.cal, 16, 2.2)}${t.book}</a>
 <footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a>${langLink(t, lang, o.path)}${powered(t)}</nav></footer></main>`;
   return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path: o.path, body });
@@ -294,7 +294,7 @@ ${b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<b
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
-<footer class="ft in"><nav><button type="button" class="lk" id="logout">${t.logout}</button>${langLink(t, lang, path)}${powered(t)}</nav></footer>
+<footer class="ft low"><nav><button type="button" class="lk" id="logout">${t.logout}</button>${langLink(t, lang, path)}${powered(t)}</nav></footer>
 <div class="bar"><a class="btn" href="/">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
   return shell(d, lang, { title: `${t.upcoming} — ${n.full}`, page: "my", path, body });
 }

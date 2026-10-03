@@ -13,6 +13,8 @@
   function num(sel) { var v = $(sel) && $(sel).value; return v ? Number(v) : null; }
   function showErr(el, code) { if (!el) return; el.textContent = msg(code); el.hidden = false; if (el.scrollIntoView) el.scrollIntoView({ block: "nearest" }); }
   function hideErr(el) { if (el) el.hidden = true; }
+  /** a message goes away as soon as the visitor changes something */
+  function clearOnEdit(root, err) { if (!root) return; ["input", "change"].forEach(function (ev) { root.addEventListener(ev, function () { hideErr(err); }); }); }
   function busy(btn, on) {
     if (!btn) return;
     if (on) { btn.dataset.label = btn.textContent; btn.textContent = M.SENDING || "..."; btn.disabled = true; }
@@ -110,6 +112,7 @@
     var s2 = $("#s2"), s3 = $("#s3"), pick = $("#pick"), next = $("#next"), err = $("#err"), err3 = $("#err3");
     var st = bindPicker($("#picker"), function (p) { pick.textContent = p.label || "—"; hideErr(err); });
     geo($("#gps"), err);
+    clearOnEdit(s2, err); clearOnEdit(s3, err3);
     function step(n) { s2.hidden = n !== 2; s3.hidden = n !== 3; window.scrollTo(0, 0); }
     if (location.hash === "#details") history.replaceState(null, "", location.pathname + location.search); // a reload starts at the time
     if (next) next.addEventListener("click", function () {
@@ -168,17 +171,25 @@
       category = c.dataset.cat;
     });
     geo($("#gps"), err);
+    clearOnEdit($("main"), err);
     function shrink(f) {
       return new Promise(function (resolve, reject) {
         if (!/^image\//.test(f.type)) return reject(new Error("type"));
         var url = URL.createObjectURL(f), img = new Image();
         img.onload = function () {
-          var k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
-          c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
-          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          // a fresh JPEG (no camera position, no comments), smaller until it is under ~1 MB
+          var steps = [[1600, 0.82], [1280, 0.72], [1024, 0.6]], b64 = "";
+          for (var i = 0; i < steps.length; i++) {
+            var k = Math.min(1, steps[i][0] / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
+            c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+            var data = c.toDataURL("image/jpeg", steps[i][1]);
+            b64 = data.slice(data.indexOf(",") + 1);
+            if (b64.length <= 1300000) break;
+          }
           URL.revokeObjectURL(url);
-          var data = c.toDataURL("image/jpeg", 0.82); // a fresh JPEG: no camera position, no comments
-          resolve(data.slice(data.indexOf(",") + 1));
+          if (b64.length > 1300000) return reject(new Error("size"));
+          resolve(b64);
         };
         img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("image")); };
         img.src = url;
