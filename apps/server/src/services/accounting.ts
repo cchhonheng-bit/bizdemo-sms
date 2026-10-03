@@ -20,7 +20,7 @@ import { cell } from "./reports-extra.js";
 export type AccType = "asset" | "liability" | "equity" | "income" | "expense";
 type Role = "cash_usd" | "cash_khr" | "bank_aba" | "bank_acleda" | "ar" | "inventory" | "ap" | "deposits" | "payroll" | "capital" | "drawings" | "retained"
   | "opening" | "rev_service" | "rev_sales" | "rev_other" | "discount" | "cogs" | "stock_adjust" | "salaries" | "bonus" | "cash_diff";
-export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll";
+export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing";
 
 /** Cambodian SME template (USD books). Accounts with a role are used by automatic postings: they can be renamed, never removed. */
 const CHART: [string, string, string, AccType, Role?][] = [
@@ -82,13 +82,14 @@ export async function roleIds(db: Db, companyId: string): Promise<Record<Role, s
   return Object.fromEntries(rows.map((r) => [r.role, r.id])) as Record<Role, string>;
 }
 export async function books(db: Db, companyId: string) {
-  return (await db<{ start: string | null; locked: string | null; fx: string; tz: string; today: string }[]>`select s.books_start::text as start, s.books_locked_until::text as locked,
-      s.fx_rate_khr::text as fx, c.timezone as tz, (now() at time zone c.timezone)::date::text as today
+  return (await db<{ start: string | null; locked: string | null; fx: string; tz: string; today: string; fy_month: number; closed_through: string | null }[]>`select s.books_start::text as start,
+      s.books_locked_until::text as locked, s.fx_rate_khr::text as fx, c.timezone as tz, (now() at time zone c.timezone)::date::text as today,
+      s.fiscal_year_start_month as fy_month, s.books_closed_through::text as closed_through
     from company_settings s join companies c on c.id = s.company_id where s.company_id = ${companyId}`)[0]!;
 }
 
 // ---------- the one place that posts ----------
-export type Line = { account: string; amount: number; memo?: string | null; customer_id?: string | null; user_id?: string | null; supplier?: string | null };
+export type Line = { account: string; amount: number; memo?: string | null; customer_id?: string | null; user_id?: string | null; supplier?: string | null; zone?: "inside" | "outside" | null };
 type EntryIn = { date: string; memo: string; source: Source; source_id?: string | null; fx?: number; lines: Line[]; note?: string | null;
   khr_amount?: number | null; attachment_id?: string | null; reversal_of?: string | null };
 
@@ -107,19 +108,19 @@ export async function post(t: Db, user: SessionUser, e: EntryIn): Promise<{ id: 
     values (${user.companyId}, ${number}, ${e.date}::date, ${e.memo.trim().slice(0, 300) || "-"}, ${e.note ?? null}, ${e.source}, ${e.source_id ?? null}, ${fx},
       ${e.khr_amount ?? null}, ${e.attachment_id ?? null}, ${e.reversal_of ?? null}, ${user.id}) returning id`)[0]!.id;
   for (const l of lines)
-    await t`insert into journal_lines (entry_id, company_id, account_id, debit_cents, credit_cents, memo, customer_id, user_id, supplier)
+    await t`insert into journal_lines (entry_id, company_id, account_id, debit_cents, credit_cents, memo, customer_id, user_id, supplier, zone)
       values (${id}, ${user.companyId}, ${l.account}, ${l.amount > 0 ? l.amount : 0}, ${l.amount < 0 ? -l.amount : 0}, ${l.memo?.slice(0, 200) ?? null},
-        ${l.customer_id ?? null}, ${l.user_id ?? null}, ${l.supplier?.slice(0, 120) ?? null})`;
+        ${l.customer_id ?? null}, ${l.user_id ?? null}, ${l.supplier?.slice(0, 120) ?? null}, ${l.zone ?? null})`;
   return { id, number };
 }
 
 async function reverseEntry(t: Db, user: SessionUser, id: string, memo: string, date: string) {
   const e = (await t<{ number: string; source: Source; source_id: string | null; fx: string }[]>`select number, source, source_id, fx_rate_khr::text as fx
     from journal_entries where id = ${id} and company_id = ${user.companyId}`)[0]!;
-  const ls = await t<{ account_id: string; d: string; c: string; memo: string | null; customer_id: string | null; user_id: string | null; supplier: string | null }[]>`
-    select account_id, debit_cents::text as d, credit_cents::text as c, memo, customer_id, user_id, supplier from journal_lines where entry_id = ${id} order by id`;
+  const ls = await t<{ account_id: string; d: string; c: string; memo: string | null; customer_id: string | null; user_id: string | null; supplier: string | null; zone: "inside" | "outside" | null }[]>`
+    select account_id, debit_cents::text as d, credit_cents::text as c, memo, customer_id, user_id, supplier, zone from journal_lines where entry_id = ${id} order by id`;
   return post(t, user, { date, memo: `↩ ${e.number} · ${memo}`, source: e.source, source_id: e.source_id, fx: Number(e.fx), reversal_of: id,
-    lines: ls.map((l) => ({ account: l.account_id, amount: Number(l.c) - Number(l.d), memo: l.memo, customer_id: l.customer_id, user_id: l.user_id, supplier: l.supplier })) });
+    lines: ls.map((l) => ({ account: l.account_id, amount: Number(l.c) - Number(l.d), memo: l.memo, customer_id: l.customer_id, user_id: l.user_id, supplier: l.supplier, zone: l.zone })) });
 }
 /** reverse every open entry of a business record; returns how many */
 export async function reverseAll(t: Db, user: SessionUser, source: Source, sourceId: string, memo: string, date: string): Promise<number> {
@@ -137,14 +138,19 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
   const R = await roleIds(t, u.companyId);
   switch (e.kind) {
     case "invoice_issue": {
-      const i = (await t<{ number: string; customer_id: string; discount: number; fx: string; opening: boolean }[]>`select number, customer_id, discount, fx_rate_khr::text as fx, opening
-        from invoices where id = ${e.invoice_id}`)[0]!;
+      const i = (await t<{ number: string; customer_id: string; discount: number; fx: string; opening: boolean; zone: string | null }[]>`select i.number, i.customer_id, i.discount, i.fx_rate_khr::text as fx, i.opening,
+          coalesce(b.zone::text, c.zone::text) as zone
+        from invoices i left join bookings b on b.id = i.booking_id left join customers c on c.id = i.customer_id where i.id = ${e.invoice_id}`)[0]!;
       if (i.opening) return;
-      const k = await t<{ kind: string; amt: string }[]>`select kind::text, coalesce(sum(round(qty * unit_price)), 0)::bigint::text as amt from invoice_lines where invoice_id = ${e.invoice_id} group by kind`;
-      const svc = Number(k.find((x) => x.kind === "service")?.amt ?? 0), prod = Number(k.find((x) => x.kind === "product")?.amt ?? 0);
+      // revenue per account (D-92): the catalog item's own income account when the CFO set one, else by kind (service / goods); every line
+      // carries the zone (inside / outside the borey) of the job, else of the customer
+      const k = await t<{ account: string | null; kind: string; amt: string }[]>`select ci.income_account_id::text as account, l.kind::text as kind, coalesce(sum(round(l.qty * l.unit_price)), 0)::bigint::text as amt
+        from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.invoice_id = ${e.invoice_id} group by ci.income_account_id, l.kind`;
+      const zone = i.zone === "inside" || i.zone === "outside" ? i.zone : null;
+      const total = k.reduce((s, x) => s + Number(x.amt), 0);
       await post(t, u, { date: b.today, memo: i.number, source: "invoice", source_id: e.invoice_id, fx: Number(i.fx), lines: [
-        { account: R.ar, amount: svc + prod - i.discount, customer_id: i.customer_id }, { account: R.discount, amount: i.discount },
-        { account: R.rev_service, amount: -svc }, { account: R.rev_sales, amount: -prod }] });
+        { account: R.ar, amount: total - i.discount, customer_id: i.customer_id, zone }, { account: R.discount, amount: i.discount, zone },
+        ...k.map((x) => ({ account: x.account ?? (x.kind === "service" ? R.rev_service : R.rev_sales), amount: -Number(x.amt), zone }))] });
       return;
     }
     case "payment": {
@@ -216,13 +222,15 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
 registerLedger(onEvent, () => featureOn("accounting"));
 
 // ---------- C1 chart of accounts ----------
+/** every account belongs to one statement: BS (asset / liability / equity) or PL (income / expense) — D-92 */
+export const statementOf = (t: AccType): "BS" | "PL" => (t === "income" || t === "expense" ? "PL" : "BS");
 export async function listAccounts(user: SessionUser) {
   await ensureChart(sql, user.companyId);
   return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; role: string | null; is_active: boolean; used: boolean; balance: string }[]>`
     select a.id, a.code, a.name_km, a.name_en, a.type::text as type, a.role, a.is_active,
       exists (select 1 from journal_lines l where l.account_id = a.id) as used,
       coalesce((select sum(l.debit_cents - l.credit_cents) from journal_lines l where l.account_id = a.id), 0)::text as balance
-    from accounts a where a.company_id = ${user.companyId} order by a.code`).map((a) => ({ ...a, balance: Number(a.balance) }));
+    from accounts a where a.company_id = ${user.companyId} order by a.code`).map((a) => ({ ...a, balance: Number(a.balance), statement: statementOf(a.type) }));
 }
 
 export async function saveAccount(user: SessionUser, ip: string | null, v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AccType; is_active?: boolean }) {
@@ -357,7 +365,9 @@ export async function getEntry(user: SessionUser, id: string) {
 // ---------- lock date (CFO) ----------
 export async function lockInfo(user: SessionUser) {
   const b = await books(sql, user.companyId);
-  return { books_start: b.start, lock_date: b.locked, today: b.today, fx_rate_khr: Number(b.fx) };
+  const next_year_end = b.start ? fyEnd(fyStart(nextOpenYearStart(b), b.fy_month)) : null;
+  return { books_start: b.start, lock_date: b.locked, today: b.today, fx_rate_khr: Number(b.fx), fiscal_year_start_month: b.fy_month, books_closed_through: b.closed_through,
+    next_year_end, can_close: !!next_year_end && next_year_end < b.today };
 }
 
 /** nothing on or before the lock date can be posted; moving it back (re-opening) needs a reason */
@@ -379,8 +389,8 @@ export async function setLock(user: SessionUser, ip: string | null, v: { lock_da
 // ---------- opening balances (go-live) ----------
 /** once: cash, banks and payables as entered; stock value, open customer invoices and active deposits taken from the app as they
  *  are now; debts from before the app become opening invoices (collectable like any invoice, never revenue). Books lock before it. */
-export async function saveOpening(user: SessionUser, ip: string | null, v: { date: string; cash_usd?: number; cash_khr?: number; banks?: { aba?: number; acleda?: number };
-  receivables?: { customer_id: string; amount: number; note?: string | null }[]; payables?: { supplier: string; amount: number }[] }) {
+export async function saveOpening(user: SessionUser, ip: string | null, v: { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number;
+  retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string | null }[]; payables?: { supplier: string; amount: number }[] }) {
   return tx(user.id, async (t) => {
     const s = (await t<{ start: string | null }[]>`select books_start::text as start from company_settings where company_id = ${user.companyId} for update`)[0]!;
     if (s.start) throw new AppError("OPENING_DONE", 409);
@@ -394,9 +404,16 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
     const add = (l: Line) => { if (l.amount) { main.push(l); equity += l.amount; } };
     add({ account: R.cash_usd, amount: v.cash_usd ?? 0 });
     add({ account: R.cash_khr, amount: khrToCents(v.cash_khr ?? 0, fx), memo: v.cash_khr ? `${v.cash_khr}៛` : null });
-    add({ account: R.bank_aba, amount: v.banks?.aba ?? 0 });
-    add({ account: R.bank_acleda, amount: v.banks?.acleda ?? 0 });
-    add({ account: R.inventory, amount: Number((await t<{ v: string }[]>`select coalesce(sum(value_cents), 0)::text as v from stock_items where company_id = ${user.companyId}`)[0]!.v), memo: null });
+    for (const [k, amt] of Object.entries(v.banks ?? {})) { // aba / acleda, or the code of any other asset account the CFO added (D-92: each bank)
+      if (!amt) continue;
+      const acc = k === "aba" ? R.bank_aba : k === "acleda" ? R.bank_acleda
+        : (await t<{ id: string }[]>`select id from accounts where company_id = ${user.companyId} and code = ${k} and type = 'asset' and is_active`)[0]?.id;
+      if (!acc) throw new AppError("NOT_ASSET_ACCOUNT", 400, { code: k });
+      add({ account: acc, amount: amt });
+    }
+    const appStock = Number((await t<{ v: string }[]>`select coalesce(sum(value_cents), 0)::text as v from stock_items where company_id = ${user.companyId}`)[0]!.v);
+    add({ account: R.inventory, amount: appStock || (v.stock ?? 0), memo: null }); // the inventory module's value when it holds one, else the figure entered
+    add({ account: R.retained, amount: -(v.retained_earnings ?? 0) }); // D-92: retained earnings of the years before the books
     for (const d of await t<{ usd: number; customer_id: string; number: string }[]>`select d.usd_cents as usd, b.customer_id, b.number from deposits d join bookings b on b.id = d.booking_id
         where d.company_id = ${user.companyId} and d.status = 'active' order by d.created_at`)
       add({ account: R.deposits, amount: -d.usd, customer_id: d.customer_id, memo: d.number });
@@ -429,8 +446,9 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
     }
     await t`update company_settings set books_locked_until = ${v.date}::date - 1 where company_id = ${user.companyId}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.opening", table: "company_settings", rowId: user.companyId,
-      new: { date: v.date, cash_usd: v.cash_usd, cash_khr: v.cash_khr, banks: v.banks, payables: v.payables, receivables: v.receivables, open_invoices: open.length, opening_invoices: invoices, opening_equity: equity }, ip });
-    return { opening_equity: equity, entries, open_invoices: open.length, opening_invoices: invoices };
+      new: { date: v.date, cash_usd: v.cash_usd, cash_khr: v.cash_khr, banks: v.banks, stock: v.stock, retained_earnings: v.retained_earnings, payables: v.payables, receivables: v.receivables,
+        open_invoices: open.length, opening_invoices: invoices, opening_equity: equity }, ip });
+    return { opening_equity: equity, retained_earnings: v.retained_earnings ?? 0, entries, open_invoices: open.length, opening_invoices: invoices };
   });
 }
 
@@ -499,11 +517,14 @@ async function rateAt(companyId: string, day: string): Promise<number> {
       order by r.set_at desc limit 1), s.fx_rate_khr)::float as fx from company_settings s join companies c on c.id = s.company_id where s.company_id = ${companyId}`)[0]!.fx;
 }
 type Sum = { id: string; code: string; name_km: string; name_en: string | null; type: AccType; d: number; c: number };
-async function sums(companyId: string, to: string, from?: string): Promise<Sum[]> {
+/** debit / credit sums per account up to `to` (from `from`); `noClosingFrom`: leave out year-end closing entries dated on or after that day
+ *  (the fiscal year's own closing, so income and expense accounts still show the year; "1900-01-01" = all closings) */
+async function sums(companyId: string, to: string, from?: string, noClosingFrom?: string): Promise<Sum[]> {
   await ensureChart(sql, companyId);
   return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; d: string; c: string }[]>`
     with m as (select l.account_id, sum(l.debit_cents) as d, sum(l.credit_cents) as c from journal_lines l join journal_entries e on e.id = l.entry_id
-      where e.company_id = ${companyId} and e.entry_date <= ${to}::date ${from ? sql`and e.entry_date >= ${from}::date` : sql``} group by l.account_id)
+      where e.company_id = ${companyId} and e.entry_date <= ${to}::date ${from ? sql`and e.entry_date >= ${from}::date` : sql``}
+        ${noClosingFrom ? sql`and not (e.source = 'closing' and e.entry_date >= ${noClosingFrom}::date)` : sql``} group by l.account_id)
     select a.id, a.code, a.name_km, a.name_en, a.type::text as type, coalesce(m.d, 0)::text as d, coalesce(m.c, 0)::text as c
     from accounts a left join m on m.account_id = a.id where a.company_id = ${companyId} order by a.code`).map((r) => ({ ...r, d: Number(r.d), c: Number(r.c) }));
 }
@@ -518,34 +539,51 @@ export async function trialBalance(user: SessionUser, to: string, from?: string)
   return { from: from ?? null, to, fx_rate_khr: fx, rows, total_debit, total_credit, total_debit_khr: usdToKhr(total_debit, fx), total_credit_khr: usdToKhr(total_credit, fx), balanced: total_debit === total_credit };
 }
 
-export async function profitLoss(user: SessionUser, from: string, to: string) {
+/** income statement (the client's name for the P&L — D-92): income − expenses over a period; year-end closing entries are never activity;
+ *  income split by zone (inside / outside the borey) from the tagged lines */
+export async function incomeStatement(user: SessionUser, from: string, to: string) {
   checkPeriod(from, to);
   const fx = await rateAt(user.companyId, to);
-  const s = (await sums(user.companyId, to, from)).filter((x) => x.d || x.c);
+  const s = (await sums(user.companyId, to, from, "1900-01-01")).filter((x) => x.d || x.c);
   const income = s.filter((x) => x.type === "income").map((x) => row(x, x.c - x.d)), expense = s.filter((x) => x.type === "expense").map((x) => row(x, x.d - x.c));
   const income_total = income.reduce((a, r) => a + r.amount, 0), expense_total = expense.reduce((a, r) => a + r.amount, 0), net = income_total - expense_total;
-  return { from, to, fx_rate_khr: fx, income, expense, income_total, expense_total, net, income_total_khr: usdToKhr(income_total, fx), expense_total_khr: usdToKhr(expense_total, fx), net_khr: usdToKhr(net, fx) };
+  const z = await sql<{ zone: string | null; amt: string }[]>`select l.zone, sum(l.credit_cents - l.debit_cents)::text as amt from journal_lines l join journal_entries e on e.id = l.entry_id
+      join accounts a on a.id = l.account_id where e.company_id = ${user.companyId} and a.type = 'income' and e.source <> 'closing' and e.entry_date between ${from}::date and ${to}::date group by l.zone`;
+  const zones = { inside: 0, outside: 0, none: 0 };
+  for (const r of z) zones[r.zone === "inside" ? "inside" : r.zone === "outside" ? "outside" : "none"] += Number(r.amt);
+  return { from, to, fx_rate_khr: fx, income, expense, income_total, expense_total, net, income_total_khr: usdToKhr(income_total, fx), expense_total_khr: usdToKhr(expense_total, fx), net_khr: usdToKhr(net, fx), zones };
 }
+export const profitLoss = incomeStatement;
 
-/** assets = liabilities + equity + profit not yet closed into retained earnings (everything up to the date) */
+/** assets = liabilities + equity + profit not yet closed into retained earnings (everything up to the date, closings included) —
+ *  with the previous month end and the variance per account (D-92) */
 export async function balanceSheet(user: SessionUser, to: string) {
   const fx = await rateAt(user.companyId, to);
-  const s = (await sums(user.companyId, to)).filter((x) => x.d || x.c);
-  const pick = (t: AccType, sign: 1 | -1) => s.filter((x) => x.type === t).map((x) => row(x, sign * (x.d - x.c))).filter((r) => r.amount !== 0);
+  const prevEnd = dayBefore(to.slice(0, 8) + "01");
+  const [cur, prev] = await Promise.all([sums(user.companyId, to), sums(user.companyId, prevEnd)]);
+  const prevOf = new Map(prev.map((x) => [x.id, x]));
+  const s = cur.filter((x) => x.d || x.c || prevOf.get(x.id)?.d || prevOf.get(x.id)?.c);
+  const pick = (t: AccType, sign: 1 | -1) => s.filter((x) => x.type === t).map((x) => {
+    const p = prevOf.get(x.id), amount = sign * (x.d - x.c), previous = sign * ((p?.d ?? 0) - (p?.c ?? 0));
+    return { ...row(x, amount), previous, variance: amount - previous };
+  }).filter((r) => r.amount !== 0 || r.previous !== 0);
   const assets = pick("asset", 1), liabilities = pick("liability", -1), equity = pick("equity", -1);
-  const tot = (r: { amount: number }[]) => r.reduce((a, x) => a + x.amount, 0);
-  const current_earnings = s.filter((x) => x.type === "income" || x.type === "expense").reduce((a, x) => a + x.c - x.d, 0);
+  const tot = (r: { amount: number }[]) => r.reduce((a, x) => a + x.amount, 0), totPrev = (r: { previous: number }[]) => r.reduce((a, x) => a + x.previous, 0);
+  const earnings = (xs: Sum[]) => xs.filter((x) => x.type === "income" || x.type === "expense").reduce((a, x) => a + x.c - x.d, 0);
+  const current_earnings = earnings(cur);
   const assets_total = tot(assets), liabilities_total = tot(liabilities), equity_total = tot(equity);
-  return { to, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, assets_total, liabilities_total, equity_total,
+  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, assets_total, liabilities_total, equity_total,
+    previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: earnings(prev) },
     assets_total_khr: usdToKhr(assets_total, fx), liabilities_total_khr: usdToKhr(liabilities_total, fx), equity_total_khr: usdToKhr(equity_total, fx), current_earnings_khr: usdToKhr(current_earnings, fx) };
 }
 
-/** general ledger of one account: opening, every line with running balance (debit − credit), closing */
-export async function ledger(user: SessionUser, accountId: string, from: string, to: string) {
+/** general ledger of one account — by id or by account code (D-92): opening, every line with running balance (debit − credit), closing */
+export async function ledger(user: SessionUser, ref: { id?: string; code?: string }, from: string, to: string) {
   checkPeriod(from, to);
   const a = (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType }[]>`select id, code, name_km, name_en, type::text as type from accounts
-    where id = ${accountId} and company_id = ${user.companyId}`)[0];
+    where company_id = ${user.companyId} and ${ref.id ? sql`id = ${ref.id}` : sql`code = ${ref.code ?? ""}`}`)[0];
   if (!a) throw notFound();
+  const accountId = a.id;
   const opening = Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b from journal_lines l join journal_entries e on e.id = l.entry_id
     where l.account_id = ${accountId} and e.entry_date < ${from}::date`)[0]!.b);
   let bal = opening;
@@ -557,22 +595,105 @@ export async function ledger(user: SessionUser, accountId: string, from: string,
   return { account: a, from, to, opening, rows, closing: bal, fx_rate_khr: await rateAt(user.companyId, to) };
 }
 
+// ---------- fiscal year · trial balance by month · year-end closing (D-92) ----------
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+const utcDay = (s: string) => new Date(`${s}T00:00:00Z`);
+export const dayBefore = (s: string) => isoDay(new Date(utcDay(s).getTime() - 86_400_000));
+const dayAfter = (s: string) => isoDay(new Date(utcDay(s).getTime() + 86_400_000));
+const monthEnd = (ym: string) => { const [y, m] = ym.split("-").map(Number); return isoDay(new Date(Date.UTC(y!, m!, 0))); };
+/** first day of the fiscal year that contains `day` (the year starts in month m, 1–12) */
+export function fyStart(day: string, m: number): string {
+  const y = Number(day.slice(0, 4)), mo = Number(day.slice(5, 7));
+  return `${mo >= m ? y : y - 1}-${pad2(m)}-01`;
+}
+export const fyEnd = (start: string) => dayBefore(`${Number(start.slice(0, 4)) + 1}-${start.slice(5, 7)}-01`);
+/** the first day of the first fiscal year not closed yet */
+const nextOpenYearStart = (b: { start: string | null; closed_through: string | null; fy_month: number }) => (b.closed_through ? dayAfter(b.closed_through) : fyStart(b.start!, b.fy_month));
+
+/** trial balance of one month: the month's movement · the balance at the end of the previous month · the balance at the end of this month.
+ *  Balances are everything up to the date except this fiscal year's own closing entry, so income and expense accounts show the year so far
+ *  and each pair of columns balances. */
+export async function trialBalanceMonth(user: SessionUser, month: string) {
+  const b = await books(sql, user.companyId);
+  const from = `${month}-01`, to = monthEnd(month), prevEnd = dayBefore(from), fy = fyStart(to, b.fy_month);
+  const fx = await rateAt(user.companyId, to);
+  const [mv, prev, ytd] = await Promise.all([sums(user.companyId, to, from, fy), sums(user.companyId, prevEnd, undefined, fy), sums(user.companyId, to, undefined, fy)]);
+  const side = (x: Sum | undefined) => { const n = (x?.d ?? 0) - (x?.c ?? 0); return { debit: Math.max(n, 0), credit: Math.max(-n, 0) }; };
+  const prevOf = new Map(prev.map((x) => [x.id, x])), ytdOf = new Map(ytd.map((x) => [x.id, x]));
+  const rows = mv.map((x) => ({ account_id: x.id, code: x.code, name_km: x.name_km, name_en: x.name_en, type: x.type, statement: statementOf(x.type),
+      period: { debit: x.d, credit: x.c }, ytd_prev: side(prevOf.get(x.id)), ytd: side(ytdOf.get(x.id)) }))
+    .filter((r) => r.period.debit || r.period.credit || r.ytd_prev.debit || r.ytd_prev.credit || r.ytd.debit || r.ytd.credit);
+  const tot = (k: "period" | "ytd_prev" | "ytd") => ({ debit: rows.reduce((s, r) => s + r[k].debit, 0), credit: rows.reduce((s, r) => s + r[k].credit, 0) });
+  const totals = { period: tot("period"), ytd_prev: tot("ytd_prev"), ytd: tot("ytd") };
+  return { month, from, to, previous_to: prevEnd, fiscal_year_start: fy, fx_rate_khr: fx, rows, totals,
+    balanced: totals.period.debit === totals.period.credit && totals.ytd_prev.debit === totals.ytd_prev.credit && totals.ytd.debit === totals.ytd.credit };
+}
+
+/** the month the fiscal year starts (1 = January); fixed once a year has been closed */
+export async function setFiscalYear(user: SessionUser, ip: string | null, v: { start_month: number }) {
+  return tx(user.id, async (t) => {
+    const b = await books(t, user.companyId);
+    if (b.closed_through) throw new AppError("CLOSED_YEARS_EXIST", 400);
+    await t`update company_settings set fiscal_year_start_month = ${v.start_month} where company_id = ${user.companyId}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.fiscal_year", table: "company_settings", rowId: user.companyId, old: { start_month: b.fy_month }, new: { start_month: v.start_month }, ip });
+    return { start_month: v.start_month };
+  });
+}
+
+/** year-end closing (accounting.close): the first fiscal year not closed yet, once it has ended — one «closing» entry dated the year end
+ *  resets every income and expense account and moves the net result to retained earnings; balance sheet accounts carry forward; the
+ *  books lock through that day. The entry is never reversed by hand (the year would have to be re-opened — not offered). */
+export async function closeYear(user: SessionUser, ip: string | null, v: { year_end: string }) {
+  return tx(user.id, async (t) => {
+    await t`select 1 from company_settings where company_id = ${user.companyId} for update`;
+    const b = await books(t, user.companyId);
+    if (!b.start) throw new AppError("OPENING_REQUIRED", 400);
+    const end = fyEnd(fyStart(nextOpenYearStart(b), b.fy_month));
+    if (v.year_end !== end) throw new AppError(b.closed_through && v.year_end <= b.closed_through ? "ALREADY_CLOSED" : "BAD_YEAR_END", 400, { expected: end });
+    if (end >= b.today) throw new AppError("YEAR_NOT_ENDED", 400, { expected: end });
+    const R = await roleIds(t, user.companyId);
+    const pl = (await t<{ id: string; n: string }[]>`select a.id, sum(l.debit_cents - l.credit_cents)::text as n from journal_lines l join journal_entries e on e.id = l.entry_id
+        join accounts a on a.id = l.account_id where e.company_id = ${user.companyId} and a.type in ('income', 'expense') and e.entry_date <= ${end}::date and e.source <> 'closing'
+      group by a.id having sum(l.debit_cents - l.credit_cents) <> 0`).map((x) => ({ id: x.id, n: Number(x.n) }));
+    const net = pl.reduce((s, x) => s - x.n, 0); // credit balances (income) − debit balances (expenses) = net profit
+    let entry: { id: string; number: string } | null = null;
+    if (pl.length) {
+      // the lock may already cover the year end: the closing is the CFO's own period action, so it passes — and the lock ends ≥ the year end
+      await t`update company_settings set books_locked_until = least(books_locked_until, ${end}::date - 1) where company_id = ${user.companyId}`;
+      entry = await post(t, user, { date: end, memo: `${fyStart(end, b.fy_month)} → ${end}`, source: "closing", source_id: end,
+        lines: [...pl.map((x) => ({ account: x.id, amount: -x.n })), { account: R.retained, amount: -net }] });
+    }
+    await t`update company_settings set books_closed_through = ${end}::date, books_locked_until = greatest(coalesce(books_locked_until, ${end}::date), ${end}::date) where company_id = ${user.companyId}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.close_year", table: "company_settings", rowId: user.companyId, new: { year_end: end, net_profit: net, entry: entry?.number ?? null }, ip });
+    return { year_end: end, net_profit: net, entry };
+  });
+}
+
 // ---------- Excel (CSV) ----------
 const money = (c: number) => (c / 100).toFixed(2);
 const csv = (rows: unknown[][]) => "﻿" + rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n";
-export type AcctExport = "trial-balance" | "pl" | "balance-sheet" | "ledger" | "journal";
-export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?: string; to: string; account?: string }): Promise<string> {
+export type AcctExport = "trial-balance" | "pl" | "income-statement" | "balance-sheet" | "ledger" | "journal";
+export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?: string; to: string; account?: string; code?: string; month?: string }): Promise<string> {
+  if (kind === "trial-balance" && q.month) {
+    const tb = await trialBalanceMonth(user, q.month);
+    return csv([["code", "account", "statement", "month_debit", "month_credit", "ytd_prev_debit", "ytd_prev_credit", "ytd_debit", "ytd_credit"],
+      ...tb.rows.map((r) => [r.code, r.name_km, r.statement, money(r.period.debit), money(r.period.credit), money(r.ytd_prev.debit), money(r.ytd_prev.credit), money(r.ytd.debit), money(r.ytd.credit)]),
+      ["", "TOTAL", "", money(tb.totals.period.debit), money(tb.totals.period.credit), money(tb.totals.ytd_prev.debit), money(tb.totals.ytd_prev.credit), money(tb.totals.ytd.debit), money(tb.totals.ytd.credit)],
+      [], ["month", tb.month], ["fiscal_year_start", tb.fiscal_year_start], ["rate_khr", tb.fx_rate_khr]]);
+  }
   if (kind === "trial-balance") {
     const tb = await trialBalance(user, q.to, q.from);
     return csv([["code", "account", "type", "debit_usd", "credit_usd", "debit_khr", "credit_khr"],
       ...tb.rows.map((r) => [r.code, r.name_km, r.type, money(r.debit), money(r.credit), usdToKhr(r.debit, tb.fx_rate_khr), usdToKhr(r.credit, tb.fx_rate_khr)]),
       ["", "TOTAL", "", money(tb.total_debit), money(tb.total_credit), tb.total_debit_khr, tb.total_credit_khr], [], ["rate_khr", tb.fx_rate_khr]]);
   }
-  if (kind === "pl") {
-    const p = await profitLoss(user, q.from ?? q.to, q.to);
+  if (kind === "pl" || kind === "income-statement") {
+    const p = await incomeStatement(user, q.from ?? q.to, q.to);
     return csv([["section", "code", "account", "usd", "khr"], ...p.income.map((r) => ["income", r.code, r.name_km, money(r.amount), usdToKhr(r.amount, p.fx_rate_khr)]),
       ["income", "", "TOTAL", money(p.income_total), p.income_total_khr], ...p.expense.map((r) => ["expense", r.code, r.name_km, money(r.amount), usdToKhr(r.amount, p.fx_rate_khr)]),
-      ["expense", "", "TOTAL", money(p.expense_total), p.expense_total_khr], ["net", "", "NET PROFIT", money(p.net), p.net_khr], [], ["rate_khr", p.fx_rate_khr]]);
+      ["expense", "", "TOTAL", money(p.expense_total), p.expense_total_khr], ["net", "", "NET PROFIT", money(p.net), p.net_khr],
+      ["zone", "", "INSIDE", money(p.zones.inside), usdToKhr(p.zones.inside, p.fx_rate_khr)], ["zone", "", "OUTSIDE", money(p.zones.outside), usdToKhr(p.zones.outside, p.fx_rate_khr)], [], ["rate_khr", p.fx_rate_khr]]);
   }
   if (kind === "balance-sheet") {
     const b = await balanceSheet(user, q.to);
@@ -583,7 +704,7 @@ export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?
       [], ["rate_khr", b.fx_rate_khr]]);
   }
   if (kind === "ledger") {
-    const g = await ledger(user, q.account ?? "", q.from ?? q.to, q.to);
+    const g = await ledger(user, { id: q.account, code: q.code }, q.from ?? q.to, q.to);
     return csv([["date", "entry", "memo", "detail", "debit_usd", "credit_usd", "balance_usd"], ["", "", "OPENING", "", "", "", money(g.opening)],
       ...g.rows.map((r) => [r.date, r.number, r.memo, [r.line_memo, r.customer_name, r.user_name, r.supplier].filter(Boolean).join(" · "), r.debit ? money(r.debit) : "", r.credit ? money(r.credit) : "", money(r.balance)]),
       ["", "", "CLOSING", "", "", "", money(g.closing)]]);

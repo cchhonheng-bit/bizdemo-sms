@@ -8,7 +8,7 @@ export type Customer = {
 };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
-  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null;
+  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
 };
 export type Technician = { user_id: string; role: "lead" | "assistant"; full_name: string };
 export type Booking = {
@@ -105,7 +105,7 @@ export type PendingJob = { booking_id: string; number: string; status: string; c
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 // ---------- accounting (D-88) ----------
 export type AcctType = "asset" | "liability" | "equity" | "income" | "expense";
-export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number };
+export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL" };
 export type JournalRow = { id: string; number: string; date: string; memo: string; source: string; source_id: string | null; reversal_of: string | null; amount: number;
   status: "posted" | "reversed"; created_by_name: string | null; attachment_id: string | null };
 export type JournalLine = { id: number; account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; debit: number; credit: number; memo: string | null;
@@ -117,13 +117,20 @@ export type AcctRow = { account_id: string; code: string; name_km: string; name_
 export type TrialBalance = { from: string | null; to: string; fx_rate_khr: number; rows: (AcctRow & { debit: number; credit: number; balance: number })[]; total_debit: number; total_credit: number;
   total_debit_khr: number; total_credit_khr: number; balanced: boolean };
 export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income: AcctRow[]; expense: AcctRow[]; income_total: number; expense_total: number; net: number;
-  income_total_khr: number; expense_total_khr: number; net_khr: number };
-export type BalanceSheet = { to: string; fx_rate_khr: number; assets: AcctRow[]; liabilities: AcctRow[]; equity: AcctRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
-  equity_total: number; assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number };
+  income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number } };
+export type BsRow = AcctRow & { previous: number; variance: number };
+export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
+  equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number };
+  assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number };
+export type DrCr = { debit: number; credit: number };
+export type TrialBalanceMonth = { month: string; from: string; to: string; previous_to: string; fiscal_year_start: string; fx_rate_khr: number; balanced: boolean;
+  rows: { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; statement: "BS" | "PL"; period: DrCr; ytd_prev: DrCr; ytd: DrCr }[];
+  totals: { period: DrCr; ytd_prev: DrCr; ytd: DrCr } };
 export type LedgerRow = { entry_id: string; number: string; date: string; memo: string; source: string; line_memo: string | null; debit: number; credit: number; balance: number;
   customer_name: string | null; user_name: string | null; supplier: string | null };
 export type Ledger = { account: { id: string; code: string; name_km: string; name_en: string | null; type: AcctType }; from: string; to: string; opening: number; rows: LedgerRow[]; closing: number; fx_rate_khr: number };
-export type BooksInfo = { books_start: string | null; lock_date: string | null; today: string; fx_rate_khr: number };
+export type BooksInfo = { books_start: string | null; lock_date: string | null; today: string; fx_rate_khr: number; fiscal_year_start_month: number; books_closed_through: string | null;
+  next_year_end: string | null; can_close: boolean };
 export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
 export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
@@ -162,7 +169,7 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
-  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null }) =>
+  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null }) =>
     (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
 
@@ -278,8 +285,10 @@ export const api = {
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),
     setLock: (lock_date: string, reason?: string) => post<{ lock_date: string }>("/api/accounting/lock", { lock_date, reason: reason || null }),
-    opening: (v: { date: string; cash_usd?: number; cash_khr?: number; banks?: { aba?: number; acleda?: number }; receivables?: { customer_id: string; amount: number; note?: string }[];
-      payables?: { supplier: string; amount: number }[] }) => post<{ opening_equity: number; entries: number; open_invoices: number; opening_invoices: string[] }>("/api/accounting/opening", v),
+    opening: (v: { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string }[];
+      payables?: { supplier: string; amount: number }[] }) => post<{ opening_equity: number; retained_earnings: number; entries: number; open_invoices: number; opening_invoices: string[] }>("/api/accounting/opening", v),
+    setFiscalYear: (start_month: number) => post<{ start_month: number }>("/api/accounting/fiscal-year", { start_month }),
+    closeYear: (year_end: string) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end }),
     accounts: () => get<Account[]>("/api/accounting/accounts"),
     saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean }) => post<{ id: string }>("/api/accounting/accounts", v),
     deleteAccount: (id: string) => del(`/api/accounting/accounts/${id}`),
@@ -291,11 +300,13 @@ export const api = {
     transaction: (v: { date: string; type: AcctTxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string; account_code?: string; supplier?: string | null;
       memo?: string | null; attachment?: string | null }) => post<{ id: string; number: string }>("/api/accounting/transactions", v),
     tb: (to: string) => get<TrialBalance>(`/api/accounting/trial-balance?to=${to}`),
-    pl: (from: string, to: string) => get<ProfitLoss>(`/api/accounting/pl?from=${from}&to=${to}`),
+    tbMonth: (month: string) => get<TrialBalanceMonth>(`/api/accounting/trial-balance?month=${month}`),
+    pl: (from: string, to: string) => get<ProfitLoss>(`/api/accounting/income-statement?from=${from}&to=${to}`),
     bs: (to: string) => get<BalanceSheet>(`/api/accounting/balance-sheet?to=${to}`),
     ledger: (account: string, from: string, to: string) => get<Ledger>(`/api/accounting/ledger?account=${account}&from=${from}&to=${to}`),
-    csvUrl: (kind: "trial-balance" | "pl" | "balance-sheet" | "ledger" | "journal", from: string | null, to: string, account?: string) =>
-      `/api/accounting/${kind}.csv?to=${to}${from ? `&from=${from}` : ""}${account ? `&account=${account}` : ""}`,
+    ledgerByCode: (code: string, from: string, to: string) => get<Ledger>(`/api/accounting/ledger?code=${code}&from=${from}&to=${to}`),
+    csvUrl: (kind: "trial-balance" | "income-statement" | "balance-sheet" | "ledger" | "journal", from: string | null, to: string, account?: string, month?: string) =>
+      `/api/accounting/${kind}.csv?to=${to}${from ? `&from=${from}` : ""}${account ? `&account=${account}` : ""}${month ? `&month=${month}` : ""}`,
     fileUrl: (id: string) => `/api/accounting/files/${id}`,
     payroll: {
       salaries: () => get<Salary[]>("/api/accounting/payroll/salaries"),

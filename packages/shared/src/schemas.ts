@@ -72,6 +72,8 @@ export const catalogItemSchema = z.object({
   duration_min: z.number().int().min(15, "DURATION_RANGE").max(1440, "DURATION_RANGE").optional(),
   /** A2: service reminder interval in months (e.g. AC cleaning every 3); null = no reminder */
   reminder_months: z.number().int().min(1).max(60).nullable().optional(),
+  /** D-92: the income account this item posts to (accounting); null = the default by kind (service / goods) */
+  income_account_id: z.string().uuid().nullable().optional(),
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 

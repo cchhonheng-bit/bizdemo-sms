@@ -272,6 +272,8 @@
     "duration_hint": "Default time a technician needs — the booking end time starts from it (can be changed per booking).",
     "remind": "Service reminder every (months)",
     "remind_hint": "Empty = no reminder · e.g. AC cleaning 3 months",
+    "income_account": "Income account (accounting)",
+    "income_account_default": "Default by type",
     "err_remind": "Months 1 – 60",
     "unit_ph": "unit"
   },
@@ -1047,10 +1049,42 @@
     "receipt_added": "Photo attached ✓",
     "receipt_open": "Open the receipt photo",
     "rep": {
-      "pl": "Profit & loss",
+      "pl": "Income statement",
       "bs": "Balance sheet",
-      "tb": "Trial balance"
+      "tb": "Trial balance",
+      "gl": "General ledger"
     },
+    "month": "Month",
+    "col": {
+      "period": "Current month",
+      "ytd_prev": "YTD to previous month",
+      "ytd": "YTD to current month",
+      "previous": "Previous month",
+      "variance": "Variance"
+    },
+    "stmt": {
+      "BS": "Balance sheet",
+      "PL": "Income statement"
+    },
+    "zone": {
+      "inside": "Inside the borey",
+      "outside": "Outside the borey",
+      "none": "No zone"
+    },
+    "gl_code": "Account code",
+    "gl_hint": "Type the code (e.g. 1010) to see every transaction with the running balance",
+    "fy": "Fiscal year starts",
+    "fy_fixed": "Fixed — a year has been closed",
+    "close_title": "Year-end closing",
+    "close_hint": "Income and expense accounts are reset and the net result moves to retained earnings; balance sheet accounts carry forward. The books lock through that day.",
+    "close_next": "Next year to close ends {{date}}",
+    "close_btn": "Close the year ending {{date}}",
+    "close_wait": "The year has not ended yet",
+    "closed_through": "Closed through",
+    "close_done": "Year closed — net result {{net}}",
+    "retained": "Retained earnings (before the books)",
+    "stock_value": "Stock value (only when the inventory module does not hold it)",
+    "add_bank": "Add another bank / asset account",
     "as_of": "As of",
     "income": "Income",
     "expense": "Expenses",
@@ -1200,6 +1234,13 @@
     "opening_done": "The books have started · opening equity {{equity}} · open invoices {{n}}",
     "opening_confirm": "Start the books on {{date}}? This is done once — later mistakes are corrected with a manual entry.",
     "err": {
+      "ALREADY_CLOSED": "This year is already closed",
+      "YEAR_NOT_ENDED": "The year has not ended yet",
+      "BAD_YEAR_END": "Not the next year end to close",
+      "CLOSED_YEARS_EXIST": "Cannot change — a year has been closed",
+      "NOT_INCOME_ACCOUNT": "Choose an income account",
+      "NOT_ASSET_ACCOUNT": "Choose an asset account",
+      "BAD_REQUEST": "Invalid request",
       "OPENING_REQUIRED": "Enter the opening balances first",
       "OPENING_DONE": "The opening balances are already done",
       "NOT_BALANCED": "Debit and credit are not equal",

@@ -365,3 +365,105 @@ describe("C5 reports + isolation", () => {
     config.shop.features = "accounting,inventory";
   });
 });
+
+describe("C7 client update (D-92): statement flag, GL by code, income statement by zone, item income account, TB by month, BS compare, fiscal year, closing", () => {
+  const accB = (path: string, body?: unknown) => ceoB.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
+  it("every account carries its statement (BS / PL); the general ledger is found by account code; income statement = the former P&L, income split by zone", async () => {
+    const a = (await acc(cfo, "/accounts")).json as any[];
+    expect(a.find((x) => x.code === "1010").statement).toBe("BS"); expect(a.find((x) => x.code === "3100").statement).toBe("BS");
+    expect(a.find((x) => x.code === "4010").statement).toBe("PL"); expect(a.find((x) => x.code === "6030").statement).toBe("PL");
+    const byId = (await acc(cfo, `/ledger?account=${(await code("1010")).id}&from=${start}&to=${today}`)).json;
+    const byCode = (await acc(cfo, `/ledger?code=1010&from=${start}&to=${today}`)).json;
+    expect(byCode.closing).toBe(byId.closing); expect(byCode.rows.length).toBe(byId.rows.length); expect(byCode.account.code).toBe("1010");
+    expect((await acc(cfo, `/ledger?code=9999&from=${start}&to=${today}`)).status).toBe(404);
+    expect((await acc(cfo, `/ledger?from=${start}&to=${today}`)).status).toBe(400);
+    const is = (await acc(cfo, `/income-statement?from=${start}&to=${today}`)).json, pl = (await acc(cfo, `/pl?from=${start}&to=${today}`)).json;
+    expect(is.net).toBe(pl.net); expect(is.income_total).toBe(pl.income_total);
+    expect(is.zones.inside + is.zones.outside + is.zones.none).toBe(is.income_total);
+    expect(is.zones.inside).toBeGreaterThan(0); // the test customer lives inside the borey
+    const csv = await app.inject({ method: "GET", url: `/api/accounting/income-statement.csv?from=${start}&to=${today}`, headers: { cookie: cfo.cookie! } });
+    expect(csv.statusCode).toBe(200); expect(csv.body).toContain("INSIDE");
+  });
+
+  it("a catalog item posts to its own income account (set by the CFO), the others by kind; a non-income account is refused", async () => {
+    const r = await acc(cfo, "/accounts", { code: "4030", name_km: "ចំណូលជួសជុល", name_en: "Repair revenue", type: "income" });
+    expect(r.status).toBe(200);
+    const svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុលម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 5000, income_account_id: r.json.id })).json.id;
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "service", category: "mep", unit: "unit", sell_price: 1, income_account_id: (await code("1010")).id })).json.error).toBe("NOT_INCOME_ACCOUNT");
+    const [rev4030, rev4010] = await Promise.all([bal("4030"), bal("4010")]);
+    const inv = await invoice([{ kind: "service", qty: 1, unit_price: 5000, catalog_item_id: svc }, { kind: "service", qty: 1, unit_price: 300 }]);
+    await admin.req("POST", `/api/invoices/${inv}/issue`);
+    expect(await bal("4030")).toBe(rev4030 - 5000); expect(await bal("4010")).toBe(rev4010 - 300);
+    expect(((await ceo.req("GET", "/api/catalog")).json as any[]).find((i) => i.id === svc).income_account_id).toBe(r.json.id);
+    await tbOk();
+  });
+
+  it("trial balance by month: the month's movement · YTD to the previous month · YTD to this month — each pair balances; the fiscal year start is set by the CFO (until a year is closed)", async () => {
+    const tb = (await acc(cfo, `/trial-balance?month=${today.slice(0, 7)}`)).json;
+    expect(tb.balanced).toBe(true);
+    for (const k of ["period", "ytd_prev", "ytd"]) expect(tb.totals[k].debit).toBe(tb.totals[k].credit);
+    const cash = tb.rows.find((r: any) => r.code === "1010");
+    expect(cash.statement).toBe("BS"); expect(cash.ytd.debit - cash.ytd.credit).toBe(await bal("1010"));
+    expect(tb.rows.find((r: any) => r.code === "4010").statement).toBe("PL");
+    expect(tb.fiscal_year_start.endsWith("-01-01")).toBe(true);
+    expect((await acc(cfo, "/trial-balance")).json.error).toBe("BAD_RANGE");
+    const csv = await app.inject({ method: "GET", url: `/api/accounting/trial-balance.csv?to=${today}&month=${today.slice(0, 7)}`, headers: { cookie: cfo.cookie! } });
+    expect(csv.statusCode).toBe(200); expect(csv.body).toContain("ytd_prev_debit");
+    expect((await acc(cfo, "/fiscal-year", { start_month: 7 })).json).toMatchObject({ start_month: 7 });
+    expect((await acc(cfo, "/lock")).json).toMatchObject({ fiscal_year_start_month: 7, books_closed_through: null });
+    expect((await acc(cfo, `/trial-balance?month=${today.slice(0, 7)}`)).json.fiscal_year_start.endsWith("-07-01")).toBe(true);
+    await acc(cfo, "/fiscal-year", { start_month: 1 });
+    expect((await acc(admin, "/fiscal-year", { start_month: 1 })).status).toBe(403);
+  });
+
+  it("balance sheet shows this date, the previous month end and the variance per account", async () => {
+    const bs = (await acc(cfo, `/balance-sheet?to=${today}`)).json;
+    expect(bs.previous_to < today.slice(0, 8) + "01").toBe(true);
+    const cash = bs.assets.find((r: any) => r.code === "1010");
+    expect(cash.variance).toBe(cash.amount - cash.previous);
+    expect(bs.previous.assets_total).toBe(bs.previous.liabilities_total + bs.previous.equity_total + bs.previous.current_earnings);
+    expect(bs.assets_total).toBe(bs.liabilities_total + bs.equity_total + bs.current_earnings);
+  });
+
+  it("year-end closing (company B): opening with retained earnings, another bank and a stock value → 2025 entries → close 2025: P&L reset, profit into retained earnings, BS carries, locked; wrong / repeated / unfinished years refused", async () => {
+    const bank = (await accB("/accounts", { code: "1022", name_km: "ធនាគារ Wing", name_en: "Bank – Wing", type: "asset" })).json.id;
+    expect(bank).toBeTruthy();
+    expect((await accB("/opening", { date: "2025-01-15", banks: { "6030": 100 } })).json.error).toBe("NOT_ASSET_ACCOUNT");
+    const op = await accB("/opening", { date: "2025-01-15", cash_usd: 100000, banks: { aba: 50000, "1022": 30000 }, stock: 20000, retained_earnings: 70000 });
+    expect(op.status).toBe(200); expect(op.json.retained_earnings).toBe(70000);
+    const b = async (c: string) => ((await accB("/trial-balance?to=2026-12-31")).json.rows as any[]).find((r) => r.code === c)?.balance ?? 0;
+    expect(await b("1022")).toBe(30000); expect(await b("1200")).toBe(20000); expect(await b("3100")).toBe(-70000); expect(await b("3900")).toBe(-(100000 + 50000 + 30000 + 20000 - 70000));
+    const cash = (await code("1010", ceoB)).id, rev = (await code("4010", ceoB)).id, fuel = (await code("6030", ceoB)).id;
+    expect((await accB("/journal", { date: "2025-06-30", memo: "ចំណូល", lines: [{ account_id: cash, debit: 100000 }, { account_id: rev, credit: 100000 }] })).status).toBe(200);
+    expect((await accB("/journal", { date: "2025-07-31", memo: "សាំង", lines: [{ account_id: fuel, debit: 30000 }, { account_id: cash, credit: 30000 }] })).status).toBe(200);
+    expect((await accB("/close-year", { year_end: "2026-12-31" })).json.error).toBe("BAD_YEAR_END"); // 2025 comes first
+    expect((await accB("/close-year", { year_end: "2025-06-30" })).json.error).toBe("BAD_YEAR_END");
+    expect((await accB("/lock")).json).toMatchObject({ next_year_end: "2025-12-31", can_close: true, books_closed_through: null });
+    const close = await accB("/close-year", { year_end: "2025-12-31" });
+    expect(close.status).toBe(200); expect(close.json).toMatchObject({ year_end: "2025-12-31", net_profit: 70000 }); expect(close.json.entry.number).toMatch(/^JE-2512-/);
+    // the closing is not activity: the 2025 income statement is unchanged and December's trial balance still shows the year
+    const is25 = (await accB("/income-statement?from=2025-01-01&to=2025-12-31")).json;
+    expect(is25).toMatchObject({ income_total: 100000, expense_total: 30000, net: 70000 });
+    const tbDec = (await accB("/trial-balance?month=2025-12")).json;
+    expect(tbDec.balanced).toBe(true); expect(tbDec.rows.find((r: any) => r.code === "4010").ytd.credit).toBe(100000);
+    // 2026 starts clean: income and expense accounts carry nothing, retained earnings holds opening + profit, the balance sheet balances
+    const tbJan = (await accB("/trial-balance?month=2026-01")).json;
+    expect(tbJan.balanced).toBe(true); expect(tbJan.rows.find((r: any) => r.code === "4010")).toBeUndefined();
+    expect(tbJan.rows.find((r: any) => r.code === "3100").ytd.credit).toBe(70000 + 70000);
+    const bs = (await accB("/balance-sheet?to=2026-01-31")).json;
+    expect(bs.current_earnings).toBe(0); expect(bs.equity.find((r: any) => r.code === "3100").amount).toBe(140000);
+    expect(bs.assets_total).toBe(bs.liabilities_total + bs.equity_total + bs.current_earnings);
+    expect(bs.assets.find((r: any) => r.code === "1010").variance).toBe(0); // nothing moved in January
+    const info = (await accB("/lock")).json;
+    expect(info).toMatchObject({ books_closed_through: "2025-12-31", next_year_end: "2026-12-31", can_close: false });
+    expect(info.lock_date >= "2025-12-31").toBe(true);
+    expect((await accB("/journal", { date: "2025-11-30", memo: "យឺត", lines: [{ account_id: cash, debit: 1 }, { account_id: rev, credit: 1 }] })).json.error).toBe("PERIOD_LOCKED");
+    expect((await accB("/close-year", { year_end: "2025-12-31" })).json.error).toBe("ALREADY_CLOSED");
+    expect((await accB("/close-year", { year_end: "2026-12-31" })).json.error).toBe("YEAR_NOT_ENDED");
+    expect((await accB("/fiscal-year", { start_month: 4 })).json.error).toBe("CLOSED_YEARS_EXIST");
+    const closing = ((await accB("/journal?from=2025-12-31&to=2025-12-31")).json as any[]).find((e) => e.source === "closing");
+    expect(closing).toBeTruthy();
+    expect((await accB(`/journal/${closing.id}/reverse`, { reason: "មិនបានទេ" })).json.error).toBe("AUTO_ENTRY"); // never reversed by hand
+    expect((await sql`select 1 from audit_log where action = 'acct.close_year' and company_id = ${s.b}`).length).toBe(1);
+  });
+});

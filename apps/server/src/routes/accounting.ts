@@ -4,13 +4,15 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import {
-  balanceSheet, createJournal, deleteAccount, exportAcct, getEntry, ledger, listAccounts, listJournal, lockInfo, otherTransaction, profitLoss, readReceipt,
-  reverseJournal, saveAccount, saveOpening, setLock, trialBalance, METHODS, type AcctExport,
+  balanceSheet, closeYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
+  reverseJournal, saveAccount, saveOpening, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport,
 } from "../services/accounting.js";
 import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, setSalary, voidRun } from "../services/payroll.js";
 
 const id = z.string().uuid();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const ym = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
+const accountCode = z.string().regex(/^[1-9][0-9]{3,5}$/);
 const cents = z.number().int().min(0).max(10_000_000_000);
 const positive = z.number().int().min(1).max(10_000_000_000);
 const image = z.string().max(3_000_000).nullable().optional(); // base64 receipt photo (≤ 2 MB)
@@ -52,7 +54,8 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/lock", view, async (req) => lockInfo(req.user!));
   app.post("/lock", close, async (req) => setLock(req.user!, req.ip, z.object({ lock_date: day, reason: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
   app.post("/opening", close, async (req) => saveOpening(req.user!, req.ip, z.object({ date: day, cash_usd: cents.optional(), cash_khr: z.number().int().min(0).max(1_000_000_000_000).optional(),
-    banks: z.object({ aba: cents.optional(), acleda: cents.optional() }).strict().optional(),
+    banks: z.record(z.string().regex(/^(aba|acleda|[1-9][0-9]{3,5})$/), cents).optional(), stock: cents.optional(), // D-92: each bank by code, stock value, retained earnings
+    retained_earnings: z.number().int().min(-10_000_000_000).max(10_000_000_000).optional(),
     receivables: z.array(z.object({ customer_id: id, amount: positive, note: z.string().max(200).nullable().optional() }).strict()).max(500).optional(),
     payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive }).strict()).max(200).optional() }).strict().parse(req.body)));
 
@@ -65,13 +68,28 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
 
   // C5 reports (+ Excel)
   const period = z.object({ from: day, to: day });
-  app.get("/trial-balance", view, async (req) => { const q = z.object({ from: day.optional(), to: day }).parse(req.query ?? {}); return trialBalance(req.user!, q.to, q.from); });
-  app.get("/pl", view, async (req) => { const q = period.parse(req.query ?? {}); return profitLoss(req.user!, q.from, q.to); });
+  // trial balance: as of a date (?to, optional ?from) or by month (?month=YYYY-MM → this month · YTD to the previous month · YTD to this month, D-92)
+  app.get("/trial-balance", view, async (req) => {
+    const q = z.object({ from: day.optional(), to: day.optional(), month: ym.optional() }).parse(req.query ?? {});
+    if (q.month) return trialBalanceMonth(req.user!, q.month);
+    if (!q.to) throw new AppError("BAD_RANGE", 400);
+    return trialBalance(req.user!, q.to, q.from);
+  });
+  const isRoute = async (req: FastifyRequest) => { const q = period.parse(req.query ?? {}); return incomeStatement(req.user!, q.from, q.to); };
+  app.get("/income-statement", view, isRoute);
+  app.get("/pl", view, isRoute); // former name
   app.get("/balance-sheet", view, async (req) => balanceSheet(req.user!, z.object({ to: day }).parse(req.query ?? {}).to));
-  app.get("/ledger", view, async (req) => { const q = period.extend({ account: id }).parse(req.query ?? {}); return ledger(req.user!, q.account, q.from, q.to); });
+  app.get("/ledger", view, async (req) => {
+    const q = period.extend({ account: id.optional(), code: accountCode.optional() }).parse(req.query ?? {});
+    if (!q.account && !q.code) throw new AppError("BAD_REQUEST", 400);
+    return ledger(req.user!, { id: q.account, code: q.code }, q.from, q.to);
+  });
+  // D-92: fiscal year start month · year-end closing (accounting.close)
+  app.post("/fiscal-year", close, async (req) => setFiscalYear(req.user!, req.ip, z.object({ start_month: z.number().int().min(1).max(12) }).strict().parse(req.body)));
+  app.post("/close-year", close, async (req) => closeYear(req.user!, req.ip, z.object({ year_end: day }).strict().parse(req.body)));
   app.get("/:kind.csv", view, async (req, reply) => {
-    const { kind } = z.object({ kind: z.enum(["trial-balance", "pl", "balance-sheet", "ledger", "journal"]) }).parse(req.params);
-    const q = z.object({ from: day.optional(), to: day, account: id.optional() }).parse(req.query ?? {});
+    const { kind } = z.object({ kind: z.enum(["trial-balance", "pl", "income-statement", "balance-sheet", "ledger", "journal"]) }).parse(req.params);
+    const q = z.object({ from: day.optional(), to: day, account: id.optional(), code: accountCode.optional(), month: ym.optional() }).parse(req.query ?? {});
     const body = await exportAcct(req.user!, kind as AcctExport, q);
     return reply.type("text/csv; charset=utf-8").header("Content-Disposition", `attachment; filename="${kind}_${q.from ? q.from + "_" : ""}${q.to}.csv"`).header("Cache-Control", "no-store").send(body);
   });

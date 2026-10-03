@@ -35,7 +35,7 @@ export default function Accounts() {
                   <li key={a.id} className="flex items-center gap-2">
                     <button className="flex-1 min-w-0 text-left py-2 min-h-[48px]" onClick={() => setLedgerOf(a)}>
                       <span className={`block break-words text-sm ${a.is_active ? "" : "text-muted line-through"}`}>{name(a)}</span>
-                      {a.role && <Badge tone="navy">{t("acct.system")}</Badge>}
+                      <Badge tone={a.statement === "PL" ? "green" : "purple"}>{t(`acct.stmt.${a.statement}`)}</Badge>{a.role && <> <Badge tone="navy">{t("acct.system")}</Badge></>}
                     </button>
                     <span className="tabular text-sm whitespace-nowrap">{signedUsd(a.balance)}</span>
                     {can("accounting.post") && <button className="min-h-[44px] min-w-[44px] grid place-items-center text-muted" aria-label={t("app.edit")} onClick={() => setEdit(a)}><Pencil size={16} /></button>}
