@@ -181,6 +181,13 @@ const footer = (t: T, lang: SiteLang, path: string, area = "") => `<footer class
 
 /** the location card: «use my current location» (Telegram's location inside the Mini App, else the browser), the result with a map
  *  link, the Google Maps link to paste when that fails, an optional address */
+const locResult = (t: T) => `<p class="locok" id="loc-ok" hidden>${svg(I.check, 14, 2.6)}<span>${t.gps_ok}</span><small id="loc-acc"></small><a id="loc-map" href="#" target="_blank" rel="noopener">${t.map_view}</a></p>
+<button type="button" class="lk" id="paste-open">${t.paste_open}</button>
+<div class="lr" id="paste" hidden><input class="in sm" id="paste-url" inputmode="url" maxlength="2048" placeholder="${t.paste_ph}"><button type="button" class="sb p" id="paste-go">${t.paste_go}</button></div>`;
+const locHidden = '<input type="hidden" id="lat"><input type="hidden" id="lng"><input type="hidden" id="acc">';
+/** compact: one row «address [📍]» (the quote screen) */
+const locationRow = (t: T) => `<div class="lr" id="loc"><div class="f"><label class="lb s" for="addr">${t.loc}</label><input class="in sm" id="addr" maxlength="200" autocomplete="street-address" placeholder="${t.addr_ph}"></div><button type="button" class="gi" id="gps" aria-label="${t.gps}" title="${t.gps}">${svg(I.pin, 16)}</button></div>
+${locResult(t)}${locHidden}`;
 const locationCard = (t: T, small = false) => `<section class="card s g8" id="loc"><div class="lb${small ? " s" : ""}">${t.loc}</div>
 <button type="button" class="gps" id="gps">${svg(I.pin, 14)}<span>${t.gps}</span></button>
 <p class="locok" id="loc-ok" hidden>${svg(I.check, 14, 2.6)}<span>${t.gps_ok}</span><small id="loc-acc"></small><a id="loc-map" href="#" target="_blank" rel="noopener">${t.map_view}</a></p>
@@ -190,7 +197,7 @@ const locationCard = (t: T, small = false) => `<section class="card s g8" id="lo
 <input type="hidden" id="lat"><input type="hidden" id="lng"><input type="hidden" id="acc"></section>`;
 
 /** category tiles + item lines (item dropdown, quantity 1–20, «+ add a service»); the page's JSON #items holds the catalog */
-function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: boolean; services: SiteService[] }) {
+function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: boolean; services: SiteService[]; mini?: boolean }) {
   const cats = [...WEB_CATEGORIES, "other" as const].filter((c) => o.services.some((s) => catOf(s) === c));
   const first = o.lines[0] ? o.services.find((s) => s.id === o.lines[0]!.id) : undefined;
   const on: Cat | undefined = first ? catOf(first) : cats[0];
@@ -199,7 +206,7 @@ function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: bo
     return priced.length ? `${t.from} ${fromPriceText(Math.min(...priced.map((s) => s.from_price!)))}` : list.every((s) => s.quote_only) ? t.quote : t.n_items(list.length);
   };
   const tile = (c: Cat) => `<button type="button" class="tile cat" data-cat="${c}" aria-pressed="${c === on}"><span class="ic">${svg(CAT_ICON[c])}</span><span class="tx"><span class="tn">${esc(catLabel(c, lang))}</span><span class="tp">${esc(sub(c))}</span></span></button>`;
-  const option = (s: SiteService, sel: boolean) => `<option value="${s.id}"${sel ? " selected" : ""}>${esc(svcName(s, lang))}${s.quote_only ? ` · ${t.quote}` : s.from_price != null ? ` · ${t.from} ${fromPriceText(s.from_price)}` : ""}</option>`;
+  const option = (s: SiteService, sel: boolean) => `<option value="${s.id}"${sel ? " selected" : ""}>${esc(svcName(s, lang))}${s.quote_only ? (svcName(s, lang) === t.quote ? "" : ` · ${t.quote}`) : s.from_price != null ? ` · ${t.from} ${fromPriceText(s.from_price)}` : ""}</option>`;
   const select = (selected: string | null) => `<select class="in sel" aria-label="${t.item}">${o.optional ? `<option value="">${t.pick_none}</option>` : ""}${cats.map((c) => `<optgroup label="${esc(catLabel(c, lang))}">${o.services.filter((s) => catOf(s) === c).map((s) => option(s, s.id === selected)).join("")}</optgroup>`).join("")}</select>`;
   const row = (l: WebLineRef | null, i: number) => `<div class="line" data-line><div class="lsel">${select(l?.id ?? null)}</div>
 <div class="qty" role="group" aria-label="${t.qty}"><button type="button" class="qb" data-q="-1" aria-label="${t.less}">${svg(I.minus, 16, 2.4)}</button><output data-qty>${l?.qty ?? 1}</output><button type="button" class="qb" data-q="1" aria-label="${t.more_q}">${svg(I.plus, 16, 2.4)}</button></div>
@@ -208,7 +215,7 @@ function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: bo
   const inFirst = o.services.filter((s) => catOf(s) === cats[0]);
   const def = inFirst.find((s) => !s.quote_only && s.from_price != null) ?? inFirst.find((s) => !s.quote_only) ?? inFirst[0];
   const lines = o.lines.length ? o.lines : o.optional || first || !def ? [] : [{ id: def.id, qty: 1 }];
-  return { cats, html: `${cats.length > 1 ? `<div class="tiles cats" id="cats" aria-label="${t.cats}">${cats.map(tile).join("")}</div>` : ""}
+  return { cats, html: `${cats.length > 1 ? `<div class="tiles cats${o.mini ? " mini" : ""}" id="cats" aria-label="${t.cats}">${cats.map(tile).join("")}</div>` : ""}
 <div id="lines" data-max="${WEB_MAX_LINES}" data-maxq="${WEB_MAX_QTY}" data-optional="${o.optional}">${(lines.length ? lines : [null]).map((l, i) => row(l, i)).join("")}</div>
 <button type="button" class="addl" id="addl">${svg(I.plus, 14, 2.4)}${t.add_line}</button>`, lines, items: o.services.map((s) => ({ id: s.id, c: catOf(s), n: svcName(s, lang), p: s.from_price, q: s.quote_only, m: s.duration_min })) };
 }
@@ -305,16 +312,16 @@ ${tgBlock(t, b.linked, b.link)}
 // ---------- 5 · quote request ----------
 export function quotePage(d: SiteView, lang: SiteLang, o: { lines: Lines | null; token: string; path: string; prefill: Prefill | null }): string {
   const t = TXT[lang], n = names(d, lang);
-  const lb = linesBlock(t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services });
+  const lb = linesBlock(t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services, mini: true });
   const body = `<main class="scr bar-pad">
 ${backHeader(t, "/", t.quote, t.q_sub)}
 <section class="card s g8" id="pick">${d.services.length ? lb.html : ""}
-<div class="f"><label class="lb s" for="desc">${t.q_desc} <span class="opt">${o.lines ? t.opt : ""}</span></label><textarea class="ta" id="desc" rows="3" maxlength="600" placeholder="${t.q_desc_ph}"></textarea></div>
+<div class="f"><label class="lb s" for="desc">${t.q_desc} <span class="opt">${o.lines ? t.opt : ""}</span></label><textarea class="ta" id="desc" rows="2" maxlength="600" placeholder="${t.q_desc_ph}"></textarea></div>
 <div class="lb s">${t.q_photos} <span class="opt">${t.q_max}</span></div>
 <div class="photos" id="photos" data-remove="${t.remove_photo}"><button type="button" class="pa" id="add" aria-label="${t.q_add_aria}">${svg(I.photo)}${t.q_add}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden></section>
 <section class="card s g8"><div class="g2"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in sm" id="name" maxlength="80" autocomplete="name" value="${esc(o.prefill?.name ?? "")}"></div>
-<div class="f"><label class="lb s" for="phone">${t.phone}</label><input class="in sm" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="+855" value="${esc(o.prefill?.phone ?? "")}"></div></div>${honeypot}</section>
-${locationCard(t, true)}
+<div class="f"><label class="lb s" for="phone">${t.phone}</label><input class="in sm" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="+855" value="${esc(o.prefill?.phone ?? "")}"></div></div>
+${locationRow(t)}${honeypot}</section>
 ${consent(d, t, lang, t.q_send)}
 ${errBox()}
 <div class="bar"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.q_send}</span></button></div></main>`;

@@ -127,7 +127,7 @@
       $("#lat").value = Number(lat).toFixed(6); $("#lng").value = Number(lng).toFixed(6); $("#acc").value = acc == null ? "" : Math.round(acc);
       $("#loc-acc").textContent = acc == null ? "" : " (±" + Math.round(acc) + " m)";
       $("#loc-map").href = "https://www.google.com/maps?q=" + Number(lat).toFixed(6) + "," + Number(lng).toFixed(6);
-      okBox.hidden = false; btn.classList.add("ok"); paste.hidden = true; hideErr(err);
+      okBox.hidden = false; btn.classList.add("got"); paste.hidden = true; hideErr(err);
     }
     function fail() { showErr(err, "GPS_FAILED"); paste.hidden = false; }
     function browser() {
@@ -376,7 +376,10 @@
   })();
 
   // ---- privacy / terms: back = the previous page, else "/"
-  if (page === "legal") { var lb = $("[data-legal-back]"); if (lb) lb.addEventListener("click", function (e) { if (history.length > 1) { e.preventDefault(); history.back(); } }); }
+  if (page === "legal") { var lb = $("[data-legal-back]"); if (lb) lb.addEventListener("click", function (e) {
+    var ref = ""; try { ref = document.referrer ? new URL(document.referrer).origin : ""; } catch (x) { ref = ""; }
+    if (ref === location.origin && history.length > 1) { e.preventDefault(); history.back(); } // came from this site: back; else the link goes to "/"
+  }); }
 
   // ---- 6 · customer home: notifications, password, sign out, cancel with a reason, ask for another time
   if (page === "my") (function () {
