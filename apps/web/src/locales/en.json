@@ -32,6 +32,7 @@
     "dashboard": "Dashboard",
     "bookings": "Bookings",
     "customers": "Customers",
+    "requests": "Customer requests",
     "catalog": "Products & Services",
     "users": "Users",
     "settings": "Settings",
@@ -75,6 +76,53 @@
     "too_common": "Password is too common",
     "changed": "Password changed",
     "wrong_current": "Current password is wrong"
+  },
+  "requests": {
+    "title": "Customer requests",
+    "hint": "Requests customers sent from the website or Telegram — call back, create the job, then press «Done».",
+    "empty": "No new requests",
+    "source": {
+      "website": "Website",
+      "telegram": "Telegram"
+    },
+    "known": "Existing customer",
+    "call": "Call",
+    "new_booking": "Create job",
+    "done": "Done",
+    "done_ok": "Marked as done",
+    "handled": "Done by {{name}}",
+    "show_done": "Show handled requests (30 days)"
+  },
+  "website": {
+    "title": "Shop website",
+    "hint": "This appears on the shop's public website. Empty = that section is hidden. Photos here are visible to everyone.",
+    "view": "View website",
+    "published": "Let Google find it (switch on when the content is ready)",
+    "name_km": "Company name (Khmer)",
+    "name_en": "Company name (English)",
+    "phone": "Phone numbers (separate with /)",
+    "address": "Address",
+    "tagline_km": "Short line at the top (Khmer)",
+    "tagline_en": "Short line at the top (English)",
+    "about_km": "About us (Khmer)",
+    "about_en": "About us (English)",
+    "highlights_km": "Strong points (Khmer · one per line)",
+    "highlights_en": "Strong points (English · one per line)",
+    "area_km": "Service area (Khmer)",
+    "area_en": "Service area (English)",
+    "hours_km": "Working hours (Khmer)",
+    "hours_en": "Working hours (English)",
+    "facebook": "Facebook page link",
+    "hero": "Large photo at the top",
+    "gallery": "Photos of our work (up to 12)",
+    "add_photo": "Add photo",
+    "remove": "Remove photo",
+    "err": {
+      "TOO_MANY_PHOTOS": "Too many photos (max 12)",
+      "BAD_URL": "Invalid link",
+      "BAD_IMAGE": "Invalid image",
+      "IMAGE_TOO_LARGE": "Image too large"
+    }
   },
   "tg": {
     "opening": "Opening from Telegram…",

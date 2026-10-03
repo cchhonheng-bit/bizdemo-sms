@@ -27,6 +27,7 @@ export const config = {
   databaseUrl: env("DATABASE_URL", "postgres://postgres:postgres@127.0.0.1:5432/oneteam"),
   /** cookie signing key, ≥ 32 chars */
   sessionSecret: env("SESSION_SECRET", "dev-only-session-secret-change-me-please-32"),
+  siteCompany: env("SITE_COMPANY", ""), // public website (D-95): slug of the company shown; empty = the first active company of this box
   sessionDays: Number(env("SESSION_DAYS", "30")),
   /** public https URL of the app — Telegram webhook + secure cookies */
   publicUrl: env("PUBLIC_URL", "http://localhost:3000").replace(/\/$/, ""),

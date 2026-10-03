@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -44,6 +44,7 @@ export default function Shell() {
     { to: "/quotes", label: t("nav.quotes"), icon: FileText, perm: "quote.manage" },
     { to: "/invoices", label: t("nav.invoices"), icon: Receipt, hidden: !INVOICE_VIEW.some((p) => can(p)) },
     { to: "/customers", label: t("nav.customers"), icon: Building2, perm: "customer.manage" },
+    { to: "/requests", label: t("nav.requests"), icon: Inbox, hidden: !(can("booking.create") || can("customer.manage")) },
     { to: "/reminders", label: t("nav.reminders"), icon: BellRing, perm: "customer.manage", hidden: !remindersOn },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
     { to: "/inventory", label: t("nav.inventory"), icon: Boxes, perm: "inventory.view", hidden: !inventoryOn },

@@ -35,6 +35,7 @@ import { mapsRoutes } from "./routes/maps.js";
 import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
+import { requestsRoutes, siteHome, siteRoutes, websiteRoutes } from "./routes/site.js";
 
 export const SESSION_COOKIE = "ots";
 
@@ -144,12 +145,22 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(mapsRoutes, { prefix: "/api/maps" });
   app.register(subscribeRoutes, { prefix: "/api/subscribe" });
   app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
+  app.register(websiteRoutes, { prefix: "/api/website" });
+  app.register(requestsRoutes, { prefix: "/api/requests" });
+  // public shop website (flag "website", D-95): "/" shows it to visitors without a session — staff (session cookie) keep the app
+  app.register(siteRoutes);
+  app.get("/", async (req, reply) => {
+    if (features().includes("website") && !req.cookies[SESSION_COOKIE]) return siteHome(req, reply, "/");
+    if (!hasWeb) return reply.status(404).send({ error: "NOT_FOUND" });
+    reply.header("Cache-Control", "no-cache");
+    return reply.sendFile("index.html");
+  });
   // hub → shop (compose network only; caddy blocks /internal/* from the internet)
   app.register(internalRoutes, { prefix: "/internal" });
 
   // ---- web app (static; SPA fallback in the not-found handler) ------------------
   if (hasWeb) app.register(fstatic, {
-    root: config.webDist, prefix: "/", wildcard: false, index: ["index.html"], maxAge: "1h",
+    root: config.webDist, prefix: "/", wildcard: false, index: false, maxAge: "1h", // "/" is routed above (website or app)
     setHeaders: (res, path) => { if (!/[\\/]assets[\\/]/.test(path)) res.setHeader("Cache-Control", "no-cache"); }, // index.html / sw.js / manifest always revalidate
   });
   return app;

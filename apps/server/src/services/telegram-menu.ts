@@ -18,10 +18,11 @@ import { uninvoiced } from "./invoices.js";
 import { items as stockItems } from "./inventory.js";
 import { recordCheckpoint, reviewReport, STEPS, type Step } from "./jobs.js";
 import { permissionsFor } from "./permissions.js";
+import { createRequest } from "./requests.js";
 import { listReminders } from "./reminders.js";
 import { summaryData, summaryText, verification } from "./reports.js";
 import { cashCloses } from "./reports-extra.js";
-import { fmtLocal, hubForgetChat, notifyUser } from "./telegram.js";
+import { fmtLocal, hubForgetChat } from "./telegram.js";
 
 export type MenuButton = { text: string; view?: string; id?: string; arg?: string; url?: string; web_app?: string };
 export type KbButton = { text: string; web_app?: string };
@@ -294,9 +295,9 @@ async function findCustomer(u: Staff, q: string): Promise<Menu> {
 }
 async function requestsList(u: Staff): Promise<Menu> {
   const L = T(u);
-  const rows = await sql<{ id: string; text: string; name: string | null; phone: string | null; cname: string | null; created_at: Date }[]>`select r.id, r.text, r.name, r.phone, c.name as cname, r.created_at
+  const rows = await sql<{ id: string; source: string; text: string; name: string | null; phone: string | null; cname: string | null; created_at: Date }[]>`select r.id, r.source, r.text, r.name, r.phone, c.name as cname, r.created_at
     from service_requests r left join customers c on c.id = r.customer_id where r.company_id = ${u.company_id} and r.status = 'new' order by r.created_at desc limit 10`;
-  const lines = rows.map((r, i) => `${i + 1}. ${r.cname ?? r.name ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
+  const lines = rows.map((r, i) => `${i + 1}. ${r.source === "website" ? "🌐" : "✈️"} ${r.cname ?? r.name ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
   const done: MenuButton[][] = rows2(rows.map((r, i): MenuButton => ({ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: "done" })));
   return { text: rows.length ? `${L("🌐 សំណើអតិថិជន", "🌐 Customer requests")} (${rows.length})\n${lines.join("\n")}` : L("🌐 គ្មានសំណើថ្មី ✅", "🌐 No new requests ✅"), buttons: [...done, backHome(u)] };
 }
@@ -426,11 +427,7 @@ async function customerPromos(): Promise<Menu> {
   return { text: list.length ? `🎁 ប្រូម៉ូសិន\n${list.map((b) => `• ${b.text}`).join("\n")}` : "🎁 មិនមានប្រូម៉ូសិនពេលនេះ" };
 }
 async function saveRequest(c: Customer, subscriberId: number, text: string): Promise<Menu> {
-  const id = (await sql<{ id: string }[]>`insert into service_requests (company_id, source, customer_id, subscriber_id, name, text) values (${c.company_id}, 'telegram', ${c.id}, ${subscriberId}, ${c.name}, ${text.slice(0, 1000)}) returning id`)[0]!.id;
-  await audit(sql, { companyId: c.company_id, userId: null, action: "service.request", source: "telegram", table: "service_requests", rowId: id, new: { customer_id: c.id } });
-  for (const u of await sql<{ id: string }[]>`select distinct u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role and rp.permission_key = 'booking.create' and rp.allowed
-      where u.company_id = ${c.company_id} and u.is_active and u.role in ('admin', 'gm')`)
-    await notifyUser(sql, c.company_id, u.id, "service.request", { km: `🛠 សំណើសេវាកម្ម · ${c.name}`, en: `🛠 Service request · ${c.name}` }, text.slice(0, 300), "/bookings", `req:${id}:${u.id}`);
+  await createRequest({ companyId: c.company_id, source: "telegram", name: c.name, text, customerId: c.id, subscriberId });
   return { text: "✅ បានទទួលសំណើរបស់អ្នក។ ហាងនឹងទាក់ទងមកវិញឆាប់ៗ។" };
 }
 

@@ -22,7 +22,7 @@ export default defineConfig({
         theme_color: "#14213D",
         background_color: "#F4F6FB",
         display: "standalone",
-        start_url: "/",
+        start_url: "/app", // "/" is the public website for visitors without a session (D-95)
         icons: [
           { src: "icons/icon-192.png", sizes: "192x192", type: "image/png" },
           { src: "icons/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any maskable" },
@@ -30,7 +30,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ["**/*.{js,css,html,svg,png,woff2,ttf}"],
-        navigateFallbackDenylist: [/^\/api\//, /^\/healthz/],
+        navigateFallbackDenylist: [/^\/api\//, /^\/healthz/, /^\/site/, /^\/robots\.txt$/, /^\/brand\//],
         runtimeCaching: [
           {
             urlPattern: ({ url }) => url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/"),

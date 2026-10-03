@@ -36,13 +36,13 @@ export default function BookingFormPage() {
   const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: api.vehicles });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
   const [loc, setLoc] = useState<LatLngValue>({ lat: null, lng: null });
-  const [custQ, setCustQ] = useState("");
+  const [custQ, setCustQ] = useState(() => sp.get("q") ?? ""); // from a customer request: search prefilled with its phone
   const [newCust, setNewCust] = useState(false);
   const [endTouched, setEndTouched] = useState(false);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(bookingSchema.passthrough()) as never,
-    defaultValues: { customer_id: "", type: "A", category: "mep", service_text: "", service_item_id: "", scheduled_at: "", ends_at: "", address: "", zone: "inside", vehicle_id: "", notes: "", date: "", start: "", end: "" },
+    defaultValues: { customer_id: "", type: "A", category: "mep", service_text: sp.get("text")?.slice(0, 200) ?? "", service_item_id: "", scheduled_at: "", ends_at: "", address: "", zone: "inside", vehicle_id: "", notes: "", date: "", start: "", end: "" },
   });
   const customerId = watch("customer_id"), category = watch("category"), itemId = watch("service_item_id");
   const date = watch("date"), start = watch("start"), end = watch("end");

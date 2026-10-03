@@ -141,6 +141,11 @@ export type Salary = { user_id: string; full_name: string; role: string; base_sa
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
+// ---------- public website + customer requests (D-95) ----------
+export type SiteSettings = { website: { published?: boolean; hero?: string | null; gallery?: string[] } & Record<string, unknown>; company_info: Record<string, string>; url: string };
+export type ServiceRequest = { id: string; source: "telegram" | "website"; name: string | null; phone: string | null; text: string; status: "new" | "done"; meta: Record<string, unknown> | null;
+  created_at: string; handled_at: string | null; customer_id: string | null; customer_name: string | null; handled_by_name: string | null };
+
 /** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
 export function errCode(e: unknown): string {
   if (e instanceof ApiError) return e.code;
@@ -282,6 +287,16 @@ export const api = {
     confirmJob: (bookingId: string, location_id: string | null) => post(`/api/inventory/jobs/${bookingId}/confirm`, { location_id }),
   },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
+  website: {
+    get: () => get<SiteSettings>("/api/website"),
+    save: (v: Record<string, unknown>) => put<{ ok: true }>("/api/website", v),
+    addPhoto: (slot: "hero" | "gallery", data: string) => post<{ id: string }>("/api/website/photos", { slot, data }),
+    removePhoto: (id: string) => del<{ ok: true }>(`/api/website/photos/${id}`),
+  },
+  requests: {
+    list: (all: boolean) => get<ServiceRequest[]>(`/api/requests${all ? "?all=1" : ""}`),
+    done: (id: string) => post<{ ok: true }>(`/api/requests/${id}/done`),
+  },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),
     setLock: (lock_date: string, reason?: string) => post<{ lock_date: string }>("/api/accounting/lock", { lock_date, reason: reason || null }),

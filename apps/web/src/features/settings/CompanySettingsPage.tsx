@@ -9,6 +9,8 @@ import { Copy, ImageUp, MapPin, Plus, Send } from "lucide-react";
 import { readGps } from "@/lib/offline";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
+import { useFeature } from "@/lib/config";
+import WebsiteCard from "./WebsiteCard";
 
 type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null; telegram_group_title?: string | null };
 
@@ -59,6 +61,7 @@ export default function CompanySettingsPage() {
   });
   const [newV, setNewV] = useState({ code: "", plate: "", owner: "" });
 
+  const websiteOn = useFeature("website");
   if (settings.isLoading) return <Skeleton />;
   if (settings.isError) return <ErrorState text={t("app.error")} onRetry={() => void settings.refetch()} />;
 
@@ -108,6 +111,7 @@ export default function CompanySettingsPage() {
 
       <InvoiceImagesCard current={settings.data as unknown as Record<string, unknown> | undefined} />
       <TelegramGroupCard current={settings.data} />
+      {websiteOn && <WebsiteCard />}
 
       <Card title={t("settings.vehicles")}>
         <table className="table table-stack mb-3">
