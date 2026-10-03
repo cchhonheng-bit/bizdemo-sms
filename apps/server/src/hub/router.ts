@@ -1,24 +1,27 @@
-// Telegram router (T1/T3/T4/T5). Every update arrives on ONE bot's webhook path, so the hub always knows the context:
-//  • a shop bot (@Oneteam_app_bot …): its own staff links, work-group /register, Subscribe + consent, /stop — only for that shop
+// Telegram router (T1/T3/T4/T5 · customers D-106). Every update arrives on ONE bot's webhook path, so the hub always knows the
+// context:
+//  • a shop bot (@Oneteam_app_bot …): its own staff links, work-group /register, and its customers — the website link
+//    (start=b-<token>: the website button was the consent, linked at once), the direct path (consent ☑ → «share my phone» →
+//    linked or made, first password), the keyboard grid the shop renders, «🔕 stop notifications» (the hub owns subscriptions)
 //  • the master bot (@hangkh_bot): owner alerts link, optional "Follow HangKH", pointers to shop bots for old links
-// Privacy mode ON (BotFather) → in groups a bot only sees commands. Forwarded messages and free text are ignored
-// and never stored (the message log keeps the command only).
+// Privacy mode ON (BotFather) → in groups a bot only sees commands. Forwarded messages are ignored; free text reaches the shop
+// only from chats the hub knows (staff, people who subscribed to that shop — also after «stop all»: replies to their own button
+// presses still come), and is never stored. Messages that carry a password are never kept in the hub log.
 import type { FastifyBaseLogger } from "fastify";
-import { GROUP_CODE_LEN, parseLinkCode, parseSubscribe, shopBotCode, SUBSCRIBE_PAYLOAD, consentText } from "@sms/shared";
+import { consentText, CUSTOMER_BTN, CUSTOMER_MENU, customerText, GROUP_CODE_LEN, parseLinkCode, parseSubscribe, shopBotCode, SUBSCRIBE_PAYLOAD } from "@sms/shared";
 import { checkRate, refundRate } from "../lib/rate-limit.js";
-import { acceptConsent, consentMarkup, privacyUrl, stopSubscriptions, type TgFrom } from "./subscribers.js";
+import { acceptConsent, consentMarkup, ensureSubscriber, privacyUrl, resumeAll, resumePromo, stopSubscriptions, subscribe, subscriptionOf, type TgFrom } from "./subscribers.js";
 import { callShop, getShop, logMessage, type Shop } from "./shops.js";
 import { sql } from "../db.js";
-import { masterBot, shopBot, type Bot } from "./bots.js";
+import { shopBot, type Bot } from "./bots.js";
 import { sendMessage, tg } from "./telegram-api.js";
 import { linkAdminChat } from "./alerts.js";
-import { customerMenu, groupHelp, masterMenu, onCustomerAction, parseCallback, shopMenu, show, toKeyboard, toScreen, type ShopScreen } from "./menus.js";
-import { resumePromo } from "./subscribers.js";
+import { groupHelp, masterMenu, parseCallback, shopMenu, show, stopMenu, stopResult, toKeyboard, toScreen, type ShopScreen } from "./menus.js";
 
 type Chat = { id: number; type: "private" | "group" | "supergroup" | "channel"; title?: string };
 export type Message = { message_id: number; date?: number; chat: Chat; from?: TgFrom & { is_bot?: boolean }; text?: string; forward_origin?: unknown; forward_from?: unknown; forward_from_chat?: unknown;
-  location?: { latitude: number; longitude: number; horizontal_accuracy?: number; live_period?: number } };
-export type CallbackQuery = { id: string; from: TgFrom & { is_bot?: boolean }; message?: { message_id: number; chat: Chat }; data?: string };
+  location?: { latitude: number; longitude: number; horizontal_accuracy?: number; live_period?: number }; contact?: { phone_number: string; first_name?: string; user_id?: number } };
+export type CallbackQuery = { id: string; from: TgFrom & { is_bot?: boolean }; message?: { message_id: number; chat: Chat; text?: string }; data?: string };
 export type Update = { update_id: number; message?: Message; callback_query?: CallbackQuery };
 
 const BAD_CODE_LIMIT = 10; // wrong codes per Telegram user per hour (S-11 brute force), across all bots
@@ -30,18 +33,13 @@ export function parseCommand(text: string, botUsername: string): { cmd: string; 
   return { cmd: m[1]!.toLowerCase(), arg: (m[3] ?? "").trim() };
 }
 
-async function reply(bot: Bot, chatId: number, text: string, shop: string | null, kind: string, markup?: unknown, logText = true): Promise<void> {
-  const r = await sendMessage(bot, chatId, text, markup);
+async function reply(bot: Bot, chatId: number, text: string, shop: string | null, kind: string, markup?: unknown, logText = true, silent = false): Promise<void> {
+  const r = await sendMessage(bot, chatId, text, markup, { silent });
   await logMessage({ direction: "out", bot: bot.code, shop, chatId, kind, text: logText ? text : null, ok: r.ok, error: r.ok ? null : r.error });
 }
-
-const shopHelp = (name: string) => [
-  `🤖 ${name}`,
-  "• បុគ្គលិក: ចុច «ភ្ជាប់ Telegram» ក្នុងកម្មវិធី (ទំព័រ ខ្ញុំ)",
-  "• អតិថិជន: បើកតំណ/QR របស់ហាង ដើម្បីចុះឈ្មោះ",
-  "• /stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទទួលសារទាំងអស់ពីហាងនេះ",
-  `• គោលការណ៍ឯកជនភាព: ${privacyUrl()}`,
-].join("\n");
+const setMenu = (bot: Bot, chatId: number, url: string) => tg(bot, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app", text: "ការកក់", web_app: { url } } });
+const CONTACT_KB = { keyboard: [[{ text: CUSTOMER_BTN.share, request_contact: true }]], resize_keyboard: true, one_time_keyboard: true };
+const SHOP_DOWN = "⚠️ ប្រព័ន្ធហាងមិនឆ្លើយតបពេលនេះ។ សូមព្យាយាមម្ដងទៀតក្នុងពេលបន្តិច។";
 const SHOP_HELP_GROUP = "🤖 កំណត់ក្រុមការងារ: /register <កូដពីកម្មវិធី> (ការកំណត់ → Telegram)";
 
 /** a staff/group code received by a shop bot → that shop validates it (never another shop) */
@@ -62,7 +60,7 @@ async function forwardCode(bot: Bot, kind: "link" | "group", raw: string, msg: M
   const r = await callShop(shop, "POST", "/internal/telegram", { kind, code, tg_user: from.id, chat_id: msg.chat.id, chat_title: msg.chat.title ?? "" });
   if (!r || r.status !== 200 || typeof r.json?.reply !== "string") {
     log.warn({ shop: shop.code, status: r?.status }, "shop did not answer");
-    await reply(bot, msg.chat.id, "⚠️ ប្រព័ន្ធហាងមិនឆ្លើយតបពេលនេះ។ សូមព្យាយាមម្ដងទៀតក្នុងពេលបន្តិច។", shop.code, `${kind}.shop_down`);
+    await reply(bot, msg.chat.id, SHOP_DOWN, shop.code, `${kind}.shop_down`);
     return;
   }
   if (r.json.ok) {
@@ -73,89 +71,25 @@ async function forwardCode(bot: Bot, kind: "link" | "group", raw: string, msg: M
   await reply(bot, msg.chat.id, r.json.reply.slice(0, 1000), shop.code, `${kind}.${r.json.ok ? "ok" : "fail"}`);
 }
 
-async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: string }, log: FastifyBaseLogger): Promise<void> {
-  const isPrivate = msg.chat.type === "private";
-  const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup";
-  const shop = await getShop(bot.shop_code!);
-  if (!shop) return;
-  if (isPrivate && c.cmd === "start") {
-    if (!c.arg) return startMenu(bot, shop, msg.chat.id, msg.from!.id);
-    if (c.arg.toLowerCase() === SUBSCRIBE_PAYLOAD || parseSubscribe(c.arg) === shop.code) {
-      if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", shop.code, "subscribe.unavailable");
-      const master = await masterBot();
-      return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null));
-    }
-    const cust = c.arg.match(/^s_([A-HJ-NP-Z2-9]{8})$/i); // A2: the customer's own subscribe link (service reminders)
-    if (cust) {
-      if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", shop.code, "subscribe.unavailable");
-      const master = await masterBot();
-      return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null, cust[1]!.toUpperCase()));
-    }
-    // D-96: the one-click link of a website booking, t.me/<shop bot>?start=b-<token>. Someone who already agreed (a live
-    // subscription to this shop) is linked at once; everybody else sees the consent first (A4) and is linked with the tick.
-    const web = c.arg.match(/^b-[A-Za-z0-9_-]{20}$/);
-    if (web) {
-      if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", shop.code, "subscribe.unavailable");
-      const subscriber = await subscriberOf(msg.from!.id, shop.code);
-      if (!subscriber) {
-        const master = await masterBot();
-        return reply(bot, msg.chat.id, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, master?.status === "active" ? master.username : null, web[0]));
-      }
-      if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
-      const x = await callShop(shop, "POST", "/internal/customer-subscribed", { code: web[0], subscriber_id: subscriber });
-      const ok = !!(x && x.status === 200 && x.json?.ok);
-      await reply(bot, msg.chat.id, ok ? `✅ ការកក់ ${String(x!.json.booking ?? "").slice(0, 20)} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង ពី «${shop.name}» នឹងមកដល់ទីនេះ។`
-        : "⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។", shop.code, ok ? "booking.linked" : "booking.link_failed", undefined, false);
-      if (ok) await afterBookingLink(bot, shop, msg.chat.id, msg.from!.id, x!.json);
-      return;
-    }
-    return forwardCode(bot, "link", c.arg, msg, log);
-  }
-  if (isPrivate && c.cmd === "stop") {
-    const promoOnly = /^promo\b/i.test(c.arg);
-    const names = await stopSubscriptions(msg.from!.id, promoOnly, shop.code); // this shop only (T7)
-    // /stop (all) also ends job messages from this shop to this private chat — the person's opt-out (R6)
-    const staff = promoOnly ? [] : await sql`delete from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'staff' returning chat_id`;
-    const lines: string[] = [];
-    if (names.length) lines.push(promoOnly ? `✅ បិទប្រូម៉ូសិនរួច: ${names.join(", ")}។ អ្នកនៅទទួលដំណឹងសេវាកម្ម។` : `✅ ឈប់ទទួលសាររួច: ${names.join(", ")}។ ចុះឈ្មោះម្ដងទៀតបានតាមតំណរបស់ហាង។`);
-    if (staff.length) lines.push(`ℹ️ ការងារពី ${shop.name} នឹងលែងផ្ញើមកទីនេះ។ ភ្ជាប់វិញ: កម្មវិធី → ខ្ញុំ → ភ្ជាប់ Telegram។`);
-    return reply(bot, msg.chat.id, lines.length ? lines.join("\n") : "ℹ️ អ្នកមិនមានការចុះឈ្មោះសកម្មទេ។", shop.code, promoOnly ? "stop.promo" : "stop.all");
-  }
-  if (isGroup && c.cmd === "register") return forwardCode(bot, "group", c.arg, msg, log);
-  if (isGroup && (c.cmd === "start" || c.cmd === "help")) { // D-91: work groups get notifications only — no menu
-    const known = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'group'`).length > 0;
-    return reply(bot, msg.chat.id, known ? `👥 ក្រុមការងារ · ${shop.name}\nការងារថ្មី ការប្ដូរម៉ោង ជំហានការងារ និងការលុបចោល ផ្ញើមកទីនេះដោយស្វ័យប្រវត្តិ។` : groupHelp, shop.code, known ? "group.info" : "help");
-  }
-  if (isPrivate && c.cmd === "help") return show(bot, msg.chat.id, null, shopHelp(shop.name), { inline_keyboard: [[{ text: "🏠 ម៉ឺនុយ", callback_data: "v:home" }]] }, "help", shop.code);
-  if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");
-  if (c.cmd === "help") return reply(bot, msg.chat.id, isPrivate ? shopHelp(shop.name) : SHOP_HELP_GROUP, shop.code, "help");
+// ---------- customers ----------
+async function consentPrompt(bot: Bot, shop: Shop, chatId: number, code?: string): Promise<void> {
+  if (shop.status !== "active" || !shop.subscribe) return reply(bot, chatId, customerText.unavailable, shop.code, "subscribe.unavailable");
+  return reply(bot, chatId, consentText(shop.name, privacyUrl()), shop.code, "subscribe.prompt", consentMarkup(shop.code, code));
 }
+const askContact = (bot: Bot, shop: Shop, chatId: number) => reply(bot, chatId, customerText.askContact, shop.code, "contact.ask", CONTACT_KB);
 
-/** D-103 / D-105: a website booking was linked to this chat → the shop's follow-up message (it may carry the customer's first
- *  password: sent, never kept in the hub log), the chat's menu button opens the shop's site as a Mini App, and the customer
- *  keyboard appears when the shop knows this chat as a customer. */
-async function afterBookingLink(bot: Bot, shop: Shop, chatId: number, tgUser: number, json: Record<string, unknown>): Promise<void> {
-  if (typeof json.after === "string" && json.after) await reply(bot, chatId, json.after.slice(0, 1000), shop.code, "customer.password", undefined, false);
-  if (typeof json.menu_url === "string" && /^https:\/\/[^\s"]{1,200}$/.test(json.menu_url)) {
-    await tg(bot, "setChatMenuButton", { chat_id: chatId, menu_button: { type: "web_app", text: "ការកក់", web_app: { url: json.menu_url } } });
-  }
-  const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: tgUser, subscriber_id: await subscriberOf(tgUser, shop.code) });
-  const s = r && r.status === 200 ? toScreen(r.json) : null;
-  if (s && s.kind === "customer") await sendScreen(bot, shop, chatId, s, "menu.customer");
+/** D-91: deliver a screen the shop rendered — the reply keyboard (role menu / customer grid) rides on the text, inline buttons
+ *  get their own message, a location request is a one-time keyboard; `after` follows silently, `menu_url` sets the chat's menu
+ *  button. Screens hold the shop's data: never stored in the hub log (R5). */
+async function sendScreen(bot: Bot, shop: Shop, chatId: number, s: ShopScreen, kind: string): Promise<void> {
+  await screenBody(bot, shop, chatId, s, kind);
+  if (s.after) await reply(bot, chatId, s.after, shop.code, `${kind}.after`, undefined, false, true);
+  if (s.menu_url) await setMenu(bot, chatId, s.menu_url);
 }
-
-/** the hub subscriber id of this Telegram user when they hold a live subscription to THIS shop (the shop maps it to its customer) */
-const subscriberOf = async (tgUser: number, shopCode: string): Promise<number | null> => {
-  const id = (await sql<{ id: string }[]>`select u.id::text as id from hub_subscribers u join hub_subscriptions s on s.subscriber_id = u.id
-    where u.telegram_user_id = ${tgUser} and s.shop_code = ${shopCode} and s.stopped_at is null and u.blocked_at is null`)[0]?.id;
-  return id == null ? null : Number(id); // bigint arrives as a string — the shop's internal API takes a number (it refused the string: D-96 fix)
-};
 const LOC_ASK = { km: "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", en: "👇 Tap the button below to send your current location (GPS)" };
 const LOC_BTN = { km: "📍 ផ្ញើទីតាំង", en: "📍 Send location" };
 const QUICK = { km: "⚡ មើលរហ័ស", en: "⚡ Quick view" };
-/** D-91: deliver a screen the shop rendered — the reply keyboard (role menu) rides on the text, inline buttons get their own message,
- *  a location request is a one-time keyboard. Screens hold the shop's data: never stored in the hub log (R5). */
-async function sendScreen(bot: Bot, shop: Shop, chatId: number, s: ShopScreen, kind: string): Promise<void> {
+async function screenBody(bot: Bot, shop: Shop, chatId: number, s: ShopScreen, kind: string): Promise<void> {
   const inline = s.markup.inline_keyboard.length > 0;
   if (s.keyboard) { await reply(bot, chatId, s.text, shop.code, `${kind}.keyboard`, s.keyboard, false); if (!inline && !s.ask_location) return; }
   if (s.remove_keyboard) return reply(bot, chatId, s.text, shop.code, kind, { remove_keyboard: true }, false);
@@ -164,35 +98,124 @@ async function sendScreen(bot: Bot, shop: Shop, chatId: number, s: ShopScreen, k
     return reply(bot, chatId, inline || s.keyboard ? LOC_ASK[s.lang] : `${s.text}\n${LOC_ASK[s.lang]}`, shop.code, "attendance.ask",
       { keyboard: [[{ text: LOC_BTN[s.lang], request_location: true }]], resize_keyboard: true, one_time_keyboard: true }, false);
   }
-  return inline ? show(bot, chatId, null, s.keyboard ? QUICK[s.lang] : s.text, s.markup, kind, shop.code) : reply(bot, chatId, s.text, shop.code, kind, undefined, false);
+  if (inline && s.keyboard) return show(bot, chatId, null, QUICK[s.lang], s.markup, kind, shop.code);
+  return reply(bot, chatId, s.text, shop.code, kind, inline ? s.markup : undefined, false);
 }
-/** /start opens the menu: the shop's role keyboard for linked staff, the customer keyboard for a subscriber linked to a customer, else the hub's customer menu */
-async function startMenu(bot: Bot, shop: Shop, chatId: number, tgUser: number): Promise<void> {
-  const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: tgUser, subscriber_id: await subscriberOf(tgUser, shop.code) });
-  const s = r && r.status === 200 ? toScreen(r.json) : null;
-  if (s && (s.kind === "staff" || s.kind === "customer")) {
-    await sendScreen(bot, shop, chatId, s, s.kind === "staff" ? "menu.staff" : "menu.customer");
-    if (s.kind === "staff") return;
+
+/** the shop's answer to a link (website link, own code, shared phone) IS the message: sent once, never kept (it may carry the
+ *  password), with the keyboard grid; the hint follows silently; the chat's menu button opens the shop site */
+async function sendLinked(bot: Bot, shop: Shop, chatId: number, tgUser: number, json: unknown, kind: string): Promise<void> {
+  const s = toScreen(json);
+  if (!s) return;
+  if (!s.keyboard && !s.markup.inline_keyboard.length) { // a shop without the website module: its own customer keyboard
+    const sub = await subscriptionOf(tgUser, shop.code);
+    const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: tgUser, subscriber_id: sub?.id ?? null });
+    s.keyboard = r && r.status === 200 ? toScreen(r.json)?.keyboard ?? null : null;
   }
-  const m = await customerMenu(shop, tgUser);
-  return show(bot, chatId, null, m.text, m.markup, "menu.customer", shop.code);
+  await sendScreen(bot, shop, chatId, s, kind);
 }
-/** D-91: a keyboard label or free text in a private chat with a shop bot → the shop answers. Only chats the hub knows (linked staff,
- *  subscribers of this shop) reach the shop; a stranger's text is ignored and never stored. */
+
+/** /start (and /help, the subscribe link): staff → their role keyboard; a customer → the grid; someone who agreed but has not
+ *  shared the phone yet → the phone button; anybody else → the consent (one ☑) */
+async function startMenu(bot: Bot, shop: Shop, chatId: number, from: TgFrom): Promise<void> {
+  const sub = await subscriptionOf(from.id, shop.code);
+  const r = await callShop(shop, "POST", "/internal/tg-start", { chat_id: chatId, tg_user: from.id, subscriber_id: sub?.id ?? null });
+  const s = r && r.status === 200 ? toScreen(r.json) : null;
+  if (s && (s.kind === "staff" || s.kind === "customer")) return sendScreen(bot, shop, chatId, s, s.kind === "staff" ? "menu.staff" : "menu.customer");
+  const menu = r && r.status === 200 && typeof r.json?.menu_url === "string" && /^https:\/\//.test(r.json.menu_url) ? String(r.json.menu_url) : null;
+  if (menu) await setMenu(bot, chatId, menu);
+  if (sub?.live) return askContact(bot, shop, chatId);
+  return consentPrompt(bot, shop, chatId);
+}
+
+/** D-106: t.me/<shop bot>?start=b-<token> — the website button was the consent (same three purposes, same version): no second
+ *  tap here. The shop links the chat (single use) and its answer is the message; the subscription starts with source «web». */
+async function linkFromWeb(bot: Bot, shop: Shop, msg: Message, tok: string): Promise<void> {
+  if (shop.status !== "active" || !shop.subscribe) return reply(bot, msg.chat.id, customerText.unavailable, shop.code, "subscribe.unavailable");
+  if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
+  const from = msg.from!;
+  const subId = await ensureSubscriber(sql, from, msg.chat.id);
+  const x = await callShop(shop, "POST", "/internal/customer-subscribed", { code: tok, subscriber_id: subId });
+  if (!x || x.status !== 200) return reply(bot, msg.chat.id, SHOP_DOWN, shop.code, "booking.shop_down");
+  if (x.json?.ok) await subscribe(from, msg.chat.id, shop, "web");
+  return sendLinked(bot, shop, msg.chat.id, from.id, x.json, x.json?.ok ? "booking.linked" : "booking.link_failed");
+}
+
+/** «🔕 stop notifications»: the choices for the state the person is in */
+async function showStop(bot: Bot, shop: Shop, chatId: number, tgUser: number, messageId: number | null): Promise<void> {
+  const st = await subscriptionOf(tgUser, shop.code);
+  const m = stopMenu(st ? { live: st.live, promo: st.promo } : null);
+  return show(bot, chatId, messageId, m.text, m.markup, "notify.menu", shop.code);
+}
+
+async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: string }, log: FastifyBaseLogger): Promise<void> {
+  const isPrivate = msg.chat.type === "private";
+  const isGroup = msg.chat.type === "group" || msg.chat.type === "supergroup";
+  const shop = await getShop(bot.shop_code!);
+  if (!shop) return;
+  if (isPrivate && c.cmd === "start") {
+    if (!c.arg || c.arg.toLowerCase() === SUBSCRIBE_PAYLOAD || parseSubscribe(c.arg) === shop.code) return startMenu(bot, shop, msg.chat.id, msg.from!);
+    const cust = c.arg.match(/^s_([A-HJ-NP-Z2-9]{8})$/i); // A2: the customer's own subscribe link (staff gave it): consent with the code
+    if (cust) return consentPrompt(bot, shop, msg.chat.id, cust[1]!.toUpperCase());
+    const web = c.arg.match(/^b-[A-Za-z0-9_-]{20}$/);
+    if (web) return linkFromWeb(bot, shop, msg, web[0]);
+    return forwardCode(bot, "link", c.arg, msg, log);
+  }
+  if (isPrivate && c.cmd === "stop") { // typed /stop still works (the grid has 🔕); /stop all also ends job messages to a staff chat (R6)
+    const promoOnly = /^promo\b/i.test(c.arg);
+    const names = await stopSubscriptions(msg.from!.id, promoOnly, shop.code);
+    const staff = promoOnly ? [] : await sql`delete from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'staff' returning chat_id`;
+    const lines: string[] = [];
+    if (names.length) lines.push(customerText.unsubscribed(promoOnly ? "promo" : "all"));
+    if (staff.length) lines.push(`ℹ️ ការងារពី ${shop.name} នឹងលែងផ្ញើមកទីនេះ។ ភ្ជាប់វិញ: កម្មវិធី → ខ្ញុំ → ភ្ជាប់ Telegram។`);
+    return reply(bot, msg.chat.id, lines.length ? lines.join("\n") : customerText.unchanged, shop.code, promoOnly ? "stop.promo" : "stop.all");
+  }
+  if (isGroup && c.cmd === "register") return forwardCode(bot, "group", c.arg, msg, log);
+  if (isGroup && (c.cmd === "start" || c.cmd === "help")) { // D-91: work groups get notifications only — no menu
+    const known = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'group'`).length > 0;
+    return reply(bot, msg.chat.id, known ? `👥 ក្រុមការងារ · ${shop.name}\nការងារថ្មី ការប្ដូរម៉ោង ជំហានការងារ និងការលុបចោល ផ្ញើមកទីនេះដោយស្វ័យប្រវត្តិ។` : groupHelp, shop.code, known ? "group.info" : "help");
+  }
+  if (isPrivate && c.cmd === "help") return startMenu(bot, shop, msg.chat.id, msg.from!);
+  if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");
+  if (c.cmd === "help") return reply(bot, msg.chat.id, SHOP_HELP_GROUP, shop.code, "help");
+}
+
+/** a keyboard label or free text in a private chat with a shop bot → the shop answers. Only chats the hub knows (linked staff,
+ *  people who subscribed to this shop — also after «stop all») reach the shop; a stranger's text is ignored and never stored. */
 async function onShopText(bot: Bot, msg: Message): Promise<void> {
   const shop = await getShop(bot.shop_code!);
   if (!shop || shop.status !== "active" || !msg.text || !msg.from) return;
   const staff = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'staff'`).length > 0;
-  const subscriber = staff ? null : await subscriberOf(msg.from.id, shop.code);
-  if (!staff && !subscriber) return;
+  const sub = staff ? null : await subscriptionOf(msg.from.id, shop.code);
+  if (!staff && !sub) return;
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
-  const r = await callShop(shop, "POST", "/internal/tg-text", { chat_id: msg.chat.id, tg_user: msg.from.id, text: msg.text.slice(0, 1000), subscriber_id: subscriber });
+  if (!staff && msg.text.trim() === CUSTOMER_MENU.stop) {
+    await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: "text.notify", text: null });
+    return showStop(bot, shop, msg.chat.id, msg.from.id, null);
+  }
+  const r = await callShop(shop, "POST", "/internal/tg-text", { chat_id: msg.chat.id, tg_user: msg.from.id, text: msg.text.slice(0, 1000), subscriber_id: sub?.id ?? null });
   const kind = r && r.status === 200 ? String(r.json?.kind ?? "") : "";
   const s = r && r.status === 200 ? toScreen(r.json) : null;
-  if (kind === "none" || (!s && kind !== "customer_menu")) return; // the shop does not know this chat (any more)
-  await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: `text.${kind}`, text: null });
-  if (kind === "customer_menu") { const m = await customerMenu(shop, msg.from.id); return show(bot, msg.chat.id, null, m.text, m.markup, "menu.customer", shop.code); }
-  return sendScreen(bot, shop, msg.chat.id, s!, `text.${kind}`);
+  await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: `text.${kind || "unknown"}`, text: null });
+  if (kind === "customer_menu") return showStop(bot, shop, msg.chat.id, msg.from.id, null);
+  if (kind === "none" || !s) { if (!staff && sub?.live) await askContact(bot, shop, msg.chat.id); return; } // agreed, phone not shared yet
+  return sendScreen(bot, shop, msg.chat.id, s, `text.${kind}`);
+}
+
+/** D-106: «share my phone» — only the sender's OWN contact counts (a forwarded card could claim anyone's number) */
+async function onContact(bot: Bot, msg: Message): Promise<void> {
+  const shop = await getShop(bot.shop_code!);
+  if (!shop || shop.status !== "active" || !msg.contact || !msg.from) return;
+  if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
+  await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: "contact", text: null }); // the number is never kept here
+  if (msg.contact.user_id !== msg.from.id) return reply(bot, msg.chat.id, customerText.ownContact, shop.code, "contact.foreign", CONTACT_KB);
+  const sub = await subscriptionOf(msg.from.id, shop.code);
+  if (!sub?.live) return consentPrompt(bot, shop, msg.chat.id); // the consent comes first
+  const r = await callShop(shop, "POST", "/internal/tg-contact", { subscriber_id: sub.id, tg_user: msg.from.id, phone: msg.contact.phone_number.slice(0, 40),
+    first_name: (msg.contact.first_name ?? msg.from.first_name ?? "").slice(0, 100) || null });
+  if (!r || r.status !== 200) return reply(bot, msg.chat.id, SHOP_DOWN, shop.code, "contact.shop_down");
+  if (!r.json?.ok) return reply(bot, msg.chat.id, String(r.json?.text ?? customerText.notKhPhone).slice(0, 500), shop.code, "contact.fail", { remove_keyboard: true });
+  return sendLinked(bot, shop, msg.chat.id, msg.from.id, r.json, "contact.linked");
 }
 
 async function onMasterMessage(bot: Bot, msg: Message, c: { cmd: string; arg: string }): Promise<void> {
@@ -228,16 +251,16 @@ async function onMasterMessage(bot: Bot, msg: Message, c: { cmd: string; arg: st
   if (c.cmd === "start" || c.cmd === "help") { const m = await masterMenu(from.id); return show(bot, msg.chat.id, null, m.text, m.markup, "menu.master", null); }
 }
 
-/** FR-902: a staff member sends a location to the shop bot (private chat) → the shop records check-in / check-out.
- *  The hub stores no coordinates; the shop refuses unknown chats and old locations and flags points without GPS accuracy. */
+/** FR-902: a staff member sends a location to the shop bot (private chat) → the shop records check-in / check-out; a customer
+ *  gets a short pointer to the booking button (D-106). The hub stores no coordinates. */
 async function onLocation(bot: Bot, msg: Message): Promise<void> {
   const shop = await getShop(bot.shop_code!);
   if (!shop || !msg.location || !msg.from) return;
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return;
   await logMessage({ direction: "in", bot: bot.code, shop: shop.code, chatId: msg.chat.id, tgUser: msg.from.id, kind: "location", text: null });
-  const l = msg.location;
+  const l = msg.location, sub = await subscriptionOf(msg.from.id, shop.code);
   const r = await callShop(shop, "POST", "/internal/tg-location", { chat_id: msg.chat.id, tg_user: msg.from.id, lat: l.latitude, lng: l.longitude,
-    accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0 }); // the shop decides: a job «arrive» step or attendance
+    accuracy: typeof l.horizontal_accuracy === "number" ? l.horizontal_accuracy : null, sent_at: msg.date ?? 0, subscriber_id: sub?.id ?? null }); // the shop decides: a job «arrive» step, attendance, or a customer
   const text = r && r.status === 200 && typeof r.json?.reply === "string" ? String(r.json.reply).slice(0, 1000) : "❌ មិនអាចកត់វត្តមានបានទេ — សូមព្យាយាមម្ដងទៀត ឬប្រើកម្មវិធី។";
   const kb = r && r.status === 200 ? toKeyboard(r.json?.keyboard) : null; // D-91: the role keyboard replaces the one-time location keyboard
   return reply(bot, msg.chat.id, text, shop.code, "attendance.location", kb ?? { remove_keyboard: true });
@@ -245,11 +268,13 @@ async function onLocation(bot: Bot, msg: Message): Promise<void> {
 
 async function onMessage(bot: Bot, msg: Message, log: FastifyBaseLogger): Promise<void> {
   if (!msg.from || !msg.chat || typeof msg.chat.id !== "number" || msg.from.is_bot) return;
-  if (msg.forward_origin || msg.forward_from || msg.forward_from_chat) return; // never act on forwarded text or locations
-  if (msg.location && !msg.text) return bot.kind === "shop" && msg.chat.type === "private" ? onLocation(bot, msg) : undefined;
+  if (msg.forward_origin || msg.forward_from || msg.forward_from_chat) return; // never act on forwarded text, locations or contacts
+  const shopPrivate = bot.kind === "shop" && msg.chat.type === "private";
+  if (msg.contact) return shopPrivate ? onContact(bot, msg) : undefined;
+  if (msg.location && !msg.text) return shopPrivate ? onLocation(bot, msg) : undefined;
   if (!msg.text) return;
   const c = parseCommand(msg.text, bot.username);
-  if (!c) return bot.kind === "shop" && msg.chat.type === "private" ? onShopText(bot, msg) : undefined; // free text: only private shop chats the hub knows (keyboard labels)
+  if (!c) return shopPrivate ? onShopText(bot, msg) : undefined; // free text: only private shop chats the hub knows (keyboard labels)
   if (!checkRate(`tg:chat:${bot.code}:${msg.chat.id}`, 20, 60)) return; // S-06, per bot
   await logMessage({ direction: "in", bot: bot.code, shop: bot.shop_code, chatId: msg.chat.id, tgUser: msg.from.id, kind: `/${c.cmd}`, text: null });
   return bot.kind === "shop" ? onShopMessage(bot, msg, c, log) : onMasterMessage(bot, msg, c);
@@ -259,36 +284,27 @@ async function onCallback(bot: Bot, q: CallbackQuery): Promise<void> {
   const p = parseCallback(q.data ?? "");
   const chat = q.message?.chat;
   if (p && p.kind !== "sub") return onMenuCallback(bot, q, p);
-  const m = p ? ([q.data, p.shop, p.version] as const) : null;
   // a consent button counts only on the shop's OWN bot (no cross-shop consent — T7)
-  if (!m || !chat || chat.type !== "private" || q.from.is_bot || bot.kind !== "shop" || m[1] !== bot.shop_code) {
+  if (!p || !chat || chat.type !== "private" || q.from.is_bot || bot.kind !== "shop" || p.shop !== bot.shop_code) {
     await tg(bot, "answerCallbackQuery", { callback_query_id: q.id });
     return;
   }
   if (!checkRate(`tg:chat:${bot.code}:${chat.id}`, 20, 60)) return;
-  const r = await acceptConsent(q.from, chat.id, m[1]!, m[2]!);
-  await logMessage({ direction: "in", bot: bot.code, shop: m[1]!, chatId: chat.id, tgUser: q.from.id, kind: r.ok ? "consent.ok" : `consent.${r.error}` });
+  const r = await acceptConsent(q.from, chat.id, p.shop!, p.version!);
+  await logMessage({ direction: "in", bot: bot.code, shop: p.shop!, chatId: chat.id, tgUser: q.from.id, kind: r.ok ? "consent.ok" : `consent.${r.error}` });
   await tg(bot, "answerCallbackQuery", { callback_query_id: q.id, text: r.ok ? "✅" : "❌" });
-  if (r.ok) {
-    // keep only the optional "Follow HangKH" link after the tick
-    const master = await masterBot();
-    await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: q.message!.message_id, reply_markup: consentMarkup(null, master?.status === "active" ? master.username : null) });
-    // A2: came through the customer's own link → the shop links this subscriber to that customer (service reminders)
-    // D-96: came through the link of a website booking (b-<token>) → the shop links this chat to that booking (single use)
-    let linked = false, booking = "", linkJson: Record<string, unknown> | null = null;
-    const web = !!p?.code?.startsWith("b-");
-    if (p?.code) {
-      const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId });
-      linked = !!(x && x.status === 200 && x.json?.ok);
-      if (web && linked) { booking = String(x!.json.booking ?? "").slice(0, 20); linkJson = x!.json as Record<string, unknown>; }
-    }
-    const extra = web ? (linked ? `\n🗓 ការកក់ ${booking} បានភ្ជាប់ — ការបញ្ជាក់ និងដំណឹងអំពីជាង នឹងមកដល់ទីនេះ។` : "\n⚠️ តំណការកក់នេះត្រូវបានប្រើរួចហើយ ឬលែងប្រើបាន។") : "";
-    // the booking number is the shop's data: it is sent, not kept in the hub log (R5)
-    await reply(bot, chat.id, `✅ ចុះឈ្មោះរួច! អ្នកនឹងទទួលដំណឹងពី «${r.shop.name}»${linked && !web ? " (រួមទាំងការរំលឹកថែទាំ)" : ""}។${extra}\n/stop promo — បិទប្រូម៉ូសិន · /stop — ឈប់ទាំងអស់`, r.shop.code, "subscribe.ok", undefined, !web);
-    if (linkJson) await afterBookingLink(bot, r.shop, chat.id, q.from.id, linkJson);
-  } else {
-    await reply(bot, chat.id, r.error === "OLD_CONSENT" ? "⚠️ អត្ថបទយល់ព្រមនេះចាស់ហើយ។ សូមបើកតំណរបស់ហាងម្ដងទៀត។" : "❌ ហាងនេះមិនទាន់បើកសេវាចុះឈ្មោះទេ។", m[1]!, "subscribe.fail");
+  if (!r.ok) return reply(bot, chat.id, r.error === "OLD_CONSENT" ? "⚠️ អត្ថបទយល់ព្រមនេះចាស់ហើយ។ សូមចុច /start ម្ដងទៀត។" : customerText.unavailable, p.shop!, "subscribe.fail");
+  await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: q.message!.message_id, reply_markup: { inline_keyboard: [] } }); // one tap only
+  if (p.code) { // A2: the customer's own link (or a booking link of an older prompt) → the shop links that customer / booking
+    const x = await callShop(r.shop, "POST", "/internal/customer-subscribed", { code: p.code, subscriber_id: r.subscriberId });
+    if (!x || x.status !== 200) return reply(bot, chat.id, SHOP_DOWN, r.shop.code, "subscribe.shop_down");
+    return sendLinked(bot, r.shop, chat.id, q.from.id, x.json, x.json?.ok ? "subscribe.linked" : "subscribe.link_failed");
   }
+  // the direct path: a customer already → the grid; else the phone button
+  const s = await callShop(r.shop, "POST", "/internal/tg-start", { chat_id: chat.id, tg_user: q.from.id, subscriber_id: r.subscriberId });
+  const screen = s && s.status === 200 ? toScreen(s.json) : null;
+  if (screen && (screen.kind === "customer" || screen.kind === "staff")) return sendScreen(bot, r.shop, chat.id, screen, `menu.${screen.kind}`);
+  return askContact(bot, r.shop, chat.id);
 }
 
 /** owner I1: menu buttons (edit in place). Who pressed and where comes from Telegram; the shop checks staff/group data. */
@@ -310,16 +326,21 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
   }
   const shop = bot.kind === "shop" && bot.shop_code ? await getShop(bot.shop_code) : null;
   if (!shop) return;
-  if (p.kind === "c") {
+  if (p.kind === "c") { // D-106: «🔕 stop notifications» — the customer's own subscription with this shop only
     if (chat.type !== "private") return;
-    return onCustomerAction(bot, chat.id, mid, q.from.id, p.action, {
-      stop: async (promoOnly) => {
-        const names = await stopSubscriptions(q.from.id, promoOnly, shop.code);
-        if (!promoOnly) await sql`delete from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${chat.id} and kind = 'staff'`;
-        return names;
-      },
-      promoOn: () => resumePromo(q.from.id, shop.code),
-    });
+    const who = q.from.id, action = p.action as "menu" | "stop_promo" | "stop_all" | "resume_promo" | "resume_all" | "cancel";
+    if (action === "menu") return showStop(bot, shop, chat.id, who, mid);
+    if ((action === "resume_promo" || action === "resume_all") && !(await subscriptionOf(who, shop.code))) return consentPrompt(bot, shop, chat.id);
+    if (action === "stop_promo") await stopSubscriptions(who, true, shop.code);
+    if (action === "stop_all") await stopSubscriptions(who, false, shop.code);
+    if (action === "resume_promo") await resumePromo(who, shop.code);
+    if (action === "resume_all") await resumeAll(who, shop.code);
+    const m = stopResult(action);
+    if ((q.message.text ?? "").startsWith("🎁")) { // pressed under a promotion: the promotion stays, its button goes; the answer is a new message
+      await tg(bot, "editMessageReplyMarkup", { chat_id: chat.id, message_id: mid, reply_markup: { inline_keyboard: [] } });
+      return show(bot, chat.id, null, m.text, m.markup, `notify.${action}`, shop.code);
+    }
+    return show(bot, chat.id, mid, m.text, m.markup, `notify.${action}`, shop.code);
   }
   // v: staff views (private chats only — groups get notifications, D-91), rendered by the shop from its own data
   if (chat.type !== "private") return;
@@ -334,8 +355,7 @@ async function onMenuCallback(bot: Bot, q: CallbackQuery, p: NonNullable<ReturnT
     return reply(bot, chat.id, LOC_ASK[v.lang], shop.code, "attendance.ask", { keyboard: [[{ text: LOC_BTN[v.lang], request_location: true }]], resize_keyboard: true, one_time_keyboard: true }, false);
   }
   if (v) return show(bot, chat.id, mid, v.text, v.markup, `menu.${p.action}`, shop.code);
-  const cm = await customerMenu(shop, q.from.id); // not staff (any more) → the customer menu, never staff data
-  return show(bot, chat.id, mid, cm.text, cm.markup, "menu.customer", shop.code);
+  return show(bot, chat.id, mid, customerText.useButtons, { inline_keyboard: [] }, "menu.none", shop.code); // not staff (any more): never staff data
 }
 
 export async function handleUpdate(bot: Bot, update: Update, log: FastifyBaseLogger): Promise<void> {

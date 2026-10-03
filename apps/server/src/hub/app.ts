@@ -10,8 +10,9 @@ import { AppError, fromPg } from "../lib/errors.js";
 import { safeEqual } from "../lib/secure.js";
 import { handleUpdate, type Update } from "./router.js";
 import { authShop, logMessage } from "./shops.js";
-import { broadcastsOf, createBroadcast, subscribersOf } from "./subscribers.js";
-import { sendMessage } from "./telegram-api.js";
+import { activePromotions, broadcastsOf, createBroadcast, prefsOf, previewBroadcast, setPrefs, subscribe, subscribersOf } from "./subscribers.js";
+import { sendMessage, tg } from "./telegram-api.js";
+import { toKeyboard, toMarkup } from "./menus.js";
 import { botByPath, invalidateBots, masterBot, shopBot } from "./bots.js";
 import { ALERT_KINDS, sendAlert } from "./alerts.js";
 import { platformRoutes } from "./platform.js";
@@ -28,7 +29,12 @@ const replyMarkup = z.union([
   z.object({ remove_keyboard: z.literal(true) }).strict(),
 ]);
 const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z.string().min(1).max(4096), reply_markup: replyMarkup.optional().nullable() }).strict();
-const broadcastSchema = z.object({ kind: z.enum(["service", "promo"]), text: z.string().trim().min(1).max(1000), created_by_name: z.string().max(120).optional().nullable() }).strict();
+// D-106: promotions only (service messages are about the customer's own bookings); ≤ 4 lines; one per customer per gap_days
+const promoText = z.string().trim().min(1).max(400).refine((t) => t.split("\n").length <= 4, "TOO_MANY_LINES");
+const broadcastSchema = z.object({ kind: z.literal("promo").optional(), text: promoText, created_by_name: z.string().max(120).optional().nullable(),
+  gap_days: z.number().int().min(1).max(60).optional(), valid_days: z.number().int().min(1).max(90).optional() }).strict();
+/** D-91 buttons of a shop (https link / Mini App), converted by the hub; never callback buttons */
+const shopBtn = z.object({ text: z.string().min(1).max(64), url: z.string().max(512).optional(), web_app: z.string().max(512).optional() }).strict();
 
 /** Telegram WebApp initData check (HMAC-SHA256, key = HMAC("WebAppData", bot token)); auth_date at most 10 min old for a
  *  staff login — the customer site may ask for up to 24 h (D-103: a customer keeps the Mini App open) */
@@ -142,19 +148,52 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
     return r.ok ? { ok: true } : { ok: false, error: r.error, permanent: r.permanent, retry_after: r.retryAfter };
   });
 
-  /** A2: a service reminder to ONE subscriber of this shop — only while that subscription is active with service messages on */
+  /** A2 / D-106: a message to ONE subscriber of this shop — only while that subscription is active with service messages on.
+   *  buttons (inline link / Mini App) or keyboard (the customer grid); hint = a second, silent message; menu_url = the chat's
+   *  menu button opens the shop site. The text is never stored (it may carry a password). */
   app.post("/internal/notify-subscriber", async (req) => {
     const shop = await authShop(req);
-    const b = z.object({ subscriber_id: z.number().int().positive(), text: z.string().min(1).max(1000) }).strict().parse(req.body);
+    const b = z.object({ subscriber_id: z.number().int().positive(), text: z.string().min(1).max(1000), buttons: z.array(z.array(shopBtn).max(3)).max(4).optional(),
+      keyboard: z.array(z.array(shopBtn.omit({ url: true })).max(2)).max(4).optional(), hint: z.string().min(1).max(300).optional(), menu_url: z.string().max(512).optional() }).strict().parse(req.body);
     const sub = (await sql<{ chat_id: string }[]>`select u.chat_id::text from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id
       where s.shop_code = ${shop.code} and s.subscriber_id = ${b.subscriber_id} and s.stopped_at is null and s.service and u.blocked_at is null`)[0];
     if (!sub) return { ok: false, error: "NOT_SUBSCRIBED" };
     const bot = await shopBot(shop.code);
     if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
-    const r = await sendMessage(bot, Number(sub.chat_id), b.text);
-    await logMessage({ direction: "out", bot: bot.code, shop: shop.code, chatId: Number(sub.chat_id), kind: "reminder", text: `[${b.text.length} chars]`, ok: r.ok, error: r.ok ? null : r.error });
-    return r.ok ? { ok: true } : { ok: false, error: r.error };
+    const chat = Number(sub.chat_id);
+    const markup = b.keyboard ? toKeyboard(b.keyboard) : b.buttons ? toMarkup(b.buttons) : null;
+    const r = await sendMessage(bot, chat, b.text, markup && ("keyboard" in markup || markup.inline_keyboard.length) ? markup : undefined);
+    await logMessage({ direction: "out", bot: bot.code, shop: shop.code, chatId: chat, kind: "customer", text: `[${b.text.length} chars]`, ok: r.ok, error: r.ok ? null : r.error });
+    if (!r.ok) return { ok: false, error: r.error };
+    if (b.hint) await sendMessage(bot, chat, b.hint, undefined, { silent: true });
+    if (b.menu_url && /^https:\/\/[^\s"]{1,500}$/.test(b.menu_url)) await tg(bot, "setChatMenuButton", { chat_id: chat, menu_button: { type: "web_app", text: "ការកក់", web_app: { url: b.menu_url } } });
+    return { ok: true };
   });
+
+  /** D-106: the website button inside Telegram (Mini App) — the launch data (checked with the shop bot's token, ≤ 24 h) says who
+   *  it is; that person is subscribed to THIS shop with the consent the button carried (source miniapp) */
+  app.post("/internal/web-subscribe", async (req) => {
+    const shop = await authShop(req);
+    const b = z.object({ init_data: z.string().min(1).max(4000), source: z.literal("miniapp") }).strict().parse(req.body);
+    if (!shop.subscribe || shop.status !== "active") return { ok: false, error: "SHOP_NOT_AVAILABLE" };
+    const bot = await shopBot(shop.code);
+    if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT" };
+    const v = verifyWebAppData(b.init_data, bot.token, 86_400);
+    if (!v.ok) return v;
+    const id = await subscribe({ id: v.tg_user, first_name: v.first_name ?? undefined }, v.tg_user, shop, b.source); // a private chat's id is the user's id
+    return { ok: true, subscriber_id: id, tg_user: v.tg_user, first_name: v.first_name };
+  });
+  /** D-106: customer home → notification settings */
+  app.get("/internal/subscriber-prefs", async (req) => {
+    const shop = await authShop(req);
+    return prefsOf(shop, z.object({ subscriber_id: z.coerce.number().int().positive() }).parse(req.query).subscriber_id);
+  });
+  app.post("/internal/subscriber-prefs", async (req) => {
+    const shop = await authShop(req);
+    const b = z.object({ subscriber_id: z.number().int().positive(), service: z.boolean(), promo: z.boolean() }).strict().parse(req.body);
+    return setPrefs(shop, b.subscriber_id, b);
+  });
+  app.get("/internal/promotions", async (req) => activePromotions(await authShop(req)));
 
   /** the shop's own bot username (deep links, QR) — so a new or replaced shop bot needs no shop redeploy (T6) */
   app.get("/internal/bot", async (req) => {
@@ -183,7 +222,12 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.post("/internal/broadcast", async (req) => {
     const shop = await authShop(req);
     const b = broadcastSchema.parse(req.body);
-    return createBroadcast(shop, b.kind, b.text, b.created_by_name ?? null);
+    return createBroadcast(shop, b.text, b.created_by_name ?? null, b.gap_days, b.valid_days);
+  });
+  app.post("/internal/broadcast/preview", async (req) => {
+    const shop = await authShop(req);
+    const b = z.object({ text: promoText, gap_days: z.number().int().min(1).max(60).optional() }).strict().parse(req.body);
+    return previewBroadcast(shop, b.text, b.gap_days);
   });
 
   // ---- owner --------------------------------------------------------------------

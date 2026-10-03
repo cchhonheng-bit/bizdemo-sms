@@ -1,5 +1,6 @@
-/* Public shop website v2 (D-96): the behaviour of the six screens. Same origin, no dependencies, no inline script (CSP).
-   Messages for the page's language come from <script type="application/json" id="msg">. */
+/* Public shop website (D-96 · final combined brief D-106): the behaviour of the screens. Same origin, no dependencies, no inline
+   script (CSP). Messages for the page's language come from <script type="application/json" id="msg">, the catalog of the page
+   from <script type="application/json" id="items">. */
 (function () {
   "use strict";
   var $ = function (s, r) { return (r || document).querySelector(s); };
@@ -17,53 +18,151 @@
   function clearOnEdit(root, err) { if (!root) return; ["input", "change"].forEach(function (ev) { root.addEventListener(ev, function () { hideErr(err); }); }); }
   function busy(btn, on) {
     if (!btn) return;
-    if (on) { btn.dataset.label = btn.textContent; btn.textContent = M.SENDING || "..."; btn.disabled = true; }
-    else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
+    if (on) { btn.dataset.html = btn.innerHTML; btn.textContent = M.SENDING || "..."; btn.disabled = true; }
+    else { if (btn.dataset.html) btn.innerHTML = btn.dataset.html; btn.disabled = false; }
   }
   function send(method, url, data) {
     return fetch(url, { method: method, credentials: "same-origin", headers: data === undefined ? {} : { "content-type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, json: j || {} }; }); });
   }
+  function money(c) { return "$" + (c / 100).toLocaleString("en-US", { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 }); }
 
-  // ---- opened inside Telegram (Mini App): Telegram's own script (the only outside script the CSP allows) → full height;
-  //      on the sign-in screen the launch data signs the customer in (the hub checks its signature)
+  // ---- opened inside Telegram (Mini App): Telegram's own script (the only outside script the CSP allows) → full height; the
+  //      launch data signs a linked customer in (checked by the hub) and links a new booking at once (no deep link)
   var inTelegram = /tgWebAppData=/.test(location.hash);
   try { inTelegram = inTelegram || !!sessionStorage.getItem("__telegram__initParams"); } catch (e) { /* storage blocked */ }
-  if (inTelegram) {
-    var tgs = document.createElement("script");
-    tgs.src = "https://telegram.org/js/telegram-web-app.js";
-    tgs.async = true;
-    tgs.onload = function () {
-      var tg = window.Telegram && window.Telegram.WebApp;
-      if (!tg) return;
-      try { tg.ready(); tg.expand(); } catch (e) { /* older clients */ }
-      // the launch data signs a linked customer in (checked by the hub). The bot's menu button opens "/": a customer lands on
-      // the customer home; «book a service» opens "/?book" and stays on the booking screen.
-      var tried = false;
-      try { tried = !!sessionStorage.getItem("otcTried"); sessionStorage.setItem("otcTried", "1"); } catch (e) { /* storage blocked */ }
-      if (tg.initData && (page === "login" || (page === "home" && !tried))) {
-        send("POST", "/api/public/tg-login", { init_data: tg.initData }).then(function (r) {
-          if (r.ok && (page === "login" || (location.pathname === "/" && !location.search))) location.replace("/my");
-        });
-      }
-    };
-    document.head.appendChild(tgs);
+  var TG = null;
+  var tgReady = new Promise(function (resolve) {
+    if (!inTelegram) return resolve(null);
+    var s = document.createElement("script");
+    s.src = "https://telegram.org/js/telegram-web-app.js";
+    s.async = true;
+    s.onload = function () { TG = window.Telegram && window.Telegram.WebApp; try { if (TG) { TG.ready(); TG.expand(); } } catch (e) { /* older clients */ } resolve(TG); };
+    s.onerror = function () { resolve(null); };
+    document.head.appendChild(s);
+  });
+  var initData = function () { return TG && TG.initData ? TG.initData : null; };
+  tgReady.then(function (tg) {
+    if (!tg || !tg.initData) return;
+    // the bot's menu button opens "/": a customer lands on the customer home; «📅 book» opens "/?book" and stays on booking
+    var tried = false;
+    try { tried = !!sessionStorage.getItem("otcTried"); sessionStorage.setItem("otcTried", "1"); } catch (e) { /* storage blocked */ }
+    if (page === "login" || (page === "home" && !tried)) {
+      send("POST", "/api/public/tg-login", { init_data: tg.initData }).then(function (r) {
+        if (r.ok && (page === "login" || (location.pathname === "/" && !location.search))) location.replace("/my");
+      });
+    }
+  });
+
+  // ---- after saving: to the shop bot with the single-use link; the history entry becomes the «sent» screen (back from
+  //      Telegram lands there) and, when Telegram opened as an app, the page itself turns into it
+  function toTelegram(link, donePath) {
+    try { history.replaceState(null, "", donePath); } catch (e) { /* old browser */ }
+    location.href = link;
+    setTimeout(function () { location.replace(donePath); }, 1800);
   }
 
-  // ---- "use my current location"
-  function geo(btn, err) {
-    if (!btn) return;
-    btn.addEventListener("click", function () {
-      if (!navigator.geolocation) return showErr(err, "GPS_FAILED");
-      navigator.geolocation.getCurrentPosition(function (p) {
-        $("#lat").value = p.coords.latitude.toFixed(6);
-        $("#lng").value = p.coords.longitude.toFixed(6);
-        btn.classList.add("ok");
-        var label = $("span", btn);
-        if (label && btn.dataset.ok) label.textContent = btn.dataset.ok + " ✓";
-        hideErr(err);
-      }, function () { showErr(err, "GPS_FAILED"); }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  // ---- category tiles + item lines (home, quote)
+  function linesUI(onChange) {
+    var box = $("#lines");
+    if (!box) return null;
+    var items = [], byId = {};
+    try { items = JSON.parse(($("#items") || {}).textContent || "[]"); } catch (e) { items = []; }
+    items.forEach(function (i) { byId[i.id] = i; });
+    var max = Number(box.dataset.max || 8), maxq = Number(box.dataset.maxq || 20), optional = box.dataset.optional === "true";
+    var tmpl = $(".line", box).cloneNode(true);
+    var on = $(".cat[aria-pressed='true']"), cat = on ? on.dataset.cat : (body.dataset.cat || null);
+    var rows = function () { return $$(".line", box); };
+    var firstOf = function (c) {
+      var list = items.filter(function (i) { return i.c === c; });
+      return (list.filter(function (i) { return !i.q && i.p != null; })[0] || list.filter(function (i) { return !i.q; })[0] || list[0] || {}).id || "";
+    };
+    function state() {
+      return rows().map(function (r) { return { id: $("select", r).value, qty: Number($("[data-qty]", r).textContent) || 1 }; }).filter(function (l) { return l.id && byId[l.id]; });
+    }
+    function sync() {
+      var last = rows()[rows().length - 1], it = last && byId[$("select", last).value];
+      if (it) cat = it.c;
+      $$(".cat").forEach(function (c) { c.setAttribute("aria-pressed", c.dataset.cat === cat ? "true" : "false"); });
+      $$("[data-remove]", box).forEach(function (b) { b.hidden = rows().length < 2; });
+      var add = $("#addl"); if (add) add.hidden = rows().length >= max;
+      onChange(state(), byId, cat);
+    }
+    $$(".cat").forEach(function (c) {
+      c.addEventListener("click", function () {
+        cat = c.dataset.cat;
+        var last = rows()[rows().length - 1];
+        if (last) $("select", last).value = firstOf(cat) || (optional ? "" : $("select", last).value);
+        sync();
+      });
     });
+    box.addEventListener("click", function (e) {
+      var q = e.target.closest("[data-q]"), x = e.target.closest("[data-remove]");
+      if (q) { var out = $("[data-qty]", q.closest(".line")), v = Math.min(maxq, Math.max(1, (Number(out.textContent) || 1) + Number(q.dataset.q))); out.textContent = v; sync(); }
+      if (x && rows().length > 1) { x.closest(".line").remove(); sync(); }
+    });
+    box.addEventListener("change", sync);
+    var add = $("#addl");
+    if (add) add.addEventListener("click", function () {
+      if (rows().length >= max) return;
+      var r = tmpl.cloneNode(true);
+      $("[data-qty]", r).textContent = "1";
+      box.appendChild(r);
+      $("select", r).value = firstOf(cat) || "";
+      sync();
+      $("select", r).focus();
+    });
+    sync();
+    return { state: state, cat: function () { return cat; } };
+  }
+  var param = function (lines) { return lines.map(function (l) { return l.id + ":" + l.qty; }).join(","); };
+
+  // ---- "use my current location": Telegram's location inside the Mini App, else the browser (high accuracy, 10 s);
+  //      failing that, a pasted Google Maps link; the address text stays optional
+  function locUI(err) {
+    var btn = $("#gps");
+    if (!btn) return null;
+    var okBox = $("#loc-ok"), paste = $("#paste");
+    function ok(lat, lng, acc) {
+      $("#lat").value = Number(lat).toFixed(6); $("#lng").value = Number(lng).toFixed(6); $("#acc").value = acc == null ? "" : Math.round(acc);
+      $("#loc-acc").textContent = acc == null ? "" : " (±" + Math.round(acc) + " m)";
+      $("#loc-map").href = "https://www.google.com/maps?q=" + Number(lat).toFixed(6) + "," + Number(lng).toFixed(6);
+      okBox.hidden = false; btn.classList.add("ok"); paste.hidden = true; hideErr(err);
+    }
+    function fail() { showErr(err, "GPS_FAILED"); paste.hidden = false; }
+    function browser() {
+      if (!navigator.geolocation) return fail();
+      navigator.geolocation.getCurrentPosition(function (p) { ok(p.coords.latitude, p.coords.longitude, p.coords.accuracy); }, fail, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+    }
+    btn.addEventListener("click", function () {
+      hideErr(err);
+      var lm = TG && TG.LocationManager && TG.isVersionAtLeast && TG.isVersionAtLeast("8.0") ? TG.LocationManager : null;
+      if (!lm) return browser();
+      try {
+        lm.init(function () {
+          if (!lm.isLocationAvailable) return browser();
+          lm.getLocation(function (l) { if (l) ok(l.latitude, l.longitude, l.horizontal_accuracy); else fail(); });
+        });
+      } catch (e) { browser(); }
+    });
+    $("#paste-open").addEventListener("click", function () { paste.hidden = false; $("#paste-url").focus(); });
+    function parse(s) {
+      var d = decodeURIComponent(s), m;
+      var pats = [/@(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, /!3d(-?\d{1,2}\.\d+)!4d(-?\d{1,3}\.\d+)/, /[?&](?:q|query|ll|destination|center)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/, /^\s*(-?\d{1,2}\.\d+)\s*,\s*(-?\d{1,3}\.\d+)\s*$/];
+      for (var i = 0; i < pats.length; i++) { m = pats[i].exec(d); if (m && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180) return [+m[1], +m[2]]; }
+      return null;
+    }
+    $("#paste-go").addEventListener("click", function () {
+      var v = $("#paste-url").value.trim(), p = parse(v), go = this;
+      if (p) return ok(p[0], p[1], null);
+      if (!/^https?:\/\//i.test(v)) return showErr(err, "MAP_LINK_INVALID");
+      go.disabled = true;
+      send("POST", "/api/public/maps", { url: v }).then(function (r) {
+        go.disabled = false;
+        if (r.ok && typeof r.json.lat === "number") ok(r.json.lat, r.json.lng, null); else showErr(err, r.json.error || "MAP_LINK_INVALID");
+      }).catch(function () { go.disabled = false; showErr(err, "MAP_LINK_INVALID"); });
+    });
+    return { has: function () { return !!$("#lat").value; }, value: function () { return { lat: num("#lat"), lng: num("#lng"), accuracy: num("#acc") }; } };
   }
 
   // ---- day chips + time slots (server-rendered on the booking screen, drawn here for a reschedule request)
@@ -109,54 +208,31 @@
     root.innerHTML = h;
   }
 
-  // ---- sign in: phone + password; «forgot password» always answers the same
-  if (page === "login") (function () {
-    var err = $("#err"), ok = $("#reset-ok"), go = $("#login");
-    clearOnEdit($("main"), err);
-    var digits = function () { return $("#phone").value.replace(/\D/g, "").length; };
-    go.addEventListener("click", function () {
-      var pw = $("#pw").value;
-      ok.hidden = true;
-      if (digits() < 8) return showErr(err, "INVALID_PHONE");
-      if (!pw) return showErr(err, "INVALID_CREDENTIALS");
-      busy(go, true);
-      send("POST", "/api/public/login", { phone: $("#phone").value.trim(), password: pw }).then(function (r) {
-        if (r.ok) return location.assign("/my");
-        busy(go, false);
-        var code = r.json.error || "ERROR";
-        showErr(err, code);
-        if (code === "LOCKED" && r.json.details) err.textContent = msg(code).replace("{n}", r.json.details.minutes);
-      }).catch(function () { busy(go, false); showErr(err, "ERROR"); });
-    });
-    $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
-    $("#forgot").addEventListener("click", function () {
-      if (digits() < 8) return showErr(err, "INVALID_PHONE");
-      hideErr(err);
-      var done = function () { ok.hidden = false; };
-      send("POST", "/api/public/password-reset", { phone: $("#phone").value.trim() }).then(done, done);
-    });
-  })();
+  // ---- 1 · home: category tiles → item + quantity (+ more lines) → «book» (or «request a quote» for quote-only items)
+  if (page === "home") linesUI(function (lines, byId) {
+    var go = $("#go"), price = $("#price");
+    if (!go) return;
+    var quote = lines.some(function (l) { return byId[l.id].q; });
+    var priced = lines.length && lines.every(function (l) { return byId[l.id].p != null; });
+    if (price) price.textContent = priced ? String(M.price_from).replace("{p}", money(lines.reduce(function (a, l) { return a + byId[l.id].p * l.qty; }, 0))) : M.price_contact;
+    go.href = lines.length ? (quote ? "/quote" : "/book") + "?items=" + param(lines) : "/quote";
+    var label = $("span", go); if (label) label.textContent = quote || !lines.length ? M.quote : M.book;
+  });
 
-  // ---- 1 · home: the services beyond the first four
-  if (page === "home") {
-    var more = $("#more");
-    if (more) more.addEventListener("click", function () { $$("[data-more]").forEach(function (a) { a.hidden = false; }); more.hidden = true; });
-  }
-
-  // ---- 2 + 3 · choose a time → your details → send
+  // ---- 2 + 3 · choose a time + location → your details → ONE tap: book + Telegram
   if (page === "book") (function () {
     var s2 = $("#s2"), s3 = $("#s3"), pick = $("#pick"), next = $("#next"), err = $("#err"), err3 = $("#err3");
     var st = bindPicker($("#picker"), function (p) { pick.textContent = p.label || "—"; hideErr(err); });
-    geo($("#gps"), err);
+    var loc = locUI(err);
     clearOnEdit(s2, err); clearOnEdit(s3, err3);
     function step(n) { s2.hidden = n !== 2; s3.hidden = n !== 3; window.scrollTo(0, 0); }
     if (location.hash === "#details") history.replaceState(null, "", location.pathname + location.search); // a reload starts at the time
     if (next) next.addEventListener("click", function () {
       var addr = $("#addr").value.trim();
       if (!st.at) return showErr(err, "PICK_SLOT");
-      if (addr.length < 3 && !$("#lat").value) return showErr(err, "ADDRESS_REQUIRED");
+      if (addr.length < 3 && !loc.has()) return showErr(err, "ADDRESS_REQUIRED");
       $("#sum-when").textContent = st.label;
-      $("#sum-loc").textContent = addr || ($("#gps").dataset.ok + " ✓");
+      $("#sum-loc").textContent = addr || (M.gps_ok + " ✓");
       history.pushState({ step: 3 }, "", "#details");
       step(3);
     });
@@ -164,7 +240,7 @@
     $("[data-back]").addEventListener("click", function (e) { e.preventDefault(); history.back(); });
     /** somebody else took the time: show what is free now, keep what the visitor typed */
     function refresh() {
-      return send("GET", "/api/public/slots?service=" + encodeURIComponent(body.dataset.service)).then(function (r) {
+      return send("GET", "/api/public/slots?items=" + encodeURIComponent(body.dataset.items)).then(function (r) {
         (r.json.days || []).forEach(function (d) {
           var any = false;
           d.slots.forEach(function (s) {
@@ -183,11 +259,16 @@
       hideErr(err3);
       if (name.length < 2) return showErr(err3, "NAME_REQUIRED");
       if (phone.replace(/\D/g, "").length < 8) return showErr(err3, "INVALID_PHONE");
-      if (!$("#consent").checked) return showErr(err3, "CONSENT_REQUIRED");
       busy(btn, true);
-      send("POST", "/api/public/bookings", { service_id: body.dataset.service, at: st.at, address: $("#addr").value.trim(), lat: num("#lat"), lng: num("#lng"), name: name, phone: phone,
-        note: $("#note").value.trim(), consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang }).then(function (r) {
-        if (r.ok) return location.assign(r.json.ref ? "/book/done/" + r.json.ref : "/");
+      var where = loc.value();
+      send("POST", "/api/public/bookings", { items: body.dataset.items, at: st.at, address: $("#addr").value.trim(), lat: where.lat, lng: where.lng, accuracy: where.accuracy, name: name, phone: phone,
+        note: $("#note").value.trim(), consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
+        if (r.ok) {
+          if (!r.json.ref) return location.assign("/");
+          var done = "/book/done/" + r.json.ref;
+          if (r.json.link && !r.json.linked) return toTelegram(r.json.link, done);
+          return location.assign(done);
+        }
         busy(btn, false);
         var code = r.json.error || "ERROR";
         if (code === "SLOT_TAKEN" || code === "SLOT_INVALID") return refresh().then(function () { history.back(); showErr(err, code); });
@@ -196,17 +277,14 @@
     });
   })();
 
-  // ---- 5 · quote request: category, up to 5 photos (made smaller in the browser), send
+  // ---- 4 · request sent: while it waits for the answer, the screen refreshes itself
+  if (page === "done" && body.dataset.state === "pending") setInterval(function () { if (document.visibilityState === "visible") location.reload(); }, 30000);
+
+  // ---- 5 · quote request: tiles + items (optional), description, up to 5 photos (made smaller in the browser), location, ONE tap
   if (page === "quote") (function () {
     var err = $("#err"), box = $("#photos"), add = $("#add"), file = $("#file"), photos = [];
-    var on = $('.chip[aria-pressed="true"]'), category = on ? on.dataset.cat : "other";
-    $("#cats").addEventListener("click", function (e) {
-      var c = e.target.closest(".chip");
-      if (!c) return;
-      $$(".chip").forEach(function (x) { x.setAttribute("aria-pressed", x === c ? "true" : "false"); });
-      category = c.dataset.cat;
-    });
-    geo($("#gps"), err);
+    var ui = linesUI(function () { /* nothing to show */ });
+    var loc = locUI(err);
     clearOnEdit($("main"), err);
     function shrink(f) {
       return new Promise(function (resolve, reject) {
@@ -255,28 +333,69 @@
       }, Promise.resolve());
     });
     $("#send").addEventListener("click", function () {
-      var btn = this, desc = $("#desc").value.trim(), name = $("#name").value.trim(), phone = $("#phone").value.trim(), loc = $("#addr").value.trim();
+      var btn = this, desc = $("#desc").value.trim(), name = $("#name").value.trim(), phone = $("#phone").value.trim(), addr = $("#addr").value.trim();
+      var lines = ui ? ui.state() : [];
       hideErr(err);
-      if (desc.length < 5) return showErr(err, "DESCRIPTION_REQUIRED");
+      if (desc.length < 5 && !lines.length) return showErr(err, "DESCRIPTION_REQUIRED");
       if (name.length < 2) return showErr(err, "NAME_REQUIRED");
       if (phone.replace(/\D/g, "").length < 8) return showErr(err, "INVALID_PHONE");
-      if (loc.length < 3 && !$("#lat").value) return showErr(err, "LOCATION_REQUIRED");
-      if (!$("#consent").checked) return showErr(err, "CONSENT_REQUIRED");
+      if (addr.length < 3 && !loc.has()) return showErr(err, "LOCATION_REQUIRED");
       busy(btn, true);
-      send("POST", "/api/public/quotes", { category: category, description: desc, photos: photos, name: name, phone: phone, location: loc, lat: num("#lat"), lng: num("#lng"),
-        service_id: body.dataset.service || null, consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang }).then(function (r) {
-        if (r.ok) return location.assign("/quote/done");
+      var where = loc.value();
+      send("POST", "/api/public/quotes", { items: lines.length ? param(lines) : null, category: (ui && ui.cat()) || body.dataset.cat || "other", description: desc, photos: photos, name: name, phone: phone,
+        location: addr, lat: where.lat, lng: where.lng, accuracy: where.accuracy, consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
+        if (r.ok) {
+          if (!r.json.ref) return location.assign("/");
+          var done = "/quote/done/" + r.json.ref;
+          if (r.json.link && !r.json.linked) return toTelegram(r.json.link, done);
+          return location.assign(done);
+        }
         busy(btn, false); showErr(err, r.json.error || "ERROR");
       }).catch(function () { busy(btn, false); showErr(err, "ERROR"); });
     });
   })();
 
-  // ---- 6 · customer home: cancel with a reason, ask for another time, sign out
+  // ---- sign in: phone + password (a new password comes from the bot — «forgot password» is a link to it)
+  if (page === "login") (function () {
+    var err = $("#err"), go = $("#login");
+    clearOnEdit($("main"), err);
+    go.addEventListener("click", function () {
+      var pw = $("#pw").value;
+      if ($("#phone").value.replace(/\D/g, "").length < 8) return showErr(err, "INVALID_PHONE");
+      if (!pw) return showErr(err, "INVALID_CREDENTIALS");
+      busy(go, true);
+      send("POST", "/api/public/login", { phone: $("#phone").value.trim(), password: pw }).then(function (r) {
+        if (r.ok) return location.assign("/my");
+        busy(go, false);
+        var code = r.json.error || "ERROR";
+        showErr(err, code);
+        if (code === "LOCKED" && r.json.details) err.textContent = msg(code).replace("{n}", r.json.details.minutes);
+      }).catch(function () { busy(go, false); showErr(err, "ERROR"); });
+    });
+    $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
+  })();
+
+  // ---- privacy / terms: back = the previous page, else "/"
+  if (page === "legal") { var lb = $("[data-legal-back]"); if (lb) lb.addEventListener("click", function (e) { if (history.length > 1) { e.preventDefault(); history.back(); } }); }
+
+  // ---- 6 · customer home: notifications, password, sign out, cancel with a reason, ask for another time
   if (page === "my") (function () {
     $("#logout").addEventListener("click", function () { send("POST", "/api/my/logout", {}).then(function () { location.assign("/"); }); });
+    // notification settings — the shop bot's subscription (service messages / promotions)
+    var ns = $("#n-service"), np = $("#n-promo"), nok = $("#n-ok"), nerr = $("#n-err");
+    function savePrefs() {
+      nok.hidden = true; hideErr(nerr);
+      var want = { service: ns.checked, promo: ns.checked && np.checked };
+      send("POST", "/api/my/prefs", want).then(function (r) {
+        if (!r.ok) throw new Error(r.json.error || "HUB_DOWN");
+        ns.checked = !!r.json.service; np.checked = !!r.json.promo; np.disabled = !r.json.service; nok.hidden = false;
+      }).catch(function (e) { ns.checked = !want.service; showErr(nerr, (e && e.message) || "HUB_DOWN"); });
+    }
+    if (ns) ns.addEventListener("change", function () { if (!ns.checked) np.checked = false; np.disabled = !ns.checked; savePrefs(); });
+    if (np) np.addEventListener("change", savePrefs);
     // profile → change password (needs the current one)
     var card = $("#pw-card"), perr = $("#pw-err"), pok = $("#pw-ok");
-    $("#pw-open").addEventListener("click", function () { card.hidden = false; pok.hidden = true; hideErr(perr); $("#pw-cur").focus(); });
+    $("#pw-open").addEventListener("click", function () { card.hidden = !card.hidden; pok.hidden = true; hideErr(perr); if (!card.hidden) $("#pw-cur").focus(); });
     $("#pw-close").addEventListener("click", function () { card.hidden = true; });
     clearOnEdit(card, perr);
     $("#pw-save").addEventListener("click", function () {

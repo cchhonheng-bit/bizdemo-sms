@@ -26,7 +26,7 @@ beforeAll(async () => {
   setHubTransport(async (_method, path, body) => {
     hubCalls.push({ path, body });
     if (path === "/internal/tg-verify") return { status: 200, json: body && (body as any).init_data === "good" ? { ok: true, tg_user: CHAT.kim } : { ok: false, error: "BAD_SIGNATURE" } };
-    if (path === "/internal/broadcasts") return { status: 200, json: [{ id: 1, kind: "promo", text: "បញ្ចុះតម្លៃ 10% ខែនេះ", created_at: new Date().toISOString() }] };
+    if (path === "/internal/promotions") return { status: 200, json: [{ text: "បញ្ចុះតម្លៃ 10% ខែនេះ", valid_until: "2099-01-01" }] };
     return { status: 200, json: { ok: true } };
   });
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin");

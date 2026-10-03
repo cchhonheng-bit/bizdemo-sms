@@ -42,9 +42,10 @@ async function pace(bot: string): Promise<void> {
 
 export const tg = (bot: BotRef, method: string, payload: Record<string, unknown>) => transport(method, payload, bot);
 
-export async function sendMessage(bot: BotRef, chatId: number | string, text: string, replyMarkup?: unknown): Promise<TgResult> {
+/** silent: no sound / vibration (the hint after a password, D-106) */
+export async function sendMessage(bot: BotRef, chatId: number | string, text: string, replyMarkup?: unknown, o: { silent?: boolean } = {}): Promise<TgResult> {
   await pace(bot.code);
-  return tg(bot, "sendMessage", { chat_id: chatId, text, reply_markup: replyMarkup ?? undefined, disable_web_page_preview: true });
+  return tg(bot, "sendMessage", { chat_id: chatId, text, reply_markup: replyMarkup ?? undefined, disable_web_page_preview: true, ...(o.silent ? { disable_notification: true } : {}) });
 }
 
 export function setWebhook(bot: BotRef, url: string, secret: string): Promise<TgResult> {
@@ -55,9 +56,7 @@ export function setWebhook(bot: BotRef, url: string, secret: string): Promise<Tg
 export async function setCommands(bot: BotRef, kind: "shop" | "master"): Promise<TgResult> {
   const privateCmds = kind === "shop"
     ? [
-      { command: "start", description: "🏠 ម៉ឺនុយ" },
-      { command: "help", description: "❓ ជំនួយ" },
-      { command: "stop", description: "⛔ ឈប់ទទួលសារ (/stop promo = បិទប្រូម៉ូសិន)" },
+      { command: "start", description: "🏠 ម៉ឺនុយ" }, // D-106: customers use the keyboard grid (🔕 for notifications); /stop still works when typed
     ]
     : [
       { command: "start", description: "🏠 ម៉ឺនុយ" },

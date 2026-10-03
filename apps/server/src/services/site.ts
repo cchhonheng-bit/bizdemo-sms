@@ -12,10 +12,14 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { shopBotUsername } from "./hub-client.js";
 import { MIME_BY_EXT, saveImage } from "./jobs.js";
+import { websiteItems, type WebItem } from "./web-booking.js";
+import type { WebHours } from "@sms/shared";
 
 export type SiteContent = { published?: boolean; short_name?: string; tagline_km?: string; tagline_en?: string; about_km?: string; about_en?: string; area_km?: string; area_en?: string;
-  hours_km?: string; hours_en?: string; facebook?: string; highlights_km?: string[]; highlights_en?: string[]; hero?: string | null; gallery?: string[] };
-export type SiteService = { id: string; name_km: string; name_en: string | null; category: string; from_price: number | null; duration_min: number };
+  hours_km?: string; hours_en?: string; facebook?: string; highlights_km?: string[]; highlights_en?: string[]; hero?: string | null; gallery?: string[];
+  /** D-106: online booking hours (CEO; default 08:00–17:00, lunch 12:00–13:00) and the days between two promotions per customer */
+  hours?: Partial<WebHours>; promo_gap_days?: number };
+export type SiteService = WebItem;
 export const MAX_GALLERY = 12;
 
 const company = () => (config.siteCompany ? sql`and c.slug = ${config.siteCompany}` : sql``);
@@ -31,9 +35,8 @@ export async function siteData() {
       (now() at time zone c.timezone)::date::text as today
     from companies c join company_settings s on s.company_id = c.id where c.is_active ${company()} order by c.created_at limit 1`)[0];
   if (!c) return null;
-  // services a visitor can ask for: priced ones first (online booking), then the ones that need a quote
-  const services = await sql<SiteService[]>`select id, name_km, name_en, category::text as category, from_price, duration_min from catalog_items
-    where company_id = ${c.company_id} and kind = 'service' and is_active order by (from_price is null), category, name_km limit 60`;
+  // D-106: what a visitor can choose — active services shown on the website, by website category
+  const services = await websiteItems(sql, c.company_id);
   const w = c.website ?? {};
   const ids = [w.hero, ...(w.gallery ?? [])].filter((x): x is string => !!x);
   const live = new Set(ids.length ? (await sql<{ id: string }[]>`select id from job_files where company_id = ${c.company_id} and kind = 'website' and deleted_at is null and id = any(${sql.array(ids)}::uuid[])`).map((r) => r.id) : []);

@@ -195,18 +195,20 @@ export const PRIVACY: Record<LegalLang, LegalDoc> = {
 };
 
 /** Consent text shown by the bot when a customer opens t.me/hangkh_bot?start=s-<SHOP> (A4 — one tick, three purposes). */
-export const CONSENT_VERSION = "2026-09-30-v2"; // v2: Khmer only (owner rule D-89: one language per text)
+export const CONSENT_VERSION = "2026-10-03-v3"; // v3 (D-106): the owner's exact text — the same three purposes in the bot and on the website
+/** the three purposes a customer agrees to with ONE tap — one wording for the bot and for the website */
+export function consentPurposes(shopName: string, lang: LegalLang = "km"): string[] {
+  return lang === "en"
+    ? [`1) Service notices from ${shopName}`, `2) Promotions from ${shopName}`, "3) HangKH keeps the sign-up record and sends platform notices"]
+    : [`1) ដំណឹងសេវាកម្មពី ${shopName}`, `2) ប្រូម៉ូសិនពី ${shopName}`, "3) HangKH រក្សាប្រវត្តិការចុះឈ្មោះ និងផ្ញើដំណឹងពីវេទិកា"];
+}
 export function consentText(shopName: string, privacyUrl: string): string {
   return [
     `👋 សូមស្វាគមន៍! ចុះឈ្មោះទទួលដំណឹងពី «${shopName}»`,
     "",
     "ពេលចុច «☑ យល់ព្រម» អ្នកយល់ព្រមលើ:",
-    `1) ដំណឹងសេវាកម្មពី ${shopName}`,
-    `2) ប្រូម៉ូសិនពី ${shopName} (បិទបានដោយ /stop promo)`,
-    "3) HangKH រក្សាប្រវត្តិការចុះឈ្មោះ និងផ្ញើដំណឹងពីវេទិកា",
-    "",
-    "បិទសារទាំងអស់: /stop · ជំនួយ: /help",
-    `គោលការណ៍ឯកជនភាព: ${privacyUrl}`,
+    ...consentPurposes(shopName),
+    ` ${privacyUrl}`,
   ].join("\n");
 }
 

@@ -35,7 +35,7 @@ import { mapsRoutes } from "./routes/maps.js";
 import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
-import { pubRoutes, requestsRoutes, siteHome, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
+import { pubRoutes, requestsRoutes, siteHome, siteLegal, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
 import { APP_BASE } from "./lib/app-url.js";
 import { CUSTOMER_COOKIE, resolveCustomerSession } from "./services/customer-home.js";
 
@@ -110,7 +110,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const hasWeb = existsSync(join(config.webDist, "index.html"));
   // D-96: "/" is the public website, the staff app lives under /app. Pages of the app as they were addressed before
   // (bookmarks, old bot buttons, the installed app) are sent to the same page under /app.
-  const LEGACY_APP = /^\/(login|first-login|dashboard|bookings|customers|requests|catalog|subscribe|tech|notifications|leave|attendance|inventory|accounting|reminders|reports|quotes|invoices|me|settings|tg|terms|privacy)(\/|\?|$)/;
+  const LEGACY_APP = /^\/(login|first-login|dashboard|bookings|customers|requests|catalog|subscribe|tech|notifications|leave|attendance|inventory|accounting|reminders|reports|quotes|invoices|me|settings|tg)(\/|\?|$)/;
   /** D-103: a customer session never opens the staff app — its pages go to the customer home. (Staff sign in with their own
    *  account; someone who is both signs out of the customer home first, or already holds a staff session.) */
   const customerOnly = async (req: FastifyRequest) => !req.cookies[SESSION_COOKIE] && !!req.cookies[CUSTOMER_COOKIE] && !!(await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]));
@@ -167,6 +167,8 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(pubRoutes, { prefix: "/pub" });
   app.register(siteRoutes);
   app.get("/", async (req, reply) => (features().includes("website") ? siteHome(req, reply) : reply.redirect(`${APP_BASE}/`, 302)));
+  // D-106: /privacy and /terms are public pages of the site (back = the previous page, else "/"); without the module, the app's pages
+  for (const which of ["privacy", "terms"] as const) app.get(`/${which}`, async (req, reply) => (features().includes("website") ? siteLegal(req, reply, which) : reply.redirect(`${APP_BASE}/${which}`, 302)));
   app.get(APP_BASE, async (_req, reply) => reply.redirect(`${APP_BASE}/`, 302));
   app.get(`${APP_BASE}/`, async (req, reply) => {
     if (await customerOnly(req)) return reply.redirect("/my", 302);

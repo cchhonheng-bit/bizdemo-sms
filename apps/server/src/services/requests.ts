@@ -49,7 +49,7 @@ export async function createRequest(v: { companyId: string; source: RequestSourc
 /** open requests first; with `all` also the ones handled in the last 30 days */
 export async function listRequests(user: SessionUser, all: boolean) {
   return sql`select r.id, r.source, r.kind, r.name, r.phone, r.text, r.status, r.outcome, r.note, r.meta, r.created_at, r.handled_at, c.id as customer_id, c.name as customer_name, h.full_name as handled_by_name,
-      r.booking_id, b.number as booking_number, b.scheduled_at as booking_at, b.status as booking_status, b.web_status,
+      r.booking_id, b.number as booking_number, b.scheduled_at as booking_at, b.ends_at as booking_ends, b.status as booking_status, b.web_status, b.web_lines, b.lat, b.lng, b.loc_accuracy,
       (select coalesce(json_agg(json_build_object('id', f.id) order by f.created_at, f.id), '[]'::json) from service_request_files f where f.request_id = r.id) as photos
     from service_requests r left join customers c on c.id = r.customer_id left join users h on h.id = r.handled_by left join bookings b on b.id = r.booking_id
     where r.company_id = ${user.companyId} and (r.status = 'new' ${all ? sql`or r.handled_at > now() - interval '30 days'` : sql``})

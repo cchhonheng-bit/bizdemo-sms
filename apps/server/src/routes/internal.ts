@@ -12,6 +12,7 @@ import { botLocation, botStart, botText, keyboardForChat, renderMenu } from "../
 import { telegramAttendance } from "../services/attendance.js";
 import { customerSubscribed } from "../services/reminders.js";
 import { consumeBookingToken } from "../services/web-booking.js";
+import { linkByContact } from "../services/customer-auth.js";
 
 const tgSchema = z.object({
   kind: z.enum(["link", "group"]),
@@ -48,8 +49,13 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
   /** D-91: a location in a private chat → the pending «arrive» step, else attendance (FR-902); the role keyboard comes back with the answer */
   app.post("/tg-location", async (req) => {
     const b = z.object({ chat_id: z.number().int(), tg_user: z.number().int(), lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180),
-      accuracy: z.number().min(0).max(100_000).nullable(), sent_at: z.number().int() }).strict().parse(req.body);
-    return { reply: await botLocation(b), keyboard: await keyboardForChat(b.chat_id) };
+      accuracy: z.number().min(0).max(100_000).nullable(), sent_at: z.number().int(), subscriber_id: z.number().int().positive().optional().nullable() }).strict().parse(req.body);
+    return { reply: await botLocation(b), keyboard: await keyboardForChat(b.chat_id, b.subscriber_id) };
+  });
+  /** D-106: «share my phone» in the bot — the hub passes only the sender's OWN contact (Telegram vouches for the number) */
+  app.post("/tg-contact", async (req) => {
+    const b = z.object({ subscriber_id: z.number().int().positive(), tg_user: z.number().int(), phone: z.string().min(3).max(40), first_name: z.string().max(100).optional().nullable() }).strict().parse(req.body);
+    return linkByContact(b.subscriber_id, b.phone, b.first_name ?? null);
   });
 
   /** FR-902: a location sent to the shop bot in a private chat → check in / out (the shop identifies the linked staff member) */
@@ -60,7 +66,8 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /** A2: the customer ticked the consent from their own link t.me/<bot>?start=s_<code> → the shop links the hub subscriber */
-  /** D-96: the same call carries the single-use link token of a website booking (b-<token>) → the chat is linked to that booking */
+  /** D-96: the same call carries the single-use link token of a website booking or quote (b-<token>) → the chat is linked to it.
+   *  D-106: the answer is the bot message itself (text + keyboard grid + the hint after a password). */
   app.post("/customer-subscribed", async (req) => {
     const b = z.object({ code: z.string().regex(/^([A-HJ-NP-Z2-9]{8}|b-[A-Za-z0-9_-]{20})$/), subscriber_id: z.number().int().positive() }).strict().parse(req.body);
     return b.code.startsWith("b-") ? consumeBookingToken(b.code, b.subscriber_id) : customerSubscribed(b.code, b.subscriber_id);

@@ -1,11 +1,11 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, Globe, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
-import { FROM_PRICE_ROLES, type PermissionKey } from "@sms/shared";
+import type { PermissionKey } from "@sms/shared";
 import { useUnreadCount } from "@/features/notifications/useUnreadCount";
 import { api } from "@/lib/api";
 import { useFeature } from "@/lib/config";
@@ -34,7 +34,6 @@ export default function Shell() {
   const remindersOn = useFeature("reminders");
   const inventoryOn = useFeature("inventory");
   const accountingOn = useFeature("accounting");
-  const websiteOn = useFeature("website");
   const [more, setMore] = useState(false);
   if (!me) return null;
   const isTech = me.role === "tech";
@@ -48,7 +47,6 @@ export default function Shell() {
     { to: "/requests", label: t("nav.requests"), icon: Inbox, hidden: !(can("booking.create") || can("customer.manage")) },
     { to: "/reminders", label: t("nav.reminders"), icon: BellRing, perm: "customer.manage", hidden: !remindersOn },
     { to: "/catalog", label: t("nav.catalog"), icon: Package, perm: "catalog.manage" },
-    { to: "/web-prices", label: t("nav.web_prices"), icon: Globe, hidden: !websiteOn || !FROM_PRICE_ROLES.includes(me.role) },
     { to: "/inventory", label: t("nav.inventory"), icon: Boxes, perm: "inventory.view", hidden: !inventoryOn },
     { to: "/subscribe", label: t("nav.subscribe"), icon: Megaphone, perm: "customer.manage", hidden: !subscribeOn },
     // D3: own leave (GM/Admin) or approvals (leave.approve.*)

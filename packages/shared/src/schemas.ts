@@ -74,6 +74,13 @@ export const catalogItemSchema = z.object({
   reminder_months: z.number().int().min(1).max(60).nullable().optional(),
   /** D-92: the income account this item posts to (accounting); null = the default by kind (service / goods) */
   income_account_id: z.string().uuid().nullable().optional(),
+  /** D-106 website catalog: code (the Excel key), website category, «from» price in cents (empty = the price is told on contact),
+   *  shown on the website, quote only (never booked online) */
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9._-]{0,19}$/, "CODE_FORMAT").optional().or(z.literal("")).nullable(),
+  web_category: z.enum(["ac", "water", "electric", "cctv", "construction", "decor"]).nullable().optional(),
+  from_price: z.number().int().min(0).max(100_000_000).nullable().optional(),
+  show_on_website: z.boolean().optional(),
+  quote_only: z.boolean().optional(),
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 

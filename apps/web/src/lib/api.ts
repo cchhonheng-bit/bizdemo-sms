@@ -1,5 +1,5 @@
 // Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
-import type { BookingStatus, BookingType, FeatureFlag, ServiceCategory, Zone } from "@sms/shared";
+import type { BookingStatus, BookingType, FeatureFlag, ServiceCategory, WebCategory, Zone } from "@sms/shared";
 import { ApiError, del, get, patch, post, put } from "./http";
 
 export type Customer = {
@@ -9,9 +9,12 @@ export type Customer = {
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
   sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
-  /** D-96: the «from» price on the public website (cents); null = «request a quote» */
-  from_price: number | null;
+  /** D-106 website catalog: «from» price (cents; null = told on contact, still bookable), code (the Excel key), website category,
+   *  shown on the website, quote only, sample (seeded, the shop still has to confirm it) */
+  from_price: number | null; code?: string | null; web_category?: WebCategory | null; show_on_website?: boolean; quote_only?: boolean; is_sample?: boolean;
 };
+export type CatalogPreviewRow = { row: number; code: string; name: string; action: "new" | "changed" | "same" | "error"; errors: string[]; changes: Record<string, [unknown, unknown]> };
+export type CatalogPreview = { counts: { new: number; changed: number; same: number; error: number }; file_errors: string[]; rows: CatalogPreviewRow[] };
 export type Technician = { user_id: string; role: "lead" | "assistant"; full_name: string };
 export type Booking = {
   id: string; number: string; customer_id: string; customer_name: string; customer_phones: string[];
@@ -150,9 +153,10 @@ export type CompanySettings = Record<string, unknown> & { company_id: string; fx
 // ---------- public website + customer requests (D-95) ----------
 export type SiteSettings = { website: { published?: boolean; hero?: string | null; gallery?: string[] } & Record<string, unknown>; company_info: Record<string, string>; url: string };
 export type ServiceRequest = { id: string; source: "telegram" | "website"; kind: "request" | "booking" | "quote" | "reschedule"; name: string | null; phone: string | null; text: string; status: "new" | "done";
-  outcome: "confirmed" | "declined" | "approved" | "rejected" | null; note: string | null; meta: Record<string, unknown> | null;
+  outcome: "confirmed" | "declined" | "approved" | "rejected" | "expired" | null; note: string | null; meta: Record<string, unknown> | null;
   created_at: string; handled_at: string | null; customer_id: string | null; customer_name: string | null; handled_by_name: string | null;
-  booking_id: string | null; booking_number: string | null; booking_at: string | null; booking_status: BookingStatus | null; web_status: "pending" | "confirmed" | "declined" | null; photos: { id: string }[] };
+  booking_id: string | null; booking_number: string | null; booking_at: string | null; booking_ends: string | null; booking_status: BookingStatus | null; web_status: "pending" | "confirmed" | "declined" | "expired" | null;
+  lat: number | null; lng: number | null; loc_accuracy: number | null; photos: { id: string }[] };
 
 /** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
 export function errCode(e: unknown): string {
@@ -171,7 +175,7 @@ const q = (o: Record<string, string | number | undefined>) => {
 export type AppConfig = { appName: string; companyName: string; telegramBot: string | null; shopCode: string; features: FeatureFlag[] };
 export type SubscribeInfo = { link: string | null; bot: string | null; shop: string; enabled: boolean; total: number; promo: number; stopped: number;
   subscribers: { first_name: string | null; username: string | null; subscribed_at: string; promo: boolean; stopped: boolean }[] };
-export type BroadcastRow = { id: number; kind: "service" | "promo"; text: string; created_by_name: string | null; recipients: number; created_at: string; sent: number; failed: number; pending: number };
+export type BroadcastRow = { id: number; kind: "service" | "promo"; text: string; created_by_name: string | null; recipients: number; created_at: string; valid_until: string | null; sent: number; failed: number; pending: number };
 
 export const api = {
   config: () => get<AppConfig>("/api/config"),
@@ -182,10 +186,15 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
-  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null }) =>
-    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months })).id,
+  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null;
+    code?: string | null; web_category?: WebCategory | null; from_price?: number | null; show_on_website?: boolean; quote_only?: boolean }) =>
+    (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months,
+      ...(v.income_account_id !== undefined ? { income_account_id: v.income_account_id } : {}), ...(v.code !== undefined ? { code: v.code ?? "" } : {}), ...(v.web_category !== undefined ? { web_category: v.web_category } : {}),
+      ...(v.from_price !== undefined ? { from_price: v.from_price } : {}), ...(v.show_on_website !== undefined ? { show_on_website: v.show_on_website } : {}), ...(v.quote_only !== undefined ? { quote_only: v.quote_only } : {}) })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
-  setFromPrice: (id: string, from_price: number | null) => post<{ ok: true }>(`/api/catalog/${id}/from-price`, { from_price }),
+  catalogMeta: () => get<{ last: { name: string; at: string } | null; can_edit: boolean }>("/api/catalog/meta"),
+  catalogPreview: (data: string) => post<CatalogPreview>("/api/catalog/import/preview", { data }),
+  catalogApply: (data: string) => post<{ ok: true; counts: CatalogPreview["counts"] }>("/api/catalog/import/apply", { data }),
 
   bookings: (opts: { statuses?: BookingStatus[]; from?: string; to?: string } = {}) =>
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
@@ -306,7 +315,8 @@ export const api = {
   requests: {
     list: (all: boolean) => get<ServiceRequest[]>(`/api/requests${all ? "?all=1" : ""}`),
     /** done · confirm / decline (an online booking) · approve / reject (a reschedule request); decline and reject carry the reason */
-    act: (id: string, action: "done" | "confirm" | "decline" | "approve" | "reject", reason?: string) => post<{ ok: true }>(`/api/requests/${id}/${action}`, action === "decline" || action === "reject" ? { reason: reason ?? "" } : {}),
+    act: (id: string, action: "done" | "confirm" | "decline" | "approve" | "reject", reason?: string, minutes?: number) => post<{ ok: true }>(`/api/requests/${id}/${action}`,
+      action === "decline" || action === "reject" ? { reason: reason ?? "" } : action === "confirm" && minutes ? { minutes } : {}),
   },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),
@@ -376,7 +386,8 @@ export const api = {
   subscribe: {
     info: () => get<SubscribeInfo>("/api/subscribe"),
     broadcasts: () => get<BroadcastRow[]>("/api/subscribe/broadcasts"),
-    send: (kind: "service" | "promo", text: string) => post<{ id: number; recipients: number }>("/api/subscribe/broadcast", { kind, text }),
+    preview: (text: string) => post<{ text: string; button: string; recipients: number; gap_days: number }>("/api/subscribe/broadcast/preview", { text }),
+    send: (text: string, valid_days: number) => post<{ id: number; recipients: number }>("/api/subscribe/broadcast", { text, valid_days }),
   },
 
   me: {

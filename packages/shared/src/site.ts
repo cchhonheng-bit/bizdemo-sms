@@ -1,19 +1,87 @@
-// Public shop website (D-96): the consent a visitor ticks when booking or asking for a quote, the booking rules of the site
-// and the small helpers the server pages and the staff app share.
-export const SITE_CONSENT_VERSION = "2026-10-03-v1";
-/** ONE tick: the shop may keep name, phone and location in its customer list (stored with the time and this version) */
-export const siteConsentText = (shop: string, lang: "km" | "en" = "km"): string => (lang === "en"
-  ? `I agree that ${shop} keeps my name, phone number and location in its customer list.`
-  : `ខ្ញុំយល់ព្រមឲ្យ ${shop} រក្សាទុក ឈ្មោះ លេខទូរស័ព្ទ និងទីតាំងរបស់ខ្ញុំ ក្នុងបញ្ជីអតិថិជន។`);
+// Public shop website (D-96 · final combined brief D-106…): the rules the server pages, the bot and the staff app share —
+// the one-tap consent, the website catalog (categories, who may edit), online booking hours and slots, phone numbers,
+// customer passwords.
+import type { ServiceCategory } from "./booking";
+import { CONSENT_VERSION, consentPurposes } from "./legal";
+
+/** the website shows the bot's consent (same three purposes, same version); stored with time, version and source */
+export const SITE_CONSENT_VERSION = CONSENT_VERSION;
+export type ConsentSource = "web" | "miniapp" | "bot";
+/** the text above the button — tapping it IS the consent (no tick box): the lead-in names the button, then the three purposes */
+export function siteConsentLines(shop: string, button: string, lang: "km" | "en" = "km"): string[] {
+  return [lang === "en" ? `By tapping "${button}" you agree to:` : `ពេលចុច «${button}» អ្នកយល់ព្រមលើ៖`, ...consentPurposes(shop, lang)];
+}
 
 /** a web booking must start at least this many minutes from now (the staff confirm within WEB_CONFIRM_MIN) */
 export const WEB_LEAD_MIN = 60;
 export const WEB_CONFIRM_MIN = 30;
+/** an online booking nobody answered: Admin + GM are reminded after WEB_CONFIRM_MIN working minutes, the CEO after this many */
+export const WEB_ESCALATE_MIN = 60;
 /** date chips on the booking screen */
 export const WEB_DAYS = 7;
 export const WEB_MAX_PHOTOS = 5;
-/** who may set the "from" price of a service (owner brief: GM, Admin, CEO, CFO only) */
-export const FROM_PRICE_ROLES: readonly string[] = ["gm", "admin", "ceo", "cfo"];
+/** one booking: at most this many service lines, each 1…WEB_MAX_QTY */
+export const WEB_MAX_LINES = 8;
+export const WEB_MAX_QTY = 20;
+
+// ---------- website catalog ----------
+/** the category chips of the website, in this order (a chip shows when it has at least one item) */
+export const WEB_CATEGORIES = ["ac", "water", "electric", "cctv", "construction", "decor"] as const;
+export type WebCategory = (typeof WEB_CATEGORIES)[number];
+export const WEB_CATEGORY_LABEL: Record<WebCategory, { km: string; en: string }> = {
+  ac: { km: "ម៉ាស៊ីនត្រជាក់", en: "Air conditioner" }, water: { km: "ទឹក", en: "Water" }, electric: { km: "ភ្លើង", en: "Electrical" },
+  cctv: { km: "កាមេរ៉ា CCTV", en: "CCTV camera" }, construction: { km: "សំណង់", en: "Construction" }, decor: { km: "តុបតែង", en: "Decoration" },
+};
+/** the booking category (staff side: reports, permissions for type B …) a website category belongs to */
+export const WEB_CATEGORY_GROUP: Record<WebCategory, ServiceCategory> = { ac: "mep", water: "mep", electric: "mep", cctv: "camera", construction: "construction", decor: "decor" };
+/** who may edit the catalog and use the Excel import (owner brief: CEO, CFO, Admin, GM only) */
+export const CATALOG_EDIT_ROLES: readonly string[] = ["ceo", "cfo", "admin", "gm"];
+/** item code: capitals, digits, dot, dash, underscore — the key of the Excel import */
+export const CATALOG_CODE_RE = /^[A-Z0-9][A-Z0-9._-]{0,19}$/;
+/** who may create a promotion (owner brief: CEO / GM) */
+export const PROMO_ROLES: readonly string[] = ["ceo", "gm"];
+export const PROMO_GAP_DAYS_DEFAULT = 7;
+export const PROMO_MAX_LINES = 4;
+/** promotions are never delivered between these local hours (20:00–08:00) */
+export const PROMO_QUIET = { from: 20, to: 8 } as const;
+
+/** "id:qty,id:qty" (the address of the booking / quote screen) ⇄ lines */
+export type WebLineRef = { id: string; qty: number };
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export function parseWebLines(raw: string | undefined | null): WebLineRef[] | null {
+  if (!raw) return null;
+  const out: WebLineRef[] = [];
+  for (const part of raw.split(",").slice(0, WEB_MAX_LINES + 1)) {
+    const [id, q = "1"] = part.split(":");
+    const qty = Number(q);
+    if (!id || !UUID_RE.test(id) || !Number.isInteger(qty) || qty < 1 || qty > WEB_MAX_QTY) return null;
+    const same = out.find((x) => x.id === id);
+    if (same) same.qty = Math.min(WEB_MAX_QTY, same.qty + qty); else out.push({ id, qty });
+  }
+  return out.length && out.length <= WEB_MAX_LINES ? out : null;
+}
+export const webLinesParam = (lines: WebLineRef[]): string => lines.map((l) => `${l.id}:${l.qty}`).join(",");
+
+// ---------- online booking hours (Settings → Website, CEO): open – close with a lunch break; attendance hours are separate ----------
+export type WebHours = { open: string; close: string; lunch_start: string; lunch_end: string };
+export const WEB_HOURS_DEFAULT: WebHours = { open: "08:00", close: "17:00", lunch_start: "12:00", lunch_end: "13:00" };
+const HM = /^([01]\d|2[0-3]):([0-5]\d)$/;
+const toMin = (hm: string) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+export function webHours(v: Partial<WebHours> | null | undefined): WebHours {
+  const pick = (k: keyof WebHours) => (typeof v?.[k] === "string" && HM.test(v[k]!) ? v[k]! : WEB_HOURS_DEFAULT[k]);
+  return { open: pick("open"), close: pick("close"), lunch_start: pick("lunch_start"), lunch_end: pick("lunch_end") };
+}
+/** the minutes of the day a job of `minutes` may start: every full hour from the opening time; the job ends by closing time
+ *  (last start = close − duration) and never touches the lunch break */
+export function webSlotStarts(h: WebHours, minutes: number): number[] {
+  const open = toMin(h.open), close = toMin(h.close), l1 = toMin(h.lunch_start), l2 = toMin(h.lunch_end);
+  const out: number[] = [];
+  for (let m = Math.ceil(open / 60) * 60; m + minutes <= close; m += 60) {
+    if (l2 > l1 && m < l2 && m + minutes > l1) continue;
+    out.push(m);
+  }
+  return out;
+}
 
 /** "12 345 678", "012345678", "+855 12 345 678" → "012345678"; null when it is not a Cambodian phone number */
 export function normalizeKhPhone(raw: string): string | null {
@@ -33,11 +101,11 @@ const KM_DIGITS = "០១២៣៤៥៦៧៨៩";
 /** 30 → "៣០" (the Khmer page writes counts in Khmer numerals; dates, times and prices stay in Latin digits) */
 export const kmDigits = (n: number | string): string => String(n).replace(/[0-9]/g, (d) => KM_DIGITS[Number(d)]!);
 
-// ---------- customer login (final brief): phone + password, the password is sent to the linked Telegram chat ----------
-/** shown on the change form and in the bot message that carries a password */
+// ---------- customer login: phone + password, the password is sent to the linked Telegram chat ----------
+/** shown only under a password (bot message, change form) — the owner's exact text */
 export const CUSTOMER_PASSWORD_HINT = {
-  km: "សូមជ្រើសលេខ ៤ ខ្ទង់ដែលអ្នកងាយស្រួលចងចាំ។\nកុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើតរបស់អ្នក ឬលេខ ៤ ខ្ទង់ចុងក្រោយនៃទូរស័ព្ទរបស់អ្នក។",
-  en: "Choose 4 digits that are easy for you to remember.\nDo not use your date or year of birth, or the last 4 digits of your phone number.",
+  km: "កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ",
+  en: "Do not use your birthday or the last 4 digits of your phone number",
 } as const;
 export const CUSTOMER_PASSWORD_MIN = 4;
 export const CUSTOMER_PASSWORD_MAX = 64;
@@ -60,3 +128,5 @@ export function customerLockFor(failed: number): { minutes: number | null } | nu
   const hit = CUSTOMER_LOGIN_LOCKS.find(([n]) => failed === n);
   return hit ? { minutes: hit[1] } : failed > 30 ? { minutes: null } : null;
 }
+/** a new password from the bot: at most this many per hour */
+export const CUSTOMER_RESETS_PER_HOUR = 3;

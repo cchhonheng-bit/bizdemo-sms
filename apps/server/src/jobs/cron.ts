@@ -7,6 +7,7 @@ import { flushOutbox } from "../services/telegram.js";
 import { hubAlert } from "../services/hub-client.js";
 import { lateAlerts } from "../services/jobs.js";
 import { customerNotices } from "../services/customer-notify.js";
+import { webBookingAlerts } from "../services/web-booking.js";
 import { sendSummaries } from "../services/reports.js";
 
 export function startCron(log: FastifyBaseLogger): () => void {
@@ -30,6 +31,8 @@ export function startCron(log: FastifyBaseLogger): () => void {
   }, 3600_000);
   // D-105: customers who linked Telegram hear about their booking — reminder a day before, technician on the way, job done
   const notices = setInterval(() => { customerNotices().then((n) => { if (n) log.info({ notices: n }, "customer notices"); }).catch((e) => log.warn(e, "customer notices")); }, 60_000);
-  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref();
-  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); };
+  // D-106 (CEO): an online booking nobody answered — 30 min → Admin + GM, 60 min → CEO; the appointment time passed → «expired»
+  const waiting = setInterval(() => { webBookingAlerts().then((r) => { if (r.reminded || r.escalated || r.expired) log.info(r, "web booking alerts"); }).catch((e) => log.warn(e, "web booking alerts")); }, 60_000);
+  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref();
+  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); };
 }

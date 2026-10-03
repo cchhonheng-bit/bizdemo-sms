@@ -1,26 +1,29 @@
-// Public shop website v2 (flag "website", D-96) — no staff login anywhere here.
-//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done · /my · /robots.txt
-//   public API /api/public/slots · bookings · quotes · login · password-reset · tg-login   (form token, honeypot, rate limits, locks)
+// Public shop website (flag "website", D-96 · final combined brief D-106) — no staff login anywhere here.
+//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done/<ref> · /my · /privacy · /terms · /robots.txt
+//   public API /api/public/slots · bookings · quotes · login · tg-login · maps   (form token, honeypot, rate limits, locks)
 //   customer   /api/my …                                                  (customer session cookie "otc" — own data only)
 //   files      /pub/<file> + /pub/fonts/<file> (the site's css, js, fonts) · /pub/img/<id> (website photos) · /pub/logo
 // And the staff side: Settings → Website, and the customer requests inbox with its decisions (confirm / decline / approve / reject).
+// CEO (D-106): a new password comes only from the bot — the website has no reset form; its «forgot password» opens the bot.
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
+import { isAllowedMapsHost, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { AppError, unauthenticated } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
-import { changeCustomerPassword, passwordLogin, requestPasswordReset } from "../services/customer-auth.js";
-import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myHome, mySlots, requestReschedule, resolveCustomerSession } from "../services/customer-home.js";
+import { changeCustomerPassword, passwordLogin } from "../services/customer-auth.js";
+import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myHome, myPrefs, mySlots, requestReschedule, resolveCustomerSession, setMyPrefs } from "../services/customer-home.js";
 import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
-import { decideWebBooking, doneView, publicSlots, readRequestPhoto, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookPage, donePage, homePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type SiteLang } from "../site/pages.js";
+import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
+import { assets, bookPage, donePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
+import { expandMapsLink } from "./maps.js";
 
 const LANG_COOKIE = "sl";
 const secure = () => config.publicUrl.startsWith("https://");
@@ -40,17 +43,34 @@ async function site(): Promise<SiteView> {
   return d;
 }
 const customerCookie = () => ({ path: "/", httpOnly: true, sameSite: "lax" as const, secure: secure(), maxAge: config.sessionDays * 86400 });
+/** the lines of the address: ?items=<id>:<qty>,… (or ?service=<id> of older links) */
+const linesOf = (req: FastifyRequest) => {
+  const q = (req.query as { items?: string; service?: string } | undefined) ?? {};
+  return parseWebLines(q.items ?? (q.service && /^[0-9a-f-]{36}$/.test(q.service) ? `${q.service}:1` : null));
+};
+/** a signed-in customer: name and phone are filled in, and the booking is linked at once */
+async function prefillOf(req: FastifyRequest): Promise<Prefill | null> {
+  const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+  if (!s) return null;
+  const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${s.companyId} and tg_subscriber_id = ${s.subscriberId} and is_active order by created_at limit 1`)[0];
+  return c ? { name: c.name, phone: c.phone ?? "" } : null;
+}
 
 /** screen 1 — "/" (app.ts) */
 export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
   const lang = langOf(req, reply);
-  return html(reply, 200, homePage(await site(), lang, pathOf(req)));
+  return html(reply, 200, homePage(await site(), lang, pathOf(req), linesOf(req)));
 }
 /** an unknown address on the public side: the site's own «not found» for browsers, JSON for everything else */
 export async function siteNotFound(req: FastifyRequest, reply: FastifyReply) {
   const d = String(req.headers.accept ?? "").includes("text/html") ? await siteData().catch(() => null) : null;
   if (!d) return reply.status(404).send({ error: "NOT_FOUND" });
   return html(reply, 404, notFoundPage(d, req.cookies[LANG_COOKIE] === "en" ? "en" : "km"));
+}
+/** /privacy and /terms: public, never a login; back = the previous page, else "/" (D-106) */
+export async function siteLegal(req: FastifyRequest, reply: FastifyReply, which: "privacy" | "terms") {
+  const lang = langOf(req, reply);
+  return html(reply, 200, legalSitePage(await site(), lang, which, pathOf(req)), "public, max-age=600");
 }
 
 // ---------- /pub: the site's own static files (always there; the pages that use them are behind the flag) ----------
@@ -72,12 +92,13 @@ export const pubRoutes: FastifyPluginAsync = async (app) => {
 };
 
 const uuid = z.string().uuid();
-const coord = { lat: z.number().min(-90).max(90).nullable().optional(), lng: z.number().min(-180).max(180).nullable().optional() };
-const formGuard = { ts: z.string().max(60).optional(), company_url: z.string().max(300).optional(), lang: z.enum(["km", "en"]).optional(), consent: z.boolean().optional() };
-const bookingBody = z.object({ service_id: uuid, at: z.string().max(40), address: z.string().max(500).default(""), ...coord, name: z.string().max(200).default(""), phone: z.string().max(40).default(""),
+const coord = { lat: z.number().min(-90).max(90).nullable().optional(), lng: z.number().min(-180).max(180).nullable().optional(), accuracy: z.number().min(0).max(1_000_000).nullable().optional() };
+const formGuard = { ts: z.string().max(60).optional(), company_url: z.string().max(300).optional(), lang: z.enum(["km", "en"]).optional(), consent: z.boolean().optional(), init_data: z.string().max(4000).nullable().optional() };
+const items = z.string().max(400);
+const bookingBody = z.object({ items, at: z.string().max(40), address: z.string().max(500).default(""), ...coord, name: z.string().max(200).default(""), phone: z.string().max(40).default(""),
   note: z.string().max(600).nullable().optional(), ...formGuard }).strict();
-const quoteBody = z.object({ category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(), name: z.string().max(200).default(""),
-  phone: z.string().max(40).default(""), location: z.string().max(500).optional(), ...coord, service_id: uuid.nullable().optional(), ...formGuard }).strict();
+const quoteBody = z.object({ items: items.nullable().optional(), category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(),
+  name: z.string().max(200).default(""), phone: z.string().max(40).default(""), location: z.string().max(500).optional(), ...coord, ...formGuard }).strict();
 
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireFeature("website"));
@@ -89,14 +110,14 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
 
   // ---- pages ----
   app.get("/book", async (req, reply) => {
-    const lang = langOf(req, reply), d = await site();
-    const id = uuid.safeParse((req.query as { service?: string } | undefined)?.service);
-    const first = d.services.find((s) => s.from_price != null);
-    if (!id.success) return reply.redirect(first ? `/book?service=${first.id}` : "/quote", 302);
-    const svc = d.services.find((s) => s.id === id.data);
-    if (!svc) return reply.redirect("/", 302);
-    if (svc.from_price == null) return reply.redirect(`/quote?service=${svc.id}`, 302); // no price → the quote screen
-    return html(reply, 200, bookPage(d, lang, { service: { ...svc, from_price: svc.from_price }, days: await slotGrid(sql, d.companyId, svc.duration_min), token: formToken(), path: pathOf(req) }));
+    const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
+    if (!refs) return reply.redirect("/", 302);
+    const q = req.query as { items?: string };
+    if (!q.items) return reply.redirect(`/book?items=${webLinesParam(refs)}`, 302); // an older ?service= link
+    const r = await resolveLines(sql, d.companyId, refs).catch(() => null);
+    if (!r) return reply.redirect("/", 302);
+    if (r.quote) return reply.redirect(`/quote?items=${webLinesParam(refs)}`, 302); // quote-only items: the quote screen
+    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: await prefillOf(req) }));
   });
   app.get("/book/done/:ref", async (req, reply) => {
     const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);
@@ -104,16 +125,21 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     return html(reply, 200, donePage(await site(), lang, await doneView(ref.data.ref), pathOf(req)), "no-store");
   });
   app.get("/quote", async (req, reply) => {
-    const lang = langOf(req, reply), d = await site();
-    const id = uuid.safeParse((req.query as { service?: string } | undefined)?.service);
-    return html(reply, 200, quotePage(d, lang, { service: id.success ? d.services.find((s) => s.id === id.data) ?? null : null, token: formToken(), path: pathOf(req) }));
+    const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
+    const r = refs ? await resolveLines(sql, d.companyId, refs).catch(() => null) : null;
+    return html(reply, 200, quotePage(d, lang, { lines: r, token: formToken(), path: pathOf(req), prefill: await prefillOf(req) }));
   });
-  app.get("/quote/done", async (req, reply) => { const lang = langOf(req, reply); return html(reply, 200, quoteDonePage(await site(), lang, pathOf(req))); });
+  app.get("/quote/done/:ref", async (req, reply) => {
+    const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);
+    if (!ref.success) throw new AppError("NOT_FOUND", 404);
+    return html(reply, 200, quoteDonePage(await site(), lang, await quoteDoneView(ref.data.ref), pathOf(req)), "no-store");
+  });
+  app.get("/quote/done", async (_req, reply) => reply.redirect("/", 302)); // the old static «sent» screen
   app.get("/my", async (req, reply) => {
     const lang = langOf(req, reply), d = await site();
     const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
     if (!s) return html(reply, 200, loginPage(d, lang, "/my"), "no-store");
-    return html(reply, 200, myPage(d, lang, await myHome(s), "/my"), "no-store");
+    return html(reply, 200, myPage(d, lang, await myHome(s), await myPrefs(s), "/my"), "no-store");
   });
   app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").header("Cache-Control", "no-cache").send(robotsTxt((await siteData())?.website.published === true)));
   app.get("/pub/img/:id", async (req, reply) => image(reply, await readSiteImage(z.object({ id: uuid }).parse(req.params).id)));
@@ -124,18 +150,33 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   // ---- public API ----
   app.get("/api/public/slots", async (req) => {
     if (!checkRate(`site:slots:ip:${req.ip}`, 120, 60)) throw new AppError("RATE_LIMITED", 429);
-    return publicSlots(z.object({ service: uuid }).parse(req.query).service);
+    return publicSlots(z.object({ items }).parse(req.query).items);
   });
+  /** ONE tap: save (pending, slot held) + consent + the bot link — or, signed in / inside Telegram, linked at once */
   app.post("/api/public/bookings", async (req) => {
-    const r = await submitWebBooking(req.ip, bookingBody.parse(req.body));
+    const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+    const r = await submitWebBooking(req.ip, bookingBody.parse(req.body), { session: s });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // Admin + GM hear about it right away
     return r;
   });
   // photos arrive made smaller by the browser (≤ ~1 MB each); attempts are counted per visitor before the body is read
   app.post("/api/public/quotes", { bodyLimit: 8_000_000, onRequest: async (req) => { if (!checkRate(`site:quote-try:ip:${req.ip}`, 30, 3600)) throw new AppError("RATE_LIMITED", 429); } }, async (req) => {
-    const r = await submitQuote(req.ip, quoteBody.parse(req.body));
+    const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+    const r = await submitQuote(req.ip, quoteBody.parse(req.body), { session: s });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
+  });
+  /** a pasted Google Maps link → coordinates (short links are followed on allowlisted hosts only — S-12) */
+  app.post("/api/public/maps", async (req) => {
+    if (!checkRate(`site:maps:ip:${req.ip}`, 20, 600)) throw new AppError("RATE_LIMITED", 429);
+    const { url } = z.object({ url: z.string().trim().min(1).max(2048) }).strict().parse(req.body);
+    const direct = parseLatLng(url);
+    if (direct) return direct;
+    if (!/^https?:\/\//i.test(url) || !isAllowedMapsHost(url)) throw new AppError("MAP_LINK_INVALID", 400);
+    const resolved = await expandMapsLink(url);
+    const p = resolved ? parseLatLng(resolved) : null;
+    if (!p) throw new AppError("MAP_LINK_INVALID", 400);
+    return p;
   });
   /** browser login (D-103): phone + password. Every failure looks the same; the locks are per phone (services/customer-auth.ts) */
   app.post("/api/public/login", async (req, reply) => {
@@ -144,8 +185,6 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
     return { ok: true };
   });
-  /** «forgot password»: always the same answer, at once; a new password goes to the Telegram chat linked to that phone, if any */
-  app.post("/api/public/password-reset", async (req) => requestPasswordReset(req.ip, z.object({ phone: z.string().max(40) }).strict().parse(req.body).phone));
   /** opened inside Telegram (Mini App): the launch data is the login */
   app.post("/api/public/tg-login", async (req, reply) => {
     if (!checkRate(`site:login:ip:${req.ip}`, 10, 60)) throw new AppError("RATE_LIMITED", 429);
@@ -168,6 +207,12 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const b = z.object({ current: z.string().max(200), next: z.string().max(200) }).strict().parse(req.body);
     return changeCustomerPassword(s, req.ip, b.current, b.next);
   });
+  /** notification settings (service messages / promotions) — kept by the hub with its consent log */
+  app.get("/api/my/prefs", async (req) => (await myPrefs(await customer(req))) ?? { service: false, promo: false });
+  app.post("/api/my/prefs", async (req) => {
+    const s = await customer(req);
+    return setMyPrefs(s, req.ip, z.object({ service: z.boolean(), promo: z.boolean() }).strict().parse(req.body));
+  });
   app.get("/api/my/bookings/:id/slots", async (req) => mySlots(await customer(req), z.object({ id: uuid }).parse(req.params).id));
   app.post("/api/my/bookings/:id/cancel", async (req) => {
     const s = await customer(req);
@@ -186,6 +231,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
 };
 
 const text = (n: number) => z.string().trim().max(n);
+const hm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "BAD_TIME");
 const sitePatch = z.object({
   published: z.boolean().optional(),
   name_km: text(120).optional(), name_en: text(120).optional(), short_name: text(40).optional(), phone: text(80).optional(), address: text(300).optional(),
@@ -193,6 +239,10 @@ const sitePatch = z.object({
   area_km: text(300).optional(), area_en: text(300).optional(), hours_km: text(120).optional(), hours_en: text(120).optional(),
   highlights_km: z.array(text(120)).max(6).optional(), highlights_en: z.array(text(120)).max(6).optional(),
   facebook: z.union([z.literal(""), z.string().max(200).regex(/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\s]+$/, "BAD_URL")]).optional(),
+  // D-106 (CEO): online booking hours with the lunch break (One Team to confirm), and the gap between two promotions per customer
+  hours: z.object({ open: hm, close: hm, lunch_start: hm, lunch_end: hm }).strict()
+    .refine((h) => h.open < h.close && h.lunch_start <= h.lunch_end && (h.lunch_start === h.lunch_end || (h.lunch_start >= h.open && h.lunch_end <= h.close)), "BAD_HOURS").optional(),
+  promo_gap_days: z.number().int().min(1).max(60).optional(),
 }).strict();
 
 /** Settings → Website (settings.manage) */
@@ -221,7 +271,11 @@ export const requestsRoutes: FastifyPluginAsync = async (app) => {
   const flush = (req: FastifyRequest) => void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
   app.get("/", guard, async (req) => listRequests(req.user!, (req.query as { all?: string } | undefined)?.all === "1"));
   app.post("/:id/done", guard, async (req) => markRequestDone(req.user!, req.ip, id(req)));
-  app.post("/:id/confirm", decide, async (req) => { const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm"); flush(req); return r; });
+  /** confirm — CEO D-106: Admin / GM may set the job length here (minutes) */
+  app.post("/:id/confirm", decide, async (req) => {
+    const { minutes } = z.object({ minutes: z.number().int().min(15).max(1440).optional() }).strict().parse(req.body ?? {});
+    const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm", "", minutes); flush(req); return r;
+  });
   app.post("/:id/decline", decide, async (req) => { const r = await decideWebBooking(req.user!, req.ip, id(req), "decline", reason(req, true)); flush(req); return r; });
   app.post("/:id/approve", decide, async (req) => { const r = await decideReschedule(req.user!, req.ip, id(req), "approve"); flush(req); return r; });
   app.post("/:id/reject", decide, async (req) => { const r = await decideReschedule(req.user!, req.ip, id(req), "reject", reason(req, false)); flush(req); return r; });

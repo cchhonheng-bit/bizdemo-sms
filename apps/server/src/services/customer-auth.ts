@@ -1,23 +1,26 @@
-// Customer login (owner brief «WEBSITE v2 + CUSTOMER LOGIN — final», D-103/D-104): phone + password — no Telegram Login Widget.
+// Customer login (D-103/D-104 · final combined brief D-106…): phone + password — no Telegram Login Widget.
 //  * The account of a phone number = the customer record with that phone that is linked to a Telegram chat. The password is
 //    made by the server (4 random digits), sent ONCE to that chat by the shop bot, and only its argon2id hash is stored;
 //    it is never logged, never shown in the app, never put into the outbox table or the audit log.
 //  * Wrong passwords are counted PER PHONE in customer_login_guards — whether an account exists or not, so every answer is
 //    the same for a known and an unknown number (no enumeration): 10 → 3 min, 15 → 5 min, 20 → 30 min, 30 → locked until a
-//    reset through Telegram or an unlock by Admin / GM. A success clears the counter. Per visitor: 50 failures an hour.
-//  * Forgot password: a new random password goes ONLY to the Telegram chat linked to that phone; the screen says the same
-//    thing whatever the number; 3 resets an hour per phone; every session ends.
+//    new password through Telegram or an unlock by Admin / GM. A success clears the counter. Per visitor: 50 failures an hour.
+//  * New password: ONLY from the bot, in the linked chat itself (CEO: no reset from the website — its «forgot password» opens
+//    the bot); 3 an hour; every session ends.
+//  * Linking by the bot's «share my phone» (Telegram tells the number the account really has): the customer of that number is
+//    linked — or made — and gets its first password.
 import { randomBytes, randomInt } from "node:crypto";
-import { CUSTOMER_PASSWORD_HINT, CUSTOMER_PASSWORD_MAX, CUSTOMER_PASSWORD_MIN, customerLockFor, normalizeKhPhone, weakCustomerPassword } from "@sms/shared";
+import { CUSTOMER_PASSWORD_MAX, CUSTOMER_PASSWORD_MIN, CUSTOMER_RESETS_PER_HOUR, customerLockFor, customerText, normalizeKhPhone, SITE_CONSENT_VERSION, weakCustomerPassword } from "@sms/shared";
 import { config } from "../config.js";
-import { sql, type Db } from "../db.js";
+import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { DUMMY_HASH_PROMISE, hashPassword, verifyPassword } from "../lib/password.js";
 import { checkRate, refundRate } from "../lib/rate-limit.js";
 import { sha256 } from "../lib/secure.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
-import { hubCall, hubConfigured } from "./hub-client.js";
+import { btn, customerGrid, menuUrl, row, type CustomerMsg } from "./customer-bot.js";
+import { customerByPhone } from "./requests.js";
 import { siteCompanyId } from "./site.js";
 
 // ---------- passwords ----------
@@ -28,21 +31,6 @@ export function randomCustomerPassword(phones: string[]): string {
     const pw = String(randomInt(10_000)).padStart(4, "0");
     if (!weakFor(pw, phones)) return pw;
   }
-}
-/** the bot message that carries a password (customers get Khmer): the password, how to use it, the advice to change it, the hint */
-export const passwordMessage = (pw: string, kind: "initial" | "reset"): string => [
-  kind === "initial" ? "🔑 ពាក្យសម្ងាត់សម្រាប់ចូលគណនីរបស់អ្នក៖" : "🔑 ពាក្យសម្ងាត់ថ្មីរបស់អ្នក៖", pw, "",
-  "ចូលគណនីដោយ លេខទូរស័ព្ទរបស់អ្នក និងពាក្យសម្ងាត់នេះ។ សូមប្ដូរវាជាលេខដែលអ្នកចងចាំ នៅក្នុង «ការកក់របស់ខ្ញុំ»។", "", CUSTOMER_PASSWORD_HINT.km,
-].join("\n");
-
-/** one message to one subscriber of this shop through the hub (never the outbox table: the text may carry a password) */
-export async function tellSubscriber(subscriberId: number, text: string): Promise<boolean> {
-  if (!hubConfigured()) return false;
-  const r = await Promise.race([
-    hubCall("POST", "/internal/notify-subscriber", { subscriber_id: subscriberId, text: text.slice(0, 1000) }).catch(() => null),
-    new Promise<null>((resolve) => { setTimeout(() => resolve(null), 4000).unref(); }),
-  ]);
-  return !!r && r.status === 200 && r.json?.ok === true;
 }
 
 // ---------- accounts ----------
@@ -128,40 +116,51 @@ export async function changeCustomerPassword(s: { id: string; companyId: string;
   return { ok: true };
 }
 
-// ---------- reset (forgot password): a new password to the linked Telegram chat only ----------
-const resetAllowed = (phones: string[]) => phones.every((p) => checkRate(`site:reset:phone:${p}`, 3, 3600));
-/** store the new password, end every session, clear the locks of the account's phones. `deliver`: send it first — when the
- *  message cannot be delivered nothing changes. Returns the password for the message, or null. */
-async function resetPassword(acc: Account, via: "web" | "bot", ip: string | null, deliver: boolean): Promise<string | null> {
+// ---------- new password: from the bot only, into the linked chat itself ----------
+/** «🔑 កំណត់ពាក្យសម្ងាត់ថ្មី»: the answer in that chat carries the new password (never logged); every session ends, the locks of
+ *  the account's phones are cleared. A chat that holds only a booking link (not the customer record yet) waits for the staff. */
+export async function resetPasswordFromBot(companyId: string, subscriberId: number): Promise<CustomerMsg> {
+  const acc = await accountBySubscriber(companyId, subscriberId);
+  if (!acc) return { text: customerText.passwordLater, buttons: row(btn.track()) };
+  if (!acc.phones.every((p) => checkRate(`site:reset:phone:${p}`, CUSTOMER_RESETS_PER_HOUR, 3600))) return { text: customerText.tooManyResets };
   const pw = randomCustomerPassword(acc.phones);
-  if (deliver && !(await tellSubscriber(Number(acc.sub), passwordMessage(pw, "reset")))) return null;
   await sql`update customers set password_hash = ${await hashPassword(pw)}, password_set_at = now() where id = ${acc.id}`;
   await endSessions(sql, acc, null);
   await sql`delete from customer_login_guards where company_id = ${acc.company_id} and phone = any(${sql.array(acc.phones)})`;
-  await audit(sql, { companyId: acc.company_id, userId: null, action: "customer.password_reset", source: via === "bot" ? "telegram" : "system", table: "customers", rowId: acc.id, new: { via }, ip });
-  return pw;
+  await audit(sql, { companyId: acc.company_id, userId: null, action: "customer.password_reset", source: "telegram", table: "customers", rowId: acc.id, new: { via: "bot" } });
+  return { text: customerText.newPassword(pw), hint: customerText.hint, buttons: row(btn.login()) };
 }
-let lastReset: Promise<void> = Promise.resolve();
-/** tests wait for the work behind the last «forgot password» request */
-export const resetSettled = () => lastReset;
-/** the login page's «forgot password»: the answer is ALWAYS the same and comes at once — the work runs behind it, so neither
- *  the text nor the time tells whether the number has an account */
-export function requestPasswordReset(ip: string, phoneRaw: string): { ok: true } {
-  lastReset = (async () => {
-    const companyId = await siteCompanyId(), phone = normalizeKhPhone(phoneRaw);
-    if (!companyId || !phone) return;
-    if (!checkRate(`site:reset:ip:${ip}`, 10, 3600) || !resetAllowed([phone])) return;
-    const acc = await accountByPhone(companyId, phone);
-    if (acc) await resetPassword(acc, "web", ip, true);
-  })().catch(() => undefined);
-  return { ok: true };
-}
-/** «ភ្លេចពាក្យសម្ងាត់» in the bot: the chat itself is the linked one — the answer in that chat carries the new password */
-export async function resetPasswordFromBot(companyId: string, subscriberId: number): Promise<string> {
-  const acc = await accountBySubscriber(companyId, subscriberId);
-  if (!acc) return "សូមភ្ជាប់ Telegram ជាមុនសិន៖ កក់សេវា រួចចុច «ភ្ជាប់ Telegram (១ ចុច)»។";
-  if (!resetAllowed(acc.phones)) return "⏳ អ្នកបានស្នើពាក្យសម្ងាត់ថ្មីច្រើនដងពេក។ សូមព្យាយាមម្ដងទៀតក្រោយមួយម៉ោង។";
-  return passwordMessage((await resetPassword(acc, "bot", null, false))!, "reset");
+
+// ---------- link by «share my phone» in the bot ----------
+/** Telegram vouches that this number belongs to the account (the hub accepts only the sender's OWN contact): the customer with
+ *  that number is linked to the chat (an older link to another chat moves — the number moved), else a new customer is made with
+ *  the consent just given in the bot. The first password comes with the answer. */
+export async function linkByContact(subscriberId: number, phoneRaw: string, firstName: string | null): Promise<{ ok: boolean } & CustomerMsg> {
+  const companyId = await siteCompanyId();
+  const phone = normalizeKhPhone(phoneRaw);
+  if (!companyId) return { ok: false, text: customerText.unavailable };
+  if (!phone) return { ok: false, text: customerText.notKhPhone };
+  const r = await tx(null, async (t) => {
+    const mine = (await t<{ id: string; phones: string[] }[]>`select id, phones from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active order by created_at limit 1`)[0];
+    let id = mine && mine.phones.includes(phone) ? mine.id : await customerByPhone(t, companyId, phone);
+    let made = false;
+    if (!id) {
+      id = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, origin, consent_at, consent_version, consent_source)
+        values (${companyId}, ${(firstName ?? "").trim().slice(0, 80) || phone}, ${t.array([phone])}, 'telegram', now(), ${SITE_CONSENT_VERSION}, 'bot') returning id`)[0]!.id;
+      made = true;
+    }
+    const old = (await t<{ sub: string | null }[]>`select tg_subscriber_id::text as sub from customers where id = ${id} for update`)[0]!;
+    if (old.sub !== String(subscriberId)) {
+      await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${id}`;
+      if (old.sub) await t`delete from customer_sessions where customer_id = ${id}`; // the number moved to another Telegram account
+    }
+    await audit(t, { companyId, userId: null, action: "customer.tg_link", source: "telegram", table: "customers", rowId: id, new: { via: "contact", made, moved: !!old.sub && old.sub !== String(subscriberId) } });
+    return { password: await issueInitialPassword(t, id) };
+  });
+  const keyboard = customerGrid();
+  return r.password
+    ? { ok: true, text: customerText.linked(null, r.password), hint: customerText.hint, keyboard, menu_url: menuUrl() }
+    : { ok: true, text: customerText.linkedKnown, keyboard, menu_url: menuUrl() };
 }
 
 // ---------- staff: lock state + unlock (Admin / GM — customer.manage), audit logged ----------

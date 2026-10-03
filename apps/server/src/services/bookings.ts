@@ -3,12 +3,13 @@
 // R3 no start in the past, end time, no overlaps — the exclusion constraints of 0003 are the last line under concurrency
 // R4 cancel with a reason · R5 lead technician optional, crew ≥ 1.
 // Every function takes companyId + the acting user; technicians only see bookings they are assigned to (D-18).
-import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
+import { CANCELLABLE_STATUSES, customerText, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
-import { issueInitialPassword, passwordMessage, tellSubscriber } from "./customer-auth.js";
+import { issueInitialPassword } from "./customer-auth.js";
+import { btn, row, tellSubscriber } from "./customer-bot.js";
 import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
 
@@ -271,7 +272,7 @@ const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
 export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
   const out = await assignIn(user, ip, id, a);
-  if (out.account) await tellSubscriber(out.account.subscriber, passwordMessage(out.account.password, "initial")); // the customer record was linked just now
+  if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) }); // the customer record was linked just now
   return { id: out.id, status: out.status, conflicts: out.conflicts };
 }
 async function assignIn(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
@@ -363,6 +364,15 @@ export async function cancelBooking(user: SessionUser, ip: string | null, id: st
   return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason));
 }
 
+/** a customer record that exists only because of a website booking the staff never accepted (declined, or expired unanswered)
+ *  loses its Telegram link and login — nobody keeps an account on a phone number nobody checked; a new booking links again */
+export async function dropUnacceptedAccount(t: Db, bookingId: string): Promise<void> {
+  const gone = await t<{ id: string }[]>`update customers c set tg_subscriber_id = null, password_hash = null, password_set_at = null
+    from bookings b where b.id = ${bookingId} and c.id = b.customer_id and c.origin = 'website' and c.tg_subscriber_id is not null
+      and not exists (select 1 from bookings b2 where b2.customer_id = c.id and b2.id <> ${bookingId} and b2.status <> 'cancelled') returning c.id`;
+  if (gone.length) await t`delete from customer_sessions where customer_id = ${gone[0]!.id}`;
+}
+
 /** who cancels: a staff member, or (D-96, customer home) the customer — then userId is null and Admin + GM are told as well */
 export type CancelActor = { companyId: string; userId: string | null; name: { km: string; en: string } };
 export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string) {
@@ -375,12 +385,7 @@ export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | nu
   // D-96: a website booking the staff cancel before answering = declined; open requests about this booking are closed with it
   if (b.origin === "website" && b.web_status === "pending" && actor.userId) {
     await t`update bookings set web_status = 'declined', web_decided_by = ${actor.userId}, web_decided_at = now() where id = ${id}`;
-    // a customer record that exists only because of this declined request loses its Telegram link and login (nobody keeps an
-    // account on a phone number the staff never accepted); a new booking links again
-    const gone = await t<{ id: string }[]>`update customers c set tg_subscriber_id = null, password_hash = null, password_set_at = null
-      where c.id = ${b.customer_id as string} and c.origin = 'website' and c.tg_subscriber_id is not null
-        and not exists (select 1 from bookings b2 where b2.customer_id = c.id and b2.id <> ${id} and b2.status <> 'cancelled') returning c.id`;
-    if (gone.length) await t`delete from customer_sessions where customer_id = ${gone[0]!.id}`;
+    await dropUnacceptedAccount(t, id);
   }
   await t`update service_requests set status = 'done', outcome = case when kind = 'booking' and ${actor.userId !== null} then 'declined' when kind = 'reschedule' then 'rejected' else outcome end,
       note = coalesce(note, ${reason.slice(0, 300)}), handled_by = ${actor.userId}, handled_at = now() where booking_id = ${id} and status = 'new'`;

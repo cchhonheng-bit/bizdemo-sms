@@ -153,11 +153,11 @@ iframe{width:100%;height:180px;border:0;border-radius:12px;display:block}
 .f{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1}
 .ph{display:flex;gap:6px}
 .cc{height:42px;flex:none;padding:0 10px;border-radius:10px;border:1px solid #D5E3E1;background:#FFF;display:flex;align-items:center;font-size:13px;font-weight:600}
-.cs{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:12px;background:#F2F8F7;font-size:12px;line-height:1.5;color:#344054}
-.cs input{width:18px;height:18px;margin:1px 0 0;accent-color:#0F766E;flex:none}
-.cs.s{padding:8px 10px;font-size:11px}
-.cs.s input{width:16px;height:16px}
-.cs.bad{outline:1px solid #A3332A}
+/* the one-tap consent (D-106): the text above the button names it, then the three purposes, then the privacy page */
+.cs{padding:10px 12px;border-radius:14px;background:#FFFFFF;border:1px solid #DCEAE8;font-size:12px;line-height:1.55;color:#344054;display:flex;flex-direction:column;gap:1px}
+.cs p{margin:0}
+.cs p:first-child{font-weight:600;color:#14213D;margin-bottom:2px}
+.cs a{align-self:flex-start;font-weight:600;margin-top:4px}
 .ok{padding:24px 16px 18px;border-radius:20px;background:#FFF;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
 .okc{width:56px;height:56px;border-radius:28px;background:#E0F2EF;color:#0F766E;display:flex;align-items:center;justify-content:center}
 .okc.r{background:#FBEAE8;color:#A3332A}
@@ -179,6 +179,36 @@ iframe{width:100%;height:180px;border:0;border-radius:12px;display:block}
 .tg .r{display:flex;gap:10px;align-items:center;font-size:13px;line-height:1.45}
 .tgi{width:36px;height:36px;flex:none;border-radius:18px;background:#14B8A6;color:#14213D;display:flex;align-items:center;justify-content:center}
 .tgw{min-height:44px;display:flex;justify-content:center;align-items:center;margin-top:6px}
+
+/* category tiles + item lines (D-106) */
+button.tile{width:100%;font:inherit;text-align:left;cursor:pointer}
+.tile.cat[aria-pressed=true]{border:2px solid #0F766E;padding:0 9px;background:#E0F2EF}
+.tile.cat[aria-pressed=true] .ic{background:#FFFFFF}
+#lines{display:flex;flex-direction:column;gap:8px}
+.line{display:flex;gap:6px;align-items:center}
+.lsel{flex:1;min-width:0}
+select.in{padding-right:8px;text-overflow:ellipsis}
+.qty{display:flex;align-items:center;gap:2px;height:42px;padding:0 3px;border-radius:10px;border:1px solid #D5E3E1;background:#FFFFFF;flex:none}
+.qb{width:34px;height:34px;border:0;border-radius:8px;background:#F2F8F7;color:#0F766E;display:flex;align-items:center;justify-content:center;padding:0}
+.qty output{min-width:24px;text-align:center;font-weight:700;font-size:14px}
+.lx{width:32px;height:32px;flex:none;border:0;border-radius:16px;background:none;color:#5B6676;display:flex;align-items:center;justify-content:center;padding:0}
+.addl{align-self:flex-start;border:0;background:none;color:#0F766E;font-size:13px;font-weight:600;display:flex;align-items:center;gap:4px;padding:2px 0}
+.price{margin:0;font-size:13px;font-weight:700;color:#0F766E}
+/* location */
+.locok{margin:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 6px;font-size:12px;font-weight:600;color:#0F766E}
+.locok small{font-weight:400;color:#5B6676}
+.locok a{margin-left:auto;font-size:12px}
+#loc .lk{align-self:flex-start;font-size:12px}
+/* customer home settings */
+.sw{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:40px;font-size:13px;cursor:pointer}
+.sw input{position:absolute;opacity:0;width:1px;height:1px}
+.sw i{width:44px;height:26px;flex:none;border-radius:13px;background:#D5DDE6;position:relative;transition:background .15s}
+.sw i::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:10px;background:#FFFFFF;box-shadow:0 1px 2px rgba(20,33,61,.2);transition:left .15s}
+.sw input:checked+i{background:#0F766E}
+.sw input:checked+i::after{left:21px}
+.sw input:disabled+i{opacity:.45}
+.sw input:focus-visible+i{outline:2px solid #0F766E;outline-offset:2px}
+.legal .h2{margin-top:8px}
 
 /* quote */
 .chips{display:flex;flex-wrap:wrap;gap:6px}

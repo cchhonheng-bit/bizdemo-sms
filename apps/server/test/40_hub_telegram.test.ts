@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createHmac, randomBytes } from "node:crypto";
-import { CONSENT_VERSION } from "@sms/shared";
+import { CONSENT_VERSION, consentText, CUSTOMER_MENU, customerText } from "@sms/shared";
 import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
@@ -48,6 +48,9 @@ const groupMsg = (user: number, chat: number, text: string, path = "oneteam") =>
   hook(path, { message: { message_id: uid, chat: { id: chat, type: "supergroup", title: "One Team Work" }, from: { id: user, first_name: `U${user}` }, text } });
 const tick = (user: number, shopCode = "ONETEAM", version = CONSENT_VERSION, path = shopCode.toLowerCase()) =>
   hook(path, { callback_query: { id: `cb${uid}`, from: { id: user, first_name: `U${user}`, username: `u${user}` }, message: { message_id: 1, chat: { id: user, type: "private" } }, data: `sub:${shopCode}:${version}` } });
+/** 12:00 and 21:00 in Phnom Penh today — promotions are delivered only between 08:00 and 20:00 there (D-106) */
+const localAt = (h: number) => { const d = new Date(); const day = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Phnom_Penh" }).format(d); return new Date(`${day}T${String(h).padStart(2, "0")}:00:00+07:00`); };
+const NOON = localAt(12), NIGHT = localAt(21);
 const internal = (code: string, key: string, method: "GET" | "POST", url: string, body?: unknown) =>
   hub.inject({ method, url, headers: { "x-shop-code": code, "x-hub-key": key, ...(body === undefined ? {} : { "content-type": "application/json" }) }, payload: body === undefined ? undefined : JSON.stringify(body) });
 
@@ -273,15 +276,13 @@ describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
 });
 
 describe("Customer Subscribe (A4/T5) + Broadcast (A5/T7)", () => {
-  it("t.me/<shop bot>?start=s → consent (3 purposes) + ONE ☑ button + optional Follow HangKH link; nothing stored before the tick", async () => {
+  it("t.me/<shop bot>?start=s → the owner's exact consent text + ONE ☑ button (nothing else); nothing stored before the tick", async () => {
     await privateMsg(800001, "/start s");
     const prompt = lastSent(800001);
     expect(prompt.bot).toBe("ONETEAM");
-    expect(prompt.payload.text).toContain("1) "); expect(prompt.payload.text).toContain("2) "); expect(prompt.payload.text).toContain("3) HangKH");
-    expect(prompt.payload.text).toContain("One Team Engineering"); expect(prompt.payload.text).toContain("/privacy");
-    expect(prompt.payload.reply_markup.inline_keyboard[0]).toHaveLength(1);
-    expect(prompt.payload.reply_markup.inline_keyboard[0][0].callback_data).toBe(`sub:ONETEAM:${CONSENT_VERSION}`);
-    expect(prompt.payload.reply_markup.inline_keyboard[1][0].url).toBe("https://t.me/Hangkh_bot?start=follow");
+    expect(prompt.payload.text).toBe(consentText("One Team Engineering", "https://hub.test/privacy"));
+    expect(prompt.payload.text).toBe("👋 សូមស្វាគមន៍! ចុះឈ្មោះទទួលដំណឹងពី «One Team Engineering»\n\nពេលចុច «☑ យល់ព្រម» អ្នកយល់ព្រមលើ:\n1) ដំណឹងសេវាកម្មពី One Team Engineering\n2) ប្រូម៉ូសិនពី One Team Engineering\n3) HangKH រក្សាប្រវត្តិការចុះឈ្មោះ និងផ្ញើដំណឹងពីវេទិកា\n https://hub.test/privacy");
+    expect(prompt.payload.reply_markup.inline_keyboard).toEqual([[{ text: "☑ យល់ព្រម", callback_data: `sub:ONETEAM:${CONSENT_VERSION}` }]]);
     expect((await sql`select count(*)::int as n from hub_subscribers where telegram_user_id = 800001`)[0]!.n).toBe(0);
     await privateMsg(800005, "/start s-ONETEAM"); // links printed before T3 still work on the shop bot
     expect(lastSent(800005).payload.reply_markup.inline_keyboard[0][0].callback_data).toBe(`sub:ONETEAM:${CONSENT_VERSION}`);
@@ -289,8 +290,10 @@ describe("Customer Subscribe (A4/T5) + Broadcast (A5/T7)", () => {
 
   it("tick → subscriber + subscription + consent log; a consent button of shop B pressed in One Team's bot is ignored", async () => {
     await tick(800001);
-    expect(lastText(800001)).toContain("✅");
-    expect(await sql`select action, text_version, shop_code from hub_consent_log where telegram_user_id = 800001`).toEqual([{ action: "subscribe", text_version: CONSENT_VERSION, shop_code: "ONETEAM" }]);
+    expect(lastText(800001)).toBe(customerText.askContact); // the direct path: next the phone button
+    expect(lastSent(800001).payload.reply_markup.keyboard[0][0]).toMatchObject({ text: "📱 ផ្ញើលេខទូរស័ព្ទ", request_contact: true });
+    expect(sent.some((x) => x.method === "editMessageReplyMarkup" && JSON.stringify(x.payload.reply_markup) === JSON.stringify({ inline_keyboard: [] }))).toBe(true); // one tap only
+    expect(await sql`select action, text_version, shop_code, source from hub_consent_log where telegram_user_id = 800001`).toEqual([{ action: "subscribe", text_version: CONSENT_VERSION, shop_code: "ONETEAM", source: "bot" }]);
     await tick(800008, "SHOPB", CONSENT_VERSION, "oneteam"); // forged / cross-shop callback
     expect((await sql`select count(*)::int as n from hub_subscribers where telegram_user_id = 800008`)[0]!.n).toBe(0);
     await tick(800009, "ONETEAM", "2020-01-01-v0");
@@ -303,32 +306,39 @@ describe("Customer Subscribe (A4/T5) + Broadcast (A5/T7)", () => {
     await expect(sql`delete from hub_message_log`).rejects.toThrow(/APPEND_ONLY/);
   });
 
-  it("broadcast: only the calling shop's subscribers, through that shop's own bot; /stop promo respected", async () => {
+  it("promotions: only the calling shop's opted-in subscribers, through that shop's own bot, with the «stop promotions» button; /stop promo respected; nothing at night", async () => {
     await tick(800002); await tick(800002, "SHOPB"); // 800002: both shops (each through its own bot)
     await tick(800003);                              // 800003: ONETEAM, then promo off
     await tick(800004, "SHOPB");                     // 800004: SHOPB only
     await privateMsg(800003, "/stop promo");
-    expect(lastText(800003)).toContain("One Team Engineering");
+    expect(lastText(800003)).toBe(customerText.unsubscribed("promo"));
     expect((await sql`select action from hub_consent_log where telegram_user_id = 800003 order by id`).map((r) => r.action)).toEqual(["subscribe", "promo_off"]);
-    const r = await admin.req("POST", "/api/subscribe/broadcast", { kind: "promo", text: "បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់" });
+    expect((await admin.req("POST", "/api/subscribe/broadcast", { text: "x" })).status).toBe(403); // CEO / GM write promotions
+    const pv = (await gm.req("POST", "/api/subscribe/broadcast/preview", { text: "បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់" })).json;
+    expect(pv).toMatchObject({ text: "🎁 បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់", button: "ឈប់ទទួលប្រូម៉ូសិន", recipients: 2, gap_days: 7 });
+    const r = await gm.req("POST", "/api/subscribe/broadcast", { text: "បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់" });
     expect(r.status).toBe(200); expect(r.json.recipients).toBe(2); // 800001 + 800002
     sent = [];
-    expect((await flushHubOutbox(100)).sent).toBe(2);
+    expect((await flushHubOutbox(100, undefined, NIGHT)).taken).toBe(0); // 20:00–08:00: they wait for the morning
+    expect((await flushHubOutbox(100, undefined, NOON)).sent).toBe(2);
     expect(sent.map((x) => Number(x.payload.chat_id)).sort()).toEqual([800001, 800002]);
     expect(sent.every((x) => x.bot === "ONETEAM")).toBe(true);
-    expect(String(sent[0]!.payload.text)).toContain("📢 One Team Engineering");
-    const b = await internal("SHOPB", process.env.HUB_KEY_SHOPB!, "POST", "/internal/broadcast", { kind: "service", text: "Closed on Monday" });
+    expect(sent[0]!.payload.text).toBe("🎁 បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់");
+    expect(sent[0]!.payload.reply_markup).toEqual({ inline_keyboard: [[{ text: "ឈប់ទទួលប្រូម៉ូសិន", callback_data: "c:stop_promo" }]] });
+    expect((await internal("ONETEAM", process.env.HUB_KEY_ONETEAM!, "POST", "/internal/broadcast", { kind: "service", text: "Closed on Monday" })).statusCode).toBe(400); // no mass «service» messages
+    const b = await internal("SHOPB", process.env.HUB_KEY_SHOPB!, "POST", "/internal/broadcast", { text: "Closed on Monday" });
     expect(b.json().recipients).toBe(2);
     sent = [];
-    await flushHubOutbox(100);
+    await flushHubOutbox(100, undefined, NOON);
     expect(sent.map((x) => Number(x.payload.chat_id)).sort()).toEqual([800002, 800004]);
     expect(sent.every((x) => x.bot === "SHOPB")).toBe(true);
     expect((await internal("SHOPB", process.env.HUB_KEY_SHOPB!, "POST", "/internal/broadcast", { kind: "service", text: "x", shop_code: "ONETEAM" })).statusCode).toBe(400);
   });
 
-  it("1 broadcast per 10 minutes per shop · 1,000 characters · permission + feature flag", async () => {
-    expect((await admin.req("POST", "/api/subscribe/broadcast", { kind: "service", text: "again" })).json.error).toBe("BROADCAST_TOO_SOON");
-    expect((await admin.req("POST", "/api/subscribe/broadcast", { kind: "service", text: "x".repeat(1001) })).status).toBe(400);
+  it("1 promotion per 10 minutes per shop · 400 characters, 4 lines · permission + feature flag", async () => {
+    expect((await gm.req("POST", "/api/subscribe/broadcast", { text: "again" })).json.error).toBe("BROADCAST_TOO_SOON");
+    expect((await gm.req("POST", "/api/subscribe/broadcast", { text: "x".repeat(401) })).status).toBe(400);
+    expect((await gm.req("POST", "/api/subscribe/broadcast", { text: "1\n2\n3\n4\n5" })).status).toBe(400); // at most 4 lines
     expect((await kim.req("GET", "/api/subscribe")).status).toBe(403);
     config.shop.features = "";
     expect((await admin.req("GET", "/api/subscribe")).status).toBe(404);
@@ -348,12 +358,14 @@ describe("Customer Subscribe (A4/T5) + Broadcast (A5/T7)", () => {
     const active = await sql`select s.shop_code from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 800002 and s.stopped_at is null`;
     expect(active.map((x) => x.shop_code)).toEqual(["SHOPB"]);
     await sql`update hub_broadcasts set created_at = now() - interval '11 minutes'`;
+    expect((await gm.req("POST", "/api/subscribe/broadcast/preview", { text: "ថ្មីទៀត" })).json.recipients).toBe(0); // 800001 got one less than 7 days ago
+    await sql`update hub_outbox set created_at = now() - interval '8 days'`;
     failNext = { error: "403 Forbidden: bot was blocked by the user", permanent: true };
-    const r = await admin.req("POST", "/api/subscribe/broadcast", { kind: "service", text: "Holiday notice" });
-    expect(r.json.recipients).toBe(2); // 800001 + 800003
+    const r = await gm.req("POST", "/api/subscribe/broadcast", { text: "ថ្មីទៀត" });
+    expect(r.json.recipients).toBe(1); // 800001 (800003 turned promotions off, 800002 stopped)
     sent = [];
-    const f = await flushHubOutbox(100);
-    expect(f.failed).toBe(1); expect(f.sent).toBe(1);
+    const f = await flushHubOutbox(100, undefined, NOON);
+    expect(f.failed).toBe(1); expect(f.sent).toBe(0);
     expect((await sql`select count(*)::int as n from hub_subscribers where blocked_at is not null`)[0]!.n).toBe(1);
     expect((await sql`select count(*)::int as n from hub_subscribers`)[0]!.n).toBe(4); // records stay (A4)
   });
@@ -507,32 +519,57 @@ describe("I1 Telegram inline menus", () => {
     expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.menu_button.type === "commands")).toBe(true);
   });
 
-  it("customer: /start → menu → subscribe (consent) → promo off/on → stop with confirm; every step edits the same message", async () => {
+  it("customer, direct path: /start → consent ☑ → «share my phone» (only one's OWN contact) → linked + password + the grid; 🔕 → stop promotions / all / back; replies still come after «stop all»", async () => {
+    config.shop.features = "subscribe,website";
     sent = [];
     await privateMsg(830001, "/start");
-    const home = lastSent(830001);
-    expect(home.bot).toBe("ONETEAM"); expect(home.payload.text).toContain("One Team Engineering");
-    expect(datas(home)).toEqual(expect.arrayContaining(["c:sub", "c:about"]));
-    expect(datas(home).some((d) => d.endsWith("/privacy"))).toBe(true);
-    await cb(830001, "c:sub");
-    const consent = lastEdit(830001)!;
-    expect(consent.method).toBe("editMessageText"); expect(consent.payload.message_id).toBe(mid);
-    expect(datas(consent)).toContain(`sub:ONETEAM:${CONSENT_VERSION}`); expect(datas(consent)).toContain("c:home");
-    expect(sent.filter((x) => x.method === "answerCallbackQuery").length).toBeGreaterThan(0);
+    expect(lastText(830001)).toBe(consentText("One Team Engineering", "https://hub.test/privacy"));
+    await privateMsg(830001, "", { contact: { phone_number: "+85512919192", user_id: 830001 } }); // before the consent: the consent first
+    expect(lastText(830001)).toBe(consentText("One Team Engineering", "https://hub.test/privacy"));
     await tick(830001);
-    await privateMsg(830001, "/start");
-    const subd = lastSent(830001);
-    expect(datas(subd)).toEqual(expect.arrayContaining(["c:promo_off", "c:stop_ask"]));
-    await cb(830001, "c:promo_off");
-    expect((await sql`select s.promo from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.promo).toBe(false);
-    expect(datas(lastEdit(830001))).toContain("c:promo_on");
-    await cb(830001, "c:promo_on");
-    expect((await sql`select s.promo from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.promo).toBe(true);
-    expect((await sql`select action from hub_consent_log where telegram_user_id = 830001 order by id`).map((r) => r.action)).toEqual(["subscribe", "promo_off", "promo_on"]);
-    await cb(830001, "c:stop_ask");
-    expect(datas(lastEdit(830001))).toEqual(expect.arrayContaining(["c:stop_yes", "c:home"]));
-    await cb(830001, "c:stop_yes");
-    expect((await sql`select s.stopped_at from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001`)[0]!.stopped_at).not.toBeNull();
+    expect(lastText(830001)).toBe(customerText.askContact);
+    await privateMsg(830001, "", { contact: { phone_number: "+85512919192", first_name: "Someone", user_id: 999999 } }); // a card of somebody else
+    expect(lastText(830001)).toBe(customerText.ownContact);
+    expect((await sql`select 1 from customers where '012919192' = any(phones)`).length).toBe(0);
+    sent = [];
+    await privateMsg(830001, "", { contact: { phone_number: "+855 12 919 192", first_name: "Dara", user_id: 830001 } });
+    const linked = sent.find((x) => x.method === "sendMessage" && /^✅ ភ្ជាប់រួចរាល់/.test(String(x.payload.text)))!;
+    expect(linked.payload.text).toMatch(/^✅ ភ្ជាប់រួចរាល់\n🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/);
+    expect(linked.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toEqual(Object.values(CUSTOMER_MENU));
+    const hint = sent.find((x) => x.method === "sendMessage" && x.payload.text === customerText.hint)!;
+    expect(hint.payload.disable_notification).toBe(true);
+    expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.chat_id === 830001 && x.payload.menu_button.web_app.url === "https://hub.test/")).toBe(true);
+    expect((await sql`select text from hub_message_log where chat_id = 830001 and kind like 'contact.linked%'`).every((x) => x.text === null)).toBe(true); // the password is never kept here
+    expect((await sql`select name, origin from customers where '012919192' = any(phones)`)[0]).toMatchObject({ name: "Dara", origin: "telegram" });
+    // 🔕: the choices for the state the person is in
+    await privateMsg(830001, CUSTOMER_MENU.stop);
+    expect(lastText(830001)).toBe(customerText.stopAsk);
+    expect(datas(lastSent(830001))).toEqual(["c:stop_promo", "c:stop_all", "c:cancel"]);
+    await cb(830001, "c:stop_promo");
+    expect(lastEdit(830001)!.payload.text).toBe(customerText.unsubscribed("promo")); expect(datas(lastEdit(830001))).toEqual(["c:resume_promo"]);
+    const st = async () => (await sql`select s.promo, s.stopped_at is not null as stopped from hub_subscriptions s join hub_subscribers u on u.id = s.subscriber_id where u.telegram_user_id = 830001 and s.shop_code = 'ONETEAM'`)[0];
+    expect(await st()).toEqual({ promo: false, stopped: false });
+    await privateMsg(830001, CUSTOMER_MENU.stop);
+    expect(datas(lastSent(830001))).toEqual(["c:stop_all", "c:resume_promo", "c:cancel"]);
+    await cb(830001, "c:stop_all");
+    expect(lastEdit(830001)!.payload.text).toBe(customerText.unsubscribed("all")); expect(await st()).toEqual({ promo: false, stopped: true });
+    // after «stop all»: no message gets through — except the answers to the person's own button presses
+    const sub = Number((await sql`select id::text as id from hub_subscribers where telegram_user_id = 830001`)[0]!.id);
+    expect((await internal("ONETEAM", process.env.HUB_KEY_ONETEAM!, "POST", "/internal/notify-subscriber", { subscriber_id: sub, text: "✅ test" })).json()).toMatchObject({ ok: false, error: "NOT_SUBSCRIBED" });
+    sent = [];
+    await privateMsg(830001, CUSTOMER_MENU.promo);
+    expect(lastText(830001)).toMatch(/^🎁 /);
+    await privateMsg(830001, CUSTOMER_MENU.stop);
+    expect(datas(lastSent(830001))).toEqual(["c:resume_all", "c:cancel"]);
+    await cb(830001, "c:resume_all");
+    expect(lastEdit(830001)!.payload.text).toBe(customerText.resumed("all")); expect(await st()).toEqual({ promo: true, stopped: false });
+    expect((await sql`select action, source from hub_consent_log where telegram_user_id = 830001 order by id`).map((r) => `${r.action}/${r.source}`)).toEqual(["subscribe/bot", "promo_off/bot", "stop/bot", "subscribe/bot"]);
+    // a promotion's own «stop promotions» button: the promotion stays (its button goes), the answer is a new message
+    sent = [];
+    await hook("oneteam", { callback_query: { id: `cbp${uid}`, from: { id: 830001, first_name: "D" }, message: { message_id: 4242, chat: { id: 830001, type: "private" }, text: "🎁 ប្រូម៉ូសិន" }, data: "c:stop_promo" } });
+    expect(sent.some((x) => x.method === "editMessageReplyMarkup" && x.payload.message_id === 4242)).toBe(true);
+    expect(lastSent(830001).payload.text).toBe(customerText.unsubscribed("promo")); expect(sent.some((x) => x.method === "editMessageText" && x.payload.message_id === 4242)).toBe(false);
+    config.shop.features = "subscribe";
   });
 
   it("staff: /start in the shop bot → role keyboard with the greeting + quick inline buttons (today / upcoming / app) → job details with Direction + back; data comes from the shop", async () => {
@@ -675,7 +712,8 @@ describe("A2 customer's own subscribe link + service reminders through the hub (
     const cbData = (lastSent(860001).payload.reply_markup.inline_keyboard as any[]).flat().find((b: any) => b.callback_data?.startsWith("sub:"))?.callback_data;
     expect(cbData).toBe(`sub:ONETEAM:${CONSENT_VERSION}:${code}`);
     await hook("oneteam", { callback_query: { id: `cbc${uid}`, from: { id: 860001, first_name: "C" }, message: { message_id: 1, chat: { id: 860001, type: "private" } }, data: cbData } });
-    expect(lastText(860001)).toContain("រំលឹកថែទាំ");
+    expect(texts(860001).some((x) => /^✅ ភ្ជាប់រួចរាល់\n🔑 ពាក្យសម្ងាត់៖ \d{4}/.test(x))).toBe(true); // linked: the first password comes with it (D-106)
+    expect(lastText(860001)).toBe(customerText.hint);
     const sub = (await sql<{ tg_subscriber_id: string }[]>`select tg_subscriber_id::text from customers where id = ${custId}`)[0]!.tg_subscriber_id;
     expect(sub).toBeTruthy();
     const notify = (subscriber_id: number) => internal("ONETEAM", shopKey("ONETEAM"), "POST", "/internal/notify-subscriber", { subscriber_id, text: "🔔 ដល់ពេលលាងម៉ាស៊ីនត្រជាក់" });
@@ -759,69 +797,84 @@ describe("website v2 (D-96…D-105): launch data for the customer site and the b
     expect((await internal("ONETEAM", key(), "POST", "/internal/tg-login-verify", { data: { id: "1", hash: "x" } })).statusCode).toBe(404); // final brief: no Telegram Login Widget
   });
 
-  it("t.me/<bot>?start=b-<token>: consent → the chat is linked to that booking, once; the same link in a second chat is refused; a subscriber needs no second tick", async () => {
+  it("t.me/<bot>?start=b-<token>: the website button was the consent — linked at once (no second tap, consent logged with source «web»), «linked» + password in one message, the hint silently, the grid, the menu button; once only", async () => {
     config.shop.features = "subscribe,website";
-    const svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់ គេហទំព័រ", kind: "service", category: "mep", unit: "unit", sell_price: 4500 })).json.id;
-    expect((await ceo.req("POST", `/api/catalog/${svc}/from-price`, { from_price: 1500 })).status).toBe(200);
+    const svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់ គេហទំព័រ", kind: "service", category: "mep", unit: "unit", sell_price: 4500, web_category: "ac", from_price: 1500 })).json.id;
     await ceo.req("PATCH", "/api/settings/company", { work_days: [1, 2, 3, 4, 5, 6, 7] });
-    const day = (await shop.inject({ method: "GET", url: `/api/public/slots?service=${svc}` })).json().days[2] as { slots: { time: string; at: string }[] };
+    const day = (await shop.inject({ method: "GET", url: `/api/public/slots?items=${svc}:1` })).json().days[2] as { slots: { time: string; at: string }[] };
     const bookAt = async (time: string, phone: string) => {
       resetRateLimits();
       const r = await shop.inject({ method: "POST", url: "/api/public/bookings", headers: { "content-type": "application/json" },
-        payload: JSON.stringify({ service_id: svc, at: day.slots.find((x) => x.time === time)!.at, address: "ផ្ទះ 1 ផ្លូវ 2", name: "ភ្ញៀវ គេហទំព័រ", phone, consent: true, ts: formToken(Date.now() - 60_000) }) });
+        payload: JSON.stringify({ items: `${svc}:1`, at: day.slots.find((x) => x.time === time)!.at, address: "ផ្ទះ 1 ផ្លូវ 2", name: "ភ្ញៀវ គេហទំព័រ", phone, consent: true, ts: formToken(Date.now() - 60_000) }) });
       expect(r.statusCode).toBe(200);
-      const ref = r.json().ref as string;
-      const html = (await shop.inject({ method: "GET", url: `/book/done/${ref}` })).body;
-      const token = /start=(b-[A-Za-z0-9_-]{20})"/.exec(html)![1]!;
-      expect(html).toContain(`https://t.me/Oneteam_app_bot?start=${token}`);
-      return { ref, token, number: r.json().number as string };
+      const link = r.json().link as string;
+      expect(link).toMatch(/^https:\/\/t\.me\/Oneteam_app_bot\?start=b-[A-Za-z0-9_-]{20}$/);
+      return { ref: r.json().ref as string, token: link.split("start=")[1]!, number: r.json().number as string };
     };
     const linked = async (ref: string) => (await sql<{ s: string | null }[]>`select web_subscriber_id::text as s from bookings where web_ref = ${ref}`)[0]!.s;
-    const press = (user: number, data: string) => hook("oneteam", { callback_query: { id: `cbw${uid}`, from: { id: user, first_name: `W${user}` }, message: { message_id: 1, chat: { id: user, type: "private" } }, data } });
     const b1 = await bookAt("09:00", "012 888 001");
     sent = [];
     await privateMsg(870001, `/start ${b1.token}`);
-    const cb = (lastSent(870001).payload.reply_markup.inline_keyboard as any[]).flat().find((b: any) => b.callback_data?.startsWith("sub:"))?.callback_data as string;
-    expect(cb).toBe(`sub:ONETEAM:${CONSENT_VERSION}:${b1.token}`); expect(Buffer.byteLength(cb)).toBeLessThanOrEqual(64); // Telegram's callback_data limit
-    expect(await linked(b1.ref)).toBeNull(); // START alone links nothing: the consent tick comes first (A4)
-    await press(870001, cb);
+    expect(sent.some((x) => JSON.stringify(x.payload.reply_markup ?? {}).includes("sub:ONETEAM"))).toBe(false); // no second consent
     const sub = await linked(b1.ref);
-    expect(sub).toBeTruthy(); expect(texts(870001).join("\n")).toContain(b1.number);
-    // D-103: the first password arrives ONCE as its own bot message with the hint — the hub sends it and never keeps the text
-    const pwMsg = texts(870001).find((x) => /^\d{4}$/m.test(x))!;
-    expect(pwMsg).toContain("ពាក្យសម្ងាត់"); expect(pwMsg).toContain("កុំប្រើ ថ្ងៃខែ ឬឆ្នាំកំណើត");
-    const pw = /^(\d{4})$/m.exec(pwMsg)![1]!;
-    expect((await sql`select text from hub_message_log where chat_id = 870001 and kind = 'customer.password'`).map((x) => x.text)).toEqual([null]);
+    expect(sub).toBeTruthy();
+    expect(await sql`select action, source, text_version from hub_consent_log where telegram_user_id = 870001`).toEqual([{ action: "subscribe", source: "web", text_version: CONSENT_VERSION }]);
+    const msg = sent.find((x) => x.method === "sendMessage" && /^✅ ភ្ជាប់រួចរាល់/.test(String(x.payload.text)))!;
+    expect(msg.payload.text).toMatch(new RegExp(`^✅ ភ្ជាប់រួចរាល់\\nការកក់ #${b1.number} រង់ចាំបញ្ជាក់ \\(≤៣០ នាទី\\)\\n🔑 ពាក្យសម្ងាត់៖ \\d{4}\\nចូលដោយលេខទូរស័ព្ទ \\+ ពាក្យសម្ងាត់នេះ$`));
+    const pw = /(\d{4})/.exec(msg.payload.text.split("\n")[2])![1]!;
+    expect(msg.payload.reply_markup.keyboard[0][0]).toEqual({ text: "📅 កក់សេវា", web_app: { url: "https://hub.test/?book" } });
+    expect(msg.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toEqual(Object.values(CUSTOMER_MENU));
+    expect(sent.find((x) => x.method === "sendMessage" && x.payload.text === customerText.hint)!.payload.disable_notification).toBe(true);
+    expect(sent.find((x) => x.method === "setChatMenuButton" && Number(x.payload.chat_id) === 870001)!.payload.menu_button).toMatchObject({ type: "web_app", web_app: { url: "https://hub.test/" } });
     expect((await sql`select count(*)::int as n from hub_message_log where text like ${"%" + pw + "%"} and chat_id = 870001`)[0]!.n).toBe(0);
     expect((await sql`select password_hash from customers where tg_subscriber_id = ${sub}::bigint`)[0]!.password_hash).toMatch(/^\$argon2id\$/);
-    // D-105: the chat's menu button opens the shop's site as a Mini App, and the customer keyboard appears
-    const menu = sent.find((x) => x.method === "setChatMenuButton" && Number(x.payload.chat_id) === 870001)!;
-    expect(menu.payload.menu_button).toMatchObject({ type: "web_app", web_app: { url: "https://hub.test/" } });
-    const kb = lastSent(870001).payload.reply_markup.keyboard as { text: string; web_app?: { url: string } }[][];
-    expect(kb.flat().map((b) => b.text)).toEqual(["📋 ការកក់របស់ខ្ញុំ", "🗓 កក់សេវា", "📞 ហៅ One Team", "🔑 ភ្លេចពាក្យសម្ងាត់"]);
-    expect(kb[0]![0]!.web_app!.url).toBe("https://hub.test/my"); expect(kb[0]![1]!.web_app!.url).toBe("https://hub.test/?book");
-    // «forgot password» in that chat: a new password in the answer, again never kept in the hub log
-    const n0 = (await sql`select count(*)::int as n from hub_message_log where chat_id = 870001 and text is not null and text ~ '[0-9]{4}'`)[0]!.n;
+    // 🔑 in that chat: a new password in the answer, again never kept in the hub log
     sent = [];
-    await privateMsg(870001, "🔑 ភ្លេចពាក្យសម្ងាត់");
-    expect(lastText(870001)).toMatch(/^\d{4}$/m);
-    expect((await sql`select count(*)::int as n from hub_message_log where chat_id = 870001 and text is not null and text ~ '[0-9]{4}'`)[0]!.n).toBe(n0);
-    // the same link opened in another chat: that person's consent is recorded, the booking stays with the first chat
+    await privateMsg(870001, CUSTOMER_MENU.password);
+    const fresh = texts(870001).find((x) => /^🔑 ពាក្យសម្ងាត់ថ្មី៖ \d{4}$/.test(x))!;
+    expect(fresh).toBeTruthy(); expect(lastText(870001)).toBe(customerText.hint);
+    expect((await sql`select count(*)::int as n from hub_message_log where text like ${"%" + fresh.slice(-4) + "%"} and chat_id = 870001`)[0]!.n).toBe(0);
+    // the same link in another chat: refused, nothing of the booking shown
+    sent = [];
     await privateMsg(870002, `/start ${b1.token}`);
-    await press(870002, cb);
-    expect(await linked(b1.ref)).toBe(sub); expect(texts(870002).join("\n")).not.toContain(b1.number); expect(texts(870002).some((x) => /^\d{4}$/m.test(x))).toBe(false);
-    // someone who is already a subscriber taps START on the link of a new booking: linked at once, no second consent prompt
+    expect(await linked(b1.ref)).toBe(sub); expect(lastText(870002)).toBe(customerText.linkUsed); expect(texts(870002).join("\n")).not.toContain(b1.number);
+    // the next booking of the same person: linked at once again
     const b2 = await bookAt("13:00", "012 888 002");
     sent = [];
     await privateMsg(870001, `/start ${b2.token}`);
-    expect(await linked(b2.ref)).toBe(sub);
-    expect(sent.some((x) => JSON.stringify(x.payload.reply_markup ?? {}).includes("sub:ONETEAM"))).toBe(false);
-    expect(texts(870001).join("\n")).toContain(b2.number);
-    // garbage after b- is not a staff link code either: a short «not valid» answer, nothing linked
+    expect(await linked(b2.ref)).toBe(sub); expect(texts(870001).join("\n")).toContain(b2.number);
     sent = [];
     await privateMsg(870003, "/start b-AAAAAAAAAAAAAAAAAAAA");
-    await press(870003, `sub:ONETEAM:${CONSENT_VERSION}:b-AAAAAAAAAAAAAAAAAAAA`);
-    expect(lastText(870003)).not.toContain("BK-");
+    expect(lastText(870003)).toBe(customerText.linkUsed);
     config.shop.features = "subscribe";
   });
+
+  it("Mini App: /internal/web-subscribe checks the launch data with the shop's own bot and subscribes that person (consent source «miniapp»); notify-subscriber carries the grid, the silent hint and the menu button", async () => {
+    const sign = (params: Record<string, string>, tok = TOKENS.ONETEAM!.token) => {
+      const check = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join("\n");
+      return new URLSearchParams({ ...params, hash: createHmac("sha256", createHmac("sha256", "WebAppData").update(tok).digest()).update(check).digest("hex") }).toString();
+    };
+    const data = { auth_date: String(Math.floor(Date.now() / 1000)), user: JSON.stringify({ id: 880001, first_name: "Mini" }) };
+    const ws = (init_data: string, code = "ONETEAM", k = key()) => internal(code, k, "POST", "/internal/web-subscribe", { init_data, source: "miniapp" });
+    expect((await ws(sign(data) + "x")).json()).toMatchObject({ ok: false, error: "BAD_SIGNATURE" });
+    expect((await ws(sign(data, TOKENS.SHOPB!.token))).json()).toMatchObject({ ok: false });
+    const ok = (await ws(sign(data))).json();
+    expect(ok).toMatchObject({ ok: true, tg_user: 880001 }); expect(typeof ok.subscriber_id).toBe("number");
+    expect(await sql`select action, source from hub_consent_log where telegram_user_id = 880001`).toEqual([{ action: "subscribe", source: "miniapp" }]);
+    sent = [];
+    const n = (body: Record<string, unknown>) => internal("ONETEAM", key(), "POST", "/internal/notify-subscriber", { subscriber_id: ok.subscriber_id, ...body });
+    expect((await n({ text: "✅ ភ្ជាប់រួចរាល់", keyboard: [[{ text: "📅 កក់សេវា", web_app: "https://hub.test/?book" }]], hint: customerText.hint, menu_url: "https://hub.test/" })).json()).toEqual({ ok: true });
+    expect(lastSent(880001).payload.text).toBe(customerText.hint); expect(lastSent(880001).payload.disable_notification).toBe(true);
+    expect(sent.find((x) => x.method === "sendMessage" && x.payload.text === "✅ ភ្ជាប់រួចរាល់")!.payload.reply_markup.keyboard[0][0].web_app.url).toBe("https://hub.test/?book");
+    expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.chat_id === 880001)).toBe(true);
+    expect((await n({ text: "x", buttons: [[{ text: "a", callback_data: "sub:ONETEAM:x" }]] })).statusCode).toBe(400); // never a callback button from a shop
+    expect((await n({ text: "x", buttons: [[{ text: "📍", web_app: "https://hub.test/my" }]] })).json()).toEqual({ ok: true });
+    expect(lastSent(880001).payload.reply_markup.inline_keyboard[0][0].web_app.url).toBe("https://hub.test/my");
+    // notification settings from the customer home (source «site»)
+    expect((await internal("ONETEAM", key(), "POST", "/internal/subscriber-prefs", { subscriber_id: ok.subscriber_id, service: true, promo: false })).json()).toEqual({ ok: true, service: true, promo: false });
+    expect((await internal("ONETEAM", key(), "GET", `/internal/subscriber-prefs?subscriber_id=${ok.subscriber_id}`)).json()).toEqual({ ok: true, service: true, promo: false });
+    expect((await internal("SHOPB", process.env.HUB_KEY_SHOPB!, "GET", `/internal/subscriber-prefs?subscriber_id=${ok.subscriber_id}`)).json()).toMatchObject({ ok: false }); // another shop sees nothing
+    expect((await sql`select action, source from hub_consent_log where telegram_user_id = 880001 order by id`).at(-1)).toEqual({ action: "promo_off", source: "site" });
+  });
+
 });

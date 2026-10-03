@@ -3,7 +3,7 @@
 // shop never holds it), not older than 24 hours, and says which subscriber of THIS shop it is. A session maps to bookings: the
 // ones whose Telegram link the chat holds, and every booking of a customer record linked to it. Every function here takes the
 // session and filters by it — a customer only ever reads or changes own data (IDOR tests in 210_website).
-import { DEFAULT_DURATION_MIN, EDITABLE_STATUSES, type BookingStatus } from "@sms/shared";
+import { customerText, DEFAULT_DURATION_MIN, EDITABLE_STATUSES, webLinesParam, type BookingStatus } from "@sms/shared";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
@@ -12,6 +12,7 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { cancelBookingIn, rescheduleBooking, warrantyJson } from "./bookings.js";
 import { newCustomerSession } from "./customer-auth.js";
+import { btn, row } from "./customer-bot.js";
 import { tellCustomer } from "./customer-notify.js";
 import { hubCall, hubConfigured } from "./hub-client.js";
 import { notifyRequestStaff } from "./requests.js";
@@ -56,14 +57,14 @@ const mine = (s: CustomerSession) => sql`b.company_id = ${s.companyId} and (b.we
 const OPEN = ["new", "survey", "quoted", "assigned", "en_route", "on_site", "working"];
 const movable = (status: string) => EDITABLE_STATUSES.includes(status as BookingStatus); // before the technician is on the way
 
-type Row = { id: string; number: string; status: string; web_status: string | null; service_text: string; service_item_id: string | null; name_en: string | null; bookable: boolean;
+type Row = { id: string; number: string; status: string; web_status: string | null; service_text: string; service_item_id: string | null; name_en: string | null; bookable: boolean; web_lines: { id: string; qty: number; name_en: string | null }[] | null;
   scheduled_at: Date | null; ends_at: Date | null; closed_at: Date | null; warranty: { until: string; active: boolean } | null; technician: string | null; reschedule_pending: boolean };
 
 export async function myHome(s: CustomerSession) {
   const cust = (await sql<{ name: string; tz: string }[]>`select c.name, co.timezone as tz from customers c join companies co on co.id = c.company_id
     where c.company_id = ${s.companyId} and c.tg_subscriber_id = ${s.subscriberId} and c.is_active order by c.created_at limit 1`)[0];
   const rows = await sql<Row[]>`select b.id, b.number, b.status, b.web_status, b.service_text, b.service_item_id, i.name_en,
-      coalesce(i.is_active and i.kind = 'service' and i.from_price is not null, false) as bookable, b.scheduled_at, b.ends_at, b.closed_at, ${warrantyJson(sql)} as warranty,
+      coalesce(i.is_active and i.kind = 'service' and i.show_on_website and not i.quote_only, false) as bookable, b.web_lines, b.scheduled_at, b.ends_at, b.closed_at, ${warrantyJson(sql)} as warranty,
       (select u.full_name from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id order by (t.role = 'lead') desc, u.full_name limit 1) as technician,
       exists (select 1 from service_requests r where r.booking_id = b.id and r.kind = 'reschedule' and r.status = 'new') as reschedule_pending
     from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id left join catalog_items i on i.id = b.service_item_id
@@ -71,13 +72,32 @@ export async function myHome(s: CustomerSession) {
   return {
     // the customer record's name once it is linked; before that the Telegram first name (a phone number alone reveals no name)
     name: cust?.name ?? s.name ?? "",
-    upcoming: rows.filter((r) => OPEN.includes(r.status)).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: r.name_en, scheduled_at: r.scheduled_at, ends_at: r.ends_at,
+    upcoming: rows.filter((r) => OPEN.includes(r.status)).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), scheduled_at: r.scheduled_at, ends_at: r.ends_at,
       status: customerState(r.status, r.web_status), technician: r.technician, can_cancel: movable(r.status), can_reschedule: movable(r.status), reschedule_pending: r.reschedule_pending })),
-    past: rows.filter((r) => !OPEN.includes(r.status)).reverse().slice(0, 10).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: r.name_en, date: r.closed_at ?? r.scheduled_at,
-      warranty: r.warranty ? { until: r.warranty.until, active: r.warranty.active } : null, rebook: r.bookable && r.service_item_id ? `/book?service=${r.service_item_id}` : "/quote" })),
+    past: rows.filter((r) => !OPEN.includes(r.status)).reverse().slice(0, 10).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), date: r.closed_at ?? r.scheduled_at,
+      warranty: r.warranty ? { until: r.warranty.until, active: r.warranty.active } : null, rebook: rebookOf(r) })),
   };
 }
 export type MyHome = Awaited<ReturnType<typeof myHome>>;
+/** the English name of a booking: from its lines (website), else from its catalog item */
+const enText = (r: Row) => (r.web_lines?.length ? r.web_lines.map((l) => (l.name_en ? (l.qty > 1 ? `${l.name_en} ×${l.qty}` : l.name_en) : null)).filter(Boolean).join(" · ") || null : r.name_en);
+/** «book again»: the same lines (website booking) or the same service — the booking screen checks them again */
+const rebookOf = (r: Row) => (r.web_lines?.length ? `/book?items=${webLinesParam(r.web_lines.map((l) => ({ id: l.id, qty: l.qty })))}` : r.bookable && r.service_item_id ? `/book?items=${r.service_item_id}:1` : "/");
+
+// ---------- notification settings (customer home): the hub keeps the subscription; every change is in its consent log ----------
+export type NotifyPrefs = { service: boolean; promo: boolean };
+export async function myPrefs(s: CustomerSession): Promise<NotifyPrefs | null> {
+  if (!hubConfigured()) return null;
+  const r = await hubCall("GET", `/internal/subscriber-prefs?subscriber_id=${s.subscriberId}`).catch(() => null);
+  return r && r.status === 200 && r.json?.ok ? { service: !!r.json.service, promo: !!r.json.promo } : null;
+}
+export async function setMyPrefs(s: CustomerSession, ip: string | null, p: NotifyPrefs): Promise<NotifyPrefs> {
+  if (!hubConfigured()) throw new AppError("HUB_DOWN", 503);
+  const r = await hubCall("POST", "/internal/subscriber-prefs", { subscriber_id: s.subscriberId, service: p.service, promo: p.service && p.promo }).catch(() => null);
+  if (!r || r.status !== 200 || !r.json?.ok) throw new AppError("HUB_DOWN", 503);
+  await audit(sql, { companyId: s.companyId, userId: null, action: "customer.notify_prefs", source: "system", table: "customers", rowId: s.customerId, new: { service: !!r.json.service, promo: !!r.json.promo }, ip });
+  return { service: !!r.json.service, promo: !!r.json.promo };
+}
 
 async function myBooking(s: CustomerSession, id: string) {
   const b = (await sql<{ id: string; number: string; status: string; scheduled_at: Date | null; ends_at: Date | null; customer_id: string; cname: string; tz: string }[]>`
@@ -133,9 +153,7 @@ export async function decideReschedule(user: SessionUser, ip: string | null, req
   await sql`update service_requests set status = 'done', outcome = ${decision === "approve" ? "approved" : "rejected"}, note = ${reason.trim().slice(0, 300) || null}, handled_by = ${user.id}, handled_at = now()
     where id = ${r.id} and status = 'new'`;
   await audit(sql, { companyId: user.companyId, userId: user.id, action: `booking.reschedule_${decision}`, table: "service_requests", rowId: r.id, new: { booking_id: r.booking_id }, ip });
-  await tellCustomer(r.booking_id, (b) => (decision === "approve"
-    ? `🔁 ការកក់ ${b.number} បានប្ដូរម៉ោង\n🕒 ម៉ោងថ្មី៖ ${b.when}`
-    : `ℹ️ សំណើប្ដូរម៉ោងនៃការកក់ ${b.number} មិនអាចធ្វើបានទេ${reason.trim() ? `\n📝 ${reason.trim()}` : ""}\n🕒 ម៉ោងនៅដដែល៖ ${b.when}`));
+  await tellCustomer(r.booking_id, (b) => ({ text: decision === "approve" ? customerText.rescheduled(b.number, b.day, b.time) : customerText.rescheduleKept(b.number, b.day, b.time), buttons: row(btn.track()) }));
   return { ok: true };
 }
 

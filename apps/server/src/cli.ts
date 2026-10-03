@@ -3,6 +3,7 @@
 //   node dist/cli.mjs reset-password oneteam ceo                           → new temp password for a user
 //   node dist/cli.mjs seed-demo [oneteam]                                  → demo users gm01/admin/kim/dara + 3 customers, 4 services, BK-0001/0002 (idempotent)
 //   node dist/cli.mjs list-companies
+//   node dist/cli.mjs seed-web-catalog [oneteam] [--prices]               → the sample items of the website catalog (D-106; --prices = demo / test only)
 // Hub container (MODE=hub):
 //   node dist/cli.mjs hub-admin <username>          → platform owner login, temp password printed once
 //   node dist/cli.mjs list-shops                    → registry + subscriber counts
@@ -19,6 +20,7 @@ import { createHubAdmin } from "./hub/platform.js";
 import { syncShops } from "./hub/shops.js";
 import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
 import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
+import { seedWebCatalog } from "./services/catalog.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -196,13 +198,21 @@ async function main() {
     case "seed-demo":
       await seedDemo(a[0] ?? "oneteam");
       break;
+    case "seed-web-catalog": { // D-106: sample items, is_sample = true; the live shop gets NO prices (CEO) — --prices only for demo / test data
+      const slug = a[0] && !a[0].startsWith("--") ? a[0] : "oneteam";
+      const c = (await sql<{ id: string }[]>`select id from companies where slug = ${slug}`)[0];
+      if (!c) throw new Error(`company "${slug}" not found`);
+      const r = await seedWebCatalog(c.id, { prices: a.includes("--prices") });
+      console.log(`website catalog: ${r.added} sample items added, ${r.updated} existing items completed${a.includes("--prices") ? " (with demo prices)" : " (no prices)"}`);
+      break;
+    }
     case "list-companies": {
       const rows = await sql`select c.slug, c.name, c.is_active, (select count(*) from users u where u.company_id = c.id) as users, (select count(*) from bookings b where b.company_id = c.id) as bookings from companies c order by c.created_at`;
       console.table(rows.map((r) => ({ ...r })));
       break;
     }
     default:
-      console.log("commands: create-company, reset-password, seed-demo, list-companies");
+      console.log("commands: create-company, reset-password, seed-demo, seed-web-catalog, list-companies");
   }
   await sql.end({ timeout: 3 });
 }

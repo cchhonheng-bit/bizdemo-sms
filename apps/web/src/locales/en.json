@@ -48,8 +48,7 @@
     "reports": "Reports",
     "reminders": "Reminders",
     "inventory": "Stock",
-    "accounting": "Accounting",
-    "web_prices": "Website prices"
+    "accounting": "Accounting"
   },
   "roles": {
     "ceo": "CEO",
@@ -117,7 +116,8 @@
       "confirmed": "Confirmed",
       "declined": "Declined",
       "approved": "Rescheduled",
-      "rejected": "Time kept"
+      "rejected": "Time kept",
+      "expired": "Expired"
     },
     "err": {
       "REASON_REQUIRED": "Please write the reason",
@@ -129,9 +129,15 @@
       "BOOKING_LOCKED": "This job can no longer be changed",
       "SAME_TIME": "This is the same time",
       "NOT_FOUND": "This request was already handled",
-      "FORBIDDEN": "You have no permission"
+      "FORBIDDEN": "You have no permission",
+      "TECH_NOT_FREE": "No technician is free for that length"
     },
-    "waiting_hint": "Online booking — waiting for an answer. Confirm or decline it on the «Customer requests» page."
+    "waiting_hint": "Online booking — waiting for an answer. Confirm or decline it on the «Customer requests» page.",
+    "minutes": "Length (minutes)",
+    "minutes_hint": "You can change it before confirming",
+    "map": "View location",
+    "accuracy": "±{{m}} m",
+    "escalation": "No answer in 30 minutes → reminder · 60 minutes → the CEO is told · the time passes → expired"
   },
   "website": {
     "title": "Shop website",
@@ -161,9 +167,18 @@
       "TOO_MANY_PHOTOS": "Too many photos (max 12)",
       "BAD_URL": "Invalid link",
       "BAD_IMAGE": "Invalid image",
-      "IMAGE_TOO_LARGE": "Image too large"
+      "IMAGE_TOO_LARGE": "Image too large",
+      "BAD_HOURS": "Invalid hours",
+      "BAD_TIME": "Invalid time"
     },
-    "short_name": "Short name (shown at the top of the website)"
+    "short_name": "Short name (shown at the top of the website)",
+    "hours_title": "Online booking hours",
+    "open": "Opens",
+    "close": "Closes",
+    "lunch_start": "Lunch from",
+    "lunch_end": "Lunch until",
+    "hours_hint": "Last start = closing time − job length · never across lunch · the shop has to confirm these hours",
+    "promo_gap": "Days between two promotions for one customer"
   },
   "tg": {
     "opening": "Opening from Telegram…",
@@ -369,7 +384,49 @@
     "income_account": "Income account (accounting)",
     "income_account_default": "Default by type",
     "err_remind": "Months 1 – 60",
-    "unit_ph": "unit"
+    "unit_ph": "unit",
+    "code": "Code",
+    "web_category": "Website category",
+    "web_none": "No website category",
+    "from_price": "From price (USD)",
+    "from_hint": "Empty = \"Price confirmed when we contact you\" (still bookable)",
+    "show_on_website": "Show on the website",
+    "quote_only": "Quote only (not booked online)",
+    "sample": "Sample — please confirm",
+    "last_change": "Last changed: {{name}} · {{at}}",
+    "excel_template": "Download Excel template",
+    "excel_upload": "Upload Excel",
+    "preview_title": "Import preview",
+    "preview_counts": "New {{new}} · Changed {{changed}} · Same {{same}} · Errors {{error}}",
+    "apply": "Apply",
+    "applied": "Imported: {{new}} new · {{changed}} changed",
+    "row": "Row",
+    "nothing": "Nothing to change",
+    "fix_first": "Please fix the errors in the file and upload it again",
+    "import_hint": "Matched by code · nothing is deleted (set \"Active\" = no to switch an item off)",
+    "action": {
+      "new": "New",
+      "changed": "Changed",
+      "same": "Same",
+      "error": "Error"
+    },
+    "import_err": {
+      "CODE": "Invalid code",
+      "DUPLICATE": "Code repeated in the file",
+      "CATEGORY": "Unknown category",
+      "NAME": "Name needed",
+      "PRICE": "Invalid price",
+      "DURATION": "Length 15–1440 minutes",
+      "YES_NO": "Please write yes or no",
+      "NOT_SERVICE": "This code belongs to a product",
+      "EMPTY": "The file is empty",
+      "TOO_MANY_ROWS": "Too many rows (at most 500)",
+      "MISSING_COLUMN": "Missing column: {{col}}",
+      "BAD_FILE": "This file is not an Excel file",
+      "CODE_TAKEN": "This code is already used",
+      "CODE_FORMAT": "Code: capitals, digits, . - _ (up to 20)",
+      "FORBIDDEN": "You may not edit the catalog"
+    }
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -534,7 +591,7 @@
   },
   "subscribe": {
     "title": "Telegram customers (Subscribe + Broadcast)",
-    "intro": "Customers scan the QR or open the link → tap «☑ I agree» in Telegram → receive notices and promotions from the shop. They can stop any time (/stop promo · /stop).",
+    "intro": "Customers scan the QR or open the link → tap «☑ I agree» → share their phone → get news about their own bookings and promotions. They can stop any time (the «🔕 Stop notifications» button).",
     "link": "Subscribe link",
     "print": "Print QR",
     "total": "Subscribers",
@@ -545,16 +602,16 @@
     "name": "Telegram name",
     "since": "Since",
     "status": "Status",
-    "compose": "Send a message (Broadcast)",
+    "compose": "New promotion",
     "kind": "Type",
     "service": "Service notice",
     "promo_kind": "Promotion",
-    "text": "Message",
-    "chars": "{{n}}/1000 characters",
+    "text": "Message (at most 4 lines)",
+    "chars": "{{n}}/400 characters · {{l}}/4 lines",
     "send": "Send",
-    "confirm": "Send to {{n}} subscribers?",
+    "confirm": "Send the promotion to {{n}} people?",
     "sent": "Queued for {{n}} subscribers",
-    "rule": "1 broadcast / 10 minutes · promotions skip customers who turned promotions off",
+    "rule": "One promotion per customer every {{d}} days · never sent 20:00–08:00 (it waits until morning) · carries a «Stop promotions» button",
     "history": "Broadcast history",
     "by": "By",
     "result": "Result",
@@ -564,11 +621,19 @@
       "SUBSCRIBE_DISABLED": "This module is not enabled for the shop",
       "HUB_UNREACHABLE": "Cannot reach the HangKH hub right now",
       "HUB_NOT_CONFIGURED": "HangKH hub is not configured",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "TOO_MANY_LINES": "At most 4 lines",
+      "FORBIDDEN": "You may not send promotions",
+      "INVALID_INPUT": "Invalid message"
     },
     "when": "Sent at",
     "poster_hint": "Print A5/A4 and put it up in the shop / vehicles",
-    "no_bot": "The shop has no bot yet"
+    "no_bot": "The shop has no bot yet",
+    "preview": "Preview",
+    "preview_title": "Customers will see",
+    "valid_days": "Shown under «🎁 Promotions» (days)",
+    "recipients": "Goes to {{n}} people (no promotion in the last {{d}} days)",
+    "only_roles": "Only the CEO and the GM can send promotions"
   },
   "legal": {
     "terms": "Terms of Service",
@@ -1403,18 +1468,5 @@
     "step2": "2️⃣ Tap «START» in Telegram",
     "step3": "3️⃣ Tap the ☑ agree button",
     "stop": "/stop — stop anytime"
-  },
-  "webprices": {
-    "title": "Website prices",
-    "hint": "\"From\" is the price a customer sees on the website. A service with a price can be booked online. Empty = \"Request a quote\" is shown. The sell price of the catalog is never shown on the website.",
-    "from": "From (USD)",
-    "none": "Request a quote",
-    "shown": "From {{price}}",
-    "duration": "{{n}} min",
-    "empty": "No services yet",
-    "err": {
-      "FORBIDDEN": "You may not set this price",
-      "NOT_FOUND": "Service not found"
-    }
   }
 }

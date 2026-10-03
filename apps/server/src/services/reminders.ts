@@ -8,6 +8,9 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { hubCall, shopBotUsername } from "./hub-client.js";
 import { randomCode } from "../lib/secure.js";
+import { customerText } from "@sms/shared";
+import { issueInitialPassword } from "./customer-auth.js";
+import { customerGrid, menuUrl } from "./customer-bot.js";
 
 const FINISHED = ["work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
 const OPEN = ["new", "survey", "quoted", "assigned", "en_route", "on_site", "working"];
@@ -124,15 +127,20 @@ export async function customerTgLink(user: SessionUser, ip: string | null, custo
   return { link: `https://t.me/${bot}?start=s_${code}`, expires_days: 7 };
 }
 
-/** hub → shop after the customer ticked the consent from their own link */
+/** hub → shop after the customer ticked the consent from their own link (the staff gave it to this customer): linked, and the
+ *  first password comes with the bot's answer (D-106) */
 export async function customerSubscribed(code: string, subscriberId: number) {
-  return tx(null, async (t) => {
-    const r = (await t<{ customer_id: string; used_at: Date | null; expired: boolean; name: string }[]>`select k.customer_id, k.used_at, k.expires_at < now() as expired, c.name
+  const r = await tx(null, async (t) => {
+    const k = (await t<{ customer_id: string; company_id: string; used_at: Date | null; expired: boolean; name: string }[]>`select k.customer_id, k.company_id, k.used_at, k.expires_at < now() as expired, c.name
       from customer_tg_codes k join customers c on c.id = k.customer_id where k.code = ${code} for update of k`)[0];
-    if (!r || r.expired) return { ok: false, error: "CODE_INVALID" };
-    if (r.used_at) return { ok: false, error: "CODE_USED" };
+    if (!k || k.expired) return { ok: false as const, error: "CODE_INVALID" };
+    if (k.used_at) return { ok: false as const, error: "CODE_USED" };
     await t`update customer_tg_codes set used_at = now() where code = ${code}`;
-    await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${r.customer_id}`;
-    return { ok: true, customer: r.name };
+    await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${k.customer_id}`;
+    await audit(t, { companyId: k.company_id, userId: null, action: "customer.tg_link", source: "telegram", table: "customers", rowId: k.customer_id, new: { via: "code" } });
+    return { ok: true as const, customer: k.name, password: await issueInitialPassword(t, k.customer_id) };
   });
+  if (!r.ok) return { ok: false, error: r.error, text: customerText.linkUsed };
+  return { ok: true, customer: r.customer, text: r.password ? customerText.linked(null, r.password) : customerText.linkedKnown, hint: r.password ? customerText.hint : null,
+    keyboard: customerGrid(), menu_url: menuUrl() };
 }
