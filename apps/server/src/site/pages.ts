@@ -172,8 +172,8 @@ const langLink = (t: T, lang: SiteLang, path: string) => `<a href="${esc(path)}$
 const powered = (t: T) => `<span>${t.powered} <b class="hk">Hang</b><b class="kh">KH</b></span>`;
 const backHeader = (t: T, href: string, title: string, sub = "", attr = "") => `<header class="hd l"><a class="back" href="${href}"${attr} aria-label="${t.back}">${svg(I.back, 18, 2.2)}</a><div class="ttl">${title}${sub ? `<small>${sub}</small>` : ""}</div></header>`;
 /** D-106: no tick box — the text above the button IS the consent (the button's name, the three purposes, the privacy page) */
-const consent = (d: SiteView, t: T, lang: SiteLang, button: string) => {
-  return `<section class="cs" id="consent-text">${siteConsentLines(names(d, lang).full, button, lang).map((x) => `<p>${esc(x)}</p>`).join("")}<a href="/privacy">${t.privacy}</a></section>`;
+const consent = (d: SiteView, t: T, lang: SiteLang, button: string, small = false) => {
+  return `<section class="cs${small ? " s" : ""}" id="consent-text">${siteConsentLines(names(d, lang).full, button, lang).map((x) => `<p>${esc(x)}</p>`).join("")}<a href="/privacy">${t.privacy}</a></section>`;
 };
 const honeypot = '<div class="hp" aria-hidden="true"><input id="company_url" tabindex="-1" autocomplete="off"></div>';
 const errBox = (id = "err") => `<p class="err" id="${id}" role="alert" hidden></p>`;
@@ -318,11 +318,11 @@ ${backHeader(t, "/", t.quote, t.q_sub)}
 <section class="card s g8" id="pick">${d.services.length ? lb.html : ""}
 <div class="f"><label class="lb s" for="desc">${t.q_desc} <span class="opt">${o.lines ? t.opt : ""}</span></label><textarea class="ta" id="desc" rows="2" maxlength="600" placeholder="${t.q_desc_ph}"></textarea></div>
 <div class="lb s">${t.q_photos} <span class="opt">${t.q_max}</span></div>
-<div class="photos" id="photos" data-remove="${t.remove_photo}"><button type="button" class="pa" id="add" aria-label="${t.q_add_aria}">${svg(I.photo)}${t.q_add}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden></section>
-<section class="card s g8"><div class="g2"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in sm" id="name" maxlength="80" autocomplete="name" value="${esc(o.prefill?.name ?? "")}"></div>
+<div class="photos" id="photos" data-remove="${t.remove_photo}"><button type="button" class="pa" id="add" aria-label="${t.q_add_aria}">${svg(I.photo)}${t.q_add}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden>
+<div class="g2"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in sm" id="name" maxlength="80" autocomplete="name" value="${esc(o.prefill?.name ?? "")}"></div>
 <div class="f"><label class="lb s" for="phone">${t.phone}</label><input class="in sm" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel" placeholder="+855" value="${esc(o.prefill?.phone ?? "")}"></div></div>
 ${locationRow(t)}${honeypot}</section>
-${consent(d, t, lang, t.q_send)}
+${consent(d, t, lang, t.q_send, true)}
 ${errBox()}
 <div class="bar"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.q_send}</span></button></div></main>`;
   return shell(d, lang, { title: `${t.quote} — ${n.full}`, page: "quote", path: o.path, body, data: { ts: o.token, cat: lb.cats[0] ?? "other" }, json: { items: lb.items } });

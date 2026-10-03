@@ -158,6 +158,8 @@ iframe{width:100%;height:180px;border:0;border-radius:12px;display:block}
 .cs p{margin:0}
 .cs p:first-child{font-weight:600;color:#14213D;margin-bottom:2px}
 .cs a{align-self:flex-start;font-weight:600;margin-top:4px}
+.cs.s{padding:8px 10px;font-size:11px;line-height:1.5}
+.cs.s a{margin-top:2px}
 .ok{padding:24px 16px 18px;border-radius:20px;background:#FFF;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
 .okc{width:56px;height:56px;border-radius:28px;background:#E0F2EF;color:#0F766E;display:flex;align-items:center;justify-content:center}
 .okc.r{background:#FBEAE8;color:#A3332A}
