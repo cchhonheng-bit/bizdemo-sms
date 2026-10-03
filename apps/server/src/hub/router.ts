@@ -130,9 +130,11 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
 }
 
 /** the hub subscriber id of this Telegram user when they hold a live subscription to THIS shop (the shop maps it to its customer) */
-const subscriberOf = async (tgUser: number, shopCode: string): Promise<number | null> =>
-  (await sql<{ id: number }[]>`select u.id from hub_subscribers u join hub_subscriptions s on s.subscriber_id = u.id
-    where u.telegram_user_id = ${tgUser} and s.shop_code = ${shopCode} and s.stopped_at is null and u.blocked_at is null`)[0]?.id ?? null;
+const subscriberOf = async (tgUser: number, shopCode: string): Promise<number | null> => {
+  const id = (await sql<{ id: string }[]>`select u.id::text as id from hub_subscribers u join hub_subscriptions s on s.subscriber_id = u.id
+    where u.telegram_user_id = ${tgUser} and s.shop_code = ${shopCode} and s.stopped_at is null and u.blocked_at is null`)[0]?.id;
+  return id == null ? null : Number(id); // bigint arrives as a string — the shop's internal API takes a number (it refused the string: D-96 fix)
+};
 const LOC_ASK = { km: "👇 ចុចប៊ូតុងខាងក្រោម ដើម្បីផ្ញើទីតាំងបច្ចុប្បន្ន (GPS)", en: "👇 Tap the button below to send your current location (GPS)" };
 const LOC_BTN = { km: "📍 ផ្ញើទីតាំង", en: "📍 Send location" };
 const QUICK = { km: "⚡ មើលរហ័ស", en: "⚡ Quick view" };

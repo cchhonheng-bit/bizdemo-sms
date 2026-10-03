@@ -295,7 +295,7 @@ describe("online booking: consent, hold, race", () => {
 
   it("race: two visitors send the last free slot at the same moment → exactly one booking, the other is told the slot is taken", async () => {
     const at = (await slotOf(4, "13:00")).at;
-    const [a, b] = await Promise.all([book(at, { phone: "011000001", name: "ក" }), book(at, { phone: "011000002", name: "ខ" })]);
+    const [a, b] = await Promise.all([book(at, { phone: "011000001", name: "ភ្ញៀវ ក" }), book(at, { phone: "011000002", name: "ភ្ញៀវ ខ" })]);
     expect([a.statusCode, b.statusCode].sort()).toEqual([200, 409]);
     expect([a, b].find((x) => x.statusCode === 409)!.json().error).toBe("SLOT_TAKEN");
     expect((await sql`select count(*)::int as n from bookings where scheduled_at = ${at} and status <> 'cancelled'`)[0]!.n).toBe(1);
