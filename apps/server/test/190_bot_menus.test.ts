@@ -23,7 +23,7 @@ let cust: string, kimJob: string;
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   config.publicUrl = "https://oneteam.test"; config.shop.hubKey = KEY; config.shop.hubUrl = "http://hub"; config.shop.features = "subscribe,reminders,inventory,accounting";
-  setHubTransport(async (method, path, body) => {
+  setHubTransport(async (_method, path, body) => {
     hubCalls.push({ path, body });
     if (path === "/internal/tg-verify") return { status: 200, json: body && (body as any).init_data === "good" ? { ok: true, tg_user: CHAT.kim } : { ok: false, error: "BAD_SIGNATURE" } };
     if (path === "/internal/broadcasts") return { status: 200, json: [{ id: 1, kind: "promo", text: "បញ្ចុះតម្លៃ 10% ខែនេះ", created_at: new Date().toISOString() }] };

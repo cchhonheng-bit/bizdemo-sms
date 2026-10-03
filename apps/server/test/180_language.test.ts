@@ -70,7 +70,7 @@ describe("staff messages follow each person's language", () => {
 
   it("the staff Telegram menu speaks the person's language and tells the hub which one (for its location keyboard)", async () => {
     const { renderMenu } = await import("../src/services/telegram-menu.js");
-    const en = await renderMenu(900101, "home", null), km = await renderMenu(900102, "home", null);
+    const en = await renderMenu(900101, "home", null, null), km = await renderMenu(900102, "home", null, null);
     expect(en).toMatchObject({ lang: "en" }); expect(en!.text).toMatch(/^👷 Hello/); expect(KHMER.test(JSON.stringify(en!.buttons))).toBe(false);
     expect(km).toMatchObject({ lang: "km" }); expect(km!.text).toMatch(/^👷 សួស្តី/); expect(JSON.stringify(km!.buttons)).not.toMatch(/Open|Back|Today/);
   });

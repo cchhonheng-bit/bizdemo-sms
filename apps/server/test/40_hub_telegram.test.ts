@@ -598,7 +598,6 @@ describe("I1 Telegram inline menus", () => {
 
 describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
   let mid = 9000;
-  const cb = (user: number, data: string) => hook("oneteam", { callback_query: { id: `cba${uid}`, from: { id: user, first_name: `U${user}` }, message: { message_id: ++mid, chat: { id: user, type: "private" } }, data } });
   const loc = (user: number, lat: number, lng: number, o: { accuracy?: number | null; date?: number; forward?: boolean; chat?: { id: number; type: string } } = {}) =>
     hook("oneteam", { message: { message_id: ++mid, date: o.date ?? Math.floor(Date.now() / 1000), chat: o.chat ?? { id: user, type: "private" }, from: { id: user, first_name: `U${user}` },
       location: { latitude: lat, longitude: lng, ...(o.accuracy === null ? {} : { horizontal_accuracy: o.accuracy ?? 10 }) }, ...(o.forward ? { forward_origin: { type: "user" } } : {}) } });
@@ -691,6 +690,7 @@ describe("A2 customer's own subscribe link + service reminders through the hub (
 
 describe("D-91: reply keyboards, Mini App buttons and WebApp initData verification on the hub", () => {
   const key = () => process.env.HUB_KEY_ONETEAM!;
+  const datas = (m: Sent | undefined) => ((m?.payload.reply_markup?.inline_keyboard ?? []).flat() as { callback_data?: string; url?: string }[]).map((b) => b.callback_data ?? b.url ?? "");
   it("/internal/send accepts a reply keyboard with Mini App buttons (https only) and remove_keyboard; callback buttons stay forbidden", async () => {
     sent = [];
     expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "menu",
