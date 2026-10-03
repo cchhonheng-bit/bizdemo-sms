@@ -248,7 +248,8 @@ describe("catalog: CEO / CFO / Admin / GM edit; Excel template → preview → a
     expect(after).toHaveLength(n0 + 1); // nothing deleted; items not in the file untouched
     expect(after.find((i) => i.code === "EL-CHECK").from_price).toBe(2500);
     const log = await sql<{ new_data: any; old_data: any; user_id: string }[]>`select new_data, old_data, user_id from audit_log where action = 'catalog.import' order by id`;
-    expect(log).toHaveLength(3); expect(log.every((l) => l.user_id === s.users.cfo)).toBe(true);
+    const cfoId = (await sql<{ id: string }[]>`select id from users where username = 'cfo'`)[0]!.id;
+    expect(log).toHaveLength(3); expect(log.every((l) => l.user_id === cfoId)).toBe(true);
     expect(log.find((l) => l.old_data?.from_price === 1500)!.new_data).toEqual({ from_price: 1650 });
     ID["WT-HEATER"] = after.find((i) => i.code === "WT-HEATER").id;
     // back to $15 for the rest of the suite; CC-REPAIR stays off

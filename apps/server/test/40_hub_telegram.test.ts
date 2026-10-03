@@ -219,7 +219,7 @@ describe("shop bot routing (T3)", () => {
     await groupMsg(700020, -1001234, "/register@hangkh_bot ABCDEF");
     expect(sent.length).toBe(n);
     await privateMsg(700030, "/help");
-    expect(lastText(700030)).toContain("/stop promo");
+    expect(lastText(700030)).toBe(consentText("One Team Engineering", "https://hub.test/privacy")); // D-106: /help = the start menu (no technical command list for customers)
   });
 });
 
