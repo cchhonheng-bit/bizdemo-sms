@@ -31,7 +31,7 @@ const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z
 const broadcastSchema = z.object({ kind: z.enum(["service", "promo"]), text: z.string().trim().min(1).max(1000), created_by_name: z.string().max(120).optional().nullable() }).strict();
 
 /** Telegram WebApp initData check (HMAC-SHA256, key = HMAC("WebAppData", bot token)); auth_date at most 10 min old */
-export function verifyWebAppData(initData: string, token: string): { ok: true; tg_user: number; auth_date: number } | { ok: false; error: string } {
+export function verifyWebAppData(initData: string, token: string): { ok: true; tg_user: number; auth_date: number; first_name: string | null } | { ok: false; error: string } {
   const p = new URLSearchParams(initData);
   const hash = p.get("hash"); if (!hash) return { ok: false, error: "NO_HASH" };
   p.delete("hash");
