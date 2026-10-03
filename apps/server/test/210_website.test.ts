@@ -339,7 +339,7 @@ describe("time slots: booking hours 08:00–17:00, lunch 12:00–13:00 blocked, 
   });
 });
 
-let ref1: string, bk1: string, n1: string, refA2: string;
+let ref1: string, bk1: string, n1: string, refA2: string, bkC: string;
 describe("online booking: one tap = save + hold + consent + the bot link", () => {
   it("the button carries the consent; bad input is refused; nothing is saved", async () => {
     const dara = await loginAs(app, "dara");
@@ -668,12 +668,12 @@ describe("customer login: phone + password from the bot; a new password only fro
 });
 
 describe("customer home: own data only, notification settings, book again", () => {
-  let bkB: string, closedB: string, bkC: string, refC: string;
+  let bkB: string, closedB: string, refC: string;
   let A: Client, B: Client;
   it("upcoming with status and technician; past jobs with the warranty end and «book again» with the same lines; settings with the notification switches", async () => {
     bkB = await staffJob((await slotOf(5, "15:00")).at, [s.users.dara!], custB);
     closedB = await staffJob((await slotOf(6, "15:00")).at, [s.users.dara!], custB);
-    await sql`update bookings set service_item_id = ${ID["AC-CLEAN"]} where id = ${closedB}`;
+    await sql`update bookings set service_item_id = ${ID["AC-CLEAN"]!} where id = ${closedB}`;
     for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${closedB}`;
     const inv = (await admin.req("POST", "/api/invoices", { booking_id: closedB, lines: [{ description: "លាង", kind: "service", qty: 1, unit: "job", unit_price: 1500 }] })).json.id;
     await admin.req("POST", `/api/invoices/${inv}/issue`);

@@ -54,7 +54,7 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
   if (b.income_account_id && !(await sql`select 1 from accounts where id = ${b.income_account_id} and company_id = ${user.companyId} and type = 'income'`).length) throw new AppError("NOT_INCOME_ACCOUNT", 400);
   const code = b.code ? b.code : null;
   return tx(user.id, async (t) => {
-    const old = b.id ? (await t<Item[]>`select ${COLS(t)} from catalog_items where id = ${b.id} and company_id = ${user.companyId} for update`)[0] : null;
+    const old = b.id ? (await t<Item[]>`select ${COLS(t)} from catalog_items where id = ${b.id} and company_id = ${user.companyId} for update`)[0] ?? null : null;
     if (b.id && !old) throw notFound();
     await codeFree(t, user.companyId, code, b.id ?? null);
     const service = b.kind === "service";

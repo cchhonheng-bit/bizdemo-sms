@@ -190,7 +190,7 @@ const locationCard = (t: T, small = false) => `<section class="card s g8" id="lo
 <input type="hidden" id="lat"><input type="hidden" id="lng"><input type="hidden" id="acc"></section>`;
 
 /** category tiles + item lines (item dropdown, quantity 1–20, «+ add a service»); the page's JSON #items holds the catalog */
-function linesBlock(d: SiteView, t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: boolean; services: SiteService[] }) {
+function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: boolean; services: SiteService[] }) {
   const cats = [...WEB_CATEGORIES, "other" as const].filter((c) => o.services.some((s) => catOf(s) === c));
   const first = o.lines[0] ? o.services.find((s) => s.id === o.lines[0]!.id) : undefined;
   const on: Cat | undefined = first ? catOf(first) : cats[0];
@@ -219,7 +219,7 @@ export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLi
   const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
   const known = (prefill ?? []).filter((l) => d.services.some((s) => s.id === l.id));
-  const lb = linesBlock(d, t, lang, { lines: known, optional: false, services: d.services });
+  const lb = linesBlock(t, lang, { lines: known, optional: false, services: d.services });
   const chosen = lb.lines.map((l) => ({ ...l, s: d.services.find((s) => s.id === l.id)! })).filter((x) => x.s);
   const quote = chosen.some((x) => x.s.quote_only);
   const price = chosen.length && chosen.every((x) => x.s.from_price != null) ? chosen.reduce((a, x) => a + x.s.from_price! * x.qty, 0) : null;
@@ -305,7 +305,7 @@ ${tgBlock(t, b.linked, b.link)}
 // ---------- 5 · quote request ----------
 export function quotePage(d: SiteView, lang: SiteLang, o: { lines: Lines | null; token: string; path: string; prefill: Prefill | null }): string {
   const t = TXT[lang], n = names(d, lang);
-  const lb = linesBlock(d, t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services });
+  const lb = linesBlock(t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services });
   const body = `<main class="scr bar-pad">
 ${backHeader(t, "/", t.quote, t.q_sub)}
 <section class="card s g8" id="pick">${d.services.length ? lb.html : ""}
