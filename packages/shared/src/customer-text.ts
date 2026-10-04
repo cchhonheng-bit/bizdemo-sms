@@ -28,7 +28,7 @@ export const kmDate = (iso: string): string => `${Number(iso.slice(8, 10))} ${KM
 
 const wait = `(≤${kmDigits(WEB_CONFIRM_MIN)} នាទី)`;
 /** D-119: a booking made 20:00–08:00 is confirmed in the morning — the owner's exact words */
-export const NIGHT_CONFIRM = { km: "យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក", en: "We will confirm at 8 am" } as const;
+export const NIGHT_CONFIRM: { km: string; en: string } = { km: "យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក", en: "We will confirm at 8 am" };
 const pwLines = (pw: string) => [`🔑 ពាក្យសម្ងាត់៖ ${pw}`, "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ"];
 const lines = (...l: (string | null | false | undefined)[]) => l.filter((x): x is string => !!x).join("\n");
 
