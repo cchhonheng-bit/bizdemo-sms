@@ -27,14 +27,16 @@ export type CustomerSession = { id: string; companyId: string; subscriberId: num
 const MINI_APP_MAX_AGE = 86_400;
 
 /** opened inside Telegram: the launch data says who it is (checked by the hub with the shop bot's token); only someone the hub
- *  knows as a subscriber of this shop gets a session */
-export async function customerLogin(v: { init_data: string }): Promise<{ token: string } | { error: "auth" | "nolink" }> {
+ *  knows as a subscriber of this shop gets a session. A live session of that same subscriber (`current`) is kept — no new row. */
+export async function customerLogin(v: { init_data: string }, current?: string): Promise<{ token: string | null; companyId: string; subscriberId: number } | { error: "auth" | "nolink" }> {
   const companyId = await siteCompanyId();
   if (!companyId || !hubConfigured()) return { error: "auth" };
   const r = await hubCall("POST", "/internal/tg-verify", { init_data: v.init_data, max_age: MINI_APP_MAX_AGE }).catch(() => null);
   if (!r || r.status !== 200 || r.json?.ok !== true || typeof r.json.tg_user !== "number") return { error: "auth" };
   if (typeof r.json.subscriber_id !== "number") return { error: "nolink" };
-  return { token: await newCustomerSession({ companyId, subscriberId: r.json.subscriber_id, customerId: null, tgUser: r.json.tg_user,
+  const live = await resolveCustomerSession(current);
+  if (live && live.subscriberId === r.json.subscriber_id && live.companyId === companyId) return { token: null, companyId, subscriberId: live.subscriberId };
+  return { companyId, subscriberId: r.json.subscriber_id, token: await newCustomerSession({ companyId, subscriberId: r.json.subscriber_id, customerId: null, tgUser: r.json.tg_user,
     name: typeof r.json.first_name === "string" ? r.json.first_name : null, via: "telegram" }) };
 }
 /** a password session lives only while its customer record is active and linked to a Telegram chat (that chat decides what it sees) */
@@ -82,7 +84,7 @@ export type MyHome = Awaited<ReturnType<typeof myHome>>;
 /** the English name of a booking: from its lines (website), else from its catalog item */
 const enText = (r: Row) => (r.web_lines?.length ? r.web_lines.map((l) => (l.name_en ? (l.qty > 1 ? `${l.name_en} ×${l.qty}` : l.name_en) : null)).filter(Boolean).join(" · ") || null : r.name_en);
 /** «book again»: the same lines (website booking) or the same service — the booking screen checks them again */
-const rebookOf = (r: Row) => (r.web_lines?.length ? `/book?items=${webLinesParam(r.web_lines.map((l) => ({ id: l.id, qty: l.qty })))}` : r.bookable && r.service_item_id ? `/book?items=${r.service_item_id}:1` : "/");
+const rebookOf = (r: Row) => (r.web_lines?.length ? `/book?items=${webLinesParam(r.web_lines.map((l) => ({ id: l.id, qty: l.qty })))}` : r.bookable && r.service_item_id ? `/book?items=${r.service_item_id}:1` : "/book");
 
 // ---------- notification settings (customer home): the hub keeps the subscription; every change is in its consent log ----------
 export type NotifyPrefs = { service: boolean; promo: boolean };

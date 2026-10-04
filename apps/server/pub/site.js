@@ -27,32 +27,72 @@
   }
   function money(c) { return "$" + (c / 100).toLocaleString("en-US", { minimumFractionDigits: c % 100 ? 2 : 0, maximumFractionDigits: 2 }); }
 
-  // ---- opened inside Telegram (Mini App): Telegram's own script (the only outside script the CSP allows) → full height; the
-  //      launch data signs a linked customer in (checked by the hub) and links a new booking at once (no deep link)
-  var inTelegram = /tgWebAppData=/.test(location.hash);
-  try { inTelegram = inTelegram || !!sessionStorage.getItem("__telegram__initParams"); } catch (e) { /* storage blocked */ }
+  // ---- D-121: a service worker left at "/" by the staff app of before D-96 answered customer pages with the old staff screen —
+  //      remove it wherever it is still registered (the staff app's own worker lives under /app/ and stays)
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) navigator.serviceWorker.getRegistrations().then(function (rs) {
+      rs.forEach(function (r) { try { if (new URL(r.scope).pathname === "/") r.unregister(); } catch (e) { /* ignore */ } });
+    }).catch(function () { /* blocked */ });
+  } catch (e) { /* no service workers */ }
+
+  // ---- opened inside Telegram (Mini App): Telegram puts the launch data in the address (#tgWebAppData=…). It is read at once —
+  //      nothing waits for Telegram's own script (D-121); that script (the only outside script the CSP allows) still loads, for
+  //      the full height. The launch data signs the customer in (checked by the hub) and links a new booking at once.
   var TG = null;
-  var tgReady = new Promise(function (resolve) {
-    if (!inTelegram) return resolve(null);
-    var s = document.createElement("script");
-    s.src = "https://telegram.org/js/telegram-web-app.js";
-    s.async = true;
-    s.onload = function () { TG = window.Telegram && window.Telegram.WebApp; try { if (TG) { TG.ready(); TG.expand(); } } catch (e) { /* older clients */ } resolve(TG); };
-    s.onerror = function () { resolve(null); };
-    document.head.appendChild(s);
-  });
-  var initData = function () { return TG && TG.initData ? TG.initData : null; };
-  tgReady.then(function (tg) {
-    if (!tg || !tg.initData) return;
-    // the bot's menu button opens "/": a customer lands on the customer home; «📅 book» opens "/?book" and stays on booking
-    var tried = false;
-    try { tried = !!sessionStorage.getItem("otcTried"); sessionStorage.setItem("otcTried", "1"); } catch (e) { /* storage blocked */ }
-    if (page === "login" || (page === "home" && !tried)) {
-      send("POST", "/api/public/tg-login", { init_data: tg.initData }).then(function (r) {
-        if (r.ok && (page === "login" || (location.pathname === "/" && !location.search))) location.replace("/my");
-      });
+  function launchData() {
+    var v = null;
+    try { v = new URLSearchParams(location.hash.slice(1)).get("tgWebAppData"); } catch (e) { v = null; }
+    if (!v) try { var p = JSON.parse(sessionStorage.getItem("__telegram__initParams") || "null"); v = p && p.tgWebAppData; } catch (e) { v = null; }
+    if (!v && TG && TG.initData) v = TG.initData;
+    return v || null;
+  }
+  var initData = launchData, inTelegram = !!launchData();
+  if (inTelegram) (function () {
+    var sc = document.createElement("script");
+    sc.src = "https://telegram.org/js/telegram-web-app.js";
+    sc.async = true;
+    sc.onload = function () { TG = window.Telegram && window.Telegram.WebApp; try { if (TG) { TG.ready(); TG.expand(); } } catch (e) { /* older clients */ } };
+    document.head.appendChild(sc);
+  })();
+  function tgAuth() { return send("POST", "/api/customer/tg-auth", { init_data: launchData() }); }
+  // a chat whose menu button still opens "/" (set before D-121): inside Telegram the menu button is the customer home
+  if (inTelegram && page === "home" && location.pathname === "/" && !location.search) return location.replace("/my" + location.hash);
+
+  // ---- D-121: a customer page without a session shows only the skeleton. Inside Telegram: ONE call signs in from the launch data,
+  //      then the same address loads again (now with the session). Outside Telegram: the sign-in page. A login form never comes first.
+  if (page === "gate") (function () {
+    var next = body.dataset.next || "/my";
+    if (!inTelegram) return location.replace("/my/login?next=" + encodeURIComponent(next));
+    var box = $("#gate-err"), m = $("#gate-msg"), retry = $("#gate-retry"), toBot = $("#gate-bot");
+    function cards(on) { $$(".sk").forEach(function (x) { x.hidden = !on; }); }
+    function fail(code) {
+      cards(false);
+      if (code === "NOT_LINKED" && m && m.dataset.start) { m.textContent = m.dataset.start; if (toBot) toBot.hidden = false; }
+      box.hidden = false;
     }
-  });
+    // signed in a moment ago and still here = this browser keeps no cookie (e.g. Telegram Web in a frame): say so, never loop
+    var again = /(^|&)ot_gate=1(&|$)/.test(location.hash.slice(1));
+    function go() {
+      box.hidden = true; cards(true);
+      tgAuth().then(function (r) {
+        if (!r.ok) return fail(r.json.error);
+        if (again) return fail("ERROR");
+        location.replace(next + (location.hash ? location.hash + "&ot_gate=1" : "#ot_gate=1"));
+      }).catch(function () { fail("ERROR"); });
+    }
+    if (retry) retry.addEventListener("click", go);
+    go();
+  })();
+  if (page === "gate") return;
+
+  // ---- D-121: the booking screens are public — inside Telegram without a session they sign in in the background, so the form
+  //      knows the customer (name + phone filled in when still empty); nothing waits for it and nothing is a login screen
+  if (inTelegram && body.dataset.signed !== "1" && (page === "home" || page === "book" || page === "quote")) tgAuth().then(function (r) {
+    if (!r.ok) return;
+    var nm = $("#name"), ph = $("#phone");
+    if (nm && !nm.value && r.json.name) nm.value = r.json.name;
+    if (ph && !ph.value && r.json.phone) ph.value = r.json.phone;
+  }).catch(function () { /* the form works without it */ });
 
   // ---- after saving: to the shop bot with the single-use link; the history entry becomes the «sent» screen (back from
   //      Telegram lands there) and, when Telegram opened as an app, the page itself turns into it
@@ -357,6 +397,8 @@
 
   // ---- sign in: phone + password (a new password comes from the bot — «forgot password» is a link to it)
   if (page === "login") (function () {
+    var next = body.dataset.next || "/my";
+    if (inTelegram) return location.replace(next + location.hash); // inside Telegram the launch data signs in — never this form (D-121)
     var err = $("#err"), go = $("#login");
     clearOnEdit($("main"), err);
     go.addEventListener("click", function () {
@@ -365,7 +407,7 @@
       if (!pw) return showErr(err, "INVALID_CREDENTIALS");
       busy(go, true);
       send("POST", "/api/public/login", { phone: $("#phone").value.trim(), password: pw }).then(function (r) {
-        if (r.ok) return location.assign("/my");
+        if (r.ok) return location.assign(next);
         busy(go, false);
         var code = r.json.error || "ERROR";
         showErr(err, code);
@@ -383,7 +425,8 @@
 
   // ---- 6 · customer home: notifications, password, sign out, cancel with a reason, ask for another time
   if (page === "my") (function () {
-    $("#logout").addEventListener("click", function () { send("POST", "/api/my/logout", {}).then(function () { location.assign("/"); }); });
+    var out = $("#logout");
+    if (out) out.addEventListener("click", function () { send("POST", "/api/my/logout", {}).then(function () { location.assign("/"); }); });
     // notification settings — the shop bot's subscription (service messages / promotions)
     var ns = $("#n-service"), np = $("#n-promo"), nok = $("#n-ok"), nerr = $("#n-err");
     function savePrefs() {
@@ -398,6 +441,7 @@
     if (np) np.addEventListener("change", savePrefs);
     // profile → change password (needs the current one)
     var card = $("#pw-card"), perr = $("#pw-err"), pok = $("#pw-ok");
+    if (card) {
     $("#pw-open").addEventListener("click", function () { card.hidden = !card.hidden; pok.hidden = true; hideErr(perr); if (!card.hidden) $("#pw-cur").focus(); });
     $("#pw-close").addEventListener("click", function () { card.hidden = true; });
     clearOnEdit(card, perr);
@@ -412,6 +456,7 @@
         $("#pw-cur").value = ""; $("#pw-new").value = ""; hideErr(perr); pok.hidden = false;
       }).catch(function () { btn.disabled = false; showErr(perr, "ERROR"); });
     });
+    }
     $$("[data-booking]").forEach(function (card) {
       var id = card.dataset.booking, err = $(".err", card), pc = $('[data-panel="cancel"]', card), pm = $('[data-panel="move"]', card), st = null;
       function close() { if (pc) pc.hidden = true; if (pm) pm.hidden = true; hideErr(err); }

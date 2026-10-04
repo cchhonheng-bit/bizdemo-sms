@@ -1,6 +1,7 @@
 // Public shop website (flag "website", D-96 · final combined brief D-106) — no staff login anywhere here.
-//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done/<ref> · /my · /privacy · /terms · /robots.txt
+//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done/<ref> · /my · /my/bookings · /my/login · /privacy · /terms · /robots.txt
 //   public API /api/public/slots · bookings · quotes · login · tg-login · maps   (form token, honeypot, rate limits, locks)
+//   Telegram   /api/customer/tg-auth — the Mini App's launch data → customer session, BEFORE the page is shown (D-121)
 //   customer   /api/my …                                                  (customer session cookie "otc" — own data only)
 //   files      /pub/<file> + /pub/fonts/<file> (the site's css, js, fonts) · /pub/img/<id> (website photos) · /pub/logo
 // And the staff side: Settings → Website, and the customer requests inbox with its decisions (confirm / decline / approve / reject).
@@ -23,7 +24,7 @@ import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookPage, donePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
+import { assets, bookPage, donePage, gatePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
 import { expandMapsLink } from "./maps.js";
 
 const LANG_COOKIE = "sl";
@@ -49,13 +50,19 @@ const linesOf = (req: FastifyRequest) => {
   const q = (req.query as { items?: string; service?: string } | undefined) ?? {};
   return parseWebLines(q.items ?? (q.service && /^[0-9a-f-]{36}$/.test(q.service) ? `${q.service}:1` : null));
 };
-/** a signed-in customer: name and phone are filled in, and the booking is linked at once */
-async function prefillOf(req: FastifyRequest): Promise<Prefill | null> {
-  const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
-  if (!s) return null;
-  const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${s.companyId} and tg_subscriber_id = ${s.subscriberId} and is_active order by created_at limit 1`)[0];
+/** the customer record linked to a Telegram subscriber: name + phone for the booking form */
+async function customerOf(companyId: string, subscriberId: number): Promise<Prefill | null> {
+  const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active order by created_at limit 1`)[0];
   return c ? { name: c.name, phone: c.phone ?? "" } : null;
 }
+/** a signed-in customer: name and phone are filled in, and the booking is linked at once (signed = there is a customer session) */
+async function prefillOf(req: FastifyRequest): Promise<{ prefill: Prefill | null; signed: boolean }> {
+  const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+  return s ? { prefill: await customerOf(s.companyId, s.subscriberId), signed: true } : { prefill: null, signed: false };
+}
+/** D-121: where the sign-in page returns to — a customer page only (never another site) */
+const NEXT_OK = new Set(["/my", "/my/bookings", "/book"]);
+const safeNext = (v: unknown) => (typeof v === "string" && NEXT_OK.has(v) ? v : "/my");
 
 /** screen 1 — "/" (app.ts) */
 export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
@@ -112,13 +119,15 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   // ---- pages ----
   app.get("/book", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
-    if (!refs) return reply.redirect("/", 302);
+    // D-121: the bot's «📅» opens /book — the service picker itself (never "/")
+    if (!refs) return html(reply, 200, homePage(d, lang, pathOf(req), null, { start: true, signed: (await prefillOf(req)).signed }));
     const q = req.query as { items?: string };
     if (!q.items) return reply.redirect(`/book?items=${webLinesParam(refs)}`, 302); // an older ?service= link
     const r = await resolveLines(sql, d.companyId, refs).catch(() => null);
     if (!r) return reply.redirect("/", 302);
     if (r.quote) return reply.redirect(`/quote?items=${webLinesParam(refs)}`, 302); // quote-only items: the quote screen
-    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: await prefillOf(req), night: isNight(clock.now(), d.tz, clock.day) }));
+    const who = await prefillOf(req);
+    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: who.prefill, signed: who.signed, night: isNight(clock.now(), d.tz, clock.day) }));
   });
   app.get("/book/done/:ref", async (req, reply) => {
     const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);
@@ -128,7 +137,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get("/quote", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
     const r = refs ? await resolveLines(sql, d.companyId, refs).catch(() => null) : null;
-    return html(reply, 200, quotePage(d, lang, { lines: r, token: formToken(), path: pathOf(req), prefill: await prefillOf(req) }));
+    const who = await prefillOf(req);
+    return html(reply, 200, quotePage(d, lang, { lines: r, token: formToken(), path: pathOf(req), prefill: who.prefill, signed: who.signed }));
   });
   app.get("/quote/done/:ref", async (req, reply) => {
     const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);
@@ -136,11 +146,22 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     return html(reply, 200, quoteDonePage(await site(), lang, await quoteDoneView(ref.data.ref), pathOf(req)), "no-store");
   });
   app.get("/quote/done", async (_req, reply) => reply.redirect("/", 302)); // the old static «sent» screen
-  app.get("/my", async (req, reply) => {
-    const lang = langOf(req, reply), d = await site();
+  // D-121 (CEO): the customer's pages — a live session renders at once (no sign-in call); without one, ONLY the skeleton: inside
+  // Telegram the page signs in from the launch data and loads again, outside Telegram the sign-in page follows. Never a login form
+  // first, never the staff app. /my = the menu button (bookings + settings) · /my/bookings = «📍» (the bookings and their status).
+  const customerPage = (view: "home" | "bookings") => async (req: FastifyRequest, reply: FastifyReply) => {
+    const lang = langOf(req, reply), d = await site(), path = view === "home" ? "/my" : "/my/bookings";
     const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
-    if (!s) return html(reply, 200, loginPage(d, lang, "/my"), "no-store");
-    return html(reply, 200, myPage(d, lang, await myHome(s), await myPrefs(s), "/my"), "no-store");
+    if (!s) return html(reply, 200, gatePage(d, lang, path), "no-store");
+    return html(reply, 200, myPage(d, lang, await myHome(s), view === "home" ? await myPrefs(s) : null, path, view), "no-store");
+  };
+  app.get("/my", customerPage("home"));
+  app.get("/my/bookings", customerPage("bookings"));
+  /** outside Telegram only: phone + password, then back to the page that asked (a live session goes there at once) */
+  app.get("/my/login", async (req, reply) => {
+    const lang = langOf(req, reply), d = await site(), next = safeNext((req.query as { next?: unknown } | undefined)?.next);
+    if (await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE])) return reply.redirect(next, 302);
+    return html(reply, 200, loginPage(d, lang, pathOf(req), next), "no-store");
   });
   app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").header("Cache-Control", "no-cache").send(robotsTxt((await siteData())?.website.published === true)));
   app.get("/pub/img/:id", async (req, reply) => image(reply, await readSiteImage(z.object({ id: uuid }).parse(req.params).id)));
@@ -186,14 +207,20 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
     return { ok: true };
   });
-  /** opened inside Telegram (Mini App): the launch data is the login */
-  app.post("/api/public/tg-login", async (req, reply) => {
+  /** opened inside Telegram (Mini App): the launch data is the login (D-121: the page calls this BEFORE it shows anything). A live
+   *  session of the same person is kept. Answers with the linked customer's name + phone for the booking form. /api/public/tg-login
+   *  is the same call for pages loaded before D-121. */
+  const tgAuth = async (req: FastifyRequest, reply: FastifyReply) => {
     if (!checkRate(`site:login:ip:${req.ip}`, 10, 60)) throw new AppError("RATE_LIMITED", 429);
-    const r = await customerLogin(z.object({ init_data: z.string().min(1).max(4000) }).strict().parse(req.body));
+    const r = await customerLogin(z.object({ init_data: z.string().min(1).max(4000) }).strict().parse(req.body), req.cookies[CUSTOMER_COOKIE]);
     if ("error" in r) throw new AppError(r.error === "nolink" ? "NOT_LINKED" : "INVALID_CREDENTIALS", r.error === "nolink" ? 409 : 401);
-    reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
-    return { ok: true };
-  });
+    if (r.token) reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
+    reply.header("Cache-Control", "no-store");
+    const c = await customerOf(r.companyId, r.subscriberId);
+    return { ok: true, name: c?.name ?? null, phone: c?.phone || null };
+  };
+  app.post("/api/customer/tg-auth", tgAuth);
+  app.post("/api/public/tg-login", tgAuth);
 
   // ---- customer home API: every call is bound to the session's own bookings ----
   app.get("/api/my", async (req, reply) => { reply.header("Cache-Control", "no-store"); return myHome(await customer(req)); });

@@ -15,21 +15,24 @@ const https = () => config.publicUrl.startsWith("https://");
 export const siteUrl = (path = "/") => `${config.publicUrl}${path}`;
 /** the website module is on and reachable over https — the Mini App buttons work */
 export const webOn = () => featureOn("website") && https();
-export const menuUrl = () => (webOn() ? siteUrl("/") : null);
+/** D-121 (CEO): every bot entry opens its exact customer page — never "/" and never the staff app: the chat's menu button → the
+ *  customer home /my, «📍» → /my/bookings, «📅» → /book */
+export const CUSTOMER_PATHS = { home: "/my", track: "/my/bookings", book: "/book" } as const;
+export const menuUrl = () => (webOn() ? siteUrl(CUSTOMER_PATHS.home) : null);
 
 /** the grid: 📅 book · 📍 track / 🎁 promotions · 🔑 new password / 🔕 stop notifications */
 export function customerGrid(): KbButton[][] | null {
   if (!webOn()) return null;
-  return [[{ text: CUSTOMER_MENU.book, web_app: siteUrl("/?book") }, { text: CUSTOMER_MENU.track, web_app: siteUrl("/my") }],
+  return [[{ text: CUSTOMER_MENU.book, web_app: siteUrl(CUSTOMER_PATHS.book) }, { text: CUSTOMER_MENU.track, web_app: siteUrl(CUSTOMER_PATHS.track) }],
     [{ text: CUSTOMER_MENU.promo }, { text: CUSTOMER_MENU.password }], [{ text: CUSTOMER_MENU.stop }]];
 }
 const webApp = (text: string, path: string): Btn | null => (webOn() ? { text, web_app: siteUrl(path) } : null);
 export const btn = {
-  track: () => webApp(CUSTOMER_BTN.track, "/my"),
-  rebook: () => webApp(CUSTOMER_BTN.rebook, "/?book"),
-  again: () => webApp(CUSTOMER_BTN.again, "/?book"),
-  book: () => webApp(CUSTOMER_BTN.book, "/?book"),
-  login: (): Btn | null => (https() ? { text: CUSTOMER_BTN.login, url: siteUrl("/my") } : null),
+  track: () => webApp(CUSTOMER_BTN.track, CUSTOMER_PATHS.track),
+  rebook: () => webApp(CUSTOMER_BTN.rebook, CUSTOMER_PATHS.book),
+  again: () => webApp(CUSTOMER_BTN.again, CUSTOMER_PATHS.book),
+  book: () => webApp(CUSTOMER_BTN.book, CUSTOMER_PATHS.book),
+  login: (): Btn | null => (https() ? { text: CUSTOMER_BTN.login, url: siteUrl(CUSTOMER_PATHS.home) } : null),
 };
 /** one row of the buttons that exist (null = left out) */
 export const row = (...b: (Btn | null)[]): Btn[][] | undefined => { const x = b.filter((y): y is Btn => !!y); return x.length ? [x] : undefined; };

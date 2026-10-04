@@ -53,6 +53,14 @@ svg{flex:none}
 /* cards + type */
 .card{padding:18px 16px 16px;border-radius:20px;background:#FFF;display:flex;flex-direction:column;gap:12px;box-shadow:0 1px 2px rgba(20,33,61,.06)}
 .card.s{padding:14px 12px;gap:10px;box-shadow:none}
+/* D-121: a customer page while the session check runs — the shop header and grey cards, nothing else */
+.sk{gap:10px}
+.sk i{display:block;height:12px;border-radius:6px;background:linear-gradient(90deg,#E3ECEA 25%,#F1F6F5 50%,#E3ECEA 75%);background-size:200% 100%;animation:sk 1.1s ease-in-out infinite}
+.sk .w30{width:30%}.sk .w40{width:40%}.sk .w50{width:50%}.sk .w60{width:60%}.sk .w70{width:70%}.sk .w80{width:80%}
+.sk-r{display:flex;gap:12px;align-items:center}.sk-r>div{flex:1;display:flex;flex-direction:column;gap:8px}
+.sk .sk-d{width:48px;height:56px;border-radius:12px;flex:none}
+@keyframes sk{0%{background-position:100% 0}100%{background-position:-100% 0}}
+@media (prefers-reduced-motion:reduce){.sk i{animation:none}}
 .card.g8{gap:8px}
 .card.g4{gap:4px}
 h1{margin:0;font-size:20px;line-height:1.5;font-weight:700}

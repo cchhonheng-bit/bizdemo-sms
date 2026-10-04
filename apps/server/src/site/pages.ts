@@ -46,6 +46,8 @@ const TXT = {
     l_link_p: "មិនទាន់មានគណនី? សូមកក់សេវា រួចចុច «កក់ និងភ្ជាប់ Telegram»។ ពាក្យសម្ងាត់នឹងមកដល់ក្នុង Telegram របស់អ្នក។", l_open: "បើក Telegram របស់ហាង",
     settings: "ការកំណត់", n_title: "ដំណឹងតាម Telegram", n_service: "ដំណឹងអំពីការកក់របស់ខ្ញុំ", n_promo: "ប្រូម៉ូសិន", n_off: "ការកំណត់ដំណឹងមិនអាចប្រើបានពេលនេះ",
     pw_title: "ប្ដូរពាក្យសម្ងាត់", pw_cur: "ពាក្យសម្ងាត់បច្ចុប្បន្ន", pw_new: "ពាក្យសម្ងាត់ថ្មី", pw_save: "រក្សាទុក", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
+    track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
+    g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
     nf: "រកមិនឃើញទំព័រនេះទេ", version: "កំណែ", wd: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], wds: ["ច", "អ", "ពុ", "ព្រ", "សុ", "ស", "អា"],
     mon: ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"],
     msg: { PICK_SLOT: "សូមជ្រើសថ្ងៃ និងម៉ោង", ADDRESS_REQUIRED: "សូមចុច «ប្រើទីតាំងបច្ចុប្បន្ន» ឬសរសេរអាសយដ្ឋាន", LOCATION_REQUIRED: "សូមចុច «ប្រើទីតាំងបច្ចុប្បន្ន» ឬសរសេរទីតាំង", NAME_REQUIRED: "សូមបញ្ចូលឈ្មោះ", INVALID_PHONE: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ",
@@ -86,6 +88,8 @@ const TXT = {
     l_link_p: "No account yet? Book a service and tap \"Book and connect Telegram\". The password arrives in your Telegram.", l_open: "Open the shop on Telegram",
     settings: "Settings", n_title: "Telegram notifications", n_service: "News about my bookings", n_promo: "Promotions", n_off: "Notification settings are not available right now",
     pw_title: "Change password", pw_cur: "Current password", pw_new: "New password", pw_save: "Save", l_staff: "Staff: open the work app",
+    track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
+    g_start: "Please open the shop on Telegram and tap START first",
     nf: "Page not found", version: "Version", wd: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wds: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     mon: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     msg: { PICK_SLOT: "Please choose a day and a time", ADDRESS_REQUIRED: "Please tap \"Use my current location\" or type the address", LOCATION_REQUIRED: "Please tap \"Use my current location\" or type the location", NAME_REQUIRED: "Please enter your name", INVALID_PHONE: "Please enter a valid phone number",
@@ -222,7 +226,8 @@ function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: bo
 const lineHref = (lines: WebLineRef[]) => lines.map((l) => `${l.id}:${l.qty}`).join(",");
 
 // ---------- 1 · home ----------
-export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLineRef[] | null = null): string {
+/** start: the /book screen of the bot's «📅» (D-121) — the service picker without the shop presentation; signed: a customer session */
+export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLineRef[] | null = null, o: { start?: boolean; signed?: boolean } = {}): string {
   const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
   const known = (prefill ?? []).filter((l) => d.services.some((s) => s.id === l.id));
@@ -240,15 +245,14 @@ export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLi
     d.info.address || d.office || w.facebook || phones.length > 1 ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}${d.office ? `<iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe><a class="ln" href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a>` : ""}</section>` : "",
   ].join("");
   const body = `<main class="scr home">
-<header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a><a class="pill" href="/my">${svg(I.user, 14)}${t.login}</a></header>
+<header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a>${o.signed ? `<a class="pill" href="/my/bookings">${svg(I.cal, 14)}${t.mine}</a>` : `<a class="pill" href="/my">${svg(I.user, 14)}${t.login}</a>`}</header>
 ${steps(t, 1)}
 <section class="card" id="pick"><div><h1>${t.h1}</h1><p class="sub">${t.sub}</p></div>
 ${d.services.length ? `${lb.html}<p class="price" id="price">${esc(priceText(t, price))}</p>` : `<p class="sub">${t.none}</p>`}
 <a class="btn" id="go" href="${esc(go)}">${svg(I.cal, 16, 2.2)}<span>${quote || !chosen.length ? t.quote : t.book}</span></a>
 ${phones[0] || d.bot ? `<div class="row2">${phones[0] ? `<a class="ob" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div>` : ""}</section>
-<section class="trust"><div><span class="tl">${svg(I.clock)}</span><span>${t.t1}</span></div><div><span class="tl">${svg(I.shield)}</span><span>${t.t2(lang === "km" ? kmDigits(months) : months)}</span></div><div><span class="gd">${svg(I.send)}</span><span>${t.t3}</span></div></section>
-${extra}${footer(t, lang, path, area)}</main>`;
-  return shell(d, lang, { title: `${n.full} — ${t.book}`, description: pick(w.tagline_km, w.tagline_en) || t.sub, page: "home", path, index: true, body, json: { items: lb.items } });
+${o.start ? "" : `<section class="trust"><div><span class="tl">${svg(I.clock)}</span><span>${t.t1}</span></div><div><span class="tl">${svg(I.shield)}</span><span>${t.t2(lang === "km" ? kmDigits(months) : months)}</span></div><div><span class="gd">${svg(I.send)}</span><span>${t.t3}</span></div></section>\n${extra}`}${footer(t, lang, path, o.start ? "" : area)}</main>`;
+  return shell(d, lang, { title: `${n.full} — ${t.book}`, description: pick(w.tagline_km, w.tagline_en) || t.sub, page: "home", path, index: !o.start, body, json: { items: lb.items }, data: o.signed ? { signed: "1" } : {} });
 }
 
 // ---------- 2 + 3 · choose a time + location, your details (one document, two steps) ----------
@@ -265,7 +269,7 @@ ${sel < 0 ? `<p class="err">${t.full}</p>` : ""}`;
 const linesSummary = (lines: Lines, lang: SiteLang) => esc(lang === "en" ? lines.text_en : lines.text_km);
 
 /** night (D-119): 20:00–08:00 shop time — «we confirm at 8 am» instead of «within 30 minutes» */
-export function bookPage(d: SiteView, lang: SiteLang, o: { lines: Lines; days: WebDay[]; token: string; path: string; prefill: Prefill | null; night?: boolean }): string {
+export function bookPage(d: SiteView, lang: SiteLang, o: { lines: Lines; days: WebDay[]; token: string; path: string; prefill: Prefill | null; night?: boolean; signed?: boolean }): string {
   const t = TXT[lang], n = names(d, lang), r = o.lines, phones = phonesOf(d);
   const items = lineHref(r.lines);
   const price = priceText(t, r.price), free = o.days.some((x) => x.slots.some((y) => y.free));
@@ -288,12 +292,12 @@ ${steps(t, 3)}
 ${consent(d, t, lang, t.send)}
 ${errBox("err3")}
 <div class="bar col"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.send}</span></button><div class="sla">${esc(o.night ? t.sla_night : t.sla(n.short))}</div></div></main>`;
-  return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { items, ts: o.token } });
+  return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { items, ts: o.token, ...(o.signed ? { signed: "1" } : {}) } });
 }
 
 // ---------- 4 · request sent ----------
 const tgBlock = (t: T, linked: boolean, link: string | null) => (linked
-  ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div><a class="btn tgb" href="/my">${t.mine}</a></section>`
+  ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div><a class="btn tgb" href="/my/bookings">${t.mine}</a></section>`
   : link ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" id="tg-open" href="${esc(link)}" rel="noopener">${t.tg_btn}</a></section>` : "");
 export function donePage(d: SiteView, lang: SiteLang, b: { number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean }, path: string): string {
   const t = TXT[lang], n = names(d, lang);
@@ -311,7 +315,7 @@ ${tgBlock(t, b.linked, b.link)}
 }
 
 // ---------- 5 · quote request ----------
-export function quotePage(d: SiteView, lang: SiteLang, o: { lines: Lines | null; token: string; path: string; prefill: Prefill | null }): string {
+export function quotePage(d: SiteView, lang: SiteLang, o: { lines: Lines | null; token: string; path: string; prefill: Prefill | null; signed?: boolean }): string {
   const t = TXT[lang], n = names(d, lang);
   const lb = linesBlock(t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services, mini: true });
   const body = `<main class="scr bar-pad">
@@ -326,7 +330,7 @@ ${locationRow(t)}${honeypot}</section>
 ${consent(d, t, lang, t.q_send, true)}
 ${errBox()}
 <div class="bar"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.q_send}</span></button></div></main>`;
-  return shell(d, lang, { title: `${t.quote} — ${n.full}`, page: "quote", path: o.path, body, data: { ts: o.token, cat: lb.cats[0] ?? "other" }, json: { items: lb.items } });
+  return shell(d, lang, { title: `${t.quote} — ${n.full}`, page: "quote", path: o.path, body, data: { ts: o.token, cat: lb.cats[0] ?? "other", ...(o.signed ? { signed: "1" } : {}) }, json: { items: lb.items } });
 }
 export function quoteDonePage(d: SiteView, lang: SiteLang, v: { linked: boolean; link: string | null }, path: string): string {
   const t = TXT[lang], n = names(d, lang);
@@ -338,7 +342,23 @@ ${tgBlock(t, v.linked, v.link)}
 }
 
 // ---------- 6 · customer home (and its login) ----------
-export function loginPage(d: SiteView, lang: SiteLang, path: string): string {
+// D-121 (CEO): a customer page opened without a session shows the skeleton below — never a login form first. Inside Telegram the
+// launch data signs in (site.js reads it from the address at once, one call), then the same address loads again; outside Telegram
+// the sign-in page /my/login follows and returns to `next`.
+export function gatePage(d: SiteView, lang: SiteLang, next: string): string {
+  const t = TXT[lang], n = names(d, lang), bot = d.bot ? `https://t.me/${esc(d.bot)}` : null;
+  const card = (rows: string) => `<section class="card s sk" aria-hidden="true">${rows}</section>`;
+  const body = `<main class="scr end gate" aria-busy="true" aria-label="${esc(t.g_wait)}">
+<header class="hd"><span class="brand">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></span></header>
+${card('<i class="w40"></i><div class="sk-r"><i class="sk-d"></i><div><i class="w70"></i><i class="w50"></i></div></div>')}
+${card('<i class="w60"></i><i class="w80"></i>')}
+${card('<i class="w50"></i><i class="w30"></i>')}
+<section class="card s g8" id="gate-err" hidden><p class="sub ctr" id="gate-msg" data-start="${esc(t.g_start)}">${esc(t.g_err)}</p><button type="button" class="btn" id="gate-retry">${t.g_retry}</button>${bot ? `<a class="ob m" id="gate-bot" href="${bot}" rel="noopener" hidden>${svg(I.send, 15)}${t.l_open}</a>` : ""}<a class="ob m" href="/book">${svg(I.cal, 15)}${t.book}</a></section>
+</main>`;
+  return shell(d, lang, { title: n.full, page: "gate", path: next, body, data: { next }, msg: false });
+}
+
+export function loginPage(d: SiteView, lang: SiteLang, path: string, next = "/my"): string {
   const t = TXT[lang], n = names(d, lang);
   // D-103: phone + password (the password comes from the shop's bot). Whatever fails, the page says the same thing. CEO (D-106):
   // «forgot password» opens the bot — a new password comes only from there, into the linked chat.
@@ -350,12 +370,13 @@ export function loginPage(d: SiteView, lang: SiteLang, path: string): string {
 ${errBox()}
 <button type="button" class="btn" id="login">${t.l_go}</button>
 ${bot ? `<a class="lk mid" id="forgot" href="${bot}" rel="noopener">${t.l_forgot}</a><p class="hint ctr">${esc(t.l_forgot_p.replace("{b}", CUSTOMER_MENU.password))}</p>` : ""}</section>
-<section class="card s"><h2 class="h2">${t.l_link}</h2><p class="sub">${t.l_link_p}</p>${bot ? `<a class="ob m" href="${bot}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}<a class="ob m" href="/">${svg(I.cal, 15)}${t.book}</a></section>
+<section class="card s"><h2 class="h2">${t.l_link}</h2><p class="sub">${t.l_link_p}</p>${bot ? `<a class="ob m" href="${bot}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}<a class="ob m" href="/book">${svg(I.cal, 15)}${t.book}</a></section>
 <footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
-  return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path, body });
+  return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path, body, data: { next } });
 }
 
-export function myPage(d: SiteView, lang: SiteLang, h: MyHome, prefs: NotifyPrefs | null, path: string): string {
+/** view: "home" = /my (the menu button: bookings + settings) · "bookings" = /my/bookings (the bot's «📍»: the bookings and their status) */
+export function myPage(d: SiteView, lang: SiteLang, h: MyHome, prefs: NotifyPrefs | null, path: string, view: "home" | "bookings" = "home"): string {
   const t = TXT[lang], n = names(d, lang), phones = phonesOf(d);
   const up = h.upcoming.map((b) => {
     const p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
@@ -371,11 +392,12 @@ ${b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<b
   const past = h.past.length ? `<section class="card s g4"><h2 class="h2">${t.past}</h2>${h.past.map((j) => `<div class="pj"><span class="ic m">${svg(I.tool, 16)}</span><div class="tx"><b>${esc(lang === "en" && j.service_en ? j.service_en : j.service_km)}</b><span>${dm(j.date)} · ${j.warranty?.active ? `<span class="w">${t.until(dm(j.warranty.until))}</span>` : t.expired}</span></div><a href="${esc(j.rebook)}">${t.again}</a></div>`).join("")}</section>` : "";
   const toggle = (id: string, label: string, on: boolean, disabled = false) => `<label class="sw"><span>${label}</span><input type="checkbox" role="switch" id="${id}"${on ? " checked" : ""}${disabled ? " disabled" : ""}><i aria-hidden="true"></i></label>`;
   const body = `<main class="scr bar-pad">
-<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div><span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span></header>
+${view === "bookings" ? `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${esc(h.name)}</small><b>${t.track_h}</b></span></div><a class="pill" href="/my">${svg(I.user, 14)}${t.account}</a></header>`
+    : `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div><span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span></header>`}
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
-<section class="card s g8" id="settings"><h2 class="h2">${t.settings}</h2>
+${view === "bookings" ? "" : `<section class="card s g8" id="settings"><h2 class="h2">${t.settings}</h2>
 <div class="lb s">${svg(I.bell, 14)} ${t.n_title}</div>${prefs ? `${toggle("n-service", t.n_service, prefs.service)}${toggle("n-promo", t.n_promo, prefs.promo, !prefs.service)}` : `<p class="hint">${t.n_off}</p>`}
 <p class="note g" id="n-ok" hidden>${t.msg.SAVED}</p><p class="err" id="n-err" role="alert" hidden></p>
 <button type="button" class="ob m w" id="pw-open">${svg(I.key, 14)}${t.pw_title}</button>
@@ -384,10 +406,10 @@ ${past}
 <div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label><input class="in sm" id="pw-new" type="password" inputmode="numeric" maxlength="64" autocomplete="new-password"></div>
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
 <div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></div>
-<button type="button" class="ob m w" id="logout">${t.logout}</button></section>
+<button type="button" class="ob m w" id="logout">${t.logout}</button></section>`}
 <footer class="ft low"><nav><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>
-<div class="bar"><a class="btn" href="/">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
-  return shell(d, lang, { title: `${t.upcoming} — ${n.full}`, page: "my", path, body });
+<div class="bar"><a class="btn" href="/book">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
+  return shell(d, lang, { title: `${view === "bookings" ? t.track_h : t.upcoming} — ${n.full}`, page: "my", path, body, data: { view } });
 }
 
 // ---------- privacy / terms: public pages of the site (D-106) — back to where the visitor came from, else "/" ----------

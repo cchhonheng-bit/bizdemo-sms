@@ -6,7 +6,8 @@
 // unlock paths, reset only from the bot into the linked chat, no enumeration, sessions end, /app closed) · customer home (own
 // data, IDOR, notification settings) · the customer bot keyboard (each button), share-my-phone, location · messages ≤ 4 lines ·
 // tracking messages (reminder the day before 17:00–20:00, on the way, done) · Settings → Website (hours, promotion gap) ·
-// D-119 night rule (timers 08:00–20:00, «we confirm at 8 am», silent staff alert) · D-120 test phones (CEO only, hidden, 24 h).
+// D-119 night rule (timers 08:00–20:00, «we confirm at 8 am», silent staff alert) · D-120 test phones (CEO only, hidden, 24 h) ·
+// D-121 customer pages: exact bot URLs, skeleton first, Telegram sign-in before the page, never a login screen in Telegram.
 // The Telegram side (hub: consent, contact, 🔕 menu, promotions) is in 40_hub_telegram; here the hub is a stub.
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -187,7 +188,7 @@ describe("routing: the customer site at \"/\", the staff app under /app, public 
     config.shop.features = "subscribe";
     const r = await page("/");
     expect(r.statusCode).toBe(302); expect(r.headers.location).toBe("/app/");
-    for (const u of ["/book", "/quote", "/my", "/robots.txt", `/api/public/slots?items=${ac()}`]) expect((await page(u)).statusCode).toBe(404);
+    for (const u of ["/book", "/quote", "/my", "/my/bookings", "/my/login", "/robots.txt", `/api/public/slots?items=${ac()}`]) expect((await page(u)).statusCode).toBe(404);
     config.shop.features = "website,subscribe,reminders";
   });
 });
@@ -430,8 +431,8 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     pwA = pwIn(x.text)!;
     expect(pwA).toMatch(/^\d{4}$/);
     expect(x.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${n1} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\n🔑 ពាក្យសម្ងាត់៖ ${pwA}\nចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ`);
-    expect(x.hint).toBe("កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ"); expect(x.menu_url).toBe("https://oneteam.test/");
-    expect(x.keyboard).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/?book" }, { text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my" }],
+    expect(x.hint).toBe("កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ"); expect(x.menu_url).toBe("https://oneteam.test/my");
+    expect(x.keyboard).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }, { text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }],
       [{ text: "🎁 ប្រូម៉ូសិន" }, { text: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី" }], [{ text: "🔕 ឈប់ទទួលដំណឹង" }]]);
     expect(Number((await bookingOf(ref1)).web_subscriber_id)).toBe(SUB.a); expect(Number((await bookingOf(ref1)).csub)).toBe(SUB.a);
     const again = (await internal("customer-subscribed", { code: token, subscriber_id: SUB.b })).json();
@@ -449,7 +450,7 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     expect(hubCalls.find((c) => c.path === "/internal/web-subscribe")!.body).toEqual({ init_data: "mini-new", source: "miniapp" });
     const m = toldBodies(SUB.mini)[0];
     expect(m.text).toMatch(new RegExp(`^✅ ភ្ជាប់រួចរាល់\\nការកក់ #${b.number} រង់ចាំបញ្ជាក់ \\(≤៣០ នាទី\\)\\n🔑 ពាក្យសម្ងាត់៖ \\d{4}\\nចូលដោយលេខទូរស័ព្ទ \\+ ពាក្យសម្ងាត់នេះ$`));
-    expect(m.keyboard[2]).toEqual([{ text: "🔕 ឈប់ទទួលដំណឹង" }]); expect(m.hint).toBe(customerText.hint); expect(m.menu_url).toBe("https://oneteam.test/");
+    expect(m.keyboard[2]).toEqual([{ text: "🔕 ឈប់ទទួលដំណឹង" }]); expect(m.hint).toBe(customerText.hint); expect(m.menu_url).toBe("https://oneteam.test/my");
     expect(await code(book((await slotOf(5, "09:00")).at, { phone: "011999222", name: "ភ្ញៀវ ក្លែង", init_data: "forged" }))).toEqual([200, undefined]); // bad launch data: saved, the link stays the way
   });
 
@@ -462,7 +463,7 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     expect(r.json).toMatchObject({ linked: true, link: null });
     refA2 = r.json.ref;
     expect(told(SUB.a)).toEqual([`✅ បានទទួលការកក់ #${r.json.number}\nរង់ចាំបញ្ជាក់ (≤៣០ នាទី)`]);
-    expect(toldBodies(SUB.a)[0].buttons).toEqual([[{ text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my" }]]);
+    expect(toldBodies(SUB.a)[0].buttons).toEqual([[{ text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }]]);
   });
 });
 
@@ -493,7 +494,7 @@ describe("Admin / GM: confirm (the job length may change — CEO) or decline", (
     expect((await gm.req("POST", `/api/requests/${(await requestOf(b.id)).id}/decline`, { reason: "ជាងមិនទំនេរថ្ងៃនោះ" })).status).toBe(200);
     expect(await bookingOf(ref)).toMatchObject({ status: "cancelled", web_status: "declined" });
     expect(told(75)).toEqual([`❌ មិនអាចទទួល #${b.number}\nមូលហេតុ៖ ជាងមិនទំនេរថ្ងៃនោះ`]);
-    expect(toldBodies(75)[0].buttons).toEqual([[{ text: "កក់ម៉ោងផ្សេង", web_app: "https://oneteam.test/?book" }]]);
+    expect(toldBodies(75)[0].buttons).toEqual([[{ text: "កក់ម៉ោងផ្សេង", web_app: "https://oneteam.test/book" }]]);
     expect((await slotOf(5, "13:00")).free).toBe(true);
   });
 
@@ -576,7 +577,7 @@ describe("customer login: phone + password from the bot; a new password only fro
   };
 
   it("the sign-in screen: phone + password; «forgot password» opens the bot — no reset form, no reset address", async () => {
-    const r = await page("/my");
+    const r = await page("/my/login");
     for (const x of ['id="phone"', 'id="pw"', 'type="password"', "ភ្លេចពាក្យសម្ងាត់?", 'id="forgot" href="https://t.me/Oneteam_app_bot"', "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", "សូមភ្ជាប់ Telegram ជាមុនសិន"]) expect(r.body).toContain(x);
     expect((await pub("POST", "/api/public/password-reset", { phone: "12 666 555" })).statusCode).toBe(404);
     expect((await pub("GET", "/api/my")).statusCode).toBe(401);
@@ -753,19 +754,19 @@ describe("customer home: own data only, notification settings, book again", () =
 describe("the customer bot: the keyboard grid — each button; share my phone; a location", () => {
   it("/start of a customer: hello + the grid (📅 / 📍 open the Mini App) + the menu button", async () => {
     const m = (await internal("tg-start", { chat_id: 930001, tg_user: 930001, subscriber_id: SUB.a })).json();
-    expect(m).toMatchObject({ kind: "customer", text: "👋 សួស្តី សុខ ដារ៉ា\nសូមជ្រើសខាងក្រោម", menu_url: "https://oneteam.test/" });
+    expect(m).toMatchObject({ kind: "customer", text: "👋 សួស្តី សុខ ដារ៉ា\nសូមជ្រើសខាងក្រោម", menu_url: "https://oneteam.test/my" });
     expect(m.keyboard.flat().map((b: any) => b.text)).toEqual(["📅 កក់សេវា", "📍 តាមដានការកក់", "🎁 ប្រូម៉ូសិន", "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", "🔕 ឈប់ទទួលដំណឹង"]);
-    expect((await internal("tg-start", { chat_id: 930009, tg_user: 930009, subscriber_id: null })).json()).toEqual({ kind: "none", menu_url: "https://oneteam.test/" });
+    expect((await internal("tg-start", { chat_id: 930009, tg_user: 930009, subscriber_id: null })).json()).toEqual({ kind: "none", menu_url: "https://oneteam.test/my" });
   });
 
   it("🎁 the latest active promotion (or «none yet») with «📅 book»; 📅 / 📍 as plain text get their button; 🔕 goes to the hub's choices", async () => {
     const say = async (text: string, sub = SUB.a) => (await internal("tg-text", { chat_id: 930001, tg_user: 930001, text, subscriber_id: sub })).json();
     promos = [];
-    expect(await say(CUSTOMER_MENU.promo)).toMatchObject({ kind: "customer", text: "🎁 មិនទាន់មានប្រូម៉ូសិនទេ", buttons: [[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/?book" }]] });
+    expect(await say(CUSTOMER_MENU.promo)).toMatchObject({ kind: "customer", text: "🎁 មិនទាន់មានប្រូម៉ូសិនទេ", buttons: [[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }]] });
     promos = [{ text: "បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់", valid_until: "2099-01-01" }];
     expect((await say(CUSTOMER_MENU.promo)).text).toBe("🎁 បញ្ចុះតម្លៃ 10% លាងម៉ាស៊ីនត្រជាក់");
-    expect((await say(CUSTOMER_MENU.book)).buttons).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/?book" }]]);
-    expect((await say(CUSTOMER_MENU.track)).buttons).toEqual([[{ text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my" }]]);
+    expect((await say(CUSTOMER_MENU.book)).buttons).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }]]);
+    expect((await say(CUSTOMER_MENU.track)).buttons).toEqual([[{ text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }]]);
     expect((await say(CUSTOMER_MENU.stop)).kind).toBe("customer_menu");
     expect((await say("សួស្តី")).keyboard).toHaveLength(3);
     expect((await say(CUSTOMER_MENU.promo, 98)).kind).toBe("none"); // an unknown chat gets nothing
@@ -845,7 +846,7 @@ describe("Settings → Website: booking hours + promotion gap (CEO), indexing, p
     expect((await page("/")).body).toContain('content="noindex,nofollow"'); expect((await page("/robots.txt")).body).toContain("Disallow: /\n");
     expect((await ceo.req("PUT", "/api/website", { published: true, about_km: "យើងមានបទពិសោធន៍ 10 ឆ្នាំ" })).status).toBe(200);
     expect((await page("/")).body).not.toContain("noindex"); expect((await page("/")).body).toContain("យើងមានបទពិសោធន៍ 10 ឆ្នាំ");
-    for (const u of [`/book?items=${ac()}`, "/quote", "/my"]) expect((await page(u)).body).toContain('content="noindex,nofollow"');
+    for (const u of [`/book?items=${ac()}`, "/book", "/quote", "/my", "/my/bookings", "/my/login"]) expect((await page(u)).body).toContain('content="noindex,nofollow"');
     await ceo.req("PUT", "/api/website", { published: false });
     const g = (await ceo.req("POST", "/api/website/photos", { slot: "gallery", data: PNG })).json.id;
     expect((await page(`/pub/img/${g}`)).statusCode).toBe(200);
@@ -1041,5 +1042,76 @@ describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, h
     expect(hubCalls.filter((c) => c.path === "/internal/notify-subscriber")).toEqual([]);
     expect((await sql`select count(*)::int as n from audit_log where action = 'booking.test_expired'`)[0]!.n).toBe(3);
     expect(await cancelOldTests()).toEqual({ bookings: 0, requests: 0 }); // once
+  });
+});
+
+describe("D-121 customer pages: the bot opens exact addresses; skeleton first; inside Telegram the launch data signs in before the page; never a login screen", () => {
+  const SPA = (body: string) => body.includes("SPA-INDEX") || body.includes("/app/assets/");
+  const loginForm = (body: string) => /id="pw"|id="login"|type="password"/.test(body);
+
+  it("the bot's buttons open the exact customer pages: 📍 → /my/bookings, 📅 → /book, the menu button → /my — never \"/\" and never /app", async () => {
+    const m = (await internal("tg-start", { chat_id: 930001, tg_user: 930001, subscriber_id: SUB.a })).json();
+    expect(m.menu_url).toBe("https://oneteam.test/my");
+    expect(m.keyboard[0]).toEqual([{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }, { text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }]);
+    const urls = JSON.stringify(m.keyboard).match(/https:[^"]+/g) ?? [];
+    expect(urls.length).toBe(2); for (const u of urls) { expect(u).not.toMatch(/\/app(\/|$)/); expect(u).not.toBe("https://oneteam.test/"); }
+  });
+
+  it("without a session /my/bookings and /my show ONLY the skeleton: the shop header + grey cards — no login form, no staff app, nothing cached", async () => {
+    for (const [u, next] of [["/my/bookings", "/my/bookings"], ["/my", "/my"]]) {
+      const r = await page(u!);
+      expect(r.statusCode).toBe(200); expect(r.headers["cache-control"]).toBe("no-store");
+      expect(r.body).toContain('data-page="gate"'); expect(r.body).toContain(`data-next="${next}"`); expect(r.body).toContain('aria-busy="true"');
+      expect((r.body.match(/class="card s sk"/g) ?? []).length).toBe(3); expect(r.body).toContain("One Team");
+      expect(loginForm(r.body)).toBe(false); expect(SPA(r.body)).toBe(false); expect(r.body).not.toContain('href="/app');
+      expect(r.body).toContain('id="gate-err" hidden'); // the error card only appears if the Telegram sign-in fails
+    }
+  });
+
+  it("inside Telegram: ONE call with the launch data → session; the same address then shows the tracking page at once (no skeleton, no form); a live session is kept", async () => {
+    const tg = client(app);
+    hubCalls.length = 0;
+    const a = await tg.req("POST", "/api/customer/tg-auth", { init_data: "mini-a" });
+    expect(a.status).toBe(200); expect(a.json).toMatchObject({ ok: true, name: "សុខ ដារ៉ា", phone: "012345678" }); expect(tg.cookie).toBeTruthy();
+    expect(hubCalls.filter((c) => c.path === "/internal/tg-verify").map((c) => c.body)).toEqual([{ init_data: "mini-a", max_age: 86400 }]);
+    const t = (await page("/my/bookings", { cookie: tg.cookie! })).body;
+    expect(t).toContain('data-page="my"'); expect(t).toContain('data-view="bookings"'); expect(t).toContain("តាមដានការកក់"); expect(t).toContain(`#${n1}`);
+    expect(t).not.toContain('data-page="gate"'); expect(loginForm(t)).toBe(false); expect(SPA(t)).toBe(false); expect(t).not.toContain('id="settings"');
+    const h = (await page("/my", { cookie: tg.cookie! })).body;
+    expect(h).toContain('data-view="home"'); expect(h).toContain('id="settings"'); expect(h).not.toMatch(/id="pw"|id="login"/); // settings has «change password», never a login
+    const before = (await sql`select count(*)::int as n from customer_sessions`)[0]!.n;
+    expect((await tg.req("POST", "/api/customer/tg-auth", { init_data: "mini-a" })).status).toBe(200); // a cookie that still works: no new session row
+    expect((await sql`select count(*)::int as n from customer_sessions`)[0]!.n).toBe(before);
+    expect((await page("/book", { cookie: tg.cookie! })).body).toContain('data-signed="1"');
+  });
+
+  it("a failed Telegram sign-in never falls back to a login form; bad launch data gets nothing; the older /api/public/tg-login is the same call", async () => {
+    expect(await code(pub("POST", "/api/customer/tg-auth", { init_data: "forged" }))).toEqual([401, "INVALID_CREDENTIALS"]);
+    expect(await code(pub("POST", "/api/customer/tg-auth", { init_data: "mini-none" }))).toEqual([409, "NOT_LINKED"]);
+    const bad = await pub("POST", "/api/customer/tg-auth", { init_data: "forged" });
+    expect(bad.headers["set-cookie"]).toBeUndefined();
+    expect((await pub("POST", "/api/public/tg-login", { init_data: "mini-a" })).statusCode).toBe(200);
+    const js = (await page("/pub/site.js")).body;
+    expect(js).toContain('"/api/customer/tg-auth"'); expect(js).toContain("tgWebAppData"); expect(js).toContain("getRegistrations"); // read from the address at once; the old "/" worker removed
+    expect(js).toContain('location.replace("/my/login?next="'); // outside Telegram the sign-in page — only there
+  });
+
+  it("outside Telegram: /my/login (phone + password) returns to the page that asked — never another site; a live session skips it", async () => {
+    const r = await page("/my/login?next=/my/bookings");
+    expect(loginForm(r.body)).toBe(true); expect(r.body).toContain('data-next="/my/bookings"');
+    for (const bad of ["https://evil.example", "//evil.example", "/app/", "/my/../app"]) expect((await page(`/my/login?next=${encodeURIComponent(bad)}`)).body).toContain('data-next="/my"');
+    const A = await signIn("12 345 678", pwA);
+    const again = await page("/my/login?next=/my/bookings", { cookie: A.cookie! });
+    expect(again.statusCode).toBe(302); expect(again.headers.location).toBe("/my/bookings");
+  });
+
+  it("«📅» opens /book — the service picker itself, not \"/\"; no customer address ever serves the staff app", async () => {
+    const b = await page("/book");
+    expect(b.statusCode).toBe(200); expect(b.body).toContain('data-page="home"'); expect(b.body).toContain('id="lines"'); expect(b.body).not.toContain('class="trust"');
+    expect(b.body).not.toContain('data-signed="1"'); expect(loginForm(b.body)).toBe(false);
+    for (const u of ["/my", "/my/bookings", "/my/login", "/book", `/book?items=${ac()}`, "/quote"]) {
+      const r = await page(u);
+      expect([200, 302]).toContain(r.statusCode); expect(SPA(r.body)).toBe(false); expect(String(r.headers.location ?? "")).not.toMatch(/^\/app/);
+    }
   });
 });
