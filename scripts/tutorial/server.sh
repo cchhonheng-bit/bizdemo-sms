@@ -3,7 +3,7 @@
 # image: its own database, localhost only, never production data. With "up hub" also a throwaway hub (its own database, a bot row
 # whose token is a dummy that cannot be decrypted → nothing can ever reach Telegram). Plus the tools image (Debian ffmpeg + node)
 # for the music and the H.264 encoding. Nothing here touches the live shop or the live hub.
-#   server.sh up <hub|nohub> [features] | seed | secret <hubkey|ceo> | sql "<stmt>" | sqlhub < stmts | encode <name> <seconds> | down
+#   server.sh up <hub|nohub> [features] | seed [noprices] | secret <hubkey|ceo> | sql "<stmt>" | sqlhub < stmts | encode <name> <seconds> | down
 set -euo pipefail
 cd /opt/hangkh
 T=/tmp/tutorial; NAME=app-tutorial; HUB=app-tutorial-hub; DB=shop_tutorial; HDB=hub_tutorial; PORT=3998
@@ -34,7 +34,7 @@ case "${1:-}" in
     echo "demo instance $(curl -s "http://127.0.0.1:$PORT/healthz") · $IMG · ${3:-website,subscribe,reminders}$([ "${2:-}" = hub ] && echo " · with a demo hub")";;
   seed)
     docker exec "$NAME" node dist/cli.mjs create-company "One Team Engineering" oneteam > "$T/create.txt" 2>&1 < /dev/null
-    docker exec "$NAME" node dist/cli.mjs seed-web-catalog oneteam --prices < /dev/null 2>&1 | tail -1;;
+    docker exec "$NAME" node dist/cli.mjs seed-web-catalog oneteam $([ "${2:-}" = noprices ] || echo --prices) < /dev/null 2>&1 | tail -1;; # noprices: as the live shop
   secret) # printed for record.mjs only (read into memory, never shown)
     case "${2:-}" in hubkey) cat "$T/hubkey";; ceo) grep -m1 'ceo *temp password:' "$T/create.txt" | awk '{print $NF}';; esac;;
   sql) psql_su -d "$DB" -v ON_ERROR_STOP=1 -At -c "$2";;

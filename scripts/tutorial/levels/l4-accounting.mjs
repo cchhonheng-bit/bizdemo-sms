@@ -2,8 +2,8 @@
 // (Balance Sheet / Income Statement by type) · opening balances · record a transaction · General Ledger + Trial Balance (3 pairs) ·
 // Income Statement + Balance Sheet (previous month, change) · year-end close + the period lock → Doc_Sup/09_Tutorials/Accounting/.
 // Demo data only. The opening-balances clip records FIRST on books not started yet; the overview's prepare then posts the demo
-// year: last year (so the year-end close can be shown), last month (for the Balance Sheet's previous month) and today's invoices.
-// Not built live (told in the report): a month-end close apart from the period lock; a previous-period column on the Income Statement.
+// year: last year (so the year-end close can be shown), last month (the Income Statement compares the same days of last month, the
+// Balance Sheet last month's end) and today's invoices. Month-end = the period lock «បិទការិយបរិច្ឆេទ» (D-126).
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const now = new Date(), Y = now.getFullYear(), M = now.getMonth();
 const lastYear = (m, d) => ymd(new Date(Y - 1, m - 1, d)), lastMonth = (d) => ymd(new Date(Y, M - 1, d)), thisMonth = (d) => ymd(new Date(Y, M, Math.min(d, now.getDate())));
@@ -19,10 +19,10 @@ const ui = (v) => {
     preset: (name) => A.getByRole("button", { name, exact: true }),
   };
 };
-const clip = (name, play, seed) => ({
+const clip = (name, play) => ({
   name, folder: "Accounting",
   async prepare(v, d) {
-    if (seed) await seed(v, d);
+    if (!name.startsWith("L4-02")) await seedYear(v, d); // after the opening-balances clip (or alone: the demo year is posted once)
     await v.preloadApp("/app/dashboard");
     await v.app.locator('aside nav a[href="/app/accounting"]').waitFor({ timeout: 20_000 });
     await v.idle(3000);
@@ -45,9 +45,16 @@ async function seedYear(v, d) {
   await tx(lastYear(3, 10), "other_income", "4090", 1500, "aba", "ចំណូលផ្សេងៗ");
   await tx(lastYear(6, 30), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
   await tx(lastYear(8, 15), "expense", "6030", 120, "cash_usd", "សាំងឡាន");
-  await tx(lastMonth(10), "other_income", "4090", 1200, "aba", "ចំណូលផ្សេងៗ");
-  await tx(lastMonth(25), "expense", "6050", 85, "cash_usd", "ទឹក ភ្លើង");
+  // last month: inside the Income Statement's previous period (the same days of last month), the rent later in the month
+  const early = (day) => lastMonth(Math.min(day, now.getDate()));
+  await tx(early(2), "other_income", "4090", 1200, "aba", "ចំណូលផ្សេងៗ");
+  await tx(early(2), "expense", "6060", 20, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
+  await tx(early(3), "expense", "6050", 85, "cash_usd", "ទឹក ភ្លើង");
   await tx(lastMonth(28), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
+  // a job of last month, invoiced with its own date (more than 3 days back: a reason)
+  const c0 = await v.api("POST", "/api/customers", { name: "អតិថិជន គ", phones: ["012000113"], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone: "inside" });
+  const i0 = await v.api("POST", "/api/invoices", { customer_id: c0.id, lines: [{ description: "ជួសជុល និងថែទាំ", kind: "service", qty: 1, unit: "unit", unit_price: 18000 }] });
+  await v.api("POST", `/api/invoices/${i0.id}/issue`, { date: early(2), reason: "ការងារខែមុន" });
   await tx(thisMonth(2), "expense", "6060", 25, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
   // today's work posts by itself: invoices issued (inside / outside the borey) and paid (in full / in part)
   for (const [name, zone, price, pay] of [["អតិថិជន ក", "inside", 15000, { amount: 15000, currency: "usd", method: "aba" }], ["អតិថិជន ខ", "outside", 9000, { amount: 5000, currency: "usd", method: "cash_usd" }]]) {
@@ -103,7 +110,7 @@ export default {
       await v.caption("សមតុល្យដើម — កែបានរហូតដល់បញ្ជាក់\nក្រោយបញ្ជាក់ ជាប់សោ"); await v.tap(T("tab-setup")); await v.idle(); await v.hold(1800);
       await v.caption("ចុងឆ្នាំ — បិទបញ្ជី\nសម្រាប់នាយកហិរញ្ញវត្ថុ"); await v.look(T("close-next"), { zoom: 1.4, after: 1400 });
       await v.caption("វីដេអូខ្លីៗ បង្ហាញការងារនីមួយៗ\nលម្អិត"); await v.hold(2200);
-    }, seedYear),
+    }),
     clip("L4-01_chart-of-accounts_v1", async (v, d, u) => {
       const { A, T, dlg } = u;
       await v.caption("ចុច «គណនេយ្យ» ហើយ «ប្លង់គណនី»"); await openAccounting(v, u, "accounts");

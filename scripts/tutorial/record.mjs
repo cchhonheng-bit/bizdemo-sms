@@ -7,6 +7,8 @@
 // (level.videos: overview + clips) recorded in one run on one demo instance. Demo data only: the level's setup() creates fake names on
 // the demo instance (level.hub: plus a throwaway hub with fake subscribers); nothing touches the live shop or the live hub.
 //   PLAYWRIGHT_CORE=<…/playwright-core/index.mjs> node record.mjs levels/l2-admin-gm.mjs     (TUTORIAL_SSH=hangkh443 on port-22-blocked networks)
+// Level options: size, layout ("desktop"), captionSize, capPos (default caption place), tapBefore, hub, features, prices (false = the
+// demo catalog without prices, as the live shop), appWidth (the app frame's page width in CSS px, scaled to fill the screen).
 import { execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync, copyFileSync, readdirSync, statSync } from "node:fs";
@@ -23,6 +25,8 @@ const VIDEOS = (level.videos ?? [{ name: level.name, folder: "", prepare: level.
 if (!VIDEOS.length) throw new Error(`TUTORIAL_ONLY matches no video of ${level.name}`);
 // the stage in CSS px × scale = the video size
 const SZ = level.size ?? { w: 540, h: 960, scale: 2 }, W = SZ.w, H = SZ.h, S = SZ.scale, DESK = level.layout === "desktop", CAP = level.captionSize ?? 27;
+const AW = level.appWidth ?? W, AK = W / AW; // the app frame: a page AW px wide, scaled to the screen's width (a phone-sized site, larger text)
+const CAP_TOP = DESK ? 44 : 58;               // a caption at the top: under the app bar on a phone
 const CAP_MIN = 3000; // a caption is never replaced sooner (the viewer must be able to read it)
 const { chromium, request } = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import("playwright-core");
 const WORK = join(tmpdir(), "hangkh-tutorial", level.name);
@@ -47,7 +51,7 @@ try {
 }
 
 async function run() {
-  log(remote("seed"));
+  log(remote(level.prices === false ? "seed noprices" : "seed"));
   if (!(await fetch(`${BASE}/healthz`).then((r) => r.ok).catch(() => false))) { tunnel = spawn("ssh", ["-N", "-L", "3998:127.0.0.1:3998", SSH], { stdio: "ignore" }); await sleep(2500); }
   const HUBKEY = remote("secret hubkey"), CEO_TEMP = remote("secret ceo");
 
@@ -94,7 +98,8 @@ iframe{position:absolute;left:0;top:0;width:${W}px;height:${H}px;border:0;backgr
 #appw{position:absolute;inset:0;z-index:6;background:#fff;transform:translateX(100%);transition:transform .5s cubic-bezier(.2,.8,.2,1)}#appw.in{transform:none}
 #bar{height:48px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid #E5E9EC;font:600 17px PO,KH,sans-serif;color:#14213D;background:#fff}
 #bar i{font-style:normal;font-size:22px;color:#5B6B7A}#bar span{flex:1}
-#appw iframe{top:48px;height:${H - 48}px}
+#appw iframe{top:48px;height:${H - 48}px}${AK !== 1 ? `#appw iframe{width:${AW}px;height:${(H - 48) / AK}px;transform:scale(${AK});transform-origin:0 0}` : ""}
+#bar.web{gap:12px;background:#F1F3F4;border-bottom-color:#DADCE0}#bar.web span{height:34px;border-radius:17px;background:#fff;display:flex;align-items:center;justify-content:center;gap:6px;font:500 15px "Segoe UI",sans-serif;color:#202124}
 #cap{position:absolute;left:22px;right:22px;bottom:44px;z-index:9;font:600 ${CAP}px/1.62 KH,sans-serif;color:#fff;background:rgba(15,23,42,.8);border-radius:18px;padding:12px 18px;
   text-align:center;white-space:pre-line;pointer-events:none;opacity:0;transform:translateY(10px);transition:opacity .3s,transform .3s}
 #cap.on{opacity:1;transform:none}
@@ -127,13 +132,15 @@ ${DESK ? `#tgf{display:none}#appw{transform:none;transition:none}#bar{display:no
 .ik button{flex:1;min-height:40px;border:0;border-radius:9px;background:rgba(70,104,138,.58);color:#fff;font:600 14px KH,"Segoe UI",sans-serif;position:relative;padding:6px 12px}
 .ik button.u::after{content:"↗";position:absolute;top:3px;right:7px;font-size:11px}
 .in{flex:none;height:52px;background:#fff;display:flex;align-items:center;gap:16px;padding:0 16px;color:#8A9AA8;font-size:22px;border-top:1px solid #E5E9EC}.in span{flex:1}
+[hidden]{display:none!important}.pw{filter:blur(5px);background:#DCE6EE;border-radius:4px;padding:0 4px}
+#sb{flex:none;background:#fff;border-top:1px solid #E5E9EC;padding:8px 10px 12px}#sb button{width:100%;height:48px;border:0;border-radius:10px;background:#fff;color:#2A88D8;font:600 17px "Segoe UI",sans-serif;letter-spacing:.6px}
 #kb{flex:none;background:#EEF0F2;padding:6px;display:grid;grid-template-columns:1fr 1fr;gap:6px}
 #kb button{height:46px;border:0;border-radius:9px;background:#fff;box-shadow:0 1px 0 rgba(0,0,0,.14);font:600 14px KH,"Segoe UI",sans-serif;color:#1F2937}
 @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}</style></head><body>
 <div class="hd"><span class="ar">←</span><div class="av"><img src="/__asset/oneteam.png" alt=""></div><div class="nm"><b>One Team</b><span>bot</span></div></div>
-<div id="chat"></div><div class="in">😊<span></span>📎 🎤</div><div id="kb"></div>
+<div id="chat"></div><div class="in">😊<span></span>📎 🎤</div><div id="kb"></div><div id="sb" hidden><button>START</button></div>
 <script>
-const chat = document.getElementById("chat"), kb = document.getElementById("kb"), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const chat = document.getElementById("chat"), kb = document.getElementById("kb"), esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]).replace(/⟦(.*?)⟧/g, '<span class="pw">$1</span>');
 let n = 0;
 const ik = (id, rows) => (rows && rows.length ? '<div class="ik" id="' + id + 'k">' + rows.map((r) => "<div>" + r.map((b) => '<button class="' + (b.url || b.web_app ? "u" : "") + '">' + esc(b.text) + "</button>").join("") + "</div>").join("") + "</div>" : "");
 const down = () => setTimeout(() => chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" }), 30);
@@ -142,7 +149,9 @@ window.tg = {
   bot(text, rows) { const id = "m" + ++n; chat.insertAdjacentHTML("beforeend", '<div class="m" id="' + id + '">' + esc(text) + "<time>" + tg.time + "</time></div>" + ik(id, rows)); down(); return id; },
   me(text) { chat.insertAdjacentHTML("beforeend", '<div class="m me">' + esc(text) + "<time>" + tg.time + " ✓✓</time></div>"); down(); },
   edit(id, text, rows) { document.getElementById(id).innerHTML = esc(text) + "<time>" + tg.time + "</time>"; const k = document.getElementById(id + "k"); if (k) k.remove(); document.getElementById(id).insertAdjacentHTML("afterend", ik(id, rows)); down(); },
-  keyboard(rows) { kb.innerHTML = rows.flat().map((b) => "<button>" + esc(b.text) + "</button>").join(""); },
+  keyboard(rows) { kb.innerHTML = rows.flat().map((b) => "<button>" + esc(b.text) + "</button>").join(""); kb.style.gridTemplateColumns = rows.some((r) => r.length > 1) ? "1fr 1fr" : "1fr"; },
+  /** a new chat opened from a link: Telegram's START button instead of the input line and keyboard */
+  start(on) { document.getElementById("sb").hidden = !on; document.querySelector(".in").hidden = on; kb.hidden = on; },
 };
 </script></body></html>`;
   await ctx.route(`${BASE}/__stage`, (r) => r.fulfill({ contentType: "text/html; charset=utf-8", body: STAGE }));
@@ -152,6 +161,9 @@ window.tg = {
     const name = decodeURIComponent(new URL(r.request().url()).pathname.slice("/__asset/".length)), file = ASSETS[name] ?? join(WORK, name);
     return r.fulfill({ contentType: TYPES[name.split(".").pop()] ?? "image/jpeg", body: readFileSync(file) });
   });
+
+  let tme = null;
+  await ctx.route(/^https:\/\/t\.me\//, (r) => { tme = r.request().url(); return r.abort("aborted"); });
 
   // ---------- what a level uses ----------
   page = await ctx.newPage();
@@ -167,12 +179,12 @@ window.tg = {
     const cx = box.x + box.width / 2, cy = box.y + box.height / 2, hw = (box.width * z) / 2 + 10, hh = (box.height * z) / 2 + 10;
     const hits = (top, bottom) => cx + hw > r[0] && cx - hw < r[2] && cy + hh > top && cy - hh < bottom;
     if (!hits(r[1], r[3])) return;
-    const h = r[3] - r[1], other = capTop ? [H * S - capBottom * S - h, H * S - capBottom * S] : [44 * S, 44 * S + h];
+    const h = r[3] - r[1], other = capTop ? [H * S - capBottom * S - h, H * S - capBottom * S] : [CAP_TOP * S, CAP_TOP * S + h];
     if (hits(other[0], other[1])) return; // a big target: no better place
     capTop = !capTop;
     await page.evaluate(() => document.getElementById("cap").classList.remove("on"));
     await sleep(200);
-    await page.evaluate(([top, b]) => { const c = document.getElementById("cap"); c.style.top = top ? "44px" : ""; c.style.bottom = top ? "auto" : b + "px"; c.classList.add("on"); }, [capTop, capBottom]);
+    await page.evaluate(([top, b, t]) => { const c = document.getElementById("cap"); c.style.top = top ? t + "px" : ""; c.style.bottom = top ? "auto" : b + "px"; c.classList.add("on"); }, [capTop, capBottom, CAP_TOP]);
     await sleep(250);
   }
   const v = {
@@ -193,15 +205,16 @@ window.tg = {
     tg: (fn, ...args) => page.frame("tg").evaluate(([f, a]) => window.tg[f](...a), [fn, args]),
     tgButton: (label, where = "ik") => page.frame("tg").locator(`${where === "kb" ? "#kb" : "#chat"} button`, { hasText: label }).last(),
     /** caption (null hides it); the one on screen stays ≥ 3 s. pos: "low" (bottom of the screen) or "tg" (just above the Telegram keyboard) */
-    async caption(text, pos = "low") {
-      const bottom = pos === "tg" ? (await page.frame("tg").evaluate(() => document.getElementById("kb").offsetHeight + document.querySelector(".in").offsetHeight)) + 14 : 44;
+    async caption(text, pos = level.capPos ?? "low") {
+      const top = pos === "top";
+      const bottom = pos === "tg" ? (await page.frame("tg").evaluate(() => [document.getElementById("kb"), document.querySelector(".in"), document.getElementById("sb")].reduce((a, e) => a + (e.hidden ? 0 : e.offsetHeight), 0))) + 14 : 44;
       if (capOn) { const left = CAP_MIN - (Date.now() - capAt); if (left > 0) await sleep(left); }
       await page.evaluate(() => document.getElementById("cap").classList.remove("on"));
       capOn = false;
       await sleep(text ? 220 : 240);
       if (!text) return;
-      await page.evaluate(([t, b]) => { const c = document.getElementById("cap"); c.textContent = t; c.style.top = ""; c.style.bottom = b + "px"; c.classList.add("on"); }, [text, bottom]);
-      capOn = true; capAt = Date.now(); capTop = false; capBottom = bottom;
+      await page.evaluate(([t, b, tp]) => { const c = document.getElementById("cap"); c.textContent = t; c.style.top = tp ? tp + "px" : ""; c.style.bottom = tp ? "auto" : b + "px"; c.classList.add("on"); }, [text, bottom, top ? CAP_TOP : 0]);
+      capOn = true; capAt = Date.now(); capTop = top; capBottom = bottom;
       marks.push({ at: Date.now() / 1000 + 1.6, text });
     },
     /** ~2 s pause (the viewer reads the caption), the tap circle on the target, then the action (default: a real click) */
@@ -213,10 +226,15 @@ window.tg = {
         b0 = await loc.boundingBox();
       }
       const small = o.zoom !== false && (o.zoom || (b0.width / S < 72 && b0.height / S < 46));
-      await keepClear(b0, small ? (typeof o.zoom === "number" ? o.zoom : 2) : 1);
+      // the zoom never cuts the target off: at most as large as the screen allows, its centre moved in so all of it stays visible
+      const M = 10, bx = b0.x / S - M, by = b0.y / S - M, bw = b0.width / S + 2 * M, bh = b0.height / S + 2 * M;
+      const z = small ? Math.max(1.05, Math.min(typeof o.zoom === "number" ? o.zoom : 2, W / bw, H / bh)) : 1;
+      const fit = (lo, size, full) => { const c = lo + size / 2, a = ((lo + size) * z - full) / (z - 1), b = (lo * z) / (z - 1); return a <= b ? Math.min(Math.max(c, a), b) : c; };
+      const ox = small ? fit(bx, bw, W) : 0, oy = small ? fit(by, bh, H) : 0;
+      await keepClear(small ? { x: (ox + (b0.x / S - ox) * z) * S, y: (oy + (b0.y / S - oy) * z) * S, width: b0.width * z, height: b0.height * z } : b0, 1);
       if (small) {
         await sleep(Math.max(0, (o.before ?? level.tapBefore ?? 2000) - 550));
-        await page.evaluate(([x, y, z]) => { const r = document.getElementById("scr"); r.style.transformOrigin = x + "px " + y + "px"; r.style.transform = "scale(" + z + ")"; }, [(b0.x + b0.width / 2) / S, (b0.y + b0.height / 2) / S, typeof o.zoom === "number" ? o.zoom : 2]);
+        await page.evaluate(([x, y, zz]) => { const r = document.getElementById("scr"); r.style.transformOrigin = x + "px " + y + "px"; r.style.transform = "scale(" + zz + ")"; }, [ox, oy, z]);
         await sleep(550);
       } else await sleep(o.before ?? level.tapBefore ?? 2000);
       const b = await loc.boundingBox();
@@ -260,6 +278,14 @@ window.tg = {
     async map(on, url) { await page.evaluate(([o, u]) => { const m = document.getElementById("map"); if (u) m.src = u; m.classList.toggle("in", o); }, [on, url ?? null]); await sleep(500); },
     async preloadApp(path) { await page.evaluate((p) => { document.querySelector('iframe[name="app"]').src = p; }, path); },
     async openApp() { await page.evaluate(() => document.getElementById("appw").classList.add("in")); await sleep(600); },
+    async closeApp() { await page.evaluate(() => document.getElementById("appw").classList.remove("in")); await sleep(600); },
+    /** the bar over the app frame: "web" = a phone browser's address bar, "mini" = the Mini App inside Telegram */
+    async bar(kind) { await page.evaluate(([k, dom]) => { const b = document.getElementById("bar"); b.className = k === "web" ? "web" : ""; b.innerHTML = k === "web" ? "<i>⌂</i><span>🔒 " + dom + "</span><i>⋮</i>" : "<i>✕</i><span>One Team</span><i>⋮</i>"; }, [kind, level.domain ?? "oneteam.hangkh.com"]); },
+    /** a website customer signed in in the browser (phone + password, as on the sign-in page) / everyone signed out */
+    async loginCustomer(phone, pw) { const r = await ctx.request.post(`${BASE}/api/public/login`, { data: { phone, password: pw } }); if (!r.ok()) throw new Error(`customer login ${phone}: ${r.status()} ${(await r.text()).slice(0, 160)}`); },
+    async signOut() { await ctx.clearCookies(); },
+    /** the last t.me link the page tried to open (it stays on the page) */
+    get tme() { return tme; },
     async card(on) { await page.evaluate((o) => document.getElementById("card").classList.toggle("off", !o), on); await sleep(550); },
   };
 
