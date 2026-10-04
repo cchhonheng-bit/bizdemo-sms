@@ -40,7 +40,7 @@ export type Notification = { id: number; kind: string; title: string; body: stri
 export type Busy = { number: string; scheduled_at: string; ends_at: string };
 /** R1: who and what is free for a time window (reason BUSY today; leave/absence with M4) */
 export type Availability = {
-  people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[] }[];
+  people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[]; away: { kind: "leave" | "absent"; starts_at: string; ends_at: string } | null }[];
   vehicles: { id: string; code: string; plate: string | null; available: boolean; reason: string | null; busy: Busy[] }[];
 };
 export type Reschedule = { id: number; old_start: string | null; old_end: string | null; new_start: string; new_end: string; requested_by: string; reason: string; at: string; by_name: string | null };
@@ -316,9 +316,11 @@ export const api = {
   },
   requests: {
     list: (all: boolean) => get<ServiceRequest[]>(`/api/requests${all ? "?all=1" : ""}`),
-    /** done · confirm / decline (an online booking) · approve / reject (a reschedule request); decline and reject carry the reason */
-    act: (id: string, action: "done" | "confirm" | "decline" | "approve" | "reject", reason?: string, minutes?: number) => post<{ ok: true }>(`/api/requests/${id}/${action}`,
-      action === "decline" || action === "reject" ? { reason: reason ?? "" } : action === "confirm" && minutes ? { minutes } : {}),
+    /** done · decline (an online booking) · approve / reject (a reschedule request); decline and reject carry the reason */
+    act: (id: string, action: "done" | "decline" | "approve" | "reject", reason?: string) => post<{ ok: true }>(`/api/requests/${id}/${action}`,
+      action === "decline" || action === "reject" ? { reason: reason ?? "" } : {}),
+    /** CEO 04-10: confirm = confirmed + assigned + technicians told (the job length may change too) */
+    confirm: (id: string, v: { minutes?: number; lead: string | null; assistants: string[] }) => post<{ ok: true }>(`/api/requests/${id}/confirm`, v),
   },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),

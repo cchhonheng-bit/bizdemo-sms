@@ -15,6 +15,13 @@ export function Button({ variant = "secondary", size = "md", loading, className 
   );
 }
 
+// ---------- RowAction: an action in a table / list row — the icon AND its word (CEO 04-10: no icon-only buttons for staff) ----------
+type RowActionProps = ButtonHTMLAttributes<HTMLButtonElement> & { icon: ReactNode; label: string; tone?: "danger" | "success" };
+export function RowAction({ icon, label, tone, className = "", ...rest }: RowActionProps) {
+  const c = tone === "danger" ? "text-danger hover:bg-danger-50" : tone === "success" ? "text-success hover:bg-success-50" : "hover:bg-grey-bg";
+  return <button type="button" className={`inline-flex items-center gap-1.5 rounded-md px-2.5 min-h-[44px] text-sm whitespace-nowrap ${c} ${className}`} {...rest}>{icon}{label}</button>;
+}
+
 // ---------- Field / Input / Select ----------
 export function Field({ label, error, hint, children, required }: { label: string; error?: string; hint?: string; children: ReactNode; required?: boolean }) {
   return (

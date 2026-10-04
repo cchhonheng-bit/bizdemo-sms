@@ -21,7 +21,8 @@ export default function BookingsPage() {
   const [q, setQ] = useState("");
   const [hideClosed, setHideClosed] = useState(true);
   const [showCancelled, setShowCancelled] = useState(false); // R4: cancelled bookings are kept, shown on demand
-  const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 60_000 });
+  // CEO 04-10: the board follows the technicians' steps within 15 s (cards move column by themselves)
+  const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 15_000 });
   // FR-403: filters — day, category, inside/outside borey, technician
   const [showFilters, setShowFilters] = useState(false);
   const [day, setDay] = useState<"" | "today" | "week" | "date">("");

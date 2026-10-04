@@ -7,7 +7,7 @@ import { formatKhr, formatUsd } from "@sms/shared";
 import { Ban, Check, X } from "lucide-react";
 import { api, errCode, type Invoice, type Payment } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Dialog, Field } from "@/components/ui";
+import { Badge, Button, Dialog, Field, RowAction } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 export default function PaymentRow({ p, d, onDone }: { p: Payment; d: Invoice; onDone: () => void }) {
@@ -34,7 +34,7 @@ export default function PaymentRow({ p, d, onDone }: { p: Payment; d: Invoice; o
           {p.void_request && <div className="text-xs text-warning">⏳ {t("invoice.void_waiting", { name: p.void_request.requested_by_name })}: {p.void_request.reason}</div>}
         </div>
         <span className={`tabular ${p.usd_cents < 0 ? "text-danger" : voided ? "text-muted line-through" : "text-success"}`}>{formatUsd(p.usd_cents)}</span>
-        {canAsk && <button className="tap-target text-danger" aria-label={t("invoice.void")} onClick={() => setAsking(true)} data-testid="payment-void"><Ban size={16} /></button>}
+        {canAsk && <RowAction tone="danger" icon={<Ban size={16} />} label={t("app.void")} onClick={() => setAsking(true)} data-testid="payment-void" />}
       </div>
       {p.void_request && d.can.void_approve && (
         <div className="flex gap-2 mt-2">

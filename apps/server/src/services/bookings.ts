@@ -273,46 +273,46 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
 // ---------- assign (R1/R2/R3/R5) -------------------------------------------------------------------------
 const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
-export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
-  const out = await assignIn(user, ip, id, a);
+export type AssignInput = { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null };
+export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: AssignInput) {
+  const out = await tx(user.id, (t) => assignWithin(t, user, ip, id, a));
   if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) }); // the customer record was linked just now
   return { id: out.id, status: out.status, conflicts: out.conflicts };
 }
-async function assignIn(user: SessionUser, ip: string | null, id: string, a: { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) {
-  return tx(user.id, async (t) => {
-    const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
-    if (!b) throw notFound();
-    if (!ASSIGNABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400);
-    if (b.type === "B" && user.role === "admin") throw new AppError("FORBIDDEN_TYPE_B", 403); // BR-02
-    await assertQuoteAccepted(t, id, b.type);                                                 // BR-02: accepted quote first
-    if (!b.scheduled_at || !b.ends_at) throw new AppError("SCHEDULE_REQUIRED", 400);
-    // D2: assigning keeps the agreed time — a different time must go through reschedule
-    if ((a.scheduled_at && new Date(a.scheduled_at).getTime() !== b.scheduled_at.getTime()) || (a.ends_at && new Date(a.ends_at).getTime() !== b.ends_at.getTime())) throw new AppError("USE_RESCHEDULE", 400);
-    if (a.lead && a.assistants.includes(a.lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
-    const team = [...(a.lead ? [a.lead] : []), ...a.assistants];
-    if (team.length === 0) throw new AppError("TEAM_REQUIRED", 400); // R5: at least one technician
-    const ok = await t<{ id: string }[]>`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role in ('tech', 'gm')`;
-    if (ok.length !== new Set(team).size) throw new AppError("TECH_NOT_FOUND", 404);
-    if (a.vehicle_id) await assertVehicle(t, user.companyId, a.vehicle_id);
-    // R3: dispatching needs a future appointment (an overdue booking is rescheduled first)
-    const w = { start: b.scheduled_at, end: b.ends_at };
-    assertFuture(w.start);
-    // R2: the server decides — busy technicians / vehicle are refused, whatever the UI showed
-    await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
-    if (a.vehicle_id) await assertVehicleFree(t, user.companyId, a.vehicle_id, w.start, w.end, id);
-    // old crew out → new time → new crew in (the insert trigger copies the new range onto each row)
-    await t`delete from booking_technicians where booking_id = ${id}`;
-    await t`update bookings set status = 'assigned', vehicle_id = ${a.vehicle_id} where id = ${id}`;
-    if (a.lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${a.lead}, 'lead')`;
-    for (const x of a.assistants) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
-    const reason = b.status === "assigned" ? `reassigned:${Math.floor(Date.now() / 1000)}` : "assigned";
-    await audit(t, { companyId: user.companyId, userId: user.id, action: b.status === "assigned" ? "booking.reassign" : "booking.assign", table: "bookings", rowId: id, old: { status: b.status },
-      new: { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id, scheduled_at: w.start, ends_at: w.end }, ip });
-    await enqueueBookingConfirmed(t, id, reason);
-    // D-96: sending a technician to a website booking that still waits for an answer IS the confirmation
-    const account = b.origin === "website" && b.web_status === "pending" ? await confirmWebBookingIn(t, user.companyId, user.id, id, ip) : null;
-    return { id, status: "assigned" as const, conflicts: [] as unknown[], account };
-  });
+/** the assignment inside the caller's transaction — also «confirm» of a website request (CEO 04-10: confirm = confirmed + assigned) */
+export async function assignWithin(t: Db, user: SessionUser, ip: string | null, id: string, a: AssignInput) {
+  const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
+  if (!b) throw notFound();
+  if (!ASSIGNABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400);
+  if (b.type === "B" && user.role === "admin") throw new AppError("FORBIDDEN_TYPE_B", 403); // BR-02
+  await assertQuoteAccepted(t, id, b.type);                                                 // BR-02: accepted quote first
+  if (!b.scheduled_at || !b.ends_at) throw new AppError("SCHEDULE_REQUIRED", 400);
+  // D2: assigning keeps the agreed time — a different time must go through reschedule
+  if ((a.scheduled_at && new Date(a.scheduled_at).getTime() !== b.scheduled_at.getTime()) || (a.ends_at && new Date(a.ends_at).getTime() !== b.ends_at.getTime())) throw new AppError("USE_RESCHEDULE", 400);
+  if (a.lead && a.assistants.includes(a.lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
+  const team = [...(a.lead ? [a.lead] : []), ...a.assistants];
+  if (team.length === 0) throw new AppError("TEAM_REQUIRED", 400); // R5: at least one technician
+  const ok = await t<{ id: string }[]>`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role in ('tech', 'gm')`;
+  if (ok.length !== new Set(team).size) throw new AppError("TECH_NOT_FOUND", 404);
+  if (a.vehicle_id) await assertVehicle(t, user.companyId, a.vehicle_id);
+  // R3: dispatching needs a future appointment (an overdue booking is rescheduled first)
+  const w = { start: b.scheduled_at, end: b.ends_at };
+  assertFuture(w.start);
+  // R2: the server decides — busy technicians / vehicle are refused, whatever the UI showed
+  await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
+  if (a.vehicle_id) await assertVehicleFree(t, user.companyId, a.vehicle_id, w.start, w.end, id);
+  // old crew out → new time → new crew in (the insert trigger copies the new range onto each row)
+  await t`delete from booking_technicians where booking_id = ${id}`;
+  await t`update bookings set status = 'assigned', vehicle_id = ${a.vehicle_id} where id = ${id}`;
+  if (a.lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${a.lead}, 'lead')`;
+  for (const x of a.assistants) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
+  const reason = b.status === "assigned" ? `reassigned:${Math.floor(Date.now() / 1000)}` : "assigned";
+  await audit(t, { companyId: user.companyId, userId: user.id, action: b.status === "assigned" ? "booking.reassign" : "booking.assign", table: "bookings", rowId: id, old: { status: b.status },
+    new: { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id, scheduled_at: w.start, ends_at: w.end }, ip });
+  await enqueueBookingConfirmed(t, id, reason);
+  // D-96: sending a technician to a website booking that still waits for an answer IS the confirmation
+  const account = b.origin === "website" && b.web_status === "pending" ? await confirmWebBookingIn(t, user.companyId, user.id, id, ip) : null;
+  return { id, status: "assigned" as const, conflicts: [] as unknown[], account };
 }
 
 /** D-96: a website booking is confirmed — its request is done, and the Telegram chat that holds the booking's link becomes the
@@ -398,7 +398,7 @@ export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | nu
   const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
   const test = b.is_test === true; // D-120: a test reaches the CEO only
   const roles = test ? ["ceo"] : actor.userId ? ["ceo", "cfo"] : ["ceo", "cfo", "admin", "gm"];
-  const title = { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` };
+  const title = { km: `❌ បោះបង់ការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` };
   for (const u of await t<{ id: string }[]>`select id from users where company_id = ${actor.companyId} and is_active and role::text = any(${t.array(roles)}) and id::text <> ${actor.userId ?? ""}`)
     await notifyUser(t, actor.companyId, u.id, "booking.cancelled", test ? testTitle(title) : title, { km: `👤 ${cname}\nដោយ ${actor.name.km}\n📝 ${reason}`, en: `👤 ${cname}\nby ${actor.name.en}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
   return { id, status: "cancelled" as const };

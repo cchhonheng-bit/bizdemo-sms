@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,7 @@ import BookingInvoiceCard from "@/features/invoices/BookingInvoiceCard";
 import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
+import { CrewList, crewOf, useCrewAvailability } from "./CrewPicker";
 
 export default function BookingDetailPage() {
   const { t } = useTranslation();
@@ -145,24 +146,18 @@ export default function BookingDetailPage() {
 
 const conflictText = (c: Conflict[] | undefined) => (c ?? []).map((x) => `${x.full_name ?? x.code ?? ""} · ${x.number} ${timeRange(x.scheduled_at, x.ends_at)}`).join(", ");
 
-/** R1/R2/R5 — pick a crew from technicians FREE for the window only; lead optional; at least one technician */
+/** R1/R2/R5 — pick a crew among the technicians FREE for the window (busy ones are shown greyed, with their time); lead optional;
+ *  at least one technician */
 function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [team, setTeam] = useState<string[]>(booking.technicians?.map((x) => x.user_id) ?? []);
   const [lead, setLead] = useState(booking.technicians?.find((x) => x.role === "lead")?.user_id ?? "");
   const [vehicle, setVehicle] = useState(booking.vehicle_id ?? "");
-  const [showBusy, setShowBusy] = useState(false);
   // D2: the crew is picked for the agreed appointment; a different time = Reschedule (who + why)
-  const fromIso = booking.scheduled_at, toIso = booking.ends_at;
-  const windowOk = !!fromIso && !!toIso && !isPastLocal(fromIso);
-  const avail = useQuery({ queryKey: ["availability", fromIso, toIso, booking.id], queryFn: () => api.availability(fromIso!, toIso!, booking.id), enabled: windowOk });
-  const free = useMemo(() => (avail.data?.people ?? []).filter((p) => p.available), [avail.data]);
-  const busy = useMemo(() => (avail.data?.people ?? []).filter((p) => !p.available), [avail.data]);
-  const freeVehicles = (avail.data?.vehicles ?? []).filter((v) => v.available);
-  // keep only people still free for the chosen window
-  const crew = team.filter((u) => free.some((p) => p.user_id === u));
-  const leadOk = lead && crew.includes(lead) ? lead : "";
+  const { ok: windowOk, q: avail, people, free, vehicles } = useCrewAvailability(booking.scheduled_at, booking.ends_at, booking.id);
+  const freeVehicles = vehicles.filter((v) => v.available);
+  const { crew, lead: leadOk } = crewOf(free, team, lead); // only people still free for the window
 
   const m = useMutation({
     mutationFn: () => api.assignBooking({ id: booking.id, lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, scheduled_at: null, ends_at: null }),
@@ -191,37 +186,8 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
       </div>
 
       <Field label={t("booking.crew")} required hint={t("booking.crew_hint")}>
-        {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p> : avail.isLoading ? <Skeleton rows={3} /> : (
-          <>
-            {free.length === 0 && <p className="text-sm text-danger" role="alert">{t("booking.nobody_free")}</p>}
-            <ul className="divide-y divide-grey-line border border-grey-line rounded-md">
-              {free.map((p) => {
-                const on = crew.includes(p.user_id);
-                return (
-                  <li key={p.user_id} className="flex items-center gap-3 px-3 min-h-[48px]">
-                    <label className="flex flex-1 items-center gap-3 !mb-0 !text-ink text-base py-3 min-h-[48px] cursor-pointer">
-                      <input type="checkbox" className="h-6 w-6 accent-navy" checked={on} onChange={(e) => setTeam((a) => e.target.checked ? [...a, p.user_id] : a.filter((x) => x !== p.user_id))} />
-                      <span className="break-words">{p.full_name} <span className="text-xs text-muted">({t(`roles.${p.role}`)})</span></span>
-                    </label>
-                    {on && (
-                      <button type="button" className={`badge min-h-[44px] px-4 ${leadOk === p.user_id ? "bg-navy text-white" : "bg-[#EEF0F4] text-[#4B5263]"}`} onClick={() => setLead(leadOk === p.user_id ? "" : p.user_id)} aria-pressed={leadOk === p.user_id}>
-                        {t("booking.lead")}
-                      </button>
-                    )}
-                  </li>
-                );
-              })}
-            </ul>
-            {busy.length > 0 && (
-              <button type="button" className="mt-2 text-sm text-blue min-h-[44px]" onClick={() => setShowBusy((v) => !v)}>{showBusy ? "▾" : "▸"} {t("booking.not_available", { n: busy.length })}</button>
-            )}
-            {showBusy && (
-              <ul className="text-sm text-muted space-y-1">
-                {busy.map((p) => <li key={p.user_id} className="break-words">⛔ {p.full_name} — {t(`booking.reason.${p.reason ?? "BUSY"}`)}: {p.busy.map((x) => `${x.number} ${timeRange(x.scheduled_at, x.ends_at)}`).join(", ")}</li>)}
-              </ul>
-            )}
-          </>
-        )}
+        {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p>
+          : <CrewList people={people} loading={avail.isLoading} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} />}
       </Field>
       <Field label={t("booking.vehicle")} hint={windowOk && avail.data && freeVehicles.length < avail.data.vehicles.length ? t("booking.vehicles_busy_hidden") : undefined}>
         <Select name="vehicle" value={vehicle} onChange={(e) => setVehicle(e.target.value)} disabled={!windowOk}>

@@ -11,7 +11,7 @@ import { catalogItemSchema, formatUsd, fromCents, SERVICE_CATEGORIES, toCents, W
 import { Download, Pencil, Plus, Power, Upload } from "lucide-react";
 import { api, errCode, type CatalogItem, type CatalogPreview } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
 
@@ -93,8 +93,10 @@ export default function CatalogPage() {
                   <div className="text-sm tabular">{i.sell_price != null ? formatUsd(i.sell_price) : "—"}{showCost && i.cost_price != null ? <span className="text-muted"> · {formatUsd(i.cost_price)}</span> : null} <span className="text-muted">/ {i.unit}</span></div>
                   {websiteOn && i.kind === "service" && <div className="text-xs text-muted">🌐 {i.show_on_website ? (i.quote_only ? t("catalog.quote_only") : i.from_price != null ? formatUsd(i.from_price) : "—") : "✕"}</div>}
                 </div>
-                {edit && <button className="tap-target rounded hover:bg-grey-bg" aria-label={t("app.edit")} onClick={() => setEditing(i)}><Pencil size={18} /></button>}
-                {edit && <button className="tap-target rounded hover:bg-grey-bg" aria-label={i.is_active ? t("app.inactive") : t("app.active")} onClick={() => setToggle(i)}><Power size={18} /></button>}
+                {edit && <div className="flex flex-col items-end">
+                  <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(i)} />
+                  <RowAction icon={<Power size={16} />} label={i.is_active ? t("app.deactivate") : t("app.activate")} onClick={() => setToggle(i)} />
+                </div>}
               </li>
             ))}
           </ul>
@@ -114,8 +116,8 @@ export default function CatalogPage() {
                     {showCost && <td className="text-right tabular text-muted">{i.cost_price != null ? formatUsd(i.cost_price) : "—"}</td>}
                     {websiteOn && <td className="text-right tabular">{i.kind !== "service" ? "" : !i.show_on_website ? "✕" : i.quote_only ? t("catalog.quote_only") : i.from_price != null ? formatUsd(i.from_price) : "—"}</td>}
                     {edit && <td className="text-right whitespace-nowrap">
-                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(i)}><Pencil size={16} /></button>
-                      <button className="tap-target rounded hover:bg-grey-bg" title={i.is_active ? t("app.inactive") : t("app.active")} onClick={() => setToggle(i)}><Power size={16} /></button>
+                      <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(i)} />
+                      <RowAction icon={<Power size={16} />} label={i.is_active ? t("app.deactivate") : t("app.activate")} onClick={() => setToggle(i)} />
                     </td>}
                   </tr>
                 ))}

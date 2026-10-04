@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarOff, Check, UserX, X } from "lucide-react";
 import { api, errCode, fmtDate, type LeaveRow } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ActionBar, Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
+import { ActionBar, Badge, Button, Card, Dialog, Empty, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/bookings/time";
 
@@ -100,7 +100,7 @@ function MyList() {
                 {r.decision_note && <div className="text-xs text-muted break-words">📝 {r.decision_note}</div>}
               </div>
               <Badge tone={TONE[r.status]}>{t(`leave.status.${r.status}`)}</Badge>
-              {r.status === "pending" && r.kind === "leave" && <button className="tap-target text-danger" aria-label={t("app.cancel")} onClick={() => cancel.mutate(r.id)}><X size={18} /></button>}
+              {r.status === "pending" && r.kind === "leave" && <RowAction tone="danger" icon={<X size={16} />} label={t("app.cancel")} onClick={() => cancel.mutate(r.id)} />}
             </li>
           ))}
         </ul>

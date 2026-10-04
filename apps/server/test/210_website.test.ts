@@ -67,6 +67,12 @@ async function staffJob(at: string, crew: string[] = [], customer = custK): Prom
   if (crew.length) expect((await gm.req("POST", `/api/bookings/${r.json.id}/assign`, { lead: crew[0], assistants: crew.slice(1) })).status).toBe(200);
   return r.json.id;
 }
+/** CEO 04-10: confirming a website booking sends a technician — the first one free (Kim, else Dara) */
+async function confirmFree(who: Client, requestId: string) {
+  let r = await who.req("POST", `/api/requests/${requestId}/confirm`, { lead: s.users.kim!, assistants: [] });
+  if (r.status === 409) r = await who.req("POST", `/api/requests/${requestId}/confirm`, { lead: s.users.dara!, assistants: [] });
+  return r;
+}
 const leave = async (who: Client, date: string) => {
   const id = (await who.req("POST", "/api/leave", { kind: "leave", date_from: date, date_to: date, part: "full", reason: "ទៅពេទ្យ" })).json.id;
   expect((await gm.req("POST", `/api/leave/${id}/approve`, {})).json.status).toBe("approved");
@@ -467,19 +473,27 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
   });
 });
 
-describe("Admin / GM: confirm (the job length may change — CEO) or decline", () => {
-  it("confirm: only staff who take bookings; a longer job only while a technician can take it; the customer gets the exact message with a button", async () => {
+describe("Admin / GM: confirm = confirmed + assigned (the job length may change — CEO) or decline", () => {
+  it("confirm: only staff who take bookings; a FREE technician is required; a longer job only while a technician can take it; refused = nothing changes; the technician and the customer are told", async () => {
     const rq = await requestOf(bk1);
-    expect((await kim.req("POST", `/api/requests/${rq.id}/confirm`, {})).status).toBe(403);
-    expect((await ceoB.req("POST", `/api/requests/${rq.id}/confirm`, {})).status).toBe(404);
-    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 360 })).json.error).toBe("TECH_NOT_FREE"); // 08–14 meets the 13:00 job (Kim alone)
+    expect((await kim.req("POST", `/api/requests/${rq.id}/confirm`, { lead: s.users.kim })).status).toBe(403);
+    expect((await ceoB.req("POST", `/api/requests/${rq.id}/confirm`, { lead: s.users.kim })).status).toBe(404);
+    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 300 })).json.error).toBe("TEAM_REQUIRED");                 // confirm always sends a technician
+    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { lead: s.users.dara })).json.error).toBe("TECH_UNAVAILABLE");      // day 4: Dara is on leave
+    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 360, lead: s.users.kim })).json.error).toBe("TECH_NOT_FREE"); // 08–14 meets the 13:00 job (Kim alone)
+    expect(await bookingOf(ref1)).toMatchObject({ status: "new", web_status: "pending" });
+    expect((await sql`select count(*)::int as n from booking_technicians where booking_id = ${bk1}`)[0]!.n).toBe(0);
     hubCalls.length = 0;
-    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 300 })).status).toBe(200);
+    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 300, lead: s.users.kim, assistants: [] })).status).toBe(200);
     const b = await bookingOf(ref1);
-    expect(b).toMatchObject({ web_status: "confirmed", web_decided_by: s.users.admin });
+    expect(b).toMatchObject({ status: "assigned", web_status: "confirmed", web_decided_by: s.users.admin });
     expect(new Date(b.ends_at).getTime() - new Date(b.scheduled_at).getTime()).toBe(300 * 60_000);
+    expect([...(await sql`select user_id, role from booking_technicians where booking_id = ${bk1}`)]).toEqual([{ user_id: s.users.kim, role: "lead" }]);
+    expect((await sql`select 1 from notifications where user_id = ${s.users.kim!} and kind = 'booking.assigned' and link = ${"/tech/job/" + bk1}`).length).toBe(1);
+    expect((await sql`select status, outcome from service_requests where id = ${rq.id}`)[0]).toMatchObject({ status: "done", outcome: "confirmed" });
     expect((await sql`select old_data, new_data from audit_log where action = 'booking.web_duration' and row_id = ${bk1}`)[0]).toMatchObject({ old_data: { minutes: 240 }, new_data: { minutes: 300 } });
-    expect(told(SUB.a)[0]).toMatch(new RegExp(`^✅ បានបញ្ជាក់ #${n1}\\n\\S+ \\d{1,2} \\S+ ម៉ោង 08:00$`));
+    expect((await sql`select 1 from audit_log where action = 'booking.assign' and row_id = ${bk1}`).length).toBe(1);
+    expect(told(SUB.a)[0]).toMatch(new RegExp(`^✅ បានបញ្ជាក់ #${n1}\\n\\S+ \\d{1,2} \\S+ ម៉ោង 08:00 · ជាង .+$`));
     expect(toldBodies(SUB.a)[0].buttons[0][0]).toMatchObject({ text: "📍 តាមដានការកក់" });
     expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, {})).status).toBe(404); // once
   });
@@ -498,12 +512,18 @@ describe("Admin / GM: confirm (the job length may change — CEO) or decline", (
     expect((await slotOf(5, "13:00")).free).toBe(true);
   });
 
-  it("in the bot: the request list with ✅ / ❌; confirm works there; decline asks for the reason first", async () => {
+  it("in the bot: ✅ of a waiting booking opens the confirm dialog in the app (the technician is picked there); an old ✅ press answers with it and confirms nothing", async () => {
     const r1 = (await book((await slotOf(1, "13:00")).at, { phone: "011333555", name: "សុភា" })).json().ref as string;
     const q1 = await requestOf((await bookingOf(r1)).id);
-    const list = (await internal("tg-menu", { chat_id: CHAT.admin, view: "req" })).json().menu;
-    expect((list.buttons as any[][]).flat().some((b) => b.view === "req" && b.id === q1.id && b.arg === "confirm")).toBe(true);
-    await internal("tg-menu", { chat_id: CHAT.admin, view: "req", id: q1.id, arg: "confirm" });
+    const dialog = `/tg?to=${encodeURIComponent(`/requests?confirm=${q1.id}`)}`;
+    const buttons = ((await internal("tg-menu", { chat_id: CHAT.admin, view: "req" })).json().menu.buttons as any[][]).flat();
+    expect(buttons.some((b) => String(b.web_app ?? "").endsWith(dialog))).toBe(true);
+    expect(buttons.some((b) => b.view === "req" && b.id === q1.id && b.arg === "confirm")).toBe(false);
+    expect(buttons.some((b) => b.view === "req" && b.id === q1.id && b.arg === "decline")).toBe(true);
+    const old = (await internal("tg-menu", { chat_id: CHAT.admin, view: "req", id: q1.id, arg: "confirm" })).json().menu;
+    expect((old.buttons as any[][]).flat().some((b) => String(b.web_app ?? "").endsWith(dialog))).toBe(true);
+    expect((await bookingOf(r1)).web_status).toBe("pending");
+    expect((await confirmFree(admin, q1.id)).status).toBe(200); // what the dialog does
     expect((await bookingOf(r1)).web_status).toBe("confirmed");
   });
 });
@@ -725,7 +745,7 @@ describe("customer home: own data only, notification settings, book again", () =
     const lite = (await internal("tg-text", { chat_id: 930003, tg_user: 930003, text: CUSTOMER_MENU.password, subscriber_id: SUB.c })).json();
     expect(lite.text).toBe(customerText.passwordLater);
     hubCalls.length = 0;
-    expect((await admin.req("POST", `/api/requests/${(await requestOf(bkC)).id}/confirm`, {})).status).toBe(200);
+    expect((await confirmFree(admin, (await requestOf(bkC)).id)).status).toBe(200);
     const pwC = told(SUB.c).map(pwIn).find(Boolean)!;
     expect(pwC).toMatch(/^\d{4}$/); expect(told(SUB.c).find((x) => pwIn(x))).toMatch(/^🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/);
     expect((await tryLogin("012 777 888", pwC)).statusCode).toBe(200);
@@ -1009,16 +1029,13 @@ describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, h
     const staffIds = [s.users.admin!, s.users.gm01!, s.users.kim!, s.users.dara!, (await sql<{ id: string }[]>`select id from users where username = 'cfo'`)[0]!.id];
     const countOf = async () => (await sql<{ n: number }[]>`select count(*)::int as n from notifications where user_id = any(${sql.array(staffIds)}::uuid[])`)[0]!.n;
     const staffBefore = await countOf();
-    expect((await ceo.req("POST", `/api/requests/${(await requestOf(tb.id)).id}/confirm`, {})).status).toBe(200);
+    expect((await confirmFree(ceo, (await requestOf(tb.id)).id)).status).toBe(200); // confirm = assigned too (whichever technician is free)
     expect(told(91).some((t) => t.startsWith(`✅ បានបញ្ជាក់ #${tb.number}`))).toBe(true); // the tester gets the real customer messages
     const pw = told(91).map(pwIn).find(Boolean)!;
     expect(pw).toMatch(/^\d{4}$/);
     expect((await tryLogin(TEST_PHONE, pw)).statusCode).toBe(200);
     expect((await sql`select tg_subscriber_id::text as sub from customers where id = ${tb.customer_id}`)[0]!.sub).toBe("91");
-    // assign (whichever technician is free) → cancel, by the CEO: the group, the technicians, Admin, GM and CFO hear nothing
-    let assigned = 0;
-    for (const tech of [s.users.kim!, s.users.dara!]) if (!assigned && (await ceo.req("POST", `/api/bookings/${tb.id}/assign`, { lead: tech, assistants: [] })).status === 200) assigned++;
-    expect(assigned).toBe(1);
+    // confirmed + assigned → cancel, by the CEO: the group, the technicians, Admin, GM and CFO hear nothing
     expect((await notesOf(s.users.ceo!, tb.number)).some((t) => t === `🧪 ${tb.number}`)).toBe(true); // the job message the group would get
     expect((await ceo.req("POST", `/api/bookings/${tb.id}/cancel`, { reason: "សាកល្បងរួចរាល់" })).status).toBe(200);
     expect(await countOf()).toBe(staffBefore);

@@ -6,7 +6,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { customerSchema, ZONES, type CustomerInput } from "@sms/shared";
 import { History, MapPin, Pencil, Plus, Power } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
 import CustomerHistoryDialog from "./CustomerHistoryDialog";
@@ -56,9 +56,9 @@ export default function CustomersPage() {
                     <td><Badge tone={c.zone === "inside" ? "green" : "grey"}>{t(`zone.${c.zone}`)}</Badge></td>
                     <td>{c.lat != null ? <Badge tone="blue"><MapPin size={12} /> {t("customers.has_location")}</Badge> : <span className="text-muted">—</span>}</td>
                     <td className="text-right whitespace-nowrap cell-actions">
-                      <button className="tap-target rounded hover:bg-grey-bg" title={t("customers.history")} aria-label={t("customers.history")} onClick={() => setHistory(c)} data-testid="customer-history"><History size={16} /></button>
-                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(c)}><Pencil size={16} /></button>
-                      <button className="tap-target rounded hover:bg-grey-bg" title={c.is_active ? t("customers.deactivate") : t("customers.activate")} onClick={() => setToggle(c)}><Power size={16} /></button>
+                      <RowAction icon={<History size={16} />} label={t("customers.history")} onClick={() => setHistory(c)} data-testid="customer-history" />
+                      <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(c)} />
+                      <RowAction icon={<Power size={16} />} label={c.is_active ? t("app.deactivate") : t("app.activate")} onClick={() => setToggle(c)} />
                     </td>
                   </tr>
                 ))}

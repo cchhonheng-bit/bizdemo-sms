@@ -299,10 +299,10 @@ export const requestsRoutes: FastifyPluginAsync = async (app) => {
   const flush = (req: FastifyRequest) => void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
   app.get("/", guard, async (req) => listRequests(req.user!, (req.query as { all?: string } | undefined)?.all === "1"));
   app.post("/:id/done", guard, async (req) => markRequestDone(req.user!, req.ip, id(req)));
-  /** confirm — CEO D-106: Admin / GM may set the job length here (minutes) */
+  /** confirm = confirmed + assigned + technicians told (CEO 04-10); the job length may change here too (D-106, minutes) */
   app.post("/:id/confirm", decide, async (req) => {
-    const { minutes } = z.object({ minutes: z.number().int().min(15).max(1440).optional() }).strict().parse(req.body ?? {});
-    const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm", "", minutes); flush(req); return r;
+    const b = z.object({ minutes: z.number().int().min(15).max(1440).optional(), lead: uuid.nullable().optional(), assistants: z.array(uuid).max(10).optional() }).strict().parse(req.body ?? {});
+    const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm", "", b); flush(req); return r;
   });
   app.post("/:id/decline", decide, async (req) => { const r = await decideWebBooking(req.user!, req.ip, id(req), "decline", reason(req, true)); flush(req); return r; });
   app.post("/:id/approve", decide, async (req) => { const r = await decideReschedule(req.user!, req.ip, id(req), "approve"); flush(req); return r; });

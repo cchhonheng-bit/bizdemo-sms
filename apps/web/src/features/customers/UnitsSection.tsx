@@ -7,7 +7,7 @@ import QRCode from "qrcode";
 import { Copy, Plus, Power, Send } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Field, Input } from "@/components/ui";
+import { Badge, Button, Field, Input, RowAction } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 export default function UnitsSection({ customerId, telegram }: { customerId: string; telegram: boolean }) {
@@ -31,7 +31,7 @@ export default function UnitsSection({ customerId, telegram }: { customerId: str
         {(q.data ?? []).map((u) => (
           <li key={u.id} className={`py-2 flex items-center gap-2 text-sm ${u.is_active ? "" : "opacity-50"}`}>
             <span className="flex-1 min-w-0 break-words"><b>{u.label}</b>{[u.brand, u.model, u.location_note].filter(Boolean).length ? <span className="text-muted"> · {[u.brand, u.model, u.location_note].filter(Boolean).join(" · ")}</span> : null}</span>
-            {manage && <button className="tap-target" aria-label={t(u.is_active ? "app.inactive" : "app.active")} onClick={() => save.mutate({ ...u, label: u.label, is_active: !u.is_active })}><Power size={16} /></button>}
+            {manage && <RowAction icon={<Power size={16} />} label={t(u.is_active ? "app.deactivate" : "app.activate")} onClick={() => save.mutate({ ...u, label: u.label, is_active: !u.is_active })} />}
           </li>
         ))}
       </ul>

@@ -174,11 +174,11 @@ export async function enqueueBookingCancelled(db: Db, bookingId: string, reason:
     select bk.number, bk.company_id, bk.scheduled_at, c.name as cname, co.timezone from bookings bk join customers c on c.id = bk.customer_id join companies co on co.id = bk.company_id
     where bk.id = ${bookingId}`)[0]!;
   const textIn = (lang: Lang) => { const L = (km: string, en: string) => pick(tx(km, en), lang); return [
-    L(`❌ លុបចោលការងារ (${b.number})`, `❌ Booking cancelled (${b.number})`),
+    L(`❌ បោះបង់ការងារ (${b.number})`, `❌ Booking cancelled (${b.number})`),
     `📅 ${b.scheduled_at ? fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh") : "—"}`,
     `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}`,
     `📝 ${L("មូលហេតុ", "Reason")}: ${reason}`,
-    L("ការងារនេះត្រូវបានលុបចោល — មិនចាំបាច់ចុះទីតាំងទេ។", "This job is cancelled — no need to go on site."),
+    L("ការងារនេះត្រូវបានបោះបង់ — មិនចាំបាច់ចុះទីតាំងទេ។", "This job is cancelled — no need to go on site."),
   ].join("\n"); };
   const text = textIn("km");
   if (await toCeoInstead(db, b.company_id, bookingId, b.number, textIn, `cancel:${bookingId}`)) return;
@@ -188,7 +188,7 @@ export async function enqueueBookingCancelled(db: Db, bookingId: string, reason:
   for (const m of team) {
     const lang = asLang(m.language);
     await db`insert into notifications (company_id, user_id, kind, title, body, link)
-             values (${b.company_id}, ${m.id}, 'booking.cancelled', ${b.number + " · " + pick(tx("បានលុបចោល", "Cancelled"), lang)}, ${reason.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
+             values (${b.company_id}, ${m.id}, 'booking.cancelled', ${b.number + " · " + pick(tx("បានបោះបង់", "Cancelled"), lang)}, ${reason.slice(0, 200)}, ${"/tech/job/" + bookingId})`;
     if (m.telegram_chat_id) await enqueue(db, b.company_id, m.telegram_chat_id, textIn(lang), null, `cancel:${bookingId}:${m.id}`);
   }
 }

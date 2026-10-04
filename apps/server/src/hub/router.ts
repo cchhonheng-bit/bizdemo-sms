@@ -173,7 +173,7 @@ async function onShopMessage(bot: Bot, msg: Message, c: { cmd: string; arg: stri
   if (isGroup && c.cmd === "register") return forwardCode(bot, "group", c.arg, msg, log);
   if (isGroup && (c.cmd === "start" || c.cmd === "help")) { // D-91: work groups get notifications only — no menu
     const known = (await sql`select 1 from hub_shop_chats where shop_code = ${shop.code} and chat_id = ${msg.chat.id} and kind = 'group'`).length > 0;
-    return reply(bot, msg.chat.id, known ? `👥 ក្រុមការងារ · ${shop.name}\nការងារថ្មី ការប្ដូរម៉ោង ជំហានការងារ និងការលុបចោល ផ្ញើមកទីនេះដោយស្វ័យប្រវត្តិ។` : groupHelp, shop.code, known ? "group.info" : "help");
+    return reply(bot, msg.chat.id, known ? `👥 ក្រុមការងារ · ${shop.name}\nការងារថ្មី ការប្ដូរម៉ោង ជំហានការងារ និងការបោះបង់ ផ្ញើមកទីនេះដោយស្វ័យប្រវត្តិ។` : groupHelp, shop.code, known ? "group.info" : "help");
   }
   if (isPrivate && c.cmd === "help") return startMenu(bot, shop, msg.chat.id, msg.from!);
   if (isPrivate && c.cmd === "register") return reply(bot, msg.chat.id, "ℹ️ /register ប្រើក្នុងក្រុមការងារប៉ុណ្ណោះ។", shop.code, "register.private");

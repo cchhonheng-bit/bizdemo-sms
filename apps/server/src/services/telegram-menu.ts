@@ -40,6 +40,7 @@ const miniApp = (path: string) => (config.publicUrl.startsWith("https://") ? `${
 const appUrl = (path: string) => (config.publicUrl.startsWith("https://") ? `${config.publicUrl}${APP_BASE}${path}` : null);
 const url = (text: string, u: string | null): MenuButton[] => (u ? [{ text, url: u }] : []);
 const appBtn = (text: string, path: string): MenuButton => ({ text, web_app: miniApp(path) });
+const confirmPath = (requestId: string) => `/requests?confirm=${requestId}`; // the requests page opens that request's confirm dialog
 
 // ---------- who is this chat ----------
 type Staff = { id: string; company_id: string; full_name: string; role: string; timezone: string; language: string; is_lead: boolean; username: string };
@@ -330,7 +331,8 @@ async function requestsList(u: Staff): Promise<Menu> {
   rows.forEach((r, i) => {
     const decision = r.kind === "booking" && r.web_status === "pending" ? ["confirm", "decline"] : r.kind === "reschedule" ? ["approve", "reject"] : null;
     if (!decision) done.push({ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: "done" });
-    else if (can.decide) pairs.push([{ text: `✅ ${i + 1}`, view: "req", id: r.id, arg: decision[0]! }, { text: `❌ ${i + 1}`, view: "req", id: r.id, arg: decision[1]! }]);
+    // CEO 04-10: confirming a booking sends a technician — ✅ opens the confirm dialog (job length + crew picker) in the app
+    else if (can.decide) pairs.push([decision[0] === "confirm" ? appBtn(`✅ ${i + 1}`, confirmPath(r.id)) : { text: `✅ ${i + 1}`, view: "req", id: r.id, arg: decision[0]! }, { text: `❌ ${i + 1}`, view: "req", id: r.id, arg: decision[1]! }]);
   });
   return { text: rows.length ? `${L("🌐 សំណើអតិថិជន", "🌐 Customer requests")} (${rows.length})\n${lines.join("\n")}` : L("🌐 គ្មានសំណើថ្មី ✅", "🌐 No new requests ✅"), buttons: [...pairs, ...rows2(done), backHome(u)] };
 }
@@ -342,7 +344,8 @@ async function doRequest(u: Staff, chatId: number, id: string, arg: string): Pro
   try {
     switch (arg) {
       case "done": await markRequestDone(sessionOf(u), null, id); return { text: L("✅ បានកត់ថាដោះស្រាយរួច", "✅ Marked as done"), buttons: again };
-      case "confirm": await decideWebBooking(sessionOf(u), null, id, "confirm"); return { text: L("✅ បានបញ្ជាក់ការកក់ — អតិថិជនទទួលដំណឹង", "✅ Booking confirmed — the customer is told"), buttons: again };
+      // a ✅ from an older list: confirming needs the technician, picked in the app
+      case "confirm": return { text: L("👷 ជ្រើសជាងក្នុងកម្មវិធី ដើម្បីបញ្ជាក់", "👷 Pick the technician in the app to confirm"), buttons: [[appBtn(L("📱 បញ្ជាក់ និងចាត់ជាង", "📱 Confirm and assign"), confirmPath(id))], ...again] };
       case "decline": await setPending(chatId, u.company_id, { kind: "decline_note", request_id: id });
         return { text: L("📝 សូមសរសេរមូលហេតុដែលមិនអាចទទួលការកក់នេះ (ផ្ញើជាសារ)", "📝 Write the reason for declining this booking (send it as a message)"), buttons: again };
       case "approve": await decideReschedule(sessionOf(u), null, id, "approve"); return { text: L("✅ បានប្ដូរម៉ោង — អតិថិជនទទួលដំណឹង", "✅ Rescheduled — the customer is told"), buttons: again };
@@ -455,7 +458,7 @@ const helpStaff = (u: Staff) => T(u)("❓ របៀបប្រើ\n• ប៊�
   "❓ How to use\n• The buttons below are your menu (by role)\n• Buttons that open the app need internet\n• Locations are sent only in this private chat with the bot\n• Work groups receive notifications only\n• Me → change language or unlink Telegram");
 
 // ---------- customer screens (Khmer) ----------
-const STATUS_KM: Record<string, string> = { new: "ថ្មី", assigned: "បានចាត់ជាង", en_route: "ជាងកំពុងមក", on_site: "ជាងដល់ទីតាំង", working: "កំពុងធ្វើ", work_done: "ធ្វើរួច", pending_review: "ធ្វើរួច", revision: "ធ្វើរួច", reviewed: "ធ្វើរួច", invoiced: "មានវិក្កយបត្រ", partially_paid: "បង់ខ្លះ", closed: "បិទរួច", cancelled: "លុបចោល" };
+const STATUS_KM: Record<string, string> = { new: "ថ្មី", assigned: "បានចាត់ជាង", en_route: "ជាងកំពុងមក", on_site: "ជាងដល់ទីតាំង", working: "កំពុងធ្វើ", work_done: "ធ្វើរួច", pending_review: "ធ្វើរួច", revision: "ធ្វើរួច", reviewed: "ធ្វើរួច", invoiced: "មានវិក្កយបត្រ", partially_paid: "បង់ខ្លះ", closed: "បិទរួច", cancelled: "បានបោះបង់" };
 async function customerBookings(c: Customer, which: "open" | "warranty" | "history"): Promise<Menu> {
   const rows = await sql<{ number: string; scheduled_at: Date | null; service_text: string; status: string; warranty: { until: string; days_left: number; active: boolean } | null }[]>`
     select b.number, b.scheduled_at, b.service_text, b.status::text, ${warrantyJson(sql)} as warranty from bookings b join companies co on co.id = b.company_id where b.customer_id = ${c.id}

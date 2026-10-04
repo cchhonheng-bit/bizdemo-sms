@@ -7,7 +7,7 @@ import { createUserSchema, ROLES, type CreateUserInput } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; language: string };
@@ -70,11 +70,11 @@ export default function UsersPage() {
                     <td>{u.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</td>
                     <td>{u.is_active ? <Badge tone="green">{t("app.active")}</Badge> : <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
                     <td className="text-right whitespace-nowrap cell-actions">
-                      <button className="tap-target rounded hover:bg-grey-bg" title={t("app.edit")} onClick={() => setEditing(u)}><Pencil size={16} /></button>
-                      <button className="tap-target rounded hover:bg-grey-bg" title={t("users.reset_password")} onClick={() => setConfirm({ kind: "reset", u })}><KeyRound size={16} /></button>
+                      <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(u)} />
+                      <RowAction icon={<KeyRound size={16} />} label={t("users.reset_password")} onClick={() => setConfirm({ kind: "reset", u })} />
                       {u.id !== me?.id && (u.is_active
-                        ? <button className="tap-target rounded hover:bg-danger-50 text-danger" title={t("users.deactivate")} onClick={() => setConfirm({ kind: "deactivate", u })}><UserX size={16} /></button>
-                        : <button className="tap-target rounded hover:bg-success-50 text-success" title={t("users.activate")} onClick={() => setConfirm({ kind: "activate", u })}><UserCheck size={16} /></button>)}
+                        ? <RowAction tone="danger" icon={<UserX size={16} />} label={t("app.deactivate")} onClick={() => setConfirm({ kind: "deactivate", u })} />
+                        : <RowAction tone="success" icon={<UserCheck size={16} />} label={t("app.activate")} onClick={() => setConfirm({ kind: "activate", u })} />)}
                     </td>
                   </tr>
                 ))}

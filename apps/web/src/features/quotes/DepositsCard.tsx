@@ -7,7 +7,7 @@ import { formatKhr, formatUsd, toCents } from "@sms/shared";
 import { Ban, Wallet } from "lucide-react";
 import { api, errCode, type PayMethod } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Dialog, Field, Input } from "@/components/ui";
+import { Badge, Button, Card, Dialog, Field, Input, RowAction } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
 
@@ -36,7 +36,7 @@ export default function DepositsCard({ bookingId }: { bookingId: string }) {
                 <div className="text-xs text-muted">{d.paid_on} · {d.received_by_name}{d.note ? ` · ${d.note}` : ""}</div>
               </div>
               <Badge tone={d.status === "active" ? "warning" : d.status === "applied" ? "green" : "grey"}>{t(`deposit.status.${d.status}`)}</Badge>
-              {d.status === "active" && can("void.approve") && <button className="tap-target text-danger" aria-label={t("invoice.void")} onClick={() => setVoiding(d.id)}><Ban size={16} /></button>}
+              {d.status === "active" && can("void.approve") && <RowAction tone="danger" icon={<Ban size={16} />} label={t("app.void")} onClick={() => setVoiding(d.id)} />}
             </li>
           ))}
         </ul>

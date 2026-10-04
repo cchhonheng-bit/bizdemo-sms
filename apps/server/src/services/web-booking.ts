@@ -31,7 +31,7 @@ import { checkRate } from "../lib/rate-limit.js";
 import { sha256 } from "../lib/secure.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
-import { cancelBookingIn, confirmWebBookingIn, dropUnacceptedAccount, nextBookingNumber } from "./bookings.js";
+import { assignWithin, cancelBookingIn, dropUnacceptedAccount, nextBookingNumber } from "./bookings.js";
 import { issueInitialPassword } from "./customer-auth.js";
 import { btn, customerGrid, menuUrl, row, tellSubscriber, type CustomerMsg } from "./customer-bot.js";
 import type { CustomerSession } from "./customer-home.js";
@@ -319,7 +319,10 @@ async function stillFree(db: Db, companyId: string, bookingId: string, start: Da
   const team = (await db<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${bookingId}`).map((x) => x.user_id);
   return freeFor(await loadCapacity(db, companyId, start, end, bookingId), start.getTime(), end.getTime(), team);
 }
-export async function decideWebBooking(user: SessionUser, ip: string | null, requestId: string, decision: "confirm" | "decline", reason = "", minutes?: number) {
+/** CEO 04-10: «confirm» = confirmed + assigned + the technicians told, in one step (the dialog has the job length + the crew picker) */
+export type ConfirmInput = { minutes?: number; lead?: string | null; assistants?: string[] };
+export async function decideWebBooking(user: SessionUser, ip: string | null, requestId: string, decision: "confirm" | "decline", reason = "", o: ConfirmInput = {}) {
+  const minutes = o.minutes;
   const done = await tx(user.id, async (t) => {
     const r = (await t<{ booking_id: string | null; web_status: string | null; scheduled_at: Date | null; ends_at: Date | null }[]>`select r.booking_id, b.web_status, b.scheduled_at, b.ends_at
       from service_requests r left join bookings b on b.id = r.booking_id where r.id = ${requestId} and r.company_id = ${user.companyId} and r.kind = 'booking' and r.status = 'new' for update of r`)[0];
@@ -327,6 +330,7 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
     if (r.web_status !== "pending") throw new AppError("NOT_PENDING", 409);
     let account: { subscriber: number; password: string } | null = null;
     if (decision === "confirm") {
+      if (!o.lead && !(o.assistants ?? []).length) throw new AppError("TEAM_REQUIRED", 400); // confirm always sends a technician
       // CEO: Admin / GM may change the job length while confirming — only while a technician can still take the longer job
       const now = r.scheduled_at && r.ends_at ? Math.round((r.ends_at.getTime() - r.scheduled_at.getTime()) / 60_000) : null;
       if (minutes && r.scheduled_at && minutes !== now) {
@@ -334,7 +338,9 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
         await t`update bookings set ends_at = ${new Date(r.scheduled_at.getTime() + minutes * 60_000)} where id = ${r.booking_id}`;
         await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_duration", table: "bookings", rowId: r.booking_id, old: { minutes: now }, new: { minutes }, ip });
       }
-      account = await confirmWebBookingIn(t, user.companyId, user.id, r.booking_id, ip);
+      // the crew for the (new) length: every availability rule runs; assigning a waiting website booking confirms it (D-96) and
+      // queues the job message for the group + each technician — all or nothing with the confirmation
+      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: null, scheduled_at: null, ends_at: null })).account;
     } else { // cancelled with the reason: the slot is free again; the request closes as «declined» inside
       await cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, r.booking_id, reason);
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_decline", table: "bookings", rowId: r.booking_id, new: { web_status: "declined", reason }, ip });
