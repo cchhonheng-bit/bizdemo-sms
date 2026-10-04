@@ -834,7 +834,7 @@ describe("tracking: reminder the day before (17:00–20:00 shop time), on the wa
     hubCalls.length = 0;
     expect(await customerNotices(tomorrow10.at21)).toBe(0); // 21:00: too late in the evening
     expect(await customerNotices(tomorrow10.at18)).toBeGreaterThanOrEqual(1);
-    expect(told(SUB.a).at(-1)).toMatch(/^⏰ ស្អែក ម៉ោង 10:00\nលាងម៉ាស៊ីនត្រជាក់ ×2 · ជួសជុលភ្លើង$/);
+    expect(told(SUB.a).at(-1)).toMatch(/^⏰ ស្អែក ម៉ោង 10:00\nលាងម៉ាស៊ីនត្រជាក់ ×2 · ជួសជុលភ្លើង · ជាង Kim$/); // confirmed = assigned (CEO 04-10): the technician is named
     expect(toldBodies(SUB.a).at(-1).buttons[0][0].text).toBe("📍 តាមដានការកក់");
     const n = hubCalls.length;
     expect(await customerNotices(tomorrow10.at18)).toBe(0); expect(hubCalls.length).toBe(n); // once

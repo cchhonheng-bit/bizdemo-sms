@@ -14,7 +14,8 @@ import { api, errCode, fmtDate, type ServiceRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, ErrorState, Field, Input, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
-import { CrewList, crewOf, useCrewAvailability } from "@/features/bookings/CrewPicker";
+import { CrewList } from "@/features/bookings/CrewPicker";
+import { crewOf, useCrewAvailability } from "@/features/bookings/crew";
 import { isPastLocal, timeRange } from "@/features/bookings/time";
 
 const when = (s: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(s));

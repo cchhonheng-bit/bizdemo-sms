@@ -15,7 +15,8 @@ import BookingInvoiceCard from "@/features/invoices/BookingInvoiceCard";
 import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
-import { CrewList, crewOf, useCrewAvailability } from "./CrewPicker";
+import { CrewList } from "./CrewPicker";
+import { crewOf, useCrewAvailability } from "./crew";
 
 export default function BookingDetailPage() {
   const { t } = useTranslation();

@@ -1,29 +1,10 @@
 // The crew picker (R1/R2/R5) for «assign» on the booking page and «confirm» on a customer request (CEO 04-10: confirm = confirmed
 // + assigned). Everybody is listed: free people can be ticked (and one marked lead); busy people stay in the list greyed out and
-// cannot be ticked, with why — «រវល់ 09:00–11:00» (another job) or their leave / absence. The server checks again on save.
-import { useMemo } from "react";
+// cannot be ticked, with why — «រវល់ 09:00–11:00» (another job) or their leave / absence. Data: crew.ts.
 import { useTranslation } from "react-i18next";
-import { useQuery } from "@tanstack/react-query";
-import { api, type Availability } from "@/lib/api";
 import { Skeleton } from "@/components/ui";
-import { isPastLocal, timeRange } from "./time";
-
-type Person = Availability["people"][number];
-
-/** who is free for [from, to) (the booking itself excluded); off when the window is missing or already past */
-export function useCrewAvailability(from: string | null, to: string | null, exclude?: string) {
-  const ok = !!from && !!to && !isPastLocal(from);
-  // while the job length is being typed the last answer stays on screen (no empty list flashing)
-  const q = useQuery({ queryKey: ["availability", from, to, exclude ?? null], queryFn: () => api.availability(from!, to!, exclude), enabled: ok, placeholderData: (prev) => prev });
-  const people = useMemo(() => q.data?.people ?? [], [q.data]);
-  return { ok, q, people, free: people.filter((p) => p.available), vehicles: q.data?.vehicles ?? [] };
-}
-
-/** the picked people still free for the window, and the lead among them */
-export function crewOf(free: Person[], team: string[], lead: string) {
-  const crew = team.filter((u) => free.some((p) => p.user_id === u));
-  return { crew, lead: lead && crew.includes(lead) ? lead : "" };
-}
+import type { Person } from "./crew";
+import { timeRange } from "./time";
 
 export function CrewList({ people, loading, team, lead, onTeam, onLead }: {
   people: Person[]; loading: boolean; team: string[]; lead: string; onTeam: (next: string[]) => void; onLead: (id: string) => void;
