@@ -538,7 +538,7 @@ describe("I1 Telegram inline menus", () => {
     expect(linked.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toEqual(Object.values(CUSTOMER_MENU));
     const hint = sent.find((x) => x.method === "sendMessage" && x.payload.text === customerText.hint)!;
     expect(hint.payload.disable_notification).toBe(true);
-    expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.chat_id === 830001 && x.payload.menu_button.web_app.url === "https://hub.test/")).toBe(true);
+    expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.chat_id === 830001 && x.payload.menu_button.web_app.url === "https://hub.test/my")).toBe(true); // D-121: the customer home
     expect((await sql`select text from hub_message_log where chat_id = 830001 and kind like 'contact.linked%'`).every((x) => x.text === null)).toBe(true); // the password is never kept here
     expect((await sql`select name, origin from customers where '012919192' = any(phones)`)[0]).toMatchObject({ name: "Dara", origin: "telegram" });
     // 🔕: the choices for the state the person is in
@@ -830,10 +830,10 @@ describe("website v2 (D-96…D-105): launch data for the customer site and the b
     const msg = sent.find((x) => x.method === "sendMessage" && /^✅ ភ្ជាប់រួចរាល់/.test(String(x.payload.text)))!;
     expect(msg.payload.text).toMatch(new RegExp(`^✅ ភ្ជាប់រួចរាល់\\nការកក់ #${b1.number} រង់ចាំបញ្ជាក់ \\(≤៣០ នាទី\\)\\n🔑 ពាក្យសម្ងាត់៖ \\d{4}\\nចូលដោយលេខទូរស័ព្ទ \\+ ពាក្យសម្ងាត់នេះ$`));
     const pw = /(\d{4})/.exec(msg.payload.text.split("\n")[2])![1]!;
-    expect(msg.payload.reply_markup.keyboard[0][0]).toEqual({ text: "📅 កក់សេវា", web_app: { url: "https://hub.test/?book" } });
+    expect(msg.payload.reply_markup.keyboard[0][0]).toEqual({ text: "📅 កក់សេវា", web_app: { url: "https://hub.test/book" } });
     expect(msg.payload.reply_markup.keyboard.flat().map((b: any) => b.text)).toEqual(Object.values(CUSTOMER_MENU));
     expect(sent.find((x) => x.method === "sendMessage" && x.payload.text === customerText.hint)!.payload.disable_notification).toBe(true);
-    expect(sent.find((x) => x.method === "setChatMenuButton" && Number(x.payload.chat_id) === 870001)!.payload.menu_button).toMatchObject({ type: "web_app", web_app: { url: "https://hub.test/" } });
+    expect(sent.find((x) => x.method === "setChatMenuButton" && Number(x.payload.chat_id) === 870001)!.payload.menu_button).toMatchObject({ type: "web_app", web_app: { url: "https://hub.test/my" } });
     expect((await sql`select count(*)::int as n from hub_message_log where text like ${"%" + pw + "%"} and chat_id = 870001`)[0]!.n).toBe(0);
     expect((await sql`select password_hash from customers where tg_subscriber_id = ${sub}::bigint`)[0]!.password_hash).toMatch(/^\$argon2id\$/);
     // 🔑 in that chat: a new password in the answer, again never kept in the hub log

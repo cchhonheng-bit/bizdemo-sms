@@ -1063,7 +1063,7 @@ describe("D-121 customer pages: the bot opens exact addresses; skeleton first; i
       expect(r.statusCode).toBe(200); expect(r.headers["cache-control"]).toBe("no-store");
       expect(r.body).toContain('data-page="gate"'); expect(r.body).toContain(`data-next="${next}"`); expect(r.body).toContain('aria-busy="true"');
       expect((r.body.match(/class="card s sk"/g) ?? []).length).toBe(3); expect(r.body).toContain("One Team");
-      expect(loginForm(r.body)).toBe(false); expect(SPA(r.body)).toBe(false); expect(r.body).not.toContain('href="/app');
+      expect(loginForm(r.body)).toBe(false); expect(SPA(r.body)).toBe(false); expect(r.body.replace('href="/app/favicon.png"', "")).not.toContain('href="/app'); // the tab icon only
       expect(r.body).toContain('id="gate-err" hidden'); // the error card only appears if the Telegram sign-in fails
     }
   });
