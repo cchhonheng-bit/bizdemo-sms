@@ -46,7 +46,8 @@ function useAuditWords() {
   /** the readable line of one row */
   const line = (a: AuditRow) => {
     const o = flat(a.old_data), n = flat(a.new_data), created = !a.old_data;
-    const keys = Object.keys(n).filter((k) => AUDIT_FIELD[k] && (created ? n[k] !== null && n[k] !== "" : !same(o[k], n[k])));
+    // a value that only repeats what the row is about (the invoice number of «INV-…») is left out
+    const keys = Object.keys(n).filter((k) => AUDIT_FIELD[k] && (created ? n[k] !== null && n[k] !== "" : !same(o[k], n[k])) && String(n[k]) !== a.subject);
     let action = AUDIT_ACTION[a.action] ? w(AUDIT_ACTION[a.action]!) : a.action;
     if (a.action === "catalog.upsert") action = w(created ? AUDIT_ACTION_EXTRA.itemNew : keys.length && keys.every((k) => PRICE.has(k)) ? AUDIT_ACTION_EXTRA.price : AUDIT_ACTION[a.action]!);
     const changes = keys.slice(0, 3).map((k) => `${w(AUDIT_FIELD[k]!)}: ${created ? value(k, n[k], n) : `${value(k, o[k], o)} → ${value(k, n[k], n)}`}`);

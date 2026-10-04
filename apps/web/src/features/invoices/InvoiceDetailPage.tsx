@@ -24,7 +24,9 @@ export default function InvoiceDetailPage() {
   const [voiding, setVoiding] = useState(false);
   const refresh = () => { for (const k of [["invoice", id], ["invoices"], ["invoice-for"], ["booking"], ["bookings"]]) void qc.invalidateQueries({ queryKey: k }); };
   const onErr = (e: unknown) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") }));
-  const issue = useMutation({ mutationFn: () => api.invoices.issue(id!), onSuccess: () => { toast.success(t("invoice.issued_ok")); refresh(); }, onError: onErr });
+  // D-126: the invoice date may be earlier (inside an unlocked period; a reason when more than 3 days back)
+  const [issuing, setIssuing] = useState(false);
+  const issue = useMutation({ mutationFn: (v: { date?: string; reason?: string }) => api.invoices.issue(id!, v), onSuccess: () => { toast.success(t("invoice.issued_ok")); setIssuing(false); refresh(); }, onError: onErr });
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <ErrorState text={t("app.error")} onRetry={() => void q.refetch()} />;
   const d = q.data;
@@ -68,13 +70,35 @@ export default function InvoiceDetailPage() {
       <ActionBar>
         {!draft && <Link className="btn-secondary" to={`/invoices/${d.id}/print`}><Printer size={16} /> {t("quote.print")}</Link>}
         {draft && d.can.issue && <Button onClick={() => nav(`/invoices/${d.id}/edit`)}><Pencil size={16} /> {t("app.edit")}</Button>}
-        {draft && d.can.issue && <Button variant="primary" className="flex-1 sm:flex-none" disabled={d.discount_status === "pending"} loading={issue.isPending} onClick={() => issue.mutate()} data-testid="invoice-issue"><Send size={16} /> {t("invoice.issue")}</Button>}
+        {draft && d.can.issue && <Button variant="primary" className="flex-1 sm:flex-none" disabled={d.discount_status === "pending"} onClick={() => setIssuing(true)} data-testid="invoice-issue"><Send size={16} /> {t("invoice.issue")}</Button>}
         {issued && d.can.pay && d.balance > 0 && <Button variant="primary" className="flex-1 sm:flex-none" onClick={() => setPaying(true)}><Wallet size={16} /> {t("invoice.record_payment")}</Button>}
       </ActionBar>
       {draft && d.discount_status === "pending" && <p className="text-sm text-warning">{t("invoice.err.DISCOUNT_PENDING")}</p>}
+      {issuing && <IssueDialog loading={issue.isPending} onClose={() => setIssuing(false)} onIssue={(v) => issue.mutate(v)} />}
       {paying && <PaymentDialog d={d} onClose={() => setPaying(false)} onDone={() => { setPaying(false); refresh(); }} />}
       {voiding && <VoidDialog d={d} onClose={() => setVoiding(false)} onDone={() => { setVoiding(false); refresh(); }} />}
     </div>
+  );
+}
+
+/** D-126: issue with today's date, or an earlier one inside an unlocked period (a reason when more than 3 days back) */
+function IssueDialog({ loading, onClose, onIssue }: { loading: boolean; onClose: () => void; onIssue: (v: { date?: string; reason?: string }) => void }) {
+  const { t } = useTranslation();
+  const today = todayLocal();
+  const [date, setDate] = useState(today);
+  const [reason, setReason] = useState("");
+  const back = Math.round((Date.parse(today) - Date.parse(date)) / 86_400_000);
+  const ok = !!date && date <= today && (back <= 3 || reason.trim().length >= 3);
+  return (
+    <Dialog open onClose={onClose} title={t("invoice.issue")} footer={<>
+      <Button onClick={onClose}>{t("app.cancel")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!ok} loading={loading} onClick={() => onIssue(date === today ? {} : { date, ...(back > 3 ? { reason: reason.trim() } : {}) })} data-testid="invoice-issue-go"><Send size={16} /> {t("invoice.issue")}</Button>
+    </>}>
+      <Field label={t("invoice.issue_date")} hint={t("invoice.issue_date_hint")}>
+        <Input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} data-testid="invoice-issue-date" />
+      </Field>
+      {back > 3 && <Field label={t("invoice.issue_reason")} required><textarea className="input h-20 py-2" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} data-testid="invoice-issue-reason" /></Field>}
+    </Dialog>
   );
 }
 

@@ -7,7 +7,7 @@ const T = (km: string, en: string): AuditText => ({ km, en });
 export const AUDIT_ACTION: Record<string, AuditText> = {
   "acct.account": T("កែគណនី", "Account saved"), "acct.account_delete": T("លុបគណនី", "Account deleted"), "acct.close_year": T("បិទឆ្នាំ", "Year closed"),
   "acct.fiscal_year": T("កំណត់ឆ្នាំសារពើពន្ធ", "Fiscal year set"), "acct.journal": T("កត់ត្រាទិនានុប្បវត្តិ", "Journal entry"), "acct.lock": T("ចាក់សោខែ", "Month locked"),
-  "acct.opening": T("សមតុល្យដើមគ្រា", "Opening balances"), "acct.reverse": T("បង្វិលទិនានុប្បវត្តិ", "Entry reversed"), "acct.transaction": T("កត់ត្រាប្រតិបត្តិការ", "Transaction recorded"),
+  "acct.opening": T("បញ្ជាក់សមតុល្យដើម", "Opening balances confirmed"), "acct.opening_draft": T("កែសមតុល្យដើម (ព្រាង)", "Opening balances draft saved"), "acct.reverse": T("បង្វិលទិនានុប្បវត្តិ", "Entry reversed"), "acct.transaction": T("កត់ត្រាប្រតិបត្តិការ", "Transaction recorded"),
   "attendance.in": T("ចូលធ្វើការ", "Checked in"), "attendance.out": T("ចេញពីការងារ", "Checked out"), "auth.login": T("ចូលប្រព័ន្ធ", "Signed in"),
   "booking.assign": T("ចាត់ជាង", "Technicians assigned"), "booking.cancel": T("បោះបង់ការងារ", "Job cancelled"), "booking.create": T("បង្កើតការងារ", "Job created"),
   "booking.link_failed": T("ភ្ជាប់ Telegram មិនបាន", "Telegram link failed"), "booking.linked": T("ភ្ជាប់ការកក់ទៅ Telegram", "Booking linked to Telegram"),
@@ -93,6 +93,9 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   about_km: T("អំពីយើង", "About us"), about_en: T("អំពីយើង (អង់គ្លេស)", "About us (English)"), highlights_km: T("ចំណុចល្អ", "Highlights"),
   area_km: T("តំបន់សេវា", "Service area"), hours_km: T("ម៉ោងធ្វើការ", "Opening hours"), facebook: T("Facebook", "Facebook"),
   published: { ...T("Google រកឃើញ", "Found by Google"), kind: "bool" }, promo_gap_days: T("ចន្លោះប្រូម៉ូសិន (ថ្ងៃ)", "Days between promotions"),
+  date: T("ថ្ងៃ", "Date"), cash_usd: { ...T("សាច់ប្រាក់ $", "Cash $"), kind: "usd" }, cash_khr: { ...T("សាច់ប្រាក់ ៛", "Cash ៛"), kind: "khr" },
+  aba: { ...T("ABA", "ABA"), kind: "usd" }, acleda: { ...T("ACLEDA", "ACLEDA"), kind: "usd" }, stock: { ...T("តម្លៃស្តុក", "Stock value"), kind: "usd" },
+  retained_earnings: { ...T("ប្រាក់ចំណេញរក្សាទុក", "Retained earnings"), kind: "usd" }, issued_on: T("ថ្ងៃវិក្កយបត្រ", "Invoice date"), back_days: T("ថយក្រោយ (ថ្ងៃ)", "Days back"),
   open: T("ម៉ោងបើកកក់", "Booking opens"), close: T("ម៉ោងបិទកក់", "Booking closes"), lunch_start: T("សម្រាកពី", "Lunch from"), lunch_end: T("សម្រាកដល់", "Lunch until"),
 };
 /** never shown, not even in «លម្អិត»: anything secret */

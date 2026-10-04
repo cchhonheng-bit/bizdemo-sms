@@ -181,13 +181,22 @@ export async function decideDiscount(user: SessionUser, ip: string | null, id: s
 }
 
 // ---------- issue (lines locked, rate frozen, job → invoiced) ----------
-export async function issueInvoice(user: SessionUser, ip: string | null, id: string) {
+/** CEO 04-10 (D-126): the invoice date may be earlier than today — only inside an unlocked period, never in the future, with a reason
+ *  when it is more than 3 days back; revenue and the journal entry take that date; logged */
+export async function issueInvoice(user: SessionUser, ip: string | null, id: string, o: { date?: string; reason?: string } = {}) {
   return tx(user.id, async (t) => {
     const i = await lockInvoice(t, user, id);
     assertDraft(i);
     if (i.discount_status === "pending") throw new AppError("DISCOUNT_PENDING", 400); // AC-04
+    const d = (await t<{ today: string; tz: string; lock: string | null }[]>`select (now() at time zone co.timezone)::date::text as today, co.timezone as tz, s.books_locked_until::text as lock
+      from companies co join company_settings s on s.company_id = co.id where co.id = ${user.companyId}`)[0]!;
+    const date = o.date ?? d.today;
+    if (date > d.today) throw new AppError("BAD_DATE", 400);
+    if (d.lock && date <= d.lock) throw new AppError("PERIOD_LOCKED", 400);
+    const back = Math.round((Date.parse(d.today) - Date.parse(date)) / 86_400_000), why = o.reason?.trim() ?? "";
+    if (back > 3 && why.length < 3) throw new AppError("REASON_REQUIRED", 400);
     const fx = await fxOf(t, user.companyId);
-    await t`update invoices set status = 'issued', issued_at = now(), issued_by = ${user.id}, fx_rate_khr = ${fx} where id = ${id}`;
+    await t`update invoices set status = 'issued', issued_at = ${back ? t`(${date}::date + time '12:00') at time zone ${d.tz}` : t`now()`}, issued_by = ${user.id}, fx_rate_khr = ${fx} where id = ${id}`;
     const { subtotal } = await sums(t, id);
     const total = subtotal - i.discount;
     if (i.booking_id) {
@@ -196,9 +205,9 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
       if (total <= 0 || deposited >= total) await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
       else if (deposited > 0) await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.issue", table: "invoices", rowId: id, new: { number: i.number, total, fx }, ip });
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.issue", table: "invoices", rowId: id, new: { number: i.number, total, fx, ...(back ? { issued_on: date, back_days: back, reason: why || null } : {}) }, ip });
     if (!i.booking_id) await deductSale(t, user, id); // direct sale: tracked products leave stock now (job materials are confirmed on the job)
-    await postInvoiceIssue(t, user, id);
+    await postInvoiceIssue(t, user, id, back ? date : undefined);
     return { id, status: "issued" as const };
   });
 }

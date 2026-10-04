@@ -4,9 +4,9 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { formatUsd } from "@sms/shared";
+import { formatUsd, fromCents } from "@sms/shared";
 import { CalendarCheck, Lock, Plus, Trash2 } from "lucide-react";
-import { api, type BooksInfo } from "@/lib/api";
+import { api, type BooksInfo, type OpeningValues } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Button, Card, ConfirmDialog, Field, Input, Select } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -32,7 +32,7 @@ export default function Setup({ info }: { info: BooksInfo | undefined }) {
         </dl>
         {can("accounting.close") && <FiscalYear info={info} monthName={monthName} />}
       </Card>
-      {!info.books_start && (can("accounting.close") ? <Opening today={info.today} /> : <p className="text-sm text-muted">{t("acct.not_started")}</p>)}
+      {!info.books_start && (can("accounting.close") ? <Opening today={info.today} draft={info.opening_draft} /> : <p className="text-sm text-muted">{t("acct.not_started")}</p>)}
       {info.books_start && can("accounting.close") && <LockCard info={info} />}
       {info.books_start && can("accounting.close") && <CloseYear info={info} />}
     </>
@@ -99,26 +99,34 @@ function CloseYear({ info }: { info: BooksInfo }) {
 type Recv = { customer_id: string; amount: string; note: string };
 type Pay = { supplier: string; amount: string };
 type Bank = { code: string; amount: string };
-function Opening({ today }: { today: string }) {
+/** D-126 (CEO): «រក្សាទុក» keeps the opening balances as a draft — change them as often as needed (each change is logged) — and
+ *  «បញ្ជាក់សមតុល្យដើម» posts them and starts the books; after that only a journal entry corrects them */
+function Opening({ today, draft }: { today: string; draft: OpeningValues | null }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const onErr = useAcctErr();
   const customers = useQuery({ queryKey: ["customers", "active"], queryFn: () => api.customers(true) });
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts });
-  const [date, setDate] = useState(today);
-  const [usd, setUsd] = useState(""); const [riel, setRiel] = useState(""); const [aba, setAba] = useState(""); const [acleda, setAcleda] = useState("");
-  const [stock, setStock] = useState(""); const [retained, setRetained] = useState("");
-  const [banks, setBanks] = useState<Bank[]>([]); const [recv, setRecv] = useState<Recv[]>([]); const [pays, setPays] = useState<Pay[]>([]);
+  const dollars = (v?: number) => (v ? String(fromCents(v)) : "");
+  const [date, setDate] = useState(draft?.date ?? today);
+  const [usd, setUsd] = useState(dollars(draft?.cash_usd)); const [riel, setRiel] = useState(draft?.cash_khr ? String(draft.cash_khr) : "");
+  const [aba, setAba] = useState(dollars(draft?.banks?.aba)); const [acleda, setAcleda] = useState(dollars(draft?.banks?.acleda));
+  const [stock, setStock] = useState(dollars(draft?.stock)); const [retained, setRetained] = useState(dollars(draft?.retained_earnings));
+  const [banks, setBanks] = useState<Bank[]>(Object.entries(draft?.banks ?? {}).filter(([k]) => k !== "aba" && k !== "acleda").map(([code, v]) => ({ code, amount: dollars(v) })));
+  const [recv, setRecv] = useState<Recv[]>((draft?.receivables ?? []).map((r) => ({ customer_id: r.customer_id, amount: dollars(r.amount), note: r.note ?? "" })));
+  const [pays, setPays] = useState<Pay[]>((draft?.payables ?? []).map((p) => ({ supplier: p.supplier, amount: dollars(p.amount) })));
   const [confirm, setConfirm] = useState(false);
   const c = (v: string) => (v.trim() === "" ? 0 : cents(v));
   const riels = riel.trim() === "" ? 0 : /^\d+$/.test(riel.replace(/[,\s]/g, "")) ? Number(riel.replace(/[,\s]/g, "")) : NaN;
   const otherAssets = (accounts.data ?? []).filter((a) => a.type === "asset" && !a.role && a.is_active);
   const nums = [c(usd), c(aba), c(acleda), c(stock), c(retained), riels, ...banks.map((b) => c(b.amount)), ...recv.map((r) => c(r.amount)), ...pays.map((p) => c(p.amount))];
   const valid = nums.every((n) => Number.isFinite(n) && n >= 0) && banks.every((b) => b.code && c(b.amount) > 0) && recv.every((r) => r.customer_id && c(r.amount) > 0) && pays.every((p) => p.supplier.trim() && c(p.amount) > 0);
+  const body = (): OpeningValues => ({ date, cash_usd: c(usd), cash_khr: riels, banks: { aba: c(aba), acleda: c(acleda), ...Object.fromEntries(banks.map((b) => [b.code, c(b.amount)])) },
+    stock: c(stock), retained_earnings: c(retained),
+    receivables: recv.map((r) => ({ customer_id: r.customer_id, amount: c(r.amount), note: r.note || undefined })), payables: pays.map((p) => ({ supplier: p.supplier.trim(), amount: c(p.amount) })) });
+  const keep = useMutation({ mutationFn: () => api.accounting.openingDraft(body()), onSuccess: () => { toast.success(t("acct.opening_draft_saved")); void qc.invalidateQueries({ queryKey: ["acct-lock"] }); }, onError: onErr });
   const save = useMutation({
-    mutationFn: () => api.accounting.opening({ date, cash_usd: c(usd), cash_khr: riels, banks: { aba: c(aba), acleda: c(acleda), ...Object.fromEntries(banks.map((b) => [b.code, c(b.amount)])) },
-      stock: c(stock), retained_earnings: c(retained),
-      receivables: recv.map((r) => ({ customer_id: r.customer_id, amount: c(r.amount), note: r.note || undefined })), payables: pays.map((p) => ({ supplier: p.supplier.trim(), amount: c(p.amount) })) }),
+    mutationFn: () => api.accounting.opening(body()),
     onSuccess: (r) => { toast.success(t("acct.opening_done", { equity: formatUsd(r.opening_equity), n: r.open_invoices })); setConfirm(false); void qc.invalidateQueries(); },
     onError: (e) => { setConfirm(false); onErr(e); },
   });
@@ -168,8 +176,12 @@ function Opening({ today }: { today: string }) {
         </div>
       ))}
       <Button className="mt-2" onClick={() => setPays((x) => [...x, { supplier: "", amount: "" }])} data-testid="op-add-pay"><Plus size={16} /> {t("acct.add_supplier_debt")}</Button>
-      <Button variant="primary" className="w-full mt-4" disabled={!valid} onClick={() => setConfirm(true)} data-testid="op-save">{t("acct.start_books")}</Button>
-      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => save.mutate()} loading={save.isPending} title={t("acct.start_books")} text={t("acct.opening_confirm", { date })} />
+      {draft && <p className="text-xs text-muted mt-4" data-testid="op-draft-note">{t("acct.opening_draft_note")}</p>}
+      <div className="grid sm:grid-cols-2 gap-2 mt-4">
+        <Button disabled={!valid} loading={keep.isPending} onClick={() => keep.mutate()} data-testid="op-draft">{t("acct.opening_keep")}</Button>
+        <Button variant="primary" disabled={!valid} onClick={() => setConfirm(true)} data-testid="op-save">{t("acct.opening_confirm_btn")}</Button>
+      </div>
+      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => save.mutate()} loading={save.isPending} title={t("acct.opening_confirm_btn")} text={t("acct.opening_confirm", { date })} />
     </Card>
   );
 }

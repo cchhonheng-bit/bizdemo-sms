@@ -128,7 +128,9 @@ export type JournalEntry = { id: string; number: string; date: string; memo: str
 export type AcctRow = { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; amount: number };
 export type TrialBalance = { from: string | null; to: string; fx_rate_khr: number; rows: (AcctRow & { debit: number; credit: number; balance: number })[]; total_debit: number; total_credit: number;
   total_debit_khr: number; total_credit_khr: number; balanced: boolean };
-export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income: AcctRow[]; expense: AcctRow[]; income_total: number; expense_total: number; net: number;
+export type IsRow = AcctRow & { previous: number; variance: number };
+export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income: IsRow[]; expense: IsRow[]; income_total: number; expense_total: number; net: number;
+  previous: { from: string; to: string; income_total: number; expense_total: number; net: number };
   income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number } };
 export type BsRow = AcctRow & { previous: number; variance: number };
 export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
@@ -142,7 +144,9 @@ export type LedgerRow = { entry_id: string; number: string; date: string; memo: 
   customer_name: string | null; user_name: string | null; supplier: string | null };
 export type Ledger = { account: { id: string; code: string; name_km: string; name_en: string | null; type: AcctType }; from: string; to: string; opening: number; rows: LedgerRow[]; closing: number; fx_rate_khr: number };
 export type BooksInfo = { books_start: string | null; lock_date: string | null; today: string; fx_rate_khr: number; fiscal_year_start_month: number; books_closed_through: string | null;
-  next_year_end: string | null; can_close: boolean };
+  next_year_end: string | null; can_close: boolean; opening_draft: OpeningValues | null };
+export type OpeningValues = { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number;
+  receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number }[] };
 export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
 export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
@@ -245,7 +249,8 @@ export const api = {
     prefill: (bookingId: string) => get<InvoicePrefill>(`/api/invoices/prefill?booking=${bookingId}`),
     create: (v: { booking_id?: string; customer_id?: string; lines: QuoteLine[]; notes: string }) => post<{ id: string; number: string }>("/api/invoices", v),
     update: (id: string, v: { lines: QuoteLine[]; notes: string }) => put(`/api/invoices/${id}`, v),
-    issue: (id: string) => post(`/api/invoices/${id}/issue`, {}),
+    /** D-126: an earlier invoice date (unlocked period only; a reason when more than 3 days back) */
+    issue: (id: string, v: { date?: string; reason?: string } = {}) => post(`/api/invoices/${id}/issue`, v),
     discount: (id: string, amount: number, note: string) => post<{ discount_status: string }>(`/api/invoices/${id}/discount`, { amount, note }),
     decideDiscount: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/discount/${approve ? "approve" : "reject"}`, { note }),
     pay: (id: string, v: { amount: number; currency: "usd" | "khr"; method: PayMethod; paid_on: string; note: string }) => post<{ balance: number; payment_status: string }>(`/api/invoices/${id}/payments`, v),
@@ -332,6 +337,8 @@ export const api = {
     setLock: (lock_date: string, reason?: string) => post<{ lock_date: string }>("/api/accounting/lock", { lock_date, reason: reason || null }),
     opening: (v: { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string }[];
       payables?: { supplier: string; amount: number }[] }) => post<{ opening_equity: number; retained_earnings: number; entries: number; open_invoices: number; opening_invoices: string[] }>("/api/accounting/opening", v),
+    /** D-126: the opening balances stay a draft (changeable, logged) until «បញ្ជាក់សមតុល្យដើម» (opening) */
+    openingDraft: (v: OpeningValues) => put<{ ok: true; draft: OpeningValues }>("/api/accounting/opening/draft", v),
     setFiscalYear: (start_month: number) => post<{ start_month: number }>("/api/accounting/fiscal-year", { start_month }),
     closeYear: (year_end: string) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end }),
     accounts: () => get<Account[]>("/api/accounting/accounts"),

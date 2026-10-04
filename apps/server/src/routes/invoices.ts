@@ -41,7 +41,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const v = z.object({ lines, notes: z.string().max(2000).optional().nullable() }).strict().parse(req.body);
     return updateInvoice(req.user!, req.ip, idParam.parse(req.params).id, v);
   });
-  app.post("/:id/issue", { preHandler: app.requirePerm("invoice.issue") }, async (req) => issueInvoice(req.user!, req.ip, idParam.parse(req.params).id));
+  // D-126: an optional earlier invoice date (unlocked period only; a reason when more than 3 days back)
+  app.post("/:id/issue", { preHandler: app.requirePerm("invoice.issue") }, async (req) => issueInvoice(req.user!, req.ip, idParam.parse(req.params).id,
+    z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), reason: z.string().max(300).optional() }).strict().parse(req.body ?? {})));
 
   app.post("/:id/discount", { preHandler: app.requirePerm("discount.give") }, async (req) => {
     const v = z.object({ amount: z.number().int().min(0).max(100_000_000), note: z.string().max(500).optional().nullable() }).strict().parse(req.body);

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import {
   balanceSheet, closeYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
-  reverseJournal, saveAccount, saveOpening, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport,
+  reverseJournal, saveAccount, saveOpening, saveOpeningDraft, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport,
 } from "../services/accounting.js";
 import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, setSalary, voidRun } from "../services/payroll.js";
 
@@ -53,11 +53,13 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
   // lock + opening
   app.get("/lock", view, async (req) => lockInfo(req.user!));
   app.post("/lock", close, async (req) => setLock(req.user!, req.ip, z.object({ lock_date: day, reason: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
-  app.post("/opening", close, async (req) => saveOpening(req.user!, req.ip, z.object({ date: day, cash_usd: cents.optional(), cash_khr: z.number().int().min(0).max(1_000_000_000_000).optional(),
+  const openingBody = z.object({ date: day, cash_usd: cents.optional(), cash_khr: z.number().int().min(0).max(1_000_000_000_000).optional(),
     banks: z.record(z.string().regex(/^(aba|acleda|[1-9][0-9]{3,5})$/), cents).optional(), stock: cents.optional(), // D-92: each bank by code, stock value, retained earnings
     retained_earnings: z.number().int().min(-10_000_000_000).max(10_000_000_000).optional(),
     receivables: z.array(z.object({ customer_id: id, amount: positive, note: z.string().max(200).nullable().optional() }).strict()).max(500).optional(),
-    payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive }).strict()).max(200).optional() }).strict().parse(req.body)));
+    payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive }).strict()).max(200).optional() }).strict();
+  app.post("/opening", close, async (req) => saveOpening(req.user!, req.ip, openingBody.parse(req.body)));            // «បញ្ជាក់សមតុល្យដើម»: posts + locks
+  app.put("/opening/draft", close, async (req) => saveOpeningDraft(req.user!, req.ip, openingBody.parse(req.body))); // D-126: changeable until then
 
   // C4 other transactions
   app.post("/transactions", postBig, async (req) => otherTransaction(req.user!, req.ip, z.object({ date: day,
