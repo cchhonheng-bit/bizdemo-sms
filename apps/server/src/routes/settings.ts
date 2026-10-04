@@ -11,6 +11,7 @@ import { audit } from "../services/audit.js";
 import { MIME_BY_EXT, saveImage } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
 import { getTestPhones, saveTestPhones } from "../services/test-mode.js";
+import { lastChange } from "../services/reports.js";
 import { rateInfo, setRate } from "../services/fx.js";
 
 const settingsPatch = z.object({
@@ -45,6 +46,12 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
 
   // D-120 (CEO): «លេខទូរស័ព្ទសាកល្បង» — bookings / quotes from these phones are tests (the CEO only, hidden, cancelled after 24 h)
   app.get("/test-phones", { preHandler: app.requireAuth }, async (req) => getTestPhones(req.user!));
+  /** «កែប្រែចុងក្រោយ៖ name · time» for Settings / Website (settings.manage) and Users (user.manage) — CEO 04-10 */
+  app.get("/last-change", { preHandler: app.requireAuth }, async (req) => {
+    const { scope } = z.object({ scope: z.enum(["settings", "website", "users"]) }).parse(req.query ?? {});
+    if (!req.perms.includes(scope === "users" ? "user.manage" : "settings.manage")) throw new AppError("FORBIDDEN", 403);
+    return { last: await lastChange(req.user!, scope) };
+  });
   app.put("/test-phones", { preHandler: app.requireAuth }, async (req) => {
     const { phones } = z.object({ phones: z.array(z.string().max(40)).max(50) }).strict().parse(req.body);
     return saveTestPhones(req.user!, req.ip, phones);

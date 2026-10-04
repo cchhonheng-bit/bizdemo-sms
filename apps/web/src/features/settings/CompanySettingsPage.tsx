@@ -5,13 +5,14 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
 import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
-import { Copy, ImageUp, MapPin, Plus, Send } from "lucide-react";
+import { Copy, Globe, ImageUp, MapPin, Plus, Send } from "lucide-react";
 import { readGps } from "@/lib/offline";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
 import { useAuth } from "@/lib/auth";
-import WebsiteCard from "./WebsiteCard";
+import { Link } from "react-router-dom";
+import LastChange from "@/components/LastChange";
 
 type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null; telegram_group_title?: string | null };
 
@@ -72,6 +73,7 @@ export default function CompanySettingsPage() {
   return (
     <div className="space-y-4">
       <h1>{t("settings.title")}</h1>
+      <LastChange scope="settings" />
       <form onSubmit={save} noValidate className="space-y-4">
         <Card title={t("settings.work_hours")}>
           <div className="grid grid-cols-2 gap-3 max-w-md">
@@ -113,7 +115,7 @@ export default function CompanySettingsPage() {
 
       <InvoiceImagesCard current={settings.data as unknown as Record<string, unknown> | undefined} />
       <TelegramGroupCard current={settings.data} />
-      {websiteOn && <WebsiteCard />}
+      {websiteOn && <Card title={t("website.title")}><p className="text-sm text-muted mb-3">{t("website.own_page")}</p><Link className="btn-secondary" to="/website" data-testid="web-open"><Globe size={16} /> {t("nav.website")}</Link></Card>}
       {isCeo && <TestPhonesCard />}
 
       <Card title={t("settings.vehicles")}>

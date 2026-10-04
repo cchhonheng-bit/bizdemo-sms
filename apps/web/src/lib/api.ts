@@ -33,7 +33,7 @@ export type StatusLog = { id: number; booking_id: string; from_status: BookingSt
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
 export type UserRow = {
   id: string; company_id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; language: string;
-  is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; is_lead: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
+  is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
 };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
@@ -100,7 +100,8 @@ export type VerifyItem = { type: "void" | "discount" | "cancel" | "payment"; id:
 export type Dashboard = { date: string; pending_review: number; today: { jobs: number; done: number; revenue?: number; received?: number }; month?: { revenue: number; received: number };
   debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number; uninvoiced?: { count: number; estimate: number };
   techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
-export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null };
+export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null; user_id: string | null; subject: string | null };
+export type LastChange = { name: string | null; source: string; at: string } | null;
 export type CustomerHistory = { customer: Customer;
   /** D-104: the customer's website login — linked to Telegram, has a password, locked by wrong passwords? (never a secret) */
   login?: { linked: boolean; has_password: boolean; locked: "none" | "timed" | "permanent" };
@@ -195,6 +196,8 @@ export const api = {
       ...(v.from_price !== undefined ? { from_price: v.from_price } : {}), ...(v.show_on_website !== undefined ? { show_on_website: v.show_on_website } : {}), ...(v.quote_only !== undefined ? { quote_only: v.quote_only } : {}) })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
   catalogMeta: () => get<{ last: { name: string; at: string } | null; can_edit: boolean }>("/api/catalog/meta"),
+  /** «កែប្រែចុងក្រោយ» on Settings / Website / Users (CEO 04-10) */
+  lastChange: (scope: "settings" | "website" | "users") => get<{ last: LastChange }>(`/api/settings/last-change?scope=${scope}`),
   catalogPreview: (data: string) => post<CatalogPreview>("/api/catalog/import/preview", { data }),
   catalogApply: (data: string) => post<{ ok: true; counts: CatalogPreview["counts"] }>("/api/catalog/import/apply", { data }),
 
@@ -265,7 +268,9 @@ export const api = {
     closeCash: (v: { day: string; counted_usd: number; counted_khr: number; note: string }) => post<{ diff_usd: number; diff_khr: number }>("/api/reports/cash-close", v),
     verifyCash: (day: string) => post(`/api/reports/cash-close/${day}/verify`, {}),
     exportUrl: (kind: "invoices" | "payments" | "jobs" | "attendance", from: string, to: string) => `/api/reports/export?kind=${kind}&from=${from}&to=${to}`,
-    audit: (action: string, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${action ? `&action=${encodeURIComponent(action)}` : ""}`),
+    /** CEO 04-10: filter by person and by type (a group of actions) — no codes to type */
+    audit: (f: { user?: string; type?: string }, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${f.user ? `&user=${f.user}` : ""}${f.type ? `&type=${f.type}` : ""}`),
+    auditPeople: () => get<{ id: string; full_name: string }[]>("/api/reports/audit/people"),
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),
   unlockCustomerLogin: (id: string) => post<{ ok: true }>(`/api/customers/${id}/unlock-login`),

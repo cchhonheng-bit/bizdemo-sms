@@ -8,11 +8,12 @@ import { formatKhr, formatUsd } from "@sms/shared";
 import { CheckCircle2, Download } from "lucide-react";
 import { api, errCode, type VerifyItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Empty, ErrorState, Input, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
 import RangePicker from "./RangePicker";
 import CashClose from "./CashClose";
+import AuditLog from "./AuditLog";
 import { presetRange, type Range } from "./range";
 
 type Tab = "summary" | "cash" | "verify" | "audit";
@@ -34,7 +35,7 @@ export default function ReportsPage() {
         </div>
       )}
       {tab !== "audit" && <Card><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></Card>}
-      {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} /> : <Audit />}
+      {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} /> : <AuditLog />}
     </div>
   );
 }
@@ -153,25 +154,3 @@ function Verification({ range }: { range: Range }) {
   );
 }
 
-function Audit() {
-  const { t } = useTranslation();
-  const [action, setAction] = useState("");
-  const q = useQuery({ queryKey: ["audit", action], queryFn: () => api.reports.audit(action) });
-  const short = (v: Record<string, unknown> | null) => (v ? JSON.stringify(v).slice(0, 160) : "");
-  return (
-    <Card>
-      <Input placeholder={t("reports.audit_filter")} value={action} onChange={(e) => setAction(e.target.value.trim())} className="mb-3" aria-label={t("reports.audit_filter")} />
-      {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("reports.no_audit")} /> : (
-        <ul className="divide-y divide-grey-line -my-2 text-sm">
-          {q.data.map((a) => (
-            <li key={a.id} className="py-2">
-              <div className="flex flex-wrap gap-2 items-baseline"><span className="font-mono font-semibold">{a.action}</span><span className="text-xs text-muted">{dt(a.at)} · {a.user_name ?? a.source}</span></div>
-              {a.old_data && <div className="text-xs text-muted break-all">− {short(a.old_data)}</div>}
-              {a.new_data && <div className="text-xs break-all">+ {short(a.new_data)}</div>}
-            </li>
-          ))}
-        </ul>
-      )}
-    </Card>
-  );
-}

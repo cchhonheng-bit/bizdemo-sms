@@ -1,7 +1,7 @@
 // Reports (Flow 6, D-79 · M10/M11 · FR-1004 · FR-1101 · FR-1102 · FR-1103 · FR-1106 · FR-1202 · AC-13).
 // Revenue = issued (not void) invoice totals by issue date; received = payments by payment date; zone from the booking,
 // else the customer (AC-13). Money figures only for report.finance (CEO, CFO); operations for report.ops.
-import { formatKhr, formatUsd } from "@sms/shared";
+import { AUDIT_GROUPS, formatKhr, formatUsd, LAST_CHANGE_SCOPES } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
@@ -168,13 +168,45 @@ export async function dashboard(user: SessionUser, perms: string[]) {
 }
 
 // ---------- audit log viewer (FR-1202) ----------
-export async function auditLog(user: SessionUser, q: { action?: string; from?: string; to?: string; limit: number }) {
+/** CEO 04-10 (D-125): the log in plain words — each row also says WHAT it is about (job number, item, person, invoice …) and can be
+ *  filtered by person and by type (groups of action codes) instead of typing codes. The screen turns codes and fields into words. */
+const SUBJECT = sql`case a.table_name
+    when 'bookings' then (select x.number from bookings x where x.id::text = a.row_id)
+    when 'booking_reports' then (select x.number from bookings x where x.id::text = a.row_id)
+    when 'job_files' then (select b.number from job_files f join bookings b on b.id = f.booking_id where f.id::text = a.row_id)
+    when 'deposits' then (select b.number from deposits d join bookings b on b.id = d.booking_id where d.id::text = a.row_id)
+    when 'quotes' then (select x.number from quotes x where x.id::text = a.row_id)
+    when 'invoices' then (select x.number from invoices x where x.id::text = a.row_id)
+    when 'payments' then (select i.number from payments p join invoices i on i.id = p.invoice_id where p.id::text = a.row_id)
+    when 'customers' then (select x.name from customers x where x.id::text = a.row_id)
+    when 'users' then (select x.full_name from users x where x.id::text = a.row_id)
+    when 'staff_leaves' then (select u2.full_name from staff_leaves l join users u2 on u2.id = l.user_id where l.id::text = a.row_id)
+    when 'catalog_items' then (select x.name_km from catalog_items x where x.id::text = a.row_id)
+    when 'vehicles' then (select x.code from vehicles x where x.id::text = a.row_id)
+    when 'accounts' then (select x.code || ' ' || x.name_km from accounts x where x.id::text = a.row_id)
+    when 'journal_entries' then (select x.number from journal_entries x where x.id::text = a.row_id)
+    when 'service_requests' then (select coalesce(x.name, c.name) from service_requests x left join customers c on c.id = x.customer_id where x.id::text = a.row_id)
+  end`;
+export async function auditLog(user: SessionUser, q: { action?: string; type?: string; user?: string; from?: string; to?: string; limit: number }) {
   const tz = await tzOf(sql, user.companyId);
-  return sql`select a.id, a.at, a.action, a.source, a.table_name, a.row_id, a.old_data, a.new_data, u.full_name as user_name
+  const group = q.type ? AUDIT_GROUPS.find((g) => g.key === q.type) : undefined;
+  return sql`select a.id, a.at, a.action, a.source, a.table_name, a.row_id, a.old_data, a.new_data, a.user_id, u.full_name as user_name, ${SUBJECT} as subject
     from audit_log a left join users u on u.id = a.user_id where a.company_id = ${user.companyId}
       ${q.action ? sql`and a.action like ${q.action.replace(/[%_\\]/g, (m) => "\\" + m) + "%"}` : sql``}
+      ${group ? sql`and a.action like any(${sql.array(group.prefixes.map((p) => p + "%"))})` : sql``}
+      ${q.user ? sql`and a.user_id = ${q.user}` : sql``}
       ${q.from ? sql`and ${localDay(sql`a.at`, tz)} >= ${q.from}::date` : sql``} ${q.to ? sql`and ${localDay(sql`a.at`, tz)} <= ${q.to}::date` : sql``}
     order by a.at desc, a.id desc limit ${q.limit}`;
+}
+/** the people who appear in the log (the «person» filter) */
+export async function auditPeople(user: SessionUser) {
+  return sql`select u.id, u.full_name from users u where u.company_id = ${user.companyId} and exists (select 1 from audit_log a where a.user_id = u.id) order by u.full_name`;
+}
+/** «កែប្រែចុងក្រោយ៖ name · time» on Settings / Website / Users (CEO 04-10): the newest log row of that page's actions */
+export async function lastChange(user: SessionUser, scope: keyof typeof LAST_CHANGE_SCOPES) {
+  const r = (await sql<{ name: string | null; source: string; at: Date }[]>`select u.full_name as name, a.source, a.at from audit_log a left join users u on u.id = a.user_id
+    where a.company_id = ${user.companyId} and a.action like any(${sql.array(LAST_CHANGE_SCOPES[scope].map((p) => p + "%"))}) order by a.at desc, a.id desc limit 1`)[0];
+  return r ? { name: r.name, source: r.source, at: r.at } : null;
 }
 
 // ---------- Telegram summaries to CEO + CFO (FR-1004) ----------

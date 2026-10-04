@@ -38,8 +38,8 @@ async function createCompany(name: string, slug: string, opts: { ceoName?: strin
     await audit(t, { companyId: id, userId: null, action: "user.create", source: "system", table: "users", rowId: ceo, new: { username: "ceo", role: "ceo" } });
     if (opts.support !== false) {
       // Owner condition (2), 29-09: a `support` account with the Admin role inside the customer company (no platform role)
-      const sup = (await t<{ id: string }[]>`insert into users (company_id, username, full_name, role, password_hash, tracks_attendance)
-        values (${id}, 'support', 'Support (Platform)', 'admin', ${await hashPassword(pwSupport)}, false) returning id`)[0]!.id;
+      const sup = (await t<{ id: string }[]>`insert into users (company_id, username, full_name, role, password_hash, tracks_attendance, is_platform)
+        values (${id}, 'support', 'HangKH Support', 'admin', ${await hashPassword(pwSupport)}, false, true) returning id`)[0]!.id;
       await audit(t, { companyId: id, userId: null, action: "user.create", source: "system", table: "users", rowId: sup, new: { username: "support", role: "admin" } });
     }
   });

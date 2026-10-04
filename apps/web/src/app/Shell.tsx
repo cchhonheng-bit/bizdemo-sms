@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -34,6 +34,7 @@ export default function Shell() {
   const remindersOn = useFeature("reminders");
   const inventoryOn = useFeature("inventory");
   const accountingOn = useFeature("accounting");
+  const websiteOn = useFeature("website");
   const [more, setMore] = useState(false);
   if (!me) return null;
   const isTech = me.role === "tech";
@@ -54,6 +55,7 @@ export default function Shell() {
     { to: "/reports", label: t("nav.reports"), icon: BarChart3, perm: "report.ops" },
     { to: "/accounting", label: t("nav.accounting"), icon: Landmark, hidden: !accountingOn || !(can("accounting.view") || can("payroll.manage") || can("payroll.approve")) },
     { to: "/attendance", label: t("nav.attendance"), icon: Fingerprint, hidden: !(can("report.ops") || ["gm", "admin"].includes(me.role)) },
+    { to: "/website", label: t("nav.website"), icon: Globe, perm: "settings.manage", hidden: !websiteOn }, // CEO 04-10: its own menu item
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
     { to: "/me", label: t("nav.me"), icon: User },

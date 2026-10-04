@@ -8,3 +8,4 @@ export * from "./legal";
 export * from "./brand";
 export * from "./site";
 export * from "./customer-text";
+export * from "./audit-text";

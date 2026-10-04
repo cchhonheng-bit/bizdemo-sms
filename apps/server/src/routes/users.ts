@@ -10,7 +10,9 @@ import { revokeUserSessions } from "../services/auth.js";
 import { hubForgetChat } from "../services/telegram.js";
 
 const USER_COLS = sql`id, company_id, username, phone, email, full_name, role, language, is_active, must_change_password, tracks_attendance, is_lead,
-  telegram_user_id is not null as telegram_linked, created_at, updated_at`;
+  is_platform, telegram_user_id is not null as telegram_linked, created_at, updated_at`;
+/** CEO 04-10: the HangKH support account belongs to the platform — the shop sees it but never changes it */
+const PLATFORM_LOCKED = () => new AppError("PLATFORM_USER", 403);
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/users/basic — every authenticated user (names for assign dialogs, vehicle owners)
@@ -20,7 +22,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/", { preHandler: app.requirePerm("user.manage") }, async (req) => {
-    return sql`select ${USER_COLS} from users where company_id = ${req.user!.companyId} order by role, full_name`;
+    return sql`select ${USER_COLS} from users where company_id = ${req.user!.companyId} order by is_platform, role, full_name`; // HangKH Support last
   });
 
   // POST /api/users { username, full_name, role, phone?, email?, password? } → { id, temp_password? }
@@ -53,6 +55,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     const result = await tx(req.user!.id, async (t) => {
       const old = (await t<Record<string, unknown>[]>`select ${USER_COLS} from users where id = ${id} and company_id = ${req.user!.companyId} for update`)[0];
       if (!old) throw notFound();
+      if (old.is_platform) throw PLATFORM_LOCKED();
       if (old.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403); // no one below the CEO may touch a CEO account
       const r = await t<Record<string, unknown>[]>`update users set
           full_name = coalesce(${patch.full_name ?? null}, full_name),
@@ -90,8 +93,9 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     if (generated) password = tempPassword();
     const pwErr = validatePassword(password);
     if (pwErr) throw bad(pwErr);
-    const target = (await sql<{ role: string }[]>`select role from users where id = ${id} and company_id = ${req.user!.companyId}`)[0];
+    const target = (await sql<{ role: string; is_platform: boolean }[]>`select role, is_platform from users where id = ${id} and company_id = ${req.user!.companyId}`)[0];
     if (!target) throw notFound();
+    if (target.is_platform) throw PLATFORM_LOCKED();
     if (target.role === "ceo" && req.user!.role !== "ceo") throw new AppError("FORBIDDEN", 403);
     const r = await sql`update users set password_hash = ${await hashPassword(password)}, must_change_password = true
                         where id = ${id} and company_id = ${req.user!.companyId}`;

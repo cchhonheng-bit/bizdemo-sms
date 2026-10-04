@@ -4,7 +4,8 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import { cashCloses, closeCash, exportCsv, verifyCash } from "../services/reports-extra.js";
-import { auditLog, dashboard, summary, verification, verify } from "../services/reports.js";
+import { AUDIT_GROUP_KEYS } from "@sms/shared";
+import { auditLog, auditPeople, dashboard, summary, verification, verify } from "../services/reports.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const range = z.object({ from: day, to: day });
@@ -41,7 +42,9 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   });
   app.post("/cash-close/:day/verify", { preHandler: app.requirePerm("report.verify") }, async (req) => verifyCash(req.user!, req.ip, z.object({ day }).parse(req.params).day));
   app.get("/audit", { preHandler: app.requirePerm("audit.read") }, async (req) => {
-    const q = z.object({ action: z.string().max(60).optional(), from: day.optional(), to: day.optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }).parse(req.query ?? {});
+    const q = z.object({ action: z.string().max(60).optional(), type: z.enum(AUDIT_GROUP_KEYS).optional(), user: z.string().uuid().optional(),
+      from: day.optional(), to: day.optional(), limit: z.coerce.number().int().min(1).max(500).default(200) }).parse(req.query ?? {});
     return auditLog(req.user!, q);
   });
+  app.get("/audit/people", { preHandler: app.requirePerm("audit.read") }, async (req) => auditPeople(req.user!));
 };

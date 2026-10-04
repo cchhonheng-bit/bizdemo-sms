@@ -80,7 +80,7 @@ describe("R1/R2 availability + server-side blocking", () => {
     const av = (await gm.req("GET", `/api/bookings/availability?from=${encodeURIComponent(at(5, 10))}&to=${encodeURIComponent(at(5, 12))}`)).json;
     const kimRow = av.people.find((p: any) => p.user_id === s.users.kim);
     expect(kimRow.available).toBe(false); expect(kimRow.reason).toBe("BUSY"); expect(kimRow.busy[0].number).toMatch(/^BK-/);
-    expect(av.people.find((p: any) => p.user_id === s.users.gm01).available).toBe(true);
+    expect(av.people.find((p: any) => p.user_id === s.users.gm01)).toBeUndefined(); // technicians only (CEO 04-10)
     expect(av.people.find((p: any) => p.user_id === s.users.newbie)).toBeUndefined(); // inactive = never offered
     expect(av.vehicles.find((v: any) => v.id === v1).available).toBe(false);
     expect(av.vehicles.find((v: any) => v.id === v2).available).toBe(true);
@@ -98,7 +98,9 @@ describe("R1/R2 availability + server-side blocking", () => {
     const r = await assign(admin, b, { lead: s.users.kim });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     expect(r.json.details.conflicts[0]).toMatchObject({ user_id: s.users.kim, full_name: "Kim" });
-    const r2 = await assign(admin, b, { assistants: [s.users.gm01], vehicle_id: v1 });
+    expect((await assign(admin, b, { assistants: [s.users.gm01] })).json.error).toBe("TECH_NOT_FOUND"); // never the GM (CEO 04-10)
+    const tom = (await ceo.req("POST", "/api/users", { username: "tom", full_name: "Tom", role: "tech", phone: "012000008", password: "Tom-pass-2026" })).json.id as string; // a free technician
+    const r2 = await assign(admin, b, { assistants: [tom], vehicle_id: v1 });
     expect(r2.status).toBe(409); expect(r2.json.error).toBe("VEHICLE_UNAVAILABLE");
     expect((await assign(admin, b, { assistants: [s.users.newbie] })).json.error).toBe("TECH_NOT_FOUND"); // inactive
     // exact boundary: 11:00 start next to 09:00–11:00 is fine

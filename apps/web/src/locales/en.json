@@ -29,7 +29,8 @@
     "add": "Add",
     "delete": "Delete",
     "remove": "Remove",
-    "powered_by": "Powered by"
+    "powered_by": "Powered by",
+    "last_change": "Last change: {{name}} · {{at}}"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -38,6 +39,7 @@
     "requests": "Customer requests",
     "catalog": "Products & Services",
     "users": "Users",
+    "website": "Website",
     "settings": "Settings",
     "me": "Me",
     "today": "Today",
@@ -186,7 +188,8 @@
     "lunch_start": "Lunch from",
     "lunch_end": "Lunch until",
     "hours_hint": "Last start = closing time − job length · never across lunch · the shop has to confirm these hours",
-    "promo_gap": "Days between two promotions for one customer"
+    "promo_gap": "Days between two promotions for one customer",
+    "own_page": "Edit the website on the «Website» page in the menu"
   },
   "tg": {
     "opening": "Opening from Telegram…",
@@ -229,8 +232,11 @@
       "CANNOT_CHANGE_SELF": "You cannot change your own role/status",
       "FORBIDDEN": "No permission",
       "NOT_FOUND": "Not found",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
-    }
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "PLATFORM_USER": "This account is managed by HangKH"
+    },
+    "platform_hint": "For technical support",
+    "platform_locked": "Managed by HangKH"
   },
   "settings": {
     "title": "Company settings",
@@ -1019,7 +1025,6 @@
       "cancel": "Booking deleted",
       "payment": "Payment"
     },
-    "audit_filter": "Filter by action (e.g. invoice. / payment.)",
     "no_audit": "No entries",
     "err": {
       "BAD_RANGE": "Invalid date range",
@@ -1050,7 +1055,13 @@
     "cash_saved": "Saved · difference {{usd}} · {{khr}}",
     "cash_waiting": "Waiting for CFO",
     "cash_by": "Closed by {{name}}",
-    "over_limit": "(≥ limit {{n}})"
+    "over_limit": "(≥ limit {{n}})",
+    "audit_person": "Person",
+    "audit_person_all": "Everyone",
+    "audit_type": "Type",
+    "audit_type_all": "All types",
+    "audit_details": "Details",
+    "audit_system": "System"
   },
   "reminders": {
     "title": "Service reminders",
@@ -1310,7 +1321,8 @@
       "deposit": "Deposit",
       "stock": "Stock",
       "cash_close": "Cash close",
-      "payroll": "Payroll"
+      "payroll": "Payroll",
+      "closing": "Year-end closing"
     },
     "reversal": "Reversal",
     "reversed": "Reversed",

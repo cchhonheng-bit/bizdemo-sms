@@ -62,20 +62,20 @@ export default function UsersPage() {
               <thead><tr><th>{t("users.full_name")}</th><th>{t("users.username")}</th><th>{t("users.role")}</th><th>{t("users.phone")}</th><th>{t("users.telegram")}</th><th>{t("users.status")}</th><th className="text-right">{t("app.actions")}</th></tr></thead>
               <tbody>
                 {filtered.map((u) => (
-                  <tr key={u.id}>
-                    <td className="font-semibold">{u.full_name}</td>
+                  <tr key={u.id} className={u.is_platform ? "bg-grey-bg" : ""} title={u.is_platform ? t("users.platform_hint") : undefined} data-testid={u.is_platform ? "user-platform" : undefined}>
+                    <td className="font-semibold">{u.full_name}{u.is_platform && <span className="block text-xs font-normal text-muted">{t("users.platform_hint")}</span>}</td>
                     <td className="font-mono text-xs">{u.username}</td>
                     <td><Badge tone={u.role === "tech" ? "green" : u.role === "gm" ? "purple" : "navy"}>{t(`roles.${u.role}`)}{u.is_lead ? " ★" : ""}</Badge></td>
                     <td className="tabular">{u.phone ?? "—"}</td>
                     <td>{u.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</td>
                     <td>{u.is_active ? <Badge tone="green">{t("app.active")}</Badge> : <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
-                    <td className="text-right whitespace-nowrap cell-actions">
+                    <td className="text-right whitespace-nowrap cell-actions">{u.is_platform ? <span className="text-xs text-muted">{t("users.platform_locked")}</span> : <>
                       <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(u)} />
                       <RowAction icon={<KeyRound size={16} />} label={t("users.reset_password")} onClick={() => setConfirm({ kind: "reset", u })} />
                       {u.id !== me?.id && (u.is_active
                         ? <RowAction tone="danger" icon={<UserX size={16} />} label={t("app.deactivate")} onClick={() => setConfirm({ kind: "deactivate", u })} />
                         : <RowAction tone="success" icon={<UserCheck size={16} />} label={t("app.activate")} onClick={() => setConfirm({ kind: "activate", u })} />)}
-                    </td>
+                    </>}</td>
                   </tr>
                 ))}
               </tbody>

@@ -99,12 +99,13 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
   it("re-assign at 10:00 is BLOCKED by the overlap (R2, was a ±2h warning); availability lists busy technicians; GM may assign type B after quote… (survey stays locked)", async () => {
     const av = (await admin.req("GET", `/api/bookings/availability?at=${encodeURIComponent(T10)}`)).json.people;
     expect(av.find((p: any) => p.full_name === "Kim").busy[0].number).toBe("BK-0001");
-    expect(av.find((p: any) => p.full_name === "GM A").busy).toEqual([]);
+    expect(av.find((p: any) => p.full_name === "GM A")).toBeUndefined(); // technicians only (CEO 04-10)
     const bk3 = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "camera", service_text: "ដំឡើងកាមេរ៉ា", zone: "inside", scheduled_at: T10 })).json.id;
     const r = await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: T10 });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     expect(r.json.details.conflicts).toEqual([expect.objectContaining({ user_id: s.users.kim, number: "BK-0001" })]);
-    expect((await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.gm01, assistants: [], scheduled_at: T10 })).status).toBe(200);
+    expect((await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.gm01, assistants: [], scheduled_at: T10 })).json.error).toBe("TECH_NOT_FOUND"); // never the GM
+    expect((await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.newbie, assistants: [], scheduled_at: T10 })).status).toBe(200);
     expect((await gm.req("POST", `/api/bookings/${bk2}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: T10 })).json.error).toBe("BOOKING_LOCKED");
     // re-assign replaces the team and queues a new message (new dedupe key)
     const before = (await sql`select count(*)::int as n from telegram_outbox`)[0]!.n;

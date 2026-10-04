@@ -130,9 +130,9 @@ describe("D3 leave / absence", () => {
     // pending (not approved) leave does not block
     await dara.req("POST", "/api/leave", { kind: "leave", date_from: day(10), date_to: day(10), part: "full", reason: "រង់ចាំ" });
     expect((await assign(gm, id, { lead: s.users.dara })).status).toBe(200);
-    // half day: kim is on leave all day 10; GM approved leave on day 12 full → gm hidden on day 12
+    // the GM is never offered as crew (CEO 04-10: technicians only), on leave or not
     const av12 = (await ceo.req("GET", `/api/bookings/availability?from=${encodeURIComponent(at(12, 14))}&to=${encodeURIComponent(at(12, 15))}`)).json;
-    expect(av12.people.find((p: any) => p.user_id === s.users.gm01).reason).toBe("LEAVE");
+    expect(av12.people.find((p: any) => p.user_id === s.users.gm01)).toBeUndefined();
   });
 
   it("half day: morning leave blocks the morning only", async () => {

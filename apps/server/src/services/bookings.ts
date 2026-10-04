@@ -149,7 +149,7 @@ export async function availability(user: SessionUser, fromIso: string, toIso: st
   const from = parseTime(fromIso, "INVALID_VALUE")!, to = parseTime(toIso, "INVALID_VALUE")!;
   if (to.getTime() <= from.getTime()) throw new AppError("END_BEFORE_START", 400);
   const people = await sql<{ id: string; full_name: string; role: string }[]>`select id, full_name, role from users
-    where company_id = ${user.companyId} and is_active and role in ('tech', 'gm') order by role desc, full_name`;
+    where company_id = ${user.companyId} and is_active and role = 'tech' order by full_name`;
   const vehicles = await sql<{ id: string; code: string; plate: string | null }[]>`select id, code, plate from vehicles where company_id = ${user.companyId} and is_active order by code`;
   const bp = await busyPeople(sql, user.companyId, from, to, exclude);
   const away = await awayPeople(sql, user.companyId, from, to);
@@ -292,7 +292,7 @@ export async function assignWithin(t: Db, user: SessionUser, ip: string | null, 
   if (a.lead && a.assistants.includes(a.lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
   const team = [...(a.lead ? [a.lead] : []), ...a.assistants];
   if (team.length === 0) throw new AppError("TEAM_REQUIRED", 400); // R5: at least one technician
-  const ok = await t<{ id: string }[]>`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role in ('tech', 'gm')`;
+  const ok = await t<{ id: string }[]>`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role = 'tech'`; // CEO 04-10: technicians only — never GM, Admin, CEO, CFO
   if (ok.length !== new Set(team).size) throw new AppError("TECH_NOT_FOUND", 404);
   if (a.vehicle_id) await assertVehicle(t, user.companyId, a.vehicle_id);
   // R3: dispatching needs a future appointment (an overdue booking is rescheduled first)
