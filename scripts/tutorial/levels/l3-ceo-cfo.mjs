@@ -84,6 +84,7 @@ export default {
     await admS.call("POST", "/api/reports/cash-close", { day: ymd(new Date()), counted_usd: 4500, counted_khr: 80000, note: "ខ្វះ ២ ០០០ រៀល" });
     // a catalog change by the demo CEO: the catalog says who changed it last (clip 05)
     const bossS = await v.session(boss.username, boss.p);
+    await bossS.call("PUT", "/api/settings/test-phones", { phones: [] }); // Settings saved once by the demo CEO → its «last change» line
     await bossS.call("POST", "/api/catalog", { name_km: "ប្រេងម៉ាស៊ីនត្រជាក់", name_en: "AC oil", kind: "product", category: "mep", unit: "ដប", sell_price: 1500 });
     return { photo: await v.picture("work.jpg", WORK_PHOTO) };
   },
@@ -139,7 +140,7 @@ export default {
       await v.caption("កក់ពីលេខនេះ = សាកល្បង\nមានតែអ្នកទទួលដំណឹង"); await v.hold(2000);
       await v.caption("មិនចូលរបាយការណ៍ទេ\nហើយបោះបង់ឯង ក្រោយ ២៤ ម៉ោង"); await v.hold(2200);
     }),
-    clip("L3-04_staff-roles_v1", async (v, d, { A, nav, dlg }) => {
+    clip("L3-04_staff-roles_v1", async (v, d, { A, nav, dlg, T }) => {
       await v.caption("ចុច «អ្នកប្រើ»"); await v.tap(nav("settings/users")); await v.idle();
       await v.caption("គណនី HangKH នៅខាងក្រោម\nសម្រាប់ជំនួយបច្ចេកទេស មិនអាចកែ"); const sup = T("user-platform"); await v.scrollTo(sup); await v.look(sup, { zoom: 1.3, after: 1400 });
       await v.caption("ចុច «អ្នកប្រើថ្មី»"); await v.tap(A.getByRole("button", { name: "អ្នកប្រើថ្មី" })); await v.hold(300);

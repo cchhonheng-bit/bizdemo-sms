@@ -39,6 +39,8 @@ async function openAccounting(v, { nav, T }, tab) { await v.tap(nav("accounting"
 async function seedYear(v, d) {
   if (d.seeded) return; d.seeded = true;
   const cfo = await v.session(d.cfo.username, d.cfo.p);
+  // the same opening balances as the opening-balances clip, when that clip did not run before (a single clip re-recorded)
+  await cfo.call("POST", "/api/accounting/opening", { date: d.openDate, cash_usd: 250000, cash_khr: 2050000, banks: { aba: 1200000, acleda: 400000 }, retained_earnings: 900000 }).catch(() => {});
   const tx = (date, type, account_code, dollars, pay, memo) => cfo.call("POST", "/api/accounting/transactions", { date, type, account_code, amount: Math.round(dollars * 100), pay, memo });
   await tx(lastYear(3, 10), "other_income", "4090", 1500, "aba", "ចំណូលផ្សេងៗ");
   await tx(lastYear(6, 30), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
@@ -96,7 +98,8 @@ export default {
       await v.chapter("៤ · ប្លង់គណនី");
       await v.caption("គណនីទាំងអស់ តាមប្រភេទ\nនីមួយៗមានសមតុល្យ"); await v.tap(T("tab-accounts")); await v.idle(); await v.hold(2200);
       await v.chapter("៥ · ការកំណត់");
-      await v.caption("សមតុល្យដើម និងការបិទបញ្ជី\nសម្រាប់នាយកហិរញ្ញវត្ថុ"); await v.tap(T("tab-setup")); await v.idle(); await v.hold(2200);
+      await v.caption("សមតុល្យដើម — កំណត់តែម្ដង\nនៅថ្ងៃចាប់ផ្ដើមសៀវភៅ"); await v.tap(T("tab-setup")); await v.idle(); await v.hold(1800);
+      await v.caption("ចុងឆ្នាំ — បិទបញ្ជី\nសម្រាប់នាយកហិរញ្ញវត្ថុ"); await v.look(T("close-next"), { zoom: 1.4, after: 1400 });
       await v.caption("វីដេអូខ្លីៗ បង្ហាញការងារនីមួយៗ\nលម្អិត"); await v.hold(2200);
     }, seedYear),
     clip("L4-01_chart-of-accounts_v1", async (v, d, u) => {
