@@ -65,6 +65,8 @@ export const config = {
   migrationsDir: env("MIGRATIONS_DIR", resolve(here, "migrations")),
   /** photos + signatures (job reports); the uploads_<shop> volume in production */
   uploadsDir: env("UPLOADS_DIR", resolve(here, "../../../.local/uploads")),
+  /** the tutorial videos of the all-guide page (D-128): <dir>/<Position>/<file>.mp4 (+ pdf/<tab>.pdf); /opt/hangkh/guide, read-only */
+  guideDir: env("GUIDE_DIR", resolve(here, "../../../.local/guide")),
   logLevel: env("LOG_LEVEL", "info"),
   /** behind caddy → trust X-Forwarded-For for rate limiting */
   trustProxy: env("TRUST_PROXY", "true") === "true",

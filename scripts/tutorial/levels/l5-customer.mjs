@@ -1,7 +1,8 @@
 // Level 5 — the customer, on a phone (1080×1920), as built: the website in the phone's browser (address bar) or inside Telegram
 // (Mini App), the shop bot in a Telegram look-alike. Overview · book on the website · link Telegram + the password · track a booking
-// (ask for another time, cancel) · ask for a price with photos · a new password from the bot · notifications (stop / resume, the
-// switches on the website) → Doc_Sup/09_Tutorials/Customer/. Demo data only: fake names and phone numbers on a throwaway demo shop
+// (ask for another time, cancel, then the job's messages: new time, reminder, on the way, done) · ask for a price with photos · a new
+// password from the bot, then changed on the website · notifications (stop / resume, the switches on the website)
+// → Doc_Sup/09_Tutorials/Customer/. Demo data only: fake names and phone numbers on a throwaway demo shop
 // with a demo hub whose bot can never reach Telegram; the catalog has no prices (as the live shop). The bot's texts: the demo shop's
 // own answers where it gives them (the link message with the password, the hint); the messages the shop pushes through the hub
 // (confirmed, new time, new password) and the hub's own 🔕 choices are built here from the same templates, word for word
@@ -9,7 +10,7 @@
 const ADDR = "ផ្ទះលេខ 21 ផ្លូវសាកល្បង ភ្នំពេញ";
 const MENU = { book: "📅 កក់សេវា", track: "📍 តាមដានការកក់", promo: "🎁 ប្រូម៉ូសិន", password: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", stop: "🔕 ឈប់ទទួលដំណឹង" };
 const GRID = [[{ text: MENU.book }, { text: MENU.track }], [{ text: MENU.promo }, { text: MENU.password }], [{ text: MENU.stop }]];
-const BTN = { track: "📍 តាមដានការកក់", login: "ចូលគណនី", resume: "🔔 បើកវិញ", stopPromo: "ឈប់ទទួលប្រូម៉ូសិន", stopAll: "ឈប់ទាំងអស់", cancel: "បោះបង់", resumePromo: "🎁 បើកប្រូម៉ូសិនវិញ" };
+const BTN = { track: "📍 តាមដានការកក់", again: "កក់ម្ដងទៀត", login: "ចូលគណនី", resume: "🔔 បើកវិញ", stopPromo: "ឈប់ទទួលប្រូម៉ូសិន", stopAll: "ឈប់ទាំងអស់", cancel: "បោះបង់", resumePromo: "🎁 បើកប្រូម៉ូសិនវិញ" };
 const WD = ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], MON = ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"];
 /** customer-text.ts kmWhen: «ច័ន្ទ 6 តុលា» + «09:00» in the shop's time zone */
 function kmWhen(at, tz) {
@@ -21,12 +22,22 @@ function kmWhen(at, tz) {
 const TXT = {
   confirmed: (no, w, tech) => `✅ បានបញ្ជាក់ #${no}\n${w.day} ម៉ោង ${w.time}${tech ? ` · ជាង ${tech}` : ""}`,
   rescheduled: (no, w) => `🔁 បានប្ដូរម៉ោង #${no}\n${w.day} ម៉ោង ${w.time}`,
+  reminder: (time, service, tech) => `⏰ ស្អែក ម៉ោង ${time}\n${service}${tech ? ` · ជាង ${tech}` : ""}`,
+  onTheWay: (tech) => (tech ? `🚗 ជាង ${tech} កំពុងមក` : "🚗 ជាងកំពុងមក"),
+  done: (no, until) => `✅ ការងាររួចរាល់ #${no}${until ? `\nធានាដល់ ${until}` : ""}`,
   newPassword: (pw) => `🔑 ពាក្យសម្ងាត់ថ្មី៖ ${pw}`,
   promo: (text) => `🎁 ${text}`,
   unsubscribedPromo: "🔕 បានឈប់ តែប្រូម៉ូសិន\nបើកវិញបានគ្រប់ពេល",
   stopAskPromoOff: "🔕 ប្រូម៉ូសិនបានឈប់រួចហើយ\nឈប់ដំណឹងទាំងអស់ ឬបើកប្រូម៉ូសិនវិញ?",
   resumedPromo: "🔔 បានបើកប្រូម៉ូសិនវិញ",
 };
+/** HH:MM of a moment (+ minutes) in the shop's time zone; the warranty end (closed day + 30, customer-text.ts kmDate) */
+const hhmm = (at, plusMin, tz) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(new Date(at).getTime() + plusMin * 60_000));
+function warrantyEnd(at, tz, days = 30) {
+  const [y, m, dd] = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(at)).split("-").map(Number);
+  const e = new Date(Date.UTC(y, m - 1, dd + days));
+  return `${e.getUTCDate()} ${MON[e.getUTCMonth()]} ${e.getUTCFullYear()}`;
+}
 const PW = /(ពាក្យសម្ងាត់(?:ថ្មី)?៖ )(\d{4})/;
 const blur = (text) => text.replace(PW, "$1⟦$2⟧");
 const pwOf = (text) => { const m = PW.exec(text); if (!m) throw new Error(`no password in «${text}»`); return m[2]; };
@@ -131,12 +142,13 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
     const r1 = rows.find((r) => r.booking_number === a1.number);
     if (!r1) throw new Error(`no request for ${a1.number}`);
     await v.api("POST", `/api/requests/${r1.id}/confirm`, { lead: t1.id, assistants: [] });
+    const jobs = await v.api("GET", "/api/bookings?limit=100"), j1 = (Array.isArray(jobs) ? jobs : jobs.items ?? []).find((b) => b.number === a1.number);
     // customer B: booked on the website, not linked yet (clip 02 links it)
     const B = { name: "អតិថិជន ថ្មី", phone: "012000202", sub: await sub(2) };
     const b1 = await book(visitor, `${el.id}:1`, at(days[0], "14:00"), B.name, B.phone);
     return {
       tz: DAY_TZ, time, tech: "សាកល្បង", hint: link.hint ?? link.after ?? null, freeDay: days[2].date, bookDay: days[3].date,
-      A: { ...A, pw: A.pw }, A1: { number: a1.number, when: kmWhen(at(days[0], "09:00"), DAY_TZ) }, A2: { number: a2.number },
+      A: { ...A, pw: A.pw }, A1: { number: a1.number, when: kmWhen(at(days[0], "09:00"), DAY_TZ), service: j1?.service_text ?? "លាងម៉ាស៊ីនត្រជាក់ ×2" }, A2: { number: a2.number },
       B: { ...B, ref: b1.ref }, Q: { sub: await sub(4) },
       wall: await v.picture("wall.jpg", WALL), pipe: await v.picture("pipe.jpg", PIPE),
     };
@@ -186,8 +198,8 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       await v.caption("ចុច «បន្ត»"); await v.tap(T("#next")); await A.locator("#s3:not([hidden])").waitFor(); await v.hold(500);
       await v.caption("វាយឈ្មោះ\nនិងលេខទូរស័ព្ទ"); await v.type(T("#name"), "ដារ៉ា សាកល្បង", { before: 1200 }); await v.type(T("#phone"), "12 000 203", { before: 700 });
       await v.caption("ពេលចុចប៊ូតុង អ្នកយល់ព្រម\nទទួលដំណឹងពីហាង"); const consent = T("#consent-text"); await v.scrollTo(consent); await v.look(consent, { zoom: 1.4, after: 1800 });
-      await v.caption("ចុច «កក់ និងភ្ជាប់ Telegram»"); await v.tap(T("#send"));
-      await A.locator('body[data-page="done"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(400);
+      await v.caption("ចុច «កក់ និងភ្ជាប់ Telegram»"); await v.tap(T("#send"), async () => { await T("#send").click({ noWaitAfter: true }); await v.caption("ទូរស័ព្ទភាគច្រើន បើក Telegram ឯង"); });
+      await A.locator('body[data-page="done"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(1200);
       await v.caption("បានផ្ញើ! ម៉ោងនេះរក្សាទុកសម្រាប់អ្នក\nហាងបញ្ជាក់ក្នុង ៣០ នាទី"); await v.look(T(".sum"), { zoom: 1.25, after: 1800 });
       await v.caption("បន្ទាប់៖ ភ្ជាប់ Telegram\nមើលវីដេអូបន្ទាប់"); await v.hold(2600);
     }),
@@ -198,18 +210,19 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       const { T } = u;
       await v.caption("ការកក់បានផ្ញើ\nរង់ចាំហាងបញ្ជាក់"); await v.look(T(".sum .pl"), { zoom: 1.6, after: 1400 });
       await v.caption("ចុច «បើក Telegram»"); await v.tap(T("#tg-open")); await v.hold(300); await v.closeApp();
-      await v.caption("ចុចប៊ូតុងខាងក្រោម\nដើម្បីភ្ជាប់", "tg");
-      let linkId;
+      await v.caption("ចុចប៊ូតុង START ខាងក្រោម\nដើម្បីភ្ជាប់", "tg");
+      let linkId, hintId;
       await v.tap(v.tgf.locator("#sb button"), async () => {
         const link = await v.internal("/internal/customer-subscribed", { code: tokenOf(v.tme), subscriber_id: d.B.sub });
         d.B.pw = pwOf(link.text);
         await v.tg("start", false); await v.tg("me", "/start"); await v.caption(null); await v.hold(500);
         linkId = await v.tg("bot", blur(link.text)); await v.tg("keyboard", GRID);
-        if (link.hint ?? link.after) { await v.hold(500); await v.tg("bot", link.hint ?? link.after); }
+        if (link.hint ?? link.after) { await v.hold(500); hintId = await v.tg("bot", link.hint ?? link.after); }
       });
       await v.hold(600);
-      await v.caption("✅ ភ្ជាប់រួចរាល់\nពាក្យសម្ងាត់ ៤ ខ្ទង់ នៅទីនេះ", "tg"); await v.look(u.msg(linkId), { zoom: 1.4, after: 1800 });
-      await v.caption("ចូលគណនីលើគេហទំព័រ ដោយ\nលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ", "tg"); await v.hold(3000);
+      await v.caption("✅ ភ្ជាប់រួចរាល់\nពាក្យសម្ងាត់ ៤ ខ្ទង់ នៅទីនេះ", "tg"); await v.look(u.msg(linkId), { zoom: 1.4, after: 1600 });
+      await v.caption("ចូលគណនីលើគេហទំព័រ ដោយ\nលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ", "tg"); await v.hold(2600);
+      if (hintId) { await v.caption("ប្ដូរជាលេខដែលងាយចាំបាន\nក្នុង «គណនីរបស់ខ្ញុំ»", "tg"); await v.look(u.msg(hintId), { zoom: 1.4, after: 1200 }); }
       await v.caption("ប៊ូតុងខាងក្រោម៖ កក់ · តាមដាន\nប្រូម៉ូសិន · ពាក្យសម្ងាត់ · ដំណឹង", "tg"); await v.look(v.tgf.locator("#kb"), { zoom: 1.4, after: 1800 });
       await v.caption("ចុច «📍 តាមដានការកក់»", "tg");
       await v.tap(v.tgButton(MENU.track, "kb"), async () => { await v.loginCustomer(d.B.phone, d.B.pw); await miniApp(v, "/my/bookings", "section[data-booking]"); });
@@ -219,31 +232,36 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       d.confirmId = await chatSoFar(v, d);
       await v.loginCustomer(d.A.phone, d.A.pw);
     }, async (v, d, u) => {
-      const { A, T } = u;
-      await v.caption("ហាងបញ្ជាក់ — ម៉ោង\nនិងឈ្មោះជាង", "tg"); await v.look(u.msg(d.confirmId), { zoom: 1.4, after: 1800 });
+      const { A } = u;
+      await v.caption("ហាងបញ្ជាក់ — ម៉ោង\nនិងឈ្មោះជាង", "tg"); await v.look(u.msg(d.confirmId), { zoom: 1.4, after: 1400 });
       await v.caption("ចុច «📍 តាមដានការកក់»", "tg");
       await v.tap(v.tgf.locator(`#${d.confirmId}k button`), () => miniApp(v, "/my/bookings", "section[data-booking]"));
-      await v.caption("ការកក់ខាងមុខ\nនិងស្ថានភាព"); await v.look(u.card(d.A1.number).locator(":scope > .hr .pl"), { zoom: 1.6, after: 900 }); await v.look(u.card(d.A1.number).locator(".bk"), { zoom: 1.5, after: 1000 });
       const c1 = u.card(d.A1.number);
-      await v.caption("ចង់ប្ដូរម៉ោង?\nចុច «ស្នើប្ដូរម៉ោង»"); await v.tap(c1.locator("[data-move]")); await c1.locator(".pk .day").first().waitFor(); await v.hold(500);
-      await v.caption("ជ្រើសថ្ងៃ និងម៉ោងថ្មី"); await v.tap(c1.locator(`.pk .day[data-day="${d.freeDay}"]`), null, { before: 1400 }); await v.hold(400);
+      await v.caption("ចង់ប្ដូរម៉ោង?\nចុច «ស្នើប្ដូរម៉ោង»"); await v.tap(c1.locator("[data-move]")); await c1.locator(".pk .day").first().waitFor(); await v.hold(400);
+      await v.caption("ជ្រើសថ្ងៃ និងម៉ោងថ្មី"); await v.tap(c1.locator(`.pk .day[data-day="${d.freeDay}"]`), null, { before: 1200 }); await v.hold(300);
       const slot = c1.locator(`.pk .slots[data-for="${d.freeDay}"] .slot:not([disabled])`).first();
-      d.newAt = await slot.getAttribute("data-at"); await v.tap(slot, null, { before: 1000 }); await v.hold(400);
-      await v.caption("ចុច «ផ្ញើសំណើប្ដូរម៉ោង»"); await v.tap(c1.locator("[data-move-go]")); await v.idle(); await A.locator(".note").first().waitFor(); await v.hold(500);
-      await v.caption("សំណើបានផ្ញើ\nរង់ចាំហាងឆ្លើយ"); await v.look(u.card(d.A1.number).locator(".note"), { zoom: 1.5, after: 1400 });
+      d.newAt = await slot.getAttribute("data-at"); await v.tap(slot, null, { before: 900 }); await v.hold(300);
+      await v.caption("ចុច «ផ្ញើសំណើប្ដូរម៉ោង»"); await v.tap(c1.locator("[data-move-go]")); await v.idle(); await A.locator(".note").first().waitFor(); await v.hold(400);
+      await v.caption("សំណើបានផ្ញើ\nរង់ចាំហាងឆ្លើយ"); await v.look(u.card(d.A1.number).locator(".note"), { zoom: 1.5, after: 1200 });
       const c2 = u.card(d.A2.number);
-      await v.caption("មិនត្រូវការទៀត?\nចុច «បោះបង់»"); await v.tap(c2.locator("[data-cancel]")); await v.hold(400);
-      await v.caption("សរសេរមូលហេតុ"); await v.type(c2.locator("textarea"), "មិនទំនេរថ្ងៃនោះ", { before: 1200 });
-      await v.caption("ចុច «បញ្ជាក់ការបោះបង់»"); await v.tap(c2.locator("[data-cancel-go]")); await v.idle(); await A.locator("section[data-booking]").first().waitFor(); await v.hold(600);
-      await v.caption("ការកក់នោះ បានបោះបង់"); await v.hold(2400);
-      // the shop agrees to the new time (staff side): the customer is told in Telegram
+      await v.caption("មិនត្រូវការទៀត? ចុច «បោះបង់»\nហើយសរសេរមូលហេតុ"); await v.tap(c2.locator("[data-cancel]")); await v.type(c2.locator("textarea"), "មិនទំនេរថ្ងៃនោះ", { before: 800 });
+      await v.caption("ចុច «បញ្ជាក់ការបោះបង់»"); await v.tap(c2.locator("[data-cancel-go]")); await v.idle(); await A.locator("section[data-booking]").first().waitFor(); await v.hold(500);
+      // the shop agrees to the new time (staff side): the customer is told in Telegram — then the job's own messages, as the bot sends them
       const reqs = await v.api("GET", "/api/requests"), rows = Array.isArray(reqs) ? reqs : reqs.items ?? reqs.requests ?? [];
       const rq = rows.find((r) => r.booking_number === d.A1.number && r.kind !== "booking" && !r.handled_at);
       if (!rq) throw new Error("no reschedule request");
       await v.api("POST", `/api/requests/${rq.id}/approve`, {});
       await v.closeApp();
-      const id = await v.tg("bot", TXT.rescheduled(d.A1.number, kmWhen(d.newAt, d.tz)), [[{ text: BTN.track, web_app: "track" }]]);
-      await v.caption("ហាងយល់ព្រម — ម៉ោងថ្មី\nមកក្នុង Telegram", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1800 });
+      const w = kmWhen(d.newAt, d.tz), track = [[{ text: BTN.track, web_app: "track" }]];
+      const msg = async (time, text, buttons) => { await v.tgf.evaluate((t) => { window.tg.time = t; }, time); return v.tg("bot", text, buttons); };
+      let id = await msg(d.time, TXT.rescheduled(d.A1.number, w), track);
+      await v.caption("ហាងយល់ព្រម — ម៉ោងថ្មី\nមកក្នុង Telegram", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1200 });
+      id = await msg("17:00", TXT.reminder(w.time, d.A1.service, d.tech), track);
+      await v.caption("មួយថ្ងៃមុន៖ ការរំលឹក", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1000 });
+      id = await msg(hhmm(d.newAt, -40, d.tz), TXT.onTheWay(d.tech), track);
+      await v.caption("ថ្ងៃធ្វើការ៖ ជាងកំពុងមក", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1000 });
+      id = await msg(hhmm(d.newAt, 135, d.tz), TXT.done(d.A1.number, warrantyEnd(d.newAt, d.tz)), [[{ text: BTN.again }]]);
+      await v.caption("ការងាររួចរាល់\nនិងការធានា ៣០ ថ្ងៃ", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1400 });
     }),
     clip("L5-04_quote-with-photos_v1", async (v) => {
       await v.tg("start", true);
@@ -261,7 +279,7 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       await A.locator('body[data-page="done"]').waitFor({ timeout: 20_000 }); await v.idle(); await v.hold(400);
       await v.caption("បានផ្ញើ! ហាងនឹងមើលរូបថត\nហើយទាក់ទងអ្នកវិញ"); await v.look(T(".ok"), { zoom: 1.3, after: 1600 });
       await v.closeApp();
-      await v.caption("ក្នុង Telegram\nចុចប៊ូតុងខាងក្រោម", "tg");
+      await v.caption("ក្នុង Telegram\nចុចប៊ូតុង START ខាងក្រោម", "tg");
       let id;
       await v.tap(v.tgf.locator("#sb button"), async () => {
         const link = await v.internal("/internal/customer-subscribed", { code: tokenOf(v.tme), subscriber_id: d.Q.sub });
@@ -272,15 +290,14 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       await v.hold(600);
       await v.caption("✅ សំណើតម្លៃបានទទួល\nនិងពាក្យសម្ងាត់ចូលគណនី", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1800 });
     }),
-    clip("L5-05_forgot-password_v1", async (v, d) => {
+    clip("L5-05_forgot-change-password_v1", async (v, d) => {
       await chatSoFar(v, d);
       await browser(v, "/my/login", "#login");
     }, async (v, d, u) => {
       const { A, T } = u;
-      await v.caption("ភ្លេចពាក្យសម្ងាត់?\nពាក្យថ្មី មកពី Telegram"); await v.look(T("#forgot"), { zoom: 1.6, after: 1400 });
-      await v.caption("ចុច «ភ្លេចពាក្យសម្ងាត់?»"); await v.tap(T("#forgot")); await v.hold(300); await v.closeApp();
+      await v.caption("ភ្លេចពាក្យសម្ងាត់? ចុចទីនេះ\nពាក្យថ្មី មកពី Telegram"); await v.tap(T("#forgot")); await v.hold(300); await v.closeApp();
       await v.caption("ចុច «🔑 កំណត់ពាក្យសម្ងាត់ថ្មី»", "tg");
-      let id;
+      let id, hintId;
       await v.tap(v.tgButton(MENU.password, "kb"), async () => {
         // the bot gives a new 4-digit password (here a fixed one, set through the customer's own account — the screen blurs it)
         const next = "4739", s = await v.session(null);
@@ -288,15 +305,22 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
         await s.call("POST", "/api/my/password", { current: d.A.pw, next }); d.A.pw = next;
         await v.tg("me", MENU.password); await v.hold(700);
         id = await v.tg("bot", blur(TXT.newPassword(next)), [[{ text: BTN.login, url: "login" }]]);
-        if (d.hint) { await v.hold(500); await v.tg("bot", d.hint); }
+        if (d.hint) { await v.hold(500); hintId = await v.tg("bot", d.hint); }
       });
-      await v.hold(600);
-      await v.caption("ពាក្យសម្ងាត់ថ្មី ៤ ខ្ទង់\nពាក្យចាស់លែងប្រើបាន", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1800 });
+      await v.hold(500);
+      await v.caption("ពាក្យសម្ងាត់ថ្មី ៤ ខ្ទង់\nពាក្យចាស់លែងប្រើបាន", "tg"); await v.look(u.msg(id), { zoom: 1.4, after: 1200 });
+      if (hintId) { await v.caption("ប្ដូរជាលេខដែលងាយចាំបាន\nក្នុង «គណនីរបស់ខ្ញុំ»", "tg"); await v.look(u.msg(hintId), { zoom: 1.4, after: 1000 }); }
       await v.caption("ចុច «ចូលគណនី»", "tg");
       await v.tap(v.tgf.locator(`#${id}k button`), () => browser(v, "/my/login?next=%2Fmy", "#login"));
-      await v.caption("វាយលេខទូរស័ព្ទ\nនិងពាក្យសម្ងាត់ថ្មី"); await v.type(T("#phone"), d.A.typed, { before: 1200 }); await v.type(T("#pw"), d.A.pw, { before: 700 });
-      await v.caption("ចុច «ចូល»"); await v.tap(T("#login")); await A.locator('body[data-page="my"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(400);
-      await v.caption("ចូលរួចរាល់!"); await v.look(T("header.hd .brand"), { zoom: 1.4, after: 1800 });
+      await v.caption("វាយលេខទូរស័ព្ទ + ពាក្យថ្មី\nហើយចុច «ចូល»"); await v.type(T("#phone"), d.A.typed, { before: 1000 }); await v.type(T("#pw"), d.A.pw, { before: 600 });
+      await v.tap(T("#login"), null, { before: 800 }); await A.locator('body[data-page="my"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(300);
+      // «គណនីរបស់ខ្ញុំ» → «ប្ដូរពាក្យសម្ងាត់»: a number easy to remember (the birthday / phone hint is on this form)
+      const open = T("#pw-open"), easy = "2580";
+      await v.caption("ចូលរួចរាល់! ចង់បានលេខងាយចាំ?\nចុច «ប្ដូរពាក្យសម្ងាត់»"); await v.scrollTo(open); await v.tap(open); await A.locator("#pw-card:not([hidden])").waitFor(); await v.hold(300);
+      await v.caption("វាយពាក្យបច្ចុប្បន្ន\nនិងលេខថ្មីដែលងាយចាំ"); await v.type(T("#pw-cur"), d.A.pw, { before: 1000 }); await v.type(T("#pw-new"), easy, { before: 600 });
+      await v.caption("កុំប្រើថ្ងៃកំណើត\nឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ"); await v.look(T("#pw-card .hint"), { zoom: 1.5, after: 1000 });
+      await v.caption("ចុច «រក្សាទុក»"); await v.tap(T("#pw-save")); await A.locator("#pw-ok:not([hidden])").waitFor({ timeout: 10_000 }); d.A.pw = easy; await v.hold(400);
+      await v.caption("បានប្ដូរពាក្យសម្ងាត់ ✓"); await v.look(T("#pw-ok"), { zoom: 1.3, after: 1400 });
     }),
     clip("L5-06_notifications_v1", async (v, d) => {
       await chatSoFar(v, d);

@@ -71,7 +71,7 @@ export async function shopBotUsername(): Promise<string | null> {
 }
 
 /** T4: tell the owner (through the hub's master bot). Fire-and-forget, never throws; the hub throttles per kind. */
-export function hubAlert(kind: "outbox" | "error", text: string): void {
+export function hubAlert(kind: "outbox" | "error" | "review", text: string): void {
   if (!hubConfigured()) return;
   void transport("POST", "/internal/alert", { kind, text: text.slice(0, 900) }).catch(() => undefined);
 }

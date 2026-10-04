@@ -35,6 +35,13 @@ export type UserRow = {
   id: string; company_id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; language: string;
   is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
 };
+/** the all-guide page (D-128) */
+export type GuideData = {
+  tabs: { key: string; label: string; videos: string[] }[];
+  videos: { id: string; title: string; ready: boolean; seconds: number | null; url: string | null }[];
+  reviews: { video_id: string; user_id: string; name: string; platform: boolean; verdict: "ok" | "fix"; comment: string | null; updated_at: string }[];
+  pdfs: Record<string, string | null>; me: string; total: number;
+};
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
 export type Busy = { number: string; scheduled_at: string; ends_at: string };
@@ -396,6 +403,8 @@ export const api = {
     post<{ id: string }>("/api/settings/vehicles", { id: v.id, code: v.code, plate: v.plate, owner_user_id: v.owner, is_active: v.active }),
 
   notifications: () => get<Notification[]>("/api/notifications"),
+  guide: () => get<GuideData>("/api/guide"),
+  guideReview: (id: string, v: { verdict: "ok" | "fix"; comment: string | null }) => put<{ ok: true }>(`/api/guide/reviews/${id}`, v),
   unreadCount: async () => (await get<{ count: number }>("/api/notifications/unread-count")).count,
   markRead: (id: number) => post(`/api/notifications/${id}/read`, {}),
   telegramLinkCode: () => post<{ code: string; link: string | null; bot: string | null; expires_at: string }>("/api/telegram/link-code", {}),

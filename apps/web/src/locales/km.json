@@ -53,7 +53,8 @@
     "reports": "របាយការណ៍",
     "reminders": "រំលឹកថែទាំ",
     "inventory": "ស្តុក",
-    "accounting": "គណនេយ្យ"
+    "accounting": "គណនេយ្យ",
+    "all_guide": "វីដេអូណែនាំ"
   },
   "roles": {
     "ceo": "នាយកប្រតិបត្តិ",

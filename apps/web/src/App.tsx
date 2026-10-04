@@ -9,6 +9,7 @@ import FirstLoginPage from "@/features/auth/FirstLoginPage";
 import UsersPage from "@/features/users/UsersPage";
 import CompanySettingsPage from "@/features/settings/CompanySettingsPage";
 import WebsitePage from "@/features/settings/WebsitePage";
+import AllGuidePage from "@/features/guide/AllGuidePage";
 import MePage from "@/features/me/MePage";
 import DashboardPage from "@/features/dashboard/DashboardPage";
 import CustomersPage from "@/features/customers/CustomersPage";
@@ -98,6 +99,7 @@ export default function App() {
                 <Route path="/invoices/:id/edit" element={<InvoiceEditorPage />} />
               </Route>
               <Route path="/me" element={<MePage />} />
+              <Route path="/all_guide" element={<AllGuidePage />} />{/* D-128: the CEO + the platform account (the server decides) */}
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>
               <Route element={<RequireFeature flag="website" />}><Route element={<RequirePerm perm="settings.manage" />}><Route path="/website" element={<WebsitePage />} /></Route></Route>

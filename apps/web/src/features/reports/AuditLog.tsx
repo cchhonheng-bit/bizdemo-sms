@@ -39,7 +39,7 @@ function useAuditWords() {
       case "role": return t(`roles.${String(v)}`, { defaultValue: String(v) });
       case "zone": return t(`zone.${String(v)}`, { defaultValue: String(v) });
       case "category": return t(`category.${String(v)}`, { defaultValue: String(v) });
-      case "method": case "step": case "web": { const m = AUDIT_VALUE[f.kind]?.[String(v)]; return m ? w(m) : String(v); }
+      case "method": case "step": case "web": case "verdict": { const m = AUDIT_VALUE[f.kind]?.[String(v)]; return m ? w(m) : String(v); }
       default: return Array.isArray(v) ? v.join(", ") : String(v);
     }
   };

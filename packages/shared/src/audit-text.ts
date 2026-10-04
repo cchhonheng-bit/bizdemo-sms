@@ -59,14 +59,14 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "subscribe.linked": T("ចុះឈ្មោះ Telegram", "Subscribed on Telegram"), "telegram.group_code": T("កូដក្រុម Telegram", "Telegram group code"),
   "telegram.group_registered": T("ភ្ជាប់ក្រុម Telegram", "Telegram group linked"), "telegram.link": T("ភ្ជាប់ Telegram", "Telegram linked"),
   "telegram.unlink": T("ផ្ដាច់ Telegram", "Telegram unlinked"), "user.create": T("បង្កើតអ្នកប្រើ", "User created"), "user.update": T("កែអ្នកប្រើ", "User edited"),
-  "vehicle.upsert": T("កែឡាន", "Vehicle saved"), "website.photo": T("បន្ថែមរូបគេហទំព័រ", "Website photo added"),
+  "vehicle.upsert": T("កែឡាន", "Vehicle saved"), "guide.review": T("ពិនិត្យវីដេអូណែនាំ", "Guide video reviewed"), "website.photo": T("បន្ថែមរូបគេហទំព័រ", "Website photo added"),
   "website.photo_remove": T("លុបរូបគេហទំព័រ", "Website photo removed"), "website.update": T("កែគេហទំព័រ", "Website edited"),
 };
 /** words for a catalog save that only changed prices / created an item (the example «កែតម្លៃ លាងម៉ាស៊ីនត្រជាក់ · $18 → $20») */
 export const AUDIT_ACTION_EXTRA = { price: T("កែតម្លៃ", "Price changed"), itemNew: T("បង្កើតទំនិញ", "Item created"), system: T("ប្រព័ន្ធ", "System"), customer: T("អតិថិជន", "Customer") };
 
 /** how a field's value is shown: dollars (cents), riel, yes / no, a local time, a list, or plain */
-export type AuditKind = "usd" | "khr" | "bool" | "time" | "list" | "status" | "role" | "zone" | "category" | "method" | "step" | "web" | "text";
+export type AuditKind = "usd" | "khr" | "bool" | "time" | "list" | "status" | "role" | "zone" | "category" | "method" | "step" | "web" | "verdict" | "text";
 export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   status: { ...T("ស្ថានភាព", "Status"), kind: "status" }, web_status: { ...T("ការកក់", "Booking"), kind: "web" },
   scheduled_at: { ...T("ម៉ោងណាត់", "Appointment"), kind: "time" }, ends_at: { ...T("ម៉ោងបញ្ចប់", "Ends"), kind: "time" },
@@ -96,6 +96,7 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   date: T("ថ្ងៃ", "Date"), cash_usd: { ...T("សាច់ប្រាក់ $", "Cash $"), kind: "usd" }, cash_khr: { ...T("សាច់ប្រាក់ ៛", "Cash ៛"), kind: "khr" },
   aba: { ...T("ABA", "ABA"), kind: "usd" }, acleda: { ...T("ACLEDA", "ACLEDA"), kind: "usd" }, stock: { ...T("តម្លៃស្តុក", "Stock value"), kind: "usd" },
   retained_earnings: { ...T("ប្រាក់ចំណេញរក្សាទុក", "Retained earnings"), kind: "usd" }, issued_on: T("ថ្ងៃវិក្កយបត្រ", "Invoice date"), back_days: T("ថយក្រោយ (ថ្ងៃ)", "Days back"),
+  video: T("វីដេអូ", "Video"), verdict: { ...T("លទ្ធផលពិនិត្យ", "Review"), kind: "verdict" }, comment: T("មតិ", "Comment"),
   open: T("ម៉ោងបើកកក់", "Booking opens"), close: T("ម៉ោងបិទកក់", "Booking closes"), lunch_start: T("សម្រាកពី", "Lunch from"), lunch_end: T("សម្រាកដល់", "Lunch until"),
 };
 /** never shown, not even in «លម្អិត»: anything secret */
@@ -108,7 +109,7 @@ export const AUDIT_GROUPS: (AuditText & { key: string; prefixes: string[] })[] =
   { key: "catalog", ...T("ទំនិញ និងស្តុក", "Catalog and stock"), prefixes: ["catalog.", "stock."] },
   { key: "customers", ...T("អតិថិជន", "Customers"), prefixes: ["customer.", "broadcast.", "subscribe.", "stop.", "reminder."] },
   { key: "staff", ...T("បុគ្គលិក", "Staff"), prefixes: ["user.", "password.", "leave.", "attendance.", "payroll.", "permission.", "telegram.link", "telegram.unlink"] },
-  { key: "settings", ...T("ការកំណត់", "Settings"), prefixes: ["settings.", "website.", "company.", "vehicle.", "telegram.group", "menu.", "demo."] },
+  { key: "settings", ...T("ការកំណត់", "Settings"), prefixes: ["settings.", "website.", "company.", "vehicle.", "telegram.group", "menu.", "demo.", "guide."] },
   { key: "accounting", ...T("គណនេយ្យ", "Accounting"), prefixes: ["acct."] },
   { key: "login", ...T("ការចូលប្រព័ន្ធ", "Sign-ins"), prefixes: ["auth."] },
 ];
@@ -122,5 +123,6 @@ export const LAST_CHANGE_SCOPES: Record<"settings" | "website" | "users", string
 export const AUDIT_VALUE: Record<string, Record<string, AuditText>> = {
   web: { pending: T("រង់ចាំ", "waiting"), confirmed: T("បានបញ្ជាក់", "confirmed"), declined: T("មិនទទួល", "declined"), expired: T("ផុតពេល", "expired") },
   method: { cash_usd: T("សាច់ប្រាក់ $", "cash $"), cash_khr: T("សាច់ប្រាក់ ៛", "cash ៛"), aba: T("ABA", "ABA"), acleda: T("ACLEDA", "ACLEDA"), bank: T("ធនាគារ", "bank") },
+  verdict: { ok: T("យល់ព្រម", "approved"), fix: T("ត្រូវកែ", "needs a change") },
   step: { depart: T("ចេញដំណើរ", "left"), arrive: T("ដល់ទីតាំង", "arrived"), start: T("ចាប់ផ្ដើម", "started"), finish: T("ធ្វើរួច", "finished"), return: T("ត្រឡប់", "returned") },
 };

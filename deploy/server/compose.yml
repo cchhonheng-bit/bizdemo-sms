@@ -69,8 +69,10 @@ services:
       HUB_KEY: ${HUB_KEY_ONETEAM}
       TRUST_PROXY: "true"
       CRON: "true"
+      GUIDE_DIR: /app/data/guide
     volumes:
       - uploads_oneteam:/app/data/uploads
+      - ./guide:/app/data/guide:ro   # tutorial videos of the all-guide page (D-128; scripts/tutorial/publish.mjs)
     depends_on:
       postgres: { condition: service_healthy }
 

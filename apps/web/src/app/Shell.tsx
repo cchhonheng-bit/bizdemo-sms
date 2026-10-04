@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, PlayCircle, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -58,6 +58,7 @@ export default function Shell() {
     { to: "/website", label: t("nav.website"), icon: Globe, perm: "settings.manage", hidden: !websiteOn }, // CEO 04-10: its own menu item
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
+    { to: "/all_guide", label: t("nav.all_guide"), icon: PlayCircle, hidden: me.role !== "ceo" }, // D-128: the CEO's menu only (the platform account opens the address)
     { to: "/me", label: t("nav.me"), icon: User },
   ];
   const desktopItems = allDesktop.filter((i) => !i.hidden && (!i.perm || can(i.perm)));

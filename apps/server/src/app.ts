@@ -36,6 +36,7 @@ import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
 import { pubRoutes, requestsRoutes, siteHome, siteLegal, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
+import { guideRoutes } from "./routes/guide.js";
 import { APP_BASE } from "./lib/app-url.js";
 import { CUSTOMER_COOKIE, resolveCustomerSession } from "./services/customer-home.js";
 
@@ -162,6 +163,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
   app.register(websiteRoutes, { prefix: "/api/website" });
   app.register(requestsRoutes, { prefix: "/api/requests" });
+  app.register(guideRoutes, { prefix: "/api/guide" }); // the all-guide page (D-128)
   // public shop website (flag "website", D-95 · v2 D-96): "/" ALWAYS shows it — also to staff and on phones with the app
   // installed. Without the module "/" sends everybody to the app.
   app.register(pubRoutes, { prefix: "/pub" });
