@@ -885,8 +885,7 @@ describe("D-119 night rule: made 20:00–08:00 → «we confirm at 8 am» and a 
     const rows = await sql<{ chat_id: string; text: string; silent: boolean }[]>`select chat_id::text as chat_id, text, silent from telegram_outbox where text like ${"%" + number + "%"} order by chat_id`;
     expect(rows.map((x) => [Number(x.chat_id), x.silent])).toEqual([[CHAT.gm, true], [CHAT.admin, true]]);
     for (const x of rows) { expect(x.text).toContain("សូមបញ្ជាក់ម៉ោង ៨ ព្រឹក"); expect(x.text).not.toContain("៣០ នាទី"); }
-    hubCalls.length = 0;
-    await deliver(number);
+    await deliver(number); // the booking route already starts a delivery in the background
     const sends = hubCalls.filter((c) => c.path === "/internal/send" && String(c.body.text).includes(number));
     expect(sends.length).toBe(2); for (const c of sends) expect(c.body.silent).toBe(true);
     const x = (await internal("customer-subscribed", { code: (await linkToken(ref))!, subscriber_id: 78 })).json();
@@ -902,9 +901,9 @@ describe("D-119 night rule: made 20:00–08:00 → «we confirm at 8 am» and a 
     expect((await page(`/book/done/${ref}`)).body).toContain("នឹងបញ្ជាក់ក្នុងរយៈពេល ៣០ នាទី");
     const rows = await sql<{ text: string; silent: boolean }[]>`select text, silent from telegram_outbox where text like ${"%" + number + "%"}`;
     expect(rows.length).toBe(2); for (const x of rows) { expect(x.silent).toBe(false); expect(x.text).toContain("សូមបញ្ជាក់ក្នុង ៣០ នាទី"); }
-    hubCalls.length = 0;
     await deliver(number);
-    for (const c of hubCalls.filter((c) => c.path === "/internal/send" && String(c.body.text).includes(number))) expect(c.body.silent).toBeUndefined();
+    const sends = hubCalls.filter((c) => c.path === "/internal/send" && String(c.body.text).includes(number));
+    expect(sends.length).toBe(2); for (const c of sends) expect(c.body.silent).toBeUndefined();
     const x = (await internal("customer-subscribed", { code: (await linkToken(ref))!, subscriber_id: 79 })).json();
     expect(x.text.split("\n")[1]).toBe(`ការកក់ #${number} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)`);
   });
