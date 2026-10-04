@@ -25,7 +25,8 @@ case "${1:-}" in
         -e PUBLIC_URL="http://localhost:3997" -e SESSION_SECRET="$(openssl rand -hex 32)" -e TRUST_PROXY=false -e CRON=false -e NODE_OPTIONS="--max-old-space-size=200" "$IMG" > /dev/null
       HUBENV=(-e "HUB_URL=http://$HUB:3000")
     fi
-    docker run -d --name "$NAME" --network "$NET" -p 127.0.0.1:$PORT:3000 --memory 400m -v tutorial_uploads:/app/data/uploads "${HUBENV[@]}" \
+    mkdir -p /opt/hangkh/guide # the all-guide videos (D-128), read-only like the live shop
+    docker run -d --name "$NAME" --network "$NET" -p 127.0.0.1:$PORT:3000 --memory 400m -v tutorial_uploads:/app/data/uploads -v /opt/hangkh/guide:/app/data/guide:ro -e GUIDE_DIR=/app/data/guide "${HUBENV[@]}" \
       -e APP_MODE=shop -e SHOP_CODE=DEMO -e APP_NAME="One Team Service" -e FEATURES="${3:-website,subscribe,reminders}" -e HUB_KEY="$(cat "$T/hubkey")" \
       -e DATABASE_URL="postgres://tutorial:$PW@postgres:5432/$DB" -e PUBLIC_URL="http://localhost:$PORT" -e SESSION_SECRET="$(openssl rand -hex 32)" \
       -e TELEGRAM_BOT_USERNAME=Oneteam_app_bot -e TRUST_PROXY=false -e CRON=false -e NODE_OPTIONS="--max-old-space-size=300" "$IMG" > /dev/null

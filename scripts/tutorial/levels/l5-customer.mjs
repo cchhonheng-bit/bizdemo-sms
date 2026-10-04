@@ -318,7 +318,11 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       await v.caption("ចូលរួចរាល់! ចង់បានលេខងាយចាំ?\nចុច «ប្ដូរពាក្យសម្ងាត់»"); await v.scrollTo(open); await v.tap(open); await A.locator("#pw-card:not([hidden])").waitFor(); await v.hold(300);
       await v.caption("វាយពាក្យបច្ចុប្បន្ន\nនិងលេខថ្មីដែលងាយចាំ"); await v.type(T("#pw-cur"), d.A.pw, { before: 1000 }); await v.type(T("#pw-new"), easy, { before: 600 });
       await v.caption("កុំប្រើថ្ងៃកំណើត\nឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ"); await v.look(T("#pw-card .hint"), { zoom: 1.5, after: 1000 });
-      await v.caption("ចុច «រក្សាទុក»"); await v.tap(T("#pw-save")); await A.locator("#pw-ok:not([hidden])").waitFor({ timeout: 10_000 }); d.A.pw = easy; await v.hold(400);
+      const save = T("#pw-save");
+      await v.caption("ចុច «រក្សាទុក»"); await v.scrollTo(save); await v.tap(save); // brought up first: the site's sticky bar covers the bottom
+      await A.locator("#pw-ok:not([hidden]), #pw-err:not([hidden])").first().waitFor({ timeout: 10_000 });
+      if (await A.locator("#pw-err:not([hidden])").count()) throw new Error(`password change refused: ${await A.locator("#pw-err").innerText()}`);
+      d.A.pw = easy; await v.hold(400);
       await v.caption("បានប្ដូរពាក្យសម្ងាត់ ✓"); await v.look(T("#pw-ok"), { zoom: 1.3, after: 1400 });
     }),
     clip("L5-06_notifications_v1", async (v, d) => {

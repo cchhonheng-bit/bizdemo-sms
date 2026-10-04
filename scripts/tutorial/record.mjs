@@ -301,20 +301,30 @@ window.tg = {
     writing = writing.then(() => writeFileSync(join(c.dir, "frames", file), Buffer.from(f.data, "base64")));
   });
   const done = [];
+  let failed = null; // a clip that fails ends the run; the clips before it are still encoded and saved
   for (const vid of VIDEOS) {
     const dir = join(WORK, vid.name);
     mkdirSync(join(dir, "frames"), { recursive: true });
     marks.length = 0; capOn = false;
-    await page.goto(`${BASE}/__stage`);
-    await page.evaluate(() => document.fonts.ready);
-    await page.frame("tg").evaluate(() => document.fonts.ready);
-    await vid.prepare?.(v, data);
-    await sleep(1500);
-    cur = { dir, frames: [] };
-    await cdp.send("Page.startScreencast", { format: "jpeg", quality: 80, maxWidth: W * S, maxHeight: H * S, everyNthFrame: 1 });
-    await sleep(300);
-    const t0 = Date.now() / 1000;
-    await vid.play(v, data);
+    let t0 = 0;
+    try {
+      await page.goto(`${BASE}/__stage`);
+      await page.evaluate(() => document.fonts.ready);
+      await page.frame("tg").evaluate(() => document.fonts.ready);
+      await vid.prepare?.(v, data);
+      await sleep(1500);
+      cur = { dir, frames: [] };
+      await cdp.send("Page.startScreencast", { format: "jpeg", quality: 80, maxWidth: W * S, maxHeight: H * S, everyNthFrame: 1 });
+      await sleep(300);
+      t0 = Date.now() / 1000;
+      await vid.play(v, data);
+    } catch (e) {
+      failed = e; cur = null;
+      await cdp.send("Page.stopScreencast").catch(() => {});
+      try { await page.screenshot({ path: join(WORK, "error.png") }); } catch { /* no page */ }
+      log(`${vid.name} FAILED (${String(e?.message ?? e).split("\n")[0]}) — screen: ${join(WORK, "error.png")}; the clips before it are encoded`);
+      break;
+    }
     const tEnd = Date.now() / 1000;
     await cdp.send("Page.stopScreencast");
     const c = cur; cur = null; await writing;
@@ -362,9 +372,11 @@ window.tg = {
   }
   log(remote("down"));
   tunnel?.kill();
+  if (failed && !done.length) throw failed;
   const report = done.map((d) => [`→ ${d.out} · ${d.seconds} s · ${(d.size / 1e6).toFixed(2)} MB`,
     ...d.caps.map((x) => `  ${x.at.toFixed(1)}s +${x.len.toFixed(1)}s  ${x.text.replace(/\n/g, " / ")}`)].join("\n")).join("\n");
   writeFileSync(join(WORK, "captions.txt"), report);
   log(report);
   log(`${done.length} videos · ${Math.round(done.reduce((a, d) => a + d.seconds, 0))} s · ${(done.reduce((a, d) => a + d.size, 0) / 1e6).toFixed(2)} MB · contact sheets: ${sheets.join(", ")}`);
+  if (failed) throw failed;
 }

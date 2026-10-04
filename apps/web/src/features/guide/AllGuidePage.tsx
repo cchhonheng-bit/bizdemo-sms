@@ -12,7 +12,7 @@ import { Badge, Button, Card, ErrorState, Skeleton } from "@/components/ui";
 const K = {
   title: "វីដេអូណែនាំទាំងអស់", reviewed: (x: number, n: number) => `បានពិនិត្យ ${x}/${n}`,
   denied: "គ្មានសិទ្ធិ", denied_p: "ទំព័រនេះសម្រាប់នាយកប្រតិបត្តិ និងគណនី HangKH ប៉ុណ្ណោះ។",
-  overview: "ទិដ្ឋភាពទូទៅ", soon: "មិនទាន់មាន", soon_p: "វីដេអូនេះមិនទាន់រួចរាល់ទេ",
+  soon: "មិនទាន់មាន", soon_p: "វីដេអូនេះមិនទាន់រួចរាល់ទេ",
   ok: "✅ យល់ព្រម", fix: "✏️ ត្រូវកែ", comment: "មតិ", comment_ph: "ត្រូវកែអ្វី? (ចាំបាច់ពេល «ត្រូវកែ»)", need_comment: "សូមសរសេរអ្វីដែលត្រូវកែ",
   saved: "បានរក្សាទុក", error: "មានបញ្ហា សូមព្យាយាមម្ដងទៀត", nobody: "មិនទាន់មានអ្នកពិនិត្យ", notes: "ការពិនិត្យ",
   pdf: "ទាញយក PDF", pdf_soon: "ឯកសារ PDF នឹងមានឆាប់ៗ", clips: "វីដេអូខ្លីៗ",
@@ -72,10 +72,7 @@ export default function AllGuidePage() {
 
       <div ref={player} className="scroll-mt-20">
         <Card>
-          <div className="flex items-baseline justify-between gap-2 mb-2">
-            <div className="font-semibold"><span className="text-muted tabular mr-2">{video.id}</span>{video.title}</div>
-            {video.id === t.videos[0] && <Badge tone="purple">{K.overview}</Badge>}
-          </div>
+          <div className="font-semibold mb-2"><span className="text-muted tabular mr-2">{video.id}</span>{video.title}</div>
           {video.url
             ? <video key={video.url} src={video.url} controls playsInline preload="metadata" className="w-full max-h-[75vh] rounded-lg bg-black" data-testid="guide-player" />
             : <div className="rounded-lg bg-grey-bg text-muted text-sm text-center py-16">{K.soon_p}</div>}
@@ -85,14 +82,14 @@ export default function AllGuidePage() {
 
       <Card title={K.clips}>
         <ul className="divide-y divide-line -my-2">
-          {t.videos.map((id, i) => {
+          {t.videos.map((id) => {
             const v = byId.get(id)!, rs = reviewsOf.get(id) ?? [];
             return (
               <li key={id}>
                 <button onClick={() => pick(id)} className={`w-full text-left py-3 flex items-center gap-3 ${id === current ? "text-navy" : ""}`} data-testid="guide-clip">
                   <PlayCircle size={20} className={v.ready ? "text-teal shrink-0" : "text-muted shrink-0"} />
                   <span className="flex-1 min-w-0">
-                    <span className="block font-semibold truncate">{i === 0 ? `${K.overview} · ` : ""}{v.title}</span>
+                    <span className="block font-semibold truncate">{v.title}</span>
                     <span className="block text-xs text-muted tabular">{v.id}{v.ready ? ` · ${length(v.seconds)}` : ` · ${K.soon}`}</span>
                   </span>
                   {rs.some((r) => r.verdict === "fix") ? <PencilLine size={18} className="text-warning shrink-0" /> : rs.length ? <CheckCircle2 size={18} className="text-success shrink-0" /> : null}
