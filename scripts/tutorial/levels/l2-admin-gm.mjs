@@ -1,4 +1,5 @@
-// Level 2 — Admin / GM in the staff app on a desktop (1920×1080), as built: the overview (the main daily work) + one clip per task →
+// Level 2 — Admin / GM in the staff app on a desktop (1920×1080), as built (CEO feedback 04-10: confirm = length + crew in one dialog,
+// busy technicians greyed with their time, «បោះបង់ការងារ», the board moves within 15 s, table buttons with words): overview + clips →
 // Doc_Sup/09_Tutorials/Admin_GM/L2-<nn>_<feature>_v1.mp4. Demo data only, fake names: website bookings come from a pretend visitor
 // through the public booking API; promotions go to fake subscribers of a throwaway hub (no bot token, no sending job → nothing leaves).
 import { readXlsx, writeXlsx } from "../../../apps/server/src/lib/xlsx.ts";
@@ -34,7 +35,6 @@ const clip = (name, play) => ({
   },
 });
 async function openJob(v, { link, job, next }, name) { await v.tap(link("ការងារ")); await v.idle(); await v.scrollTo(job(name)); await v.tap(job(name), null, next); await v.idle(); }
-async function assignFree(v, { dlg, T, next }) { await v.tap(dlg().locator("label", { hasText: "ជាង សាកល្បង" }).first()); await v.tap(T("assign-submit"), null, next); await v.idle(); }
 async function pickService(v, { A, next }, d, time) {
   await A.locator('select[name="category"]').selectOption("mep");
   const sel = A.locator('select[name="service_item_id"]'), date = A.locator('input[name="date"]'), start = A.locator('input[name="start"]');
@@ -111,28 +111,33 @@ export default {
     await v.hold(2600);
     for (const [i, [name, phone]] of WEB.entries())
       await visitor.call("POST", "/api/public/bookings", { items: `${ac.id}:1`, at: picks[i].at, address: "ផ្ទះលេខ 21 ផ្លូវសាកល្បង ភ្នំពេញ", name, phone, consent: true, ts });
+    // each confirm dialog shows one technician busy (greyed, with his time): another job at the same time as R0 / R1 / R3
+    for (const [n, i] of [0, 1, 3].entries()) {
+      const from = new Date(picks[i].at), to = new Date(from.getTime() + 2 * 3_600_000);
+      const avail = await v.api("GET", `/api/bookings/availability?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`);
+      const tech = avail.people.filter((p) => p.available && p.role === "tech").at(-1);
+      await book(`អតិថិជនសាកល្បង ${["ជ", "ឈ", "ញ"][n]}`, `01200002${n}`, from, "ជួសជុលម៉ាស៊ីនត្រជាក់", { id: tech.user_id });
+    }
     // the demo hub: the shop's bot row (a dummy token nobody can decrypt) + 24 fake subscribers (some without promotions, some stopped)
     await v.sqlhub(`insert into hub_bots (code, kind, shop_code, username, path, token_enc, secret_enc) values ('DEMO', 'shop', 'DEMO', 'Oneteam_app_bot', 'demo', 'demo-no-token', 'demo-no-token');
 insert into hub_subscribers (telegram_user_id, chat_id, first_name) select 900000000 + g, 900000000 + g, 'អតិថិជនសាកល្បង ' || translate(g::text, '0123456789', '០១២៣៤៥៦៧៨៩') from generate_series(1, 24) g;
 insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subscribed_at) select 'DEMO', id, telegram_user_id % 7 <> 0, case when telegram_user_id % 11 = 0 then now() end, now() - (telegram_user_id % 40) * interval '1 day' from hub_subscribers;`);
-    return { ac, web: WEB.map((w) => w[0]), today: TODAY.map((x) => x[0]), move: "អតិថិជនសាកល្បង ង", moveTo: ymd(dayAt(3, 9)), drop: "អតិថិជនសាកល្បង ច", phoneDay: ymd(dayAt(1, 0)) };
+    return { ac, depart: () => press(techs[0], jobs[0].id, ["depart"]), web: WEB.map((w) => w[0]), today: TODAY.map((x) => x[0]), move: "អតិថិជនសាកល្បង ង", moveTo: ymd(dayAt(3, 9)), drop: "អតិថិជនសាកល្បង ច", phoneDay: ymd(dayAt(1, 0)) };
   },
   videos: [
     clip("L2-00_overview_v1", async (v, d, u) => {
-      const { A, link, T, req, next } = u;
+      const { A, link, dlg, T, req, next } = u;
       await v.chapter("១ · សំណើអតិថិជន");
       await v.caption("ការកក់ពីគេហទំព័រ\nនៅក្នុង «សំណើអតិថិជន»"); await v.tap(link("សំណើអតិថិជន")); await v.idle();
       await v.caption("ឆ្លើយក្នុង ៣០ នាទី\nអតិថិជនកំពុងរង់ចាំ"); await v.scrollTo(req(d.web[0])); await v.hold(1000);
-      await v.caption("ចុច «បញ្ជាក់»\nអតិថិជនទទួលដំណឹងភ្លាម"); await v.tap(req(d.web[0]).locator('[data-testid="req-yes"]')); await v.idle(); await v.hold(600);
-      await v.chapter("២ · ចាត់ជាង");
-      await v.caption("បើកការងារ ពី «ការងារ»"); await openJob(v, u, d.web[0]);
-      await v.caption("ចុច «ចាត់ជាង»\nមានតែជាងទំនេរ ក្នុងបញ្ជី"); await v.tap(T("assign-btn")); await v.idle(); await v.hold(700);
-      await v.caption("ជ្រើសជាង ហើយបញ្ជាក់\nជាងទទួលការងារតាម Telegram"); await assignFree(v, u); await v.hold(600);
-      await v.chapter("៣ · ការងារថ្ងៃនេះ");
+      await v.caption("ចុច «បញ្ជាក់»"); await v.tap(req(d.web[0]).locator('[data-testid="req-yes"]')); await v.idle();
+      await v.caption("ជ្រើសជាងទំនេរ\nអ្នករវល់ មិនអាចជ្រើស"); await v.tap(dlg().locator('[data-testid="crew-free"] label').first());
+      await v.caption("ចុច «បញ្ជាក់ និងចាត់ជាង»\nអតិថិជន និងជាងទទួលដំណឹង"); await v.tap(T("req-confirm-go")); await v.idle(); await v.hold(800);
+      await v.chapter("២ · ការងារថ្ងៃនេះ");
       await v.caption("ចុច «ការងារ» ហើយ «តម្រង»\nជ្រើស «ថ្ងៃនេះ»"); await v.tap(link("ការងារ")); await v.idle(); await v.tap(T("filters-toggle"), null, next);
       const day = A.locator('[data-testid="filters"] select').first(); await v.tap(day, () => day.selectOption("today"), next); await v.idle();
       await v.caption("ការងារផ្លាស់ជួរឯង\nពេលជាងចុចជំហាននីមួយៗ"); await v.hold(2400);
-      await v.chapter("៤ · អតិថិជនទូរស័ព្ទមក");
+      await v.chapter("៣ · អតិថិជនទូរស័ព្ទមក");
       await v.caption("ចុច «ការងារថ្មី»"); await v.tap(A.getByRole("button", { name: "ការងារថ្មី" })); await v.idle();
       await v.caption("វាយលេខទូរស័ព្ទ\nហើយជ្រើសអតិថិជន"); await v.type(A.locator('input[name="customer_search"]'), "012000555", { before: 1200 }); await v.idle();
       await v.tap(A.locator('[role="listbox"] button').first(), null, next); await v.idle();
@@ -140,26 +145,27 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("ចុច «បង្កើតការងារ»"); await create(v, u);
       await v.caption("វីដេអូខ្លីៗ បង្ហាញការងារនីមួយៗ\nលម្អិត"); await v.hold(2200);
     }),
-    clip("L2-01_confirm-decline-request_v1", async (v, d, { link, req }) => {
+    clip("L2-01_confirm-decline-request_v1", async (v, d, { link, req, dlg, T }) => {
       const yes = req(d.web[1]), no = req(d.web[2]);
       await v.caption("ចុច «សំណើអតិថិជន»"); await v.tap(link("សំណើអតិថិជន")); await v.idle();
       await v.caption("ឆ្លើយក្នុង ៣០ នាទី\nអតិថិជនកំពុងរង់ចាំ"); await v.scrollTo(yes); await v.hold(1000);
       await v.caption("ពិនិត្យសេវា ថ្ងៃ និងម៉ោង\nហើយចុច «បញ្ជាក់»"); await v.tap(yes.locator('[data-testid="req-yes"]')); await v.idle();
-      await v.caption("អតិថិជនទទួលដំណឹង\nតាម Telegram ភ្លាម"); await v.hold(1400);
+      await v.caption("ជ្រើសជាងទំនេរ\nអ្នករវល់ មិនអាចជ្រើស"); await v.tap(dlg().locator('[data-testid="crew-free"] label').first());
+      await v.caption("ចុច «បញ្ជាក់ និងចាត់ជាង»\nអតិថិជន និងជាងទទួលដំណឹងភ្លាម"); await v.tap(T("req-confirm-go")); await v.idle(); await v.hold(600);
       await v.caption("មិនអាចទទួល? ចុច «មិនទទួល»"); await v.scrollTo(no); await v.tap(no.locator('[data-testid="req-no"]'));
       await v.caption("សរសេរមូលហេតុ\nអតិថិជននឹងឃើញ"); await v.type(no.locator('[data-testid="req-reason"]'), "ថ្ងៃនោះជាងពេញ", { before: 1200 });
       await v.caption("ចុច «មិនទទួល» ម្ដងទៀត\nម៉ោងនោះទំនេរវិញ"); await v.tap(no.locator('[data-testid="req-no-go"]')); await v.idle(); await v.hold(1400);
     }),
-    clip("L2-02_assign-technician-job-length_v1", async (v, d, u) => {
-      const { link, T, req } = u, r = req(d.web[3]);
+    clip("L2-02_assign-technician-job-length_v1", async (v, d, { link, dlg, T, req }) => {
+      const r = req(d.web[3]), freeRows = dlg().locator('[data-testid="crew-free"]');
       await v.caption("ចុច «សំណើអតិថិជន»"); await v.tap(link("សំណើអតិថិជន")); await v.idle(); await v.scrollTo(r);
-      await v.caption("ការងារវែង ឬខ្លីជាងធម្មតា?\nកែរយៈពេល (នាទី)"); await v.type(r.locator('[data-testid="req-minutes"]'), "90", { clear: true, before: 1200 });
-      await v.caption("ម៉ោងបញ្ចប់ និងជាងទំនេរ\nគិតពីរយៈពេលនេះ"); await v.hold(1600);
-      await v.caption("ចុច «បញ្ជាក់»"); await v.tap(r.locator('[data-testid="req-yes"]')); await v.idle(); await v.hold(600);
-      await v.caption("បើកការងារនេះ ពី «ការងារ»"); await openJob(v, u, d.web[3]);
-      await v.caption("ចុច «ចាត់ជាង»"); await v.tap(T("assign-btn")); await v.idle();
-      await v.caption("មានតែជាងទំនេរ\nជាងរវល់ មិនបង្ហាញ"); await v.hold(1600);
-      await v.caption("ជ្រើសជាង ហើយបញ្ជាក់\nជាងទទួលការងារតាម Telegram"); await assignFree(v, u); await v.hold(1400);
+      await v.caption("ចុច «បញ្ជាក់»\nរយៈពេល និងជាង នៅផ្ទាំងតែមួយ"); await v.tap(r.locator('[data-testid="req-yes"]')); await v.idle();
+      await v.caption("ការងារវែង ឬខ្លីជាងធម្មតា?\nកែរយៈពេល (នាទី)"); await v.type(dlg().locator('[data-testid="req-minutes"]'), "90", { clear: true, before: 1200 }); await v.idle();
+      await v.caption("ម៉ោងបញ្ចប់ និងជាងទំនេរ\nគិតពីរយៈពេលនេះ"); await v.look(T("req-confirm-when"), { zoom: 1.5 });
+      await v.caption("ជាងរវល់ ពណ៌ប្រផេះ\nបង្ហាញម៉ោងដែលគាត់រវល់"); await v.look(dlg().locator('[data-testid="crew-busy"]').first(), { zoom: 1.5 });
+      await v.caption("ធីកជាងទំនេរ\nហើយចុច «មេជាង» (ស្រេចចិត្ត)"); await v.tap(freeRows.nth(0).locator("label"));
+      await v.tap(freeRows.nth(0).getByRole("button", { name: "មេជាង" }), null, { before: 1000 });
+      await v.caption("ចុច «បញ្ជាក់ និងចាត់ជាង»\nជាងទទួលការងារតាម Telegram"); await v.tap(T("req-confirm-go")); await v.idle(); await v.hold(1400);
     }),
     clip("L2-03_booking-by-phone_v1", async (v, d, u) => {
       const { A, link, dlg, next } = u;
@@ -184,23 +190,27 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.tap(T("resched-submit"), null, next); await v.idle();
       await v.caption("ជាងទទួលម៉ោងថ្មី តាម Telegram"); await v.hold(1200);
       await v.caption("ប្រវត្តិ៖ នរណាស្នើ និងមូលហេតុ"); const hist = T("resched-history"); await v.scrollTo(hist); await v.look(hist, { zoom: 1.4 });
-      await v.caption("លុបចោល៖ បើកការងារ\nហើយចុច «លុបចោលការងារ»"); await openJob(v, u, d.drop); await v.tap(T("cancel-btn"), null, next);
+      await v.caption("បោះបង់៖ បើកការងារ\nហើយចុច «បោះបង់ការងារ»"); await openJob(v, u, d.drop); await v.tap(T("cancel-btn"), null, next);
       await v.caption("មូលហេតុត្រូវតែមាន\nការងារមិនត្រូវលុបទេ"); await v.type(dlg().locator("textarea"), "អតិថិជនលែងត្រូវការ", { before: 1200 });
-      await v.caption("ចុចបញ្ជាក់ — ជាងទំនេរវិញ\nហើយទទួលដំណឹង"); await v.tap(T("cancel-submit")); await v.idle(); await v.hold(1400);
+      await v.caption("ចុច «បោះបង់ការងារនេះ»\nជាងទំនេរវិញ ហើយទទួលដំណឹង"); await v.tap(T("cancel-submit")); await v.idle(); await v.hold(1400);
     }),
     clip("L2-05_todays-jobs-board_v1", async (v, d, u) => {
       const { A, link, T, job, next } = u, f = A.locator('[data-testid="filters"] select');
+      const inCol = (col) => A.locator(`[data-testid="col-${col}"] [data-testid="booking-card"]`, { hasText: d.today[0] });
       await v.caption("ចុច «ការងារ» ហើយ «តម្រង»"); await v.tap(link("ការងារ")); await v.idle(); await v.tap(T("filters-toggle"), null, next);
       await v.caption("ជ្រើស «ថ្ងៃនេះ»"); await v.tap(f.first(), () => f.first().selectOption("today"), { before: 1200 }); await v.idle();
       await v.caption("ជួរនីមួយៗ ជាស្ថានភាពការងារ"); await v.hold(1600);
-      await v.caption("ការងារផ្លាស់ជួរឯង ពេលជាងចុចជំហាន\nមិនបាច់ទូរស័ព្ទសួរ"); await v.hold(2000);
+      await v.caption("មើល៖ ជាងម្នាក់ទើបចុច «ចេញដំណើរ»"); await v.look(inCol("assigned"), { zoom: 1.4, after: 900 });
+      await d.depart();                                                        // the technician's phone, right now
+      await inCol("in_progress").waitFor({ timeout: 25_000 });                 // the board refreshes every 15 s
+      await v.caption("ការងារផ្លាស់ជួរឯង ក្នុង ១៥ វិនាទី\nមិនបាច់ទូរស័ព្ទសួរ"); await v.look(inCol("in_progress"), { zoom: 1.4 });
       await v.caption("ជ្រើសជាង\nឃើញតែការងាររបស់គាត់"); await v.tap(f.nth(3), () => f.nth(3).selectOption({ label: "ជាង សាកល្បង ៣" }), { before: 1200 }); await v.idle();
       await v.caption("ចុចការងារ — ឃើញម៉ោង\nដែលជាងចុចជំហាននីមួយៗ"); await v.tap(job(d.today[2]), null, next); await v.idle();
       await v.scrollTo(A.getByText("ដំណើរការការងារ", { exact: true }).first()); await v.hold(3200);
     }),
     clip("L2-06_catalog-edit_v1", async (v, d, { A, link, dlg, T }) => {
       await v.caption("ចុច «ទំនិញ និងសេវាកម្ម»"); await v.tap(link("ទំនិញ និងសេវាកម្ម")); await v.idle();
-      await v.caption("ចុច ✏️ លើសេវាដែលចង់កែ"); const row = A.locator("tr", { hasText: "AC-CLEAN" }); await v.scrollTo(row); await v.tap(row.locator('button[title="កែ"]'));
+      await v.caption("ចុច «កែ» នៅជួរសេវា"); const row = A.locator("tr", { hasText: "AC-CLEAN" }); await v.scrollTo(row); await v.tap(row.getByRole("button", { name: "កែ", exact: true }));
       await v.caption("រយៈពេលការងារ\nម៉ោងបញ្ចប់ និងម៉ោងទំនេរ គិតពីនេះ"); await v.type(dlg().locator('input[name="duration_min"]'), "90", { clear: true, before: 1200 });
       await v.caption("តម្លៃចាប់ពី\nអតិថិជនឃើញលើគេហទំព័រ"); await v.type(T("cat-from"), "18", { clear: true, before: 1200 });
       await v.caption("ទុកទទេ = «តម្លៃបញ្ជាក់ពេលទាក់ទង»\nនៅតែកក់បាន"); await v.hold(1400);
@@ -225,7 +235,7 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
     clip("L2-08_unlock-customer_v1", async (v, d, { A, link, T }) => {
       await v.caption("អតិថិជនចូលគេហទំព័រមិនបាន?\nមើលថាគណនីជាប់សោឬទេ"); await v.hold(1200);
       await v.caption("ចុច «អតិថិជន»"); await v.tap(link("អតិថិជន")); await v.idle();
-      await v.caption("ចុច «ប្រវត្តិ» របស់អតិថិជន"); const row = A.locator("tr", { hasText: "012999888" }); await v.scrollTo(row); await v.tap(row.locator('button[title="ប្រវត្តិ"]')); await v.idle();
+      await v.caption("ចុច «ប្រវត្តិ» របស់អតិថិជន"); const row = A.locator("tr", { hasText: "012999888" }); await v.scrollTo(row); await v.tap(row.getByRole("button", { name: "ប្រវត្តិ", exact: true })); await v.idle();
       await v.caption("វាយពាក្យសម្ងាត់ខុសច្រើនដង\nគណនីជាប់សោ"); await v.look(T("login-unlock").locator("xpath=.."), { zoom: 1.5 });
       await v.caption("ទូរស័ព្ទបញ្ជាក់សិន\nថាជាម្ចាស់គណនីពិត"); await v.hold(1600);
       await v.caption("ចុច «ដោះសោ»"); await v.tap(T("login-unlock")); await v.idle(); await v.hold(500);

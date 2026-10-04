@@ -55,14 +55,22 @@ async function run() {
   const ctx = await browser.newContext({ viewport: { width: W * S, height: H * S }, deviceScaleFactor: 1, locale: "km-KH", timezoneId: "Asia/Phnom_Penh", bypassCSP: true,
     geolocation: { latitude: 11.5566, longitude: 104.9284, accuracy: 12 }, permissions: ["geolocation"] });
   const password = () => "Dm" + randomBytes(9).toString("base64url") + "!7";
-  async function staffSession(rc, user, pw) { // log in; the first login asks for a new password
-    const r = await rc.post(`${BASE}/api/auth/login`, { data: { identifier: user, password: pw } });
+  async function staffSession(rc, user, pw) { // log in; the first login asks for a new password → the password in use now
+    let r;
+    for (let i = 0; ; i++) { // the server allows 5 staff logins a minute per address: past that, wait for the next minute
+      r = await rc.post(`${BASE}/api/auth/login`, { data: { identifier: user, password: pw } });
+      if (r.status() !== 429 || i >= 2) break;
+      await sleep(62_000 - (Date.now() % 60_000));
+    }
     if (!r.ok()) throw new Error(`login ${user}: ${r.status()}`);
     const j = await r.json();
     if (j.me?.must_change_password ?? j.must_change_password) {
-      const c = await rc.post(`${BASE}/api/me/password`, { data: { new_password: password() } });
+      const next = password();
+      const c = await rc.post(`${BASE}/api/me/password`, { data: { new_password: next } });
       if (!c.ok()) throw new Error(`password ${user}: ${c.status()}`);
+      return next;
     }
+    return pw;
   }
   const ceo = await request.newContext({ baseURL: BASE });
   await staffSession(ceo, "ceo", CEO_TEMP);
@@ -226,8 +234,9 @@ window.tg = {
     async download(loc, o = {}) { const ev = page.waitForEvent("download"); await v.tap(loc, null, o); const d = await ev; const p = join(WORK, d.suggestedFilename()); await d.saveAs(p); return p; },
     /** a chapter card (2 s) between the parts */
     async chapter(text) { await v.caption(null); await page.evaluate((t) => { const c = document.getElementById("chap"); c.querySelector(".k").textContent = t; c.classList.add("on"); }, text); await sleep(2000); await page.evaluate(() => document.getElementById("chap").classList.remove("on")); await sleep(300); },
-    /** another signed-in user of the demo (e.g. a technician pressing steps) or a visitor (user null) → call(method, path, data) */
-    async session(user, pw) { const rc = await request.newContext({ baseURL: BASE }); if (user) await staffSession(rc, user, pw); return { call: (m, p, d) => call(rc, m, p, d), text: async (p) => (await rc.get(`${BASE}${p}`)).text() }; },
+    /** another signed-in user of the demo (e.g. a technician pressing steps) or a visitor (user null) → call(method, path, data);
+     *  pw = the password in use after the login (the first login replaces the one given) */
+    async session(user, pw) { const rc = await request.newContext({ baseURL: BASE }); const now = user ? await staffSession(rc, user, pw) : null; return { pw: now, call: (m, p, d) => call(rc, m, p, d), text: async (p) => (await rc.get(`${BASE}${p}`)).text() }; },
     async scrollTo(loc) { await loc.evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "center" })); await sleep(550); },
     /** wait until the demo instance has answered everything the page asked for */
     async idle(max = 1500) { const t0 = Date.now(); let quiet = 0; while (Date.now() - t0 < max) { await sleep(100); quiet = inflight ? 0 : quiet + 100; if (quiet >= 250) return; } },
