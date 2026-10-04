@@ -13,13 +13,18 @@
 //  * Admin + GM are told and confirm (they may change the job length — CEO) or decline. Nobody answers: 30 min → Admin + GM are
 //    reminded, 60 min → the CEO; never declined by itself, the customer gets no extra message; once the appointment time has
 //    passed the hold ends and the booking is «expired» (Admin + GM told).
+//  * D-119 night rule: those minutes count only 08:00–20:00 shop time (made at night → reminders at 08:30 and 09:00); a booking
+//    made 20:00–08:00 is told «we confirm at 8 am» (screen 4 + bot), the staff alert of it arrives without sound.
+//  * D-120 test phones (Settings, CEO only): a booking / quote from such a phone is a test — its own customer record, the CEO
+//    hears about it (🧪), it does not hold a technician while it waits, reports and lists leave it out, cancelled after 24 h.
 //  * Quote requests: the same lines + a description + up to 5 photos (type and size checked, metadata stripped) → the GM; the same
 //    one-tap link.
 import { createHmac, randomBytes } from "node:crypto";
-import { customerText, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN,
-  WEB_LEAD_MIN, WEB_MAX_PHOTOS, webHours, webSlotStarts, type ConsentSource, type ServiceCategory, type WebCategory, type WebLineRef } from "@sms/shared";
+import { customerText, isNight, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN,
+  WEB_LEAD_MIN, WEB_MAX_PHOTOS, webHours, webSlotStarts, workingMinutes, type ConsentSource, type ServiceCategory, type WebCategory, type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, tx, type Db } from "../db.js";
+import { clock } from "../lib/clock.js";
 import { featureOn } from "../lib/features.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
@@ -36,6 +41,7 @@ import { checkImage, writeImage } from "./jobs.js";
 import { customerByPhone, notifyRequestStaff } from "./requests.js";
 import { checkFormToken, readUpload, siteCompanyId } from "./site.js";
 import { fmtLocal, flushOutbox, notifyUser } from "./telegram.js";
+import { ceoIds, isTestPhone, testTitle } from "./test-mode.js";
 
 /** abuse guard: at most this many online bookings may wait for an answer at the same time (each one holds a technician and
  *  rings Admin + GM); beyond it the visitor is asked to call. An object so the tests can lower it. */
@@ -83,7 +89,7 @@ async function loadCapacity(db: Db, companyId: string, from: Date, to: Date, exc
   const away = await db<(Span & { user_id: string })[]>`select user_id, starts_at as s, ends_at as e from staff_leaves
     where company_id = ${companyId} and status = 'approved' and tstzrange(starts_at, ends_at, '[)') && tstzrange(${from}, ${to}, '[)')`;
   const waiting = await db<Span[]>`select b.scheduled_at as s, b.ends_at as e from bookings b
-    where b.company_id = ${companyId} and b.status in ('new', 'quoted') and b.scheduled_at is not null ${skip}
+    where b.company_id = ${companyId} and b.status in ('new', 'quoted') and b.scheduled_at is not null and not b.is_test ${skip}
       and not exists (select 1 from booking_technicians t where t.booking_id = b.id) and tstzrange(b.scheduled_at, b.ends_at, '[)') && tstzrange(${from}, ${to}, '[)')`;
   return { techs, busy, away, waiting };
 }
@@ -138,19 +144,19 @@ const bookingToken = (id: string) => token(`booking-link:${id}`);
 const requestToken = (id: string) => token(`request-link:${id}`);
 export const botLink = async (tok: string) => { const bot = await shopBotUsername().catch(() => null); return bot ? `https://t.me/${bot}?start=${tok}` : null; };
 
-type Linked = { number: string | null; quote: boolean; password: string | null; already: boolean };
+type Linked = { number: string | null; quote: boolean; password: string | null; already: boolean; night?: boolean };
 /** the chat `sub` takes the booking: the booking-level link at once; the customer RECORD only when that is safe — the staff
  *  already confirmed it, or the record exists only because of this booking (a phone number alone opens nobody's history) */
 async function linkBookingIn(t: Db, bookingId: string, sub: number, via: "token" | "miniapp" | "session"): Promise<Linked> {
-  const b = (await t<{ number: string; company_id: string; web_status: string | null; customer_id: string; csub: string | null }[]>`select b.number, b.company_id, b.web_status, b.customer_id,
-      c.tg_subscriber_id::text as csub from bookings b join customers c on c.id = b.customer_id where b.id = ${bookingId} for update of b`)[0]!;
+  const b = (await t<{ number: string; company_id: string; web_status: string | null; customer_id: string; csub: string | null; tz: string }[]>`select b.number, b.company_id, b.web_status, b.customer_id,
+      c.tg_subscriber_id::text as csub, co.timezone as tz from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id where b.id = ${bookingId} for update of b`)[0]!;
   await t`update bookings set web_subscriber_id = ${sub} where id = ${bookingId}`;
   await t`update booking_link_tokens set used_at = now(), used_by = ${sub} where booking_id = ${bookingId} and used_at is null`;
   const already = b.csub === String(sub);
   const fresh = (await t`select 1 from bookings b2 where b2.customer_id = ${b.customer_id} and b2.id <> ${bookingId} and b2.status <> 'cancelled' limit 1`).length === 0;
   const linked = !already && (b.web_status === "confirmed" || fresh) && (await t`update customers set tg_subscriber_id = ${sub} where id = ${b.customer_id} and tg_subscriber_id is null returning id`).length > 0;
   await audit(t, { companyId: b.company_id, userId: null, action: "booking.tg_link", source: via === "session" ? "system" : "telegram", table: "bookings", rowId: bookingId, new: { via, customer_linked: linked } });
-  return { number: b.number, quote: false, password: linked ? await issueInitialPassword(t, b.customer_id) : null, already };
+  return { number: b.number, quote: false, password: linked ? await issueInitialPassword(t, b.customer_id) : null, already, night: b.web_status === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day) };
 }
 async function linkRequestIn(t: Db, requestId: string, sub: number, via: "token" | "miniapp" | "session"): Promise<Linked> {
   const r = (await t<{ company_id: string; customer_id: string | null; made: boolean; csub: string | null }[]>`select r.company_id, r.customer_id, coalesce((r.meta->>'new_customer')::boolean, false) as made,
@@ -165,7 +171,7 @@ async function linkRequestIn(t: Db, requestId: string, sub: number, via: "token"
 /** the bot's answer after a link: «linked» (+ the first password) with the keyboard grid; a customer who was linked before just
  *  hears that the booking arrived */
 function linkedMsg(l: Linked): CustomerMsg {
-  const text = l.already && !l.password ? (l.quote ? customerText.quoteReceived : customerText.received(l.number!)) : l.quote ? customerText.linkedQuote(l.password) : customerText.linked(l.number, l.password);
+  const text = l.already && !l.password ? (l.quote ? customerText.quoteReceived : customerText.received(l.number!, l.night)) : l.quote ? customerText.linkedQuote(l.password) : customerText.linked(l.number, l.password, l.night);
   return { text, keyboard: customerGrid(), hint: l.password ? customerText.hint : null, menu_url: menuUrl() };
 }
 
@@ -236,41 +242,46 @@ export async function submitWebBooking(ip: string, v: WebBookingInput, who: { se
   if (r.quote) throw new AppError("QUOTE_ONLY", 400);
   const at = new Date(v.at);
   if (Number.isNaN(at.getTime())) throw new AppError("SLOT_INVALID", 400);
-  if (!checkRate(`site:book:ip:${ip}`, 5, 3600) || !checkRate(`site:book:phone:${phone}`, 3, 86400)) throw new AppError("RATE_LIMITED", 429);
+  const test = await isTestPhone(sql, companyId, phone); // D-120: the CEO's test phones are not held to the per-phone daily limit
+  if (!checkRate(`site:book:ip:${ip}`, 5, 3600) || (!test && !checkRate(`site:book:phone:${phone}`, 3, 86400))) throw new AppError("RATE_LIMITED", 429);
   const note = v.note?.trim().slice(0, 500) || null, source = consentSource({ ...who, initData: v.init_data });
   const accuracy = gps && v.accuracy != null ? Math.min(100_000, Math.max(0, Math.round(v.accuracy))) : null;
   const saved = await tx(null, async (t) => {
     // one web booking at a time per company: the slot is checked and taken under this lock (race-safe)
     await t`select pg_advisory_xact_lock(hashtextextended(${`web-booking:${companyId}`}, 0))`;
-    if ((await t<{ n: number }[]>`select count(*)::int as n from bookings where company_id = ${companyId} and web_status = 'pending' and status <> 'cancelled'`)[0]!.n >= webLimits.maxPending) throw new AppError("TOO_MANY_PENDING", 429);
+    if ((await t<{ n: number }[]>`select count(*)::int as n from bookings where company_id = ${companyId} and web_status = 'pending' and status <> 'cancelled' and not is_test`)[0]!.n >= webLimits.maxPending) throw new AppError("TOO_MANY_PENDING", 429);
     const slot = (await slotGrid(t, companyId, r.minutes)).flatMap((d) => d.slots).find((s) => s.at === at.toISOString());
     if (!slot || slot.why === "past" || slot.why === "closed") throw new AppError("SLOT_INVALID", 400);
     if (!slot.free) throw new AppError("SLOT_TAKEN", 409);
     // the customer: the one who has this phone number — that record is NOT touched (the visitor is not verified yet) — else a
     // new record with the consent just given. The consent itself is always kept on the request (meta.consent).
-    let customerId = await customerByPhone(t, companyId, phone);
-    if (!customerId) customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version, consent_source)
-      values (${companyId}, ${name}, ${t.array([phone])}, ${address || null}, ${v.lat ?? null}, ${v.lng ?? null}, 'website', now(), ${SITE_CONSENT_VERSION}, ${source}) returning id`)[0]!.id;
+    let customerId = await customerByPhone(t, companyId, phone, test);
+    if (!customerId) customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version, consent_source, is_test)
+      values (${companyId}, ${name}, ${t.array([phone])}, ${address || null}, ${v.lat ?? null}, ${v.lng ?? null}, 'website', now(), ${SITE_CONSENT_VERSION}, ${source}, ${test}) returning id`)[0]!.id;
     const c = (await t<{ address: string | null; zone: string; tz: string }[]>`select cu.address, cu.zone::text as zone, co.timezone as tz from customers cu join companies co on co.id = cu.company_id where cu.id = ${customerId}`)[0]!;
     const number = await nextBookingNumber(t, companyId);
     const end = new Date(at.getTime() + r.minutes * 60_000), ref = randomBytes(16).toString("base64url");
     const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, loc_accuracy, zone, notes,
-        created_by, origin, web_status, web_ref, web_lines)
+        created_by, origin, web_status, web_ref, web_lines, is_test)
       values (${companyId}, ${number}, ${customerId}, 'A', ${r.category}::service_category, 'new', ${r.text_km.slice(0, 1000)}, ${r.lines[0]!.id}, ${at}, ${end}, ${address || c.address}, ${v.lat ?? null}, ${v.lng ?? null},
-        ${accuracy}, ${c.zone}::zone, ${note}, null, 'website', 'pending', ${ref}, ${t.json(r.lines as never)}) returning id`)[0]!.id;
+        ${accuracy}, ${c.zone}::zone, ${note}, null, 'website', 'pending', ${ref}, ${t.json(r.lines as never)}, ${test}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${id}, null, 'new', null)`;
     await t`insert into booking_link_tokens (token_hash, company_id, booking_id, expires_at) values (${sha256(bookingToken(id))}, ${companyId}, ${id}, now() + interval '7 days')`;
     const consent = { at: new Date().toISOString(), version: SITE_CONSENT_VERSION, source };
-    await audit(t, { companyId, userId: null, action: "booking.create", source: "system", table: "bookings", rowId: id, new: { number, origin: "website", customer_id: customerId, scheduled_at: at, ends_at: end, lines: r.lines.length }, ip });
+    await audit(t, { companyId, userId: null, action: "booking.create", source: "system", table: "bookings", rowId: id, new: { number, origin: "website", customer_id: customerId, scheduled_at: at, ends_at: end, lines: r.lines.length, ...(test ? { test } : {}) }, ip });
     await audit(t, { companyId, userId: null, action: "customer.consent", source: "system", table: "customers", rowId: customerId, new: consent, ip });
     const text = [`🛠 ${r.text_km}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${kmDigits(Math.round(r.minutes / 6) / 10)} ម៉ោង`, ...place(v, address), note ? `📝 ${note}` : null].filter(Boolean).join("\n");
     const textEn = [`🛠 ${r.text_en}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${Math.round(r.minutes / 6) / 10} h`, ...place(v, address), note ? `📝 ${note}` : null].filter(Boolean).join("\n");
-    const rid = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, booking_id, customer_id, name, phone, text, meta)
-      values (${companyId}, 'website', 'booking', ${id}, ${customerId}, ${name}, ${phone}, ${text.slice(0, 1000)},
+    const rid = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, booking_id, customer_id, name, phone, text, is_test, meta)
+      values (${companyId}, 'website', 'booking', ${id}, ${customerId}, ${name}, ${phone}, ${text.slice(0, 1000)}, ${test},
         ${t.json({ service_item_id: r.lines[0]!.id, service: r.text_km, lines: r.lines, at: at.toISOString(), minutes: r.minutes, lat: v.lat ?? null, lng: v.lng ?? null, accuracy,
           lang: v.lang === "en" ? "en" : "km", consent } as never)}) returning id`)[0]!.id;
+    // D-119: made at night → «confirm at 8 am» (the customer is told the same) and the alert has no sound (notifyRequestStaff)
+    const night = isNight(clock.now(), c.tz || "Asia/Phnom_Penh", clock.day);
+    const ask = night ? { km: "⏱ ការកក់ពេលយប់ · សូមបញ្ជាក់ម៉ោង ៨ ព្រឹក", en: "⏱ Night booking · please confirm at 8 am" }
+      : { km: `⏱ សូមបញ្ជាក់ក្នុង ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, en: `⏱ Please confirm within ${WEB_CONFIRM_MIN} minutes` };
     await notifyRequestStaff(t, companyId, ["admin", "gm"], { km: `🌐 ការកក់ពីគេហទំព័រ · ${number}`, en: `🌐 Website booking · ${number}` },
-      { km: `👤 ${name} · 📞 ${phone}\n${text}\n⏱ សូមបញ្ជាក់ក្នុង ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, en: `👤 ${name} · 📞 ${phone}\n${textEn}\n⏱ Please confirm within ${WEB_CONFIRM_MIN} minutes` }, rid);
+      { km: `👤 ${name} · 📞 ${phone}\n${text}\n${ask.km}`, en: `👤 ${name} · 📞 ${phone}\n${textEn}\n${ask.en}` }, rid, { test });
     return { id, ref, number };
   });
   const l = await linkAfterSave({ bookingId: saved.id }, bookingToken(saved.id), { session: who.session, initData: v.init_data });
@@ -290,14 +301,14 @@ export function customerState(status: string, webStatus: string | null): Custome
 type StoredLine = { name_km: string; name_en: string | null; qty: number };
 export async function doneView(ref: string) {
   const companyId = await siteCompanyId();
-  const b = companyId ? (await sql<{ id: string; number: string; status: string; web_status: string | null; service_text: string; web_lines: StoredLine[] | null; name_en: string | null; scheduled_at: Date; linked: boolean; token_live: boolean | null }[]>`
+  const b = companyId ? (await sql<{ id: string; number: string; status: string; web_status: string | null; service_text: string; web_lines: StoredLine[] | null; name_en: string | null; scheduled_at: Date; linked: boolean; token_live: boolean | null; tz: string }[]>`
     select b.id, b.number, b.status, b.web_status, b.service_text, b.web_lines, i.name_en, b.scheduled_at, b.web_subscriber_id is not null as linked,
-      (select k.used_at is null and k.expires_at > now() from booking_link_tokens k where k.booking_id = b.id) as token_live
-    from bookings b left join catalog_items i on i.id = b.service_item_id where b.web_ref = ${ref} and b.company_id = ${companyId}`)[0] : null;
+      (select k.used_at is null and k.expires_at > now() from booking_link_tokens k where k.booking_id = b.id) as token_live, co.timezone as tz
+    from bookings b join companies co on co.id = b.company_id left join catalog_items i on i.id = b.service_item_id where b.web_ref = ${ref} and b.company_id = ${companyId}`)[0] : null;
   if (!b) throw notFound();
   const state = customerState(b.status, b.web_status);
   const lines = b.web_lines ?? [{ name_km: b.service_text, name_en: b.name_en, qty: 1 }];
-  return { number: b.number, state, service_km: linesText(lines, "km"), service_en: linesText(lines, "en"), at: b.scheduled_at, linked: b.linked,
+  return { number: b.number, state, service_km: linesText(lines, "km"), service_en: linesText(lines, "en"), at: b.scheduled_at, linked: b.linked, night: state === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day),
     link: b.token_live && !b.linked && (state === "pending" || state === "confirmed") ? await botLink(bookingToken(b.id)) : null };
 }
 
@@ -339,17 +350,18 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
 }
 
 // ---------- nobody answered (CEO): reminders, then «expired» once the time has passed ----------
+// D-119: the 30 / 60 minutes count only 08:00–20:00 shop time (workingMinutes). D-120: a test reaches the CEO only.
 const EXPIRED_REASON = "ផុតពេល — មិនបានបញ្ជាក់មុនម៉ោងណាត់";
-export async function webBookingAlerts(): Promise<{ reminded: number; escalated: number; expired: number }> {
+export async function webBookingAlerts(now: Date = clock.now()): Promise<{ reminded: number; escalated: number; expired: number }> {
   const out = { reminded: 0, escalated: 0, expired: 0 };
   if (!featureOn("website")) return out;
-  const due = await sql<{ id: string; company_id: string; number: string; past: boolean; m30: boolean; m60: boolean; reminded: boolean; escalated: boolean }[]>`
-    select b.id, b.company_id, b.number, b.scheduled_at <= now() as past, b.created_at <= now() - ${WEB_CONFIRM_MIN}::int * interval '1 minute' as m30,
-      b.created_at <= now() - ${WEB_ESCALATE_MIN}::int * interval '1 minute' as m60,
+  const rows = await sql<{ id: string; company_id: string; number: string; past: boolean; created_at: Date; tz: string; test: boolean; reminded: boolean; escalated: boolean }[]>`
+    select b.id, b.company_id, b.number, b.scheduled_at <= ${now} as past, b.created_at, co.timezone as tz, b.is_test as test,
       exists (select 1 from web_booking_alerts a where a.booking_id = b.id and a.kind = 'remind') as reminded,
       exists (select 1 from web_booking_alerts a where a.booking_id = b.id and a.kind = 'escalate') as escalated
-    from bookings b where b.origin = 'website' and b.web_status = 'pending' and b.status <> 'cancelled'
-      and (b.scheduled_at <= now() or b.created_at <= now() - ${WEB_CONFIRM_MIN}::int * interval '1 minute') order by b.created_at limit 100`;
+    from bookings b join companies co on co.id = b.company_id where b.origin = 'website' and b.web_status = 'pending' and b.status <> 'cancelled'
+      and (b.scheduled_at <= ${now} or b.created_at <= ${now}::timestamptz - ${WEB_CONFIRM_MIN}::int * interval '1 minute') order by b.created_at limit 100`;
+  const due = rows.map((b) => { const m = workingMinutes(b.created_at, now, b.tz || "Asia/Phnom_Penh", clock.day); return { ...b, m30: m >= WEB_CONFIRM_MIN, m60: m >= WEB_ESCALATE_MIN }; });
   for (const b of due) {
     if (b.past) {
       const ok = await tx(null, async (t) => {
@@ -361,7 +373,7 @@ export async function webBookingAlerts(): Promise<{ reminded: number; escalated:
         await t`insert into web_booking_alerts (booking_id, kind) values (${b.id}, 'expired') on conflict do nothing`;
         await audit(t, { companyId: b.company_id, userId: null, action: "booking.web_expired", source: "system", table: "bookings", rowId: b.id, new: { web_status: "expired" } });
         await notifyRequestStaff(t, b.company_id, ["admin", "gm"], { km: `⌛ ការកក់ ${b.number} ផុតពេល`, en: `⌛ Booking ${b.number} expired` },
-          { km: "ម៉ោងណាត់បានកន្លងហើយ មុនពេលបញ្ជាក់។ ម៉ោងនោះទំនេរវិញ។", en: "The appointment time passed before anyone confirmed. The slot is free again." }, `expired:${b.id}`);
+          { km: "ម៉ោងណាត់បានកន្លងហើយ មុនពេលបញ្ជាក់។ ម៉ោងនោះទំនេរវិញ។", en: "The appointment time passed before anyone confirmed. The slot is free again." }, `expired:${b.id}`, { test: b.test });
         return true;
       });
       if (ok) out.expired++;
@@ -371,16 +383,17 @@ export async function webBookingAlerts(): Promise<{ reminded: number; escalated:
       await tx(null, async (t) => {
         if ((await t`insert into web_booking_alerts (booking_id, kind) values (${b.id}, 'remind') on conflict do nothing returning 1`).length === 0) return;
         await notifyRequestStaff(t, b.company_id, ["admin", "gm"], { km: `⏰ ការកក់ ${b.number} រង់ចាំ ${kmDigits(WEB_CONFIRM_MIN)} នាទីហើយ`, en: `⏰ Booking ${b.number} has waited ${WEB_CONFIRM_MIN} minutes` },
-          { km: "សូមបញ្ជាក់ ឬបដិសេធ", en: "Please confirm or decline" }, `remind:${b.id}`);
+          { km: "សូមបញ្ជាក់ ឬបដិសេធ", en: "Please confirm or decline" }, `remind:${b.id}`, { test: b.test });
         out.reminded++;
       });
     }
     if (b.m60 && !b.escalated) {
       await tx(null, async (t) => {
         if ((await t`insert into web_booking_alerts (booking_id, kind) values (${b.id}, 'escalate') on conflict do nothing returning 1`).length === 0) return;
-        for (const u of await t<{ id: string }[]>`select id from users where company_id = ${b.company_id} and is_active and role = 'ceo'`)
-          await notifyUser(t, b.company_id, u.id, "service.request", { km: `🚨 ការកក់ ${b.number} មិនទាន់បញ្ជាក់ ${kmDigits(WEB_ESCALATE_MIN)} នាទី`, en: `🚨 Booking ${b.number} not confirmed after ${WEB_ESCALATE_MIN} minutes` },
-            { km: "Admin និង GM មិនទាន់ឆ្លើយតប", en: "Admin and GM have not answered yet" }, "/requests", `escalate:${b.id}:${u.id}`);
+        const title = { km: `🚨 ការកក់ ${b.number} មិនទាន់បញ្ជាក់ ${kmDigits(WEB_ESCALATE_MIN)} នាទី`, en: `🚨 Booking ${b.number} not confirmed after ${WEB_ESCALATE_MIN} minutes` };
+        for (const id of await ceoIds(t, b.company_id))
+          await notifyUser(t, b.company_id, id, "service.request", b.test ? testTitle(title) : title,
+            { km: "Admin និង GM មិនទាន់ឆ្លើយតប", en: "Admin and GM have not answered yet" }, "/requests", `escalate:${b.id}:${id}`, null, { silent: isNight(now, b.tz || "Asia/Phnom_Penh", clock.day) });
         out.escalated++;
       });
     }
@@ -411,7 +424,8 @@ export async function submitQuote(ip: string, v: QuoteInput, who: { session: Cus
   const category = (QUOTE_CATEGORIES as readonly string[]).includes(v.category) ? v.category : "other";
   const location = (v.location ?? "").trim().replace(/\s+/g, " ").slice(0, 200), gps = v.lat != null && v.lng != null;
   if (location.length < 3 && !gps) throw new AppError("LOCATION_REQUIRED", 400);
-  if (!checkRate(`site:quote:ip:${ip}`, 5, 3600) || !checkRate(`site:quote:phone:${phone}`, 3, 86400)) throw new AppError("RATE_LIMITED", 429);
+  const test = await isTestPhone(sql, companyId, phone); // D-120
+  if (!checkRate(`site:quote:ip:${ip}`, 5, 3600) || (!test && !checkRate(`site:quote:phone:${phone}`, 3, 86400))) throw new AppError("RATE_LIMITED", 429);
   const images = photos.map((p) => checkImage(p, undefined, "BAD_IMAGE", true)); // every photo is checked and cleaned before anything is stored
   const files: { id: string; rel: string; mime: string; bytes: number }[] = [];
   for (const img of images) files.push(await writeImage(companyId, img));
@@ -421,14 +435,14 @@ export async function submitQuote(ip: string, v: QuoteInput, who: { session: Cus
   const text = [lines ? `🔧 ${lines.text_km}` : null, description || null, ...place(v, location), files.length ? `🖼 ${files.length}` : null].filter(Boolean).join("\n");
   const ref = randomBytes(16).toString("base64url");
   const saved = await tx(null, async (t) => {
-    let customerId = await customerByPhone(t, companyId, phone), made = false;
+    let customerId = await customerByPhone(t, companyId, phone, test), made = false;
     if (!customerId) { // a new customer with the consent just given — the chat is linked to it when the link is opened
-      customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version, consent_source)
-        values (${companyId}, ${name}, ${t.array([phone])}, ${location || null}, ${v.lat ?? null}, ${v.lng ?? null}, 'website', now(), ${SITE_CONSENT_VERSION}, ${source}) returning id`)[0]!.id;
+      customerId = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, lat, lng, origin, consent_at, consent_version, consent_source, is_test)
+        values (${companyId}, ${name}, ${t.array([phone])}, ${location || null}, ${v.lat ?? null}, ${v.lng ?? null}, 'website', now(), ${SITE_CONSENT_VERSION}, ${source}, ${test}) returning id`)[0]!.id;
       made = true;
     }
-    const id = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, customer_id, name, phone, text, meta)
-      values (${companyId}, 'website', 'quote', ${customerId}, ${name}, ${phone}, ${text.slice(0, 1000)},
+    const id = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, customer_id, name, phone, text, is_test, meta)
+      values (${companyId}, 'website', 'quote', ${customerId}, ${name}, ${phone}, ${text.slice(0, 1000)}, ${test},
         ${t.json({ category, ref, new_customer: made, lines: lines?.lines ?? [], service_item_id: lines?.lines[0]?.id ?? null, service: lines?.text_km ?? null, location: location || null, lat: v.lat ?? null, lng: v.lng ?? null,
           accuracy, lang: v.lang === "en" ? "en" : "km", consent } as never)}) returning id`)[0]!.id;
     for (const f of files) await t`insert into service_request_files (id, company_id, request_id, path, mime, bytes) values (${f.id}, ${companyId}, ${id}, ${f.rel}, ${f.mime}, ${f.bytes})`;
@@ -436,7 +450,7 @@ export async function submitQuote(ip: string, v: QuoteInput, who: { session: Cus
     await audit(t, { companyId, userId: null, action: "service.request", source: "system", table: "service_requests", rowId: id, new: { source: "website", kind: "quote", photos: files.length, customer_id: customerId }, ip });
     await audit(t, { companyId, userId: null, action: "customer.consent", source: "system", table: "customers", rowId: customerId, new: consent, ip });
     await notifyRequestStaff(t, companyId, ["gm"], { km: `🌐 សំណើសុំតម្លៃ · ${name}`, en: `🌐 Quote request · ${name}` },
-      { km: `🧩 ${CATEGORY.km[category]}\n📞 ${phone}\n${text}`, en: `🧩 ${CATEGORY.en[category]}\n📞 ${phone}\n${text}` }, id); // a quote goes to the GM
+      { km: `🧩 ${CATEGORY.km[category]}\n📞 ${phone}\n${text}`, en: `🧩 ${CATEGORY.en[category]}\n📞 ${phone}\n${text}` }, id, { test }); // a quote goes to the GM
     return { id };
   });
   const l = await linkAfterSave({ requestId: saved.id }, requestToken(saved.id), { session: who.session, initData: v.init_data });

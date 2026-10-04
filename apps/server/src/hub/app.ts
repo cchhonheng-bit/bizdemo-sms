@@ -28,7 +28,8 @@ const replyMarkup = z.union([
   z.object({ keyboard: z.array(z.array(kbButton).max(2)).min(1).max(8), resize_keyboard: z.boolean().optional(), is_persistent: z.boolean().optional(), one_time_keyboard: z.boolean().optional() }).strict(),
   z.object({ remove_keyboard: z.literal(true) }).strict(),
 ]);
-const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z.string().min(1).max(4096), reply_markup: replyMarkup.optional().nullable() }).strict();
+/** silent (D-119): no sound — the staff alert of a customer request made 20:00–08:00 */
+const sendSchema = z.object({ chat_id: z.string().regex(/^-?\d{1,20}$/), text: z.string().min(1).max(4096), reply_markup: replyMarkup.optional().nullable(), silent: z.boolean().optional() }).strict();
 // D-106: promotions only (service messages are about the customer's own bookings); ≤ 4 lines; one per customer per gap_days
 const promoText = z.string().trim().min(1).max(400).refine((t) => t.split("\n").length <= 4, "TOO_MANY_LINES");
 const broadcastSchema = z.object({ kind: z.literal("promo").optional(), text: promoText, created_by_name: z.string().max(120).optional().nullable(),
@@ -142,7 +143,7 @@ export function buildHubApp(opts: { logger?: boolean } = {}): FastifyInstance {
     // …and only through ITS OWN bot (T1/T7). No active bot yet → retry later (the shop outbox keeps the row).
     const bot = await shopBot(shop.code);
     if (!bot || bot.status !== "active") return { ok: false, error: "NO_SHOP_BOT", permanent: false };
-    const r = await sendMessage(bot, b.chat_id, b.text, b.reply_markup ?? undefined);
+    const r = await sendMessage(bot, b.chat_id, b.text, b.reply_markup ?? undefined, { silent: b.silent === true });
     // metadata only: shop messages contain the shop's customer data, which stays in the shop (A4 · R5)
     await logMessage({ direction: "out", bot: bot.code, shop: shop.code, chatId: b.chat_id, kind: "shop.send", text: `[${b.text.length} chars]`, ok: r.ok, error: r.ok ? null : r.error });
     return r.ok ? { ok: true } : { ok: false, error: r.error, permanent: r.permanent, retry_after: r.retryAfter };

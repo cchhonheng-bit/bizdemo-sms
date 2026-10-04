@@ -21,6 +21,7 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { btn, customerGrid, menuUrl, row, type CustomerMsg } from "./customer-bot.js";
 import { customerByPhone } from "./requests.js";
+import { isTestPhone } from "./test-mode.js";
 import { siteCompanyId } from "./site.js";
 
 // ---------- passwords ----------
@@ -36,10 +37,12 @@ export function randomCustomerPassword(phones: string[]): string {
 // ---------- accounts ----------
 type Account = { id: string; company_id: string; sub: string; hash: string | null; phones: string[] };
 const ACCOUNT = sql`c.id, c.company_id, c.tg_subscriber_id::text as sub, c.password_hash as hash, c.phones`;
-/** the customer record of this phone that is linked to a Telegram chat (the one with a password first) */
+/** the customer record of this phone that is linked to a Telegram chat (the one with a password first; for a test phone the test
+ *  record first — D-120) */
 async function accountByPhone(companyId: string, phone: string): Promise<Account | null> {
+  const test = await isTestPhone(sql, companyId, phone);
   return (await sql<Account[]>`select ${ACCOUNT} from customers c where c.company_id = ${companyId} and c.is_active and c.tg_subscriber_id is not null and ${phone} = any(c.phones)
-    order by (c.password_hash is not null) desc, c.created_at limit 1`)[0] ?? null;
+    order by (c.is_test = ${test}) desc, (c.password_hash is not null) desc, c.created_at limit 1`)[0] ?? null;
 }
 async function accountBySubscriber(companyId: string, subscriberId: number): Promise<Account | null> {
   return (await sql<Account[]>`select ${ACCOUNT} from customers c where c.company_id = ${companyId} and c.is_active and c.tg_subscriber_id = ${subscriberId} and cardinality(c.phones) > 0
@@ -141,12 +144,13 @@ export async function linkByContact(subscriberId: number, phoneRaw: string, firs
   if (!companyId) return { ok: false, text: customerText.unavailable };
   if (!phone) return { ok: false, text: customerText.notKhPhone };
   const r = await tx(null, async (t) => {
-    const mine = (await t<{ id: string; phones: string[] }[]>`select id, phones from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active order by created_at limit 1`)[0];
-    let id = mine && mine.phones.includes(phone) ? mine.id : await customerByPhone(t, companyId, phone);
+    const test = await isTestPhone(t, companyId, phone); // D-120: a test phone links its own test record, never a real customer
+    const mine = (await t<{ id: string; phones: string[] }[]>`select id, phones from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active and is_test = ${test} order by created_at limit 1`)[0];
+    let id = mine && mine.phones.includes(phone) ? mine.id : await customerByPhone(t, companyId, phone, test);
     let made = false;
     if (!id) {
-      id = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, origin, consent_at, consent_version, consent_source)
-        values (${companyId}, ${(firstName ?? "").trim().slice(0, 80) || phone}, ${t.array([phone])}, 'telegram', now(), ${SITE_CONSENT_VERSION}, 'bot') returning id`)[0]!.id;
+      id = (await t<{ id: string }[]>`insert into customers (company_id, name, phones, origin, consent_at, consent_version, consent_source, is_test)
+        values (${companyId}, ${(firstName ?? "").trim().slice(0, 80) || phone}, ${t.array([phone])}, 'telegram', now(), ${SITE_CONSENT_VERSION}, 'bot', ${test}) returning id`)[0]!.id;
       made = true;
     }
     const old = (await t<{ sub: string | null }[]>`select tg_subscriber_id::text as sub from customers where id = ${id} for update`)[0]!;

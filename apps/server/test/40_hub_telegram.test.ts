@@ -740,6 +740,14 @@ describe("D-91: reply keyboards, Mini App buttons and WebApp initData verificati
     expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "x", reply_markup: { inline_keyboard: [[{ text: "app", web_app: { url: "https://oneteam.test/tg?to=%2Ftech" } }]] } })).json().ok).toBe(true);
     expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "bye", reply_markup: { remove_keyboard: true } })).json().ok).toBe(true);
   });
+  it("/internal/send silent (D-119): a staff alert made at night goes out with disable_notification; without it Telegram rings as before", async () => {
+    sent = [];
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "🌐 night booking", silent: true })).json().ok).toBe(true);
+    expect(lastSent(700001).payload.disable_notification).toBe(true);
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "🌐 day booking" })).json().ok).toBe(true);
+    expect(lastSent(700001).payload.disable_notification).toBeUndefined();
+    expect((await internal("ONETEAM", key(), "POST", "/internal/send", { chat_id: "700001", text: "x", silent: "yes" })).statusCode).toBe(400);
+  });
   it("/internal/tg-verify checks Telegram WebApp initData with the shop's own bot token: good → tg_user; tampered / stale / another bot → not ok", async () => {
     const token = TOKENS.ONETEAM!.token;
     const sign = (params: Record<string, string>, tok = token) => {

@@ -17,6 +17,9 @@ export const WEB_LEAD_MIN = 60;
 export const WEB_CONFIRM_MIN = 30;
 /** an online booking nobody answered: Admin + GM are reminded after WEB_CONFIRM_MIN working minutes, the CEO after this many */
 export const WEB_ESCALATE_MIN = 60;
+/** D-119 (CEO): the pending-booking timers count only between these local hours (08:00–20:00); a booking made outside them is
+ *  told «we confirm at 8 am», the reminders come at 08:30 (Admin + GM) and 09:00 (CEO), staff alerts made then are silent */
+export const WEB_TIMER_HOURS = { from: 8, to: 20 } as const;
 /** date chips on the booking screen */
 export const WEB_DAYS = 7;
 export const WEB_MAX_PHOTOS = 5;
@@ -82,6 +85,43 @@ export function webSlotStarts(h: WebHours, minutes: number): number[] {
   }
   return out;
 }
+
+// ---------- D-119 night rule: the shop's local clock ----------
+const localClock = (d: Date, tz: string) => {
+  const p = new Intl.DateTimeFormat("en-US", { timeZone: tz, year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", hourCycle: "h23" }).formatToParts(d);
+  const g = (k: string) => Number(p.find((x) => x.type === k)?.value ?? 0);
+  return { y: g("year"), m: g("month"), d: g("day"), h: g("hour") % 24, min: g("minute") };
+};
+/** the zone's offset from UTC at that moment, in ms (Phnom Penh: +7 h) */
+const zoneOffset = (d: Date, tz: string) => { const l = localClock(d, tz); return Date.UTC(l.y, l.m - 1, l.d, l.h, l.min) - Math.floor(d.getTime() / 60_000) * 60_000; };
+/** 20:00–08:00 in the shop's time zone */
+export function isNight(d: Date, tz: string, hours: { from: number; to: number } = WEB_TIMER_HOURS): boolean {
+  const h = localClock(d, tz).h;
+  return h < hours.from || h >= hours.to;
+}
+/** the minutes between two moments that fall inside the day window (08:00–20:00 local) — the clock of the pending-booking
+ *  reminders: made at 21:00 → 30 minutes are reached at 08:30 the next day; made at 19:45 → at 08:15 */
+export function workingMinutes(from: Date, to: Date, tz: string, hours: { from: number; to: number } = WEB_TIMER_HOURS): number {
+  const a0 = from.getTime(), b0 = to.getTime();
+  if (!(b0 > a0)) return 0;
+  const l = localClock(from, tz);
+  let total = 0;
+  for (let day = Date.UTC(l.y, l.m - 1, l.d); ; day += 86_400_000) {
+    const off = zoneOffset(new Date(day + 12 * 3_600_000), tz);
+    const a = day + hours.from * 3_600_000 - off, b = day + hours.to * 3_600_000 - off;
+    if (a >= b0) break;
+    total += Math.max(0, Math.min(b, b0) - Math.max(a, a0));
+  }
+  return Math.floor(total / 60_000);
+}
+
+// ---------- D-120 test phones (Settings, CEO only) ----------
+/** at most this many numbers on the list */
+export const TEST_PHONES_MAX = 10;
+/** the mark of a test booking / quote / customer (staff messages, lists) */
+export const TEST_MARK = "🧪";
+/** a test booking or quote is cancelled by itself after this many hours */
+export const TEST_TTL_HOURS = 24;
 
 /** "12 345 678", "012345678", "+855 12 345 678" → "012345678"; null when it is not a Cambodian phone number */
 export function normalizeKhPhone(raw: string): string | null {

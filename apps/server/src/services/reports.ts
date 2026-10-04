@@ -29,11 +29,11 @@ export async function summaryData(companyId: string, from: string, to: string, f
   const tz = await tzOf(sql, companyId);
   const inRange = (col: ReturnType<typeof sql>) => sql`${localDay(col, tz)} between ${from}::date and ${to}::date`;
   const jobs = (await sql<{ created: number; finished: number; cancelled: number; pending_review: number; in_progress: number }[]>`select
-      (select count(*)::int from bookings where company_id = ${companyId} and ${inRange(sql`created_at`)}) as created,
-      (select count(distinct k.booking_id)::int from booking_checkpoints k where k.company_id = ${companyId} and k.step = 'finish' and ${inRange(sql`k.at`)}) as finished,
-      (select count(*)::int from bookings where company_id = ${companyId} and status = 'cancelled' and ${inRange(sql`cancelled_at`)}) as cancelled,
-      (select count(*)::int from bookings where company_id = ${companyId} and status = 'pending_review') as pending_review,
-      (select count(*)::int from bookings where company_id = ${companyId} and status in ('en_route', 'on_site', 'working')) as in_progress`)[0]!;
+      (select count(*)::int from bookings where company_id = ${companyId} and not is_test and ${inRange(sql`created_at`)}) as created,
+      (select count(distinct k.booking_id)::int from booking_checkpoints k join bookings x on x.id = k.booking_id and not x.is_test where k.company_id = ${companyId} and k.step = 'finish' and ${inRange(sql`k.at`)}) as finished,
+      (select count(*)::int from bookings where company_id = ${companyId} and not is_test and status = 'cancelled' and ${inRange(sql`cancelled_at`)}) as cancelled,
+      (select count(*)::int from bookings where company_id = ${companyId} and not is_test and status = 'pending_review') as pending_review,
+      (select count(*)::int from bookings where company_id = ${companyId} and not is_test and status in ('en_route', 'on_site', 'working')) as in_progress`)[0]!;
   const out: Record<string, unknown> = { from, to, jobs, cancels: jobs.cancelled, techs: await techPerformance(companyId, from, to) };
   if (from === to) { // the day's attendance line (daily report / summary)
     const a = await attendanceReport({ companyId } as SessionUser, from, to);
@@ -90,7 +90,7 @@ async function items(companyId: string, range: { from: string; to: string } | nu
       from invoices i where i.company_id = ${companyId} and coalesce(i.discount_requested, 0) > 0
       union all
       select 'cancel', b.id, b.cancelled_at, b.number, null, null, b.cancel_reason, null, null, null, null, b.cancelled_by, null, '/bookings/' || b.id
-      from bookings b where b.company_id = ${companyId} and b.status = 'cancelled'
+      from bookings b where b.company_id = ${companyId} and b.status = 'cancelled' and not b.is_test
       union all
       select 'payment', p.id, p.created_at, i.number, null, p.usd_cents, p.note, null, p.method::text, p.currency::text, p.amount::float8, p.received_by, null, '/invoices/' || i.id
       from payments p join invoices i on i.id = p.invoice_id where p.company_id = ${companyId}
@@ -130,9 +130,9 @@ export async function dashboard(user: SessionUser, perms: string[]) {
   const tz = await tzOf(sql, c);
   const today = (await sql<{ d: string }[]>`select (now() at time zone ${tz})::date::text as d`)[0]!.d;
   const counts = (await sql<{ pending_review: number; jobs: number; done: number; disc: number; voids: number; leave: number }[]>`select
-      (select count(*)::int from bookings where company_id = ${c} and status = 'pending_review') as pending_review,
-      (select count(*)::int from bookings where company_id = ${c} and status <> 'cancelled' and ${localDay(sql`scheduled_at`, tz)} = ${today}::date) as jobs,
-      (select count(*)::int from bookings where company_id = ${c} and status not in ('cancelled', 'new', 'survey', 'quoted', 'assigned', 'en_route', 'on_site', 'working')
+      (select count(*)::int from bookings where company_id = ${c} and not is_test and status = 'pending_review') as pending_review,
+      (select count(*)::int from bookings where company_id = ${c} and not is_test and status <> 'cancelled' and ${localDay(sql`scheduled_at`, tz)} = ${today}::date) as jobs,
+      (select count(*)::int from bookings where company_id = ${c} and not is_test and status not in ('cancelled', 'new', 'survey', 'quoted', 'assigned', 'en_route', 'on_site', 'working')
         and ${localDay(sql`scheduled_at`, tz)} = ${today}::date) as done,
       (select count(*)::int from invoices where company_id = ${c} and status = 'draft' and discount_status = 'pending') as disc,
       (select count(*)::int from invoice_void_requests where company_id = ${c} and status = 'pending') as voids,

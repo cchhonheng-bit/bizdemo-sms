@@ -78,10 +78,10 @@ export const internalRoutes: FastifyPluginAsync = async (app) => {
     const r = (await sql<{ companies: number; users: number; customers: number; bookings: number; bookings_30d: number; last_booking: Date | null }[]>`
       select (select count(*) from companies where is_active)::int as companies,
              (select count(*) from users where is_active)::int as users,
-             (select count(*) from customers)::int as customers,
-             (select count(*) from bookings)::int as bookings,
-             (select count(*) from bookings where created_at > now() - interval '30 days')::int as bookings_30d,
-             (select max(created_at) from bookings) as last_booking`)[0]!;
+             (select count(*) from customers where not is_test)::int as customers,
+             (select count(*) from bookings where not is_test)::int as bookings,
+             (select count(*) from bookings where not is_test and created_at > now() - interval '30 days')::int as bookings_30d,
+             (select max(created_at) from bookings where not is_test) as last_booking`)[0]!;
     return { shop: config.shop.code, ...r };
   });
 };

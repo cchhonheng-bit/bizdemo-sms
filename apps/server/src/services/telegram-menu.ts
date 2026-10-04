@@ -147,7 +147,7 @@ const hhmm = (d: Date, tz: string) => fmtLocal(d, tz).slice(-5);
 const dmy = (d: Date, tz: string) => fmtLocal(d, tz).slice(0, 10);
 type Job = { id: string; number: string; scheduled_at: Date; ends_at: Date | null; cname: string; status: string; crew: string | null };
 function jobsOf(u: Staff, from: string | null, to: string | null, limit = 10, statuses = ACTIVE, desc = false) {
-  const own = u.role === "tech" ? sql`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = ${u.id})` : sql``;
+  const own = u.role === "tech" ? sql`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = ${u.id})` : u.role === "ceo" ? sql`` : sql`and not b.is_test`; // D-120
   return sql<Job[]>`select b.id, b.number, b.scheduled_at, b.ends_at, c.name as cname, b.status,
       (select string_agg(x.full_name, ', ' order by t.role, x.full_name) from booking_technicians t join users x on x.id = t.user_id where t.booking_id = b.id) as crew
     from bookings b join customers c on c.id = b.customer_id
@@ -254,7 +254,7 @@ async function reviewList(u: Staff): Promise<Menu> {
   const L = T(u);
   if (!(await canReview(u))) return { text: errText(u, new AppError("FORBIDDEN", 403)), buttons: [backHome(u)] };
   const jobs = await sql<{ id: string; number: string; cname: string; who: string | null }[]>`select b.id, b.number, c.name as cname, x.full_name as who from bookings b join customers c on c.id = b.customer_id
-    left join booking_reports r on r.booking_id = b.id left join users x on x.id = r.submitted_by where b.company_id = ${u.company_id} and b.status = 'pending_review' order by r.submitted_at nulls last limit 10`;
+    left join booking_reports r on r.booking_id = b.id left join users x on x.id = r.submitted_by where b.company_id = ${u.company_id} and b.status = 'pending_review' ${u.role === "ceo" ? sql`` : sql`and not b.is_test`} order by r.submitted_at nulls last limit 10`;
   const rows: MenuButton[][] = jobs.map((j) => [{ text: `${j.number} · ${j.cname}${j.who ? ` · 👷 ${j.who}` : ""}`.slice(0, 60), view: "job", id: j.id, arg: "review" }]);
   for (const j of jobs) rows.push([{ text: `✅ ${j.number}`, view: "review", id: j.id, arg: "ok" }, { text: `↩️ ${j.number}`, view: "review", id: j.id, arg: "back" }]);
   rows.push(backHome(u));
@@ -306,7 +306,7 @@ async function findCustomer(u: Staff, q: string): Promise<Menu> {
   const like = `%${q.trim().replace(/[%_]/g, "")}%`;
   const rows = await sql<{ name: string; phones: string[]; address: string | null; last: string | null }[]>`select c.name, c.phones, c.address,
       (select b.number || ' · ' || to_char(b.scheduled_at at time zone ${u.timezone}, 'DD-MM-YYYY') from bookings b where b.customer_id = c.id order by b.scheduled_at desc limit 1) as last
-    from customers c where c.company_id = ${u.company_id} and (c.name ilike ${like} or exists (select 1 from unnest(c.phones) p where p like ${like})) order by c.name limit 8`;
+    from customers c where c.company_id = ${u.company_id} and not c.is_test and (c.name ilike ${like} or exists (select 1 from unnest(c.phones) p where p like ${like})) order by c.name limit 8`;
   const lines = rows.map((r) => `• ${r.name} · 📞 ${r.phones.join(", ")}${r.address ? `\n   📍 ${r.address}` : ""}${r.last ? `\n   🔧 ${r.last}` : ""}`);
   return { text: rows.length ? `${L("🔍 លទ្ធផល", "🔍 Results")} (${rows.length})\n${lines.join("\n")}` : L("🔍 រកមិនឃើញ", "🔍 No match"), buttons: [[appBtn(L("📱 អតិថិជន", "📱 Customers"), "/customers")], backHome(u)] };
 }
@@ -323,7 +323,7 @@ async function requestsList(u: Staff): Promise<Menu> {
   if (!can.see) return { text: errText(u, new AppError("FORBIDDEN", 403)), buttons: [backHome(u)] };
   const rows = await sql<{ id: string; source: string; kind: string; text: string; name: string | null; phone: string | null; cname: string | null; created_at: Date; number: string | null; web_status: string | null }[]>`
     select r.id, r.source, r.kind, r.text, r.name, r.phone, c.name as cname, r.created_at, b.number, b.web_status
-    from service_requests r left join customers c on c.id = r.customer_id left join bookings b on b.id = r.booking_id where r.company_id = ${u.company_id} and r.status = 'new' order by r.created_at desc limit 10`;
+    from service_requests r left join customers c on c.id = r.customer_id left join bookings b on b.id = r.booking_id where r.company_id = ${u.company_id} and r.status = 'new' ${u.role === "ceo" ? sql`` : sql`and not r.is_test`} order by r.created_at desc limit 10`;
   const icon = (r: { kind: string; source: string }) => (r.kind === "booking" ? "🗓" : r.kind === "quote" ? "🧱" : r.kind === "reschedule" ? "🔁" : r.source === "website" ? "🌐" : "✈️");
   const lines = rows.map((r, i) => `${i + 1}. ${icon(r)} ${r.kind === "booking" && r.number ? `${r.number} · ` : ""}${r.name ?? r.cname ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
   const pairs: MenuButton[][] = [], done: MenuButton[] = [];

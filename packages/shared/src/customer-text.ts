@@ -27,12 +27,16 @@ export function kmWhen(d: Date, tz: string): { day: string; time: string } {
 export const kmDate = (iso: string): string => `${Number(iso.slice(8, 10))} ${KM_MONTHS[Number(iso.slice(5, 7)) - 1] ?? ""} ${iso.slice(0, 4)}`;
 
 const wait = `(≤${kmDigits(WEB_CONFIRM_MIN)} នាទី)`;
+/** D-119: a booking made 20:00–08:00 is confirmed in the morning — the owner's exact words */
+export const NIGHT_CONFIRM = { km: "យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក", en: "We will confirm at 8 am" } as const;
 const pwLines = (pw: string) => [`🔑 ពាក្យសម្ងាត់៖ ${pw}`, "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ"];
 const lines = (...l: (string | null | false | undefined)[]) => l.filter((x): x is string => !!x).join("\n");
 
 export const customerText = {
-  /** the chat was linked (website link, Mini App, shared phone): the booking that waits and — when made just now — the password */
-  linked: (no: string | null, pw: string | null) => lines("✅ ភ្ជាប់រួចរាល់", no && `ការកក់ #${no} រង់ចាំបញ្ជាក់ ${wait}`, ...(pw ? pwLines(pw) : [])),
+  /** the chat was linked (website link, Mini App, shared phone): the booking that waits and — when made just now — the password.
+   *  night (D-119): «we confirm at 8 am» instead of «≤30 minutes» */
+  linked: (no: string | null, pw: string | null, night = false) =>
+    lines("✅ ភ្ជាប់រួចរាល់", no && (night ? `ការកក់ #${no} · ${NIGHT_CONFIRM.km}` : `ការកក់ #${no} រង់ចាំបញ្ជាក់ ${wait}`), ...(pw ? pwLines(pw) : [])),
   linkedQuote: (pw: string | null) => lines("✅ ភ្ជាប់រួចរាល់", "សំណើតម្លៃរបស់អ្នកបានទទួលហើយ", ...(pw ? pwLines(pw) : [])),
   /** linked by the shared phone, and the account already had a password */
   linkedKnown: lines("✅ ភ្ជាប់រួចរាល់", "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់ដែលមានស្រាប់"),
@@ -40,7 +44,7 @@ export const customerText = {
   password: (pw: string) => lines(...pwLines(pw)),
   hint: CUSTOMER_PASSWORD_HINT.km,
   /** a customer who is already linked booked again (signed in, or inside Telegram) */
-  received: (no: string) => lines(`✅ បានទទួលការកក់ #${no}`, `រង់ចាំបញ្ជាក់ ${wait}`),
+  received: (no: string, night = false) => lines(`✅ បានទទួលការកក់ #${no}`, night ? NIGHT_CONFIRM.km : `រង់ចាំបញ្ជាក់ ${wait}`),
   quoteReceived: lines("✅ បានទទួលសំណើតម្លៃ", "យើងនឹងទាក់ទងអ្នកវិញឆាប់ៗ"),
   confirmed: (no: string, day: string, time: string, tech: string | null) => lines(`✅ បានបញ្ជាក់ #${no}`, `${day} ម៉ោង ${time}${tech ? ` · ជាង ${tech}` : ""}`),
   declined: (no: string, reason: string) => lines(`❌ មិនអាចទទួល #${no}`, `មូលហេតុ៖ ${reason}`),

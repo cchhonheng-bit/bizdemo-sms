@@ -3,7 +3,7 @@
 // details + the one-tap consent · 4 request sent · 5 quote request · 6 customer home · privacy / terms. Server-rendered,
 // everything escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in
 // /pub/site.css, the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). [Brackets] in the design = data.
-import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, fillCompany, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
+import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, fillCompany, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
   type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
@@ -30,7 +30,7 @@ const TXT = {
     gps: "ប្រើទីតាំងបច្ចុប្បន្ន", gps_ok: "បានចាប់ទីតាំង", map_view: "មើលលើផែនទី", paste_open: "ឬបិទភ្ជាប់តំណ Google Maps", paste_ph: "បិទភ្ជាប់តំណ Google Maps នៅទីនេះ", paste_go: "យក",
     addr: "អាសយដ្ឋាន", addr_ph: "ផ្ទះលេខ ផ្លូវ សង្កាត់ ...", chosen: "បានជ្រើស", next: "បន្ត", full: "មិនមានម៉ោងទំនេរក្នុង ៧ ថ្ងៃខាងមុខទេ។ សូមហៅទូរស័ព្ទមកយើង។",
     details: "ព័ត៌មានរបស់អ្នក", r_svc: "សេវា", r_when: "ពេលវេលា", r_loc: "ទីតាំង", r_price: "តម្លៃ", name: "ឈ្មោះ", name_ph: "ឈ្មោះរបស់អ្នក", phone: "លេខទូរស័ព្ទ", note: "កំណត់ចំណាំ", opt: "(មិនចាំបាច់)",
-    note_ph: "ឧ. ជាន់ទី ២ ទ្វារពណ៌ខៀវ", send: "កក់ និងភ្ជាប់ Telegram", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`,
+    note_ph: "ឧ. ជាន់ទី ២ ទ្វារពណ៌ខៀវ", send: "កក់ និងភ្ជាប់ Telegram", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, sla_night: NIGHT_CONFIRM.km,
     sent: "បានផ្ញើសំណើកក់", held: "ម៉ោងនេះត្រូវបានរក្សាទុកសម្រាប់អ្នក។", no: "លេខកក់", status: "ស្ថានភាព", tg: "ចុចប៊ូតុងខាងក្រោម ដើម្បីទទួលការបញ្ជាក់ និងពាក្យសម្ងាត់ក្នុង Telegram", tg_btn: "បើក Telegram",
     tg_ok: "បានភ្ជាប់ Telegram", mine: "មើលការកក់របស់ខ្ញុំ", home: "ត្រឡប់ទំព័រដើម",
     h_confirmed: "ការកក់បានបញ្ជាក់", p_confirmed: "យើងនឹងរំលឹកអ្នកមួយថ្ងៃមុន ហើយជូនដំណឹងពេលជាងចេញដំណើរ។", h_declined: "មិនអាចទទួលការកក់នេះបានទេ", p_declined: "សូមជ្រើសម៉ោងផ្សេង ឬហៅទូរស័ព្ទមកយើង។",
@@ -70,7 +70,7 @@ const TXT = {
     gps: "Use my current location", gps_ok: "Location added", map_view: "View on the map", paste_open: "or paste a Google Maps link", paste_ph: "Paste a Google Maps link here", paste_go: "Use",
     addr: "Address", addr_ph: "House no., street, sangkat ...", chosen: "Selected", next: "Continue", full: "No free time in the next 7 days. Please call us.",
     details: "Your details", r_svc: "Service", r_when: "Time", r_loc: "Location", r_price: "Price", name: "Name", name_ph: "Your name", phone: "Phone number", note: "Note", opt: "(optional)",
-    note_ph: "e.g. 2nd floor, blue door", send: "Book and connect Telegram", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`,
+    note_ph: "e.g. 2nd floor, blue door", send: "Book and connect Telegram", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`, sla_night: NIGHT_CONFIRM.en,
     sent: "Booking request sent", held: "This time is held for you.", no: "Booking no.", status: "Status", tg: "Tap the button below to get the confirmation and your password on Telegram", tg_btn: "Open Telegram",
     tg_ok: "Telegram connected", mine: "See my bookings", home: "Back to the home page",
     h_confirmed: "Booking confirmed", p_confirmed: "We will remind you a day before and tell you when the technician is on the way.", h_declined: "We cannot take this booking", p_declined: "Please choose another time or call us.",
@@ -264,7 +264,8 @@ ${sel < 0 ? `<p class="err">${t.full}</p>` : ""}`;
 }
 const linesSummary = (lines: Lines, lang: SiteLang) => esc(lang === "en" ? lines.text_en : lines.text_km);
 
-export function bookPage(d: SiteView, lang: SiteLang, o: { lines: Lines; days: WebDay[]; token: string; path: string; prefill: Prefill | null }): string {
+/** night (D-119): 20:00–08:00 shop time — «we confirm at 8 am» instead of «within 30 minutes» */
+export function bookPage(d: SiteView, lang: SiteLang, o: { lines: Lines; days: WebDay[]; token: string; path: string; prefill: Prefill | null; night?: boolean }): string {
   const t = TXT[lang], n = names(d, lang), r = o.lines, phones = phonesOf(d);
   const items = lineHref(r.lines);
   const price = priceText(t, r.price), free = o.days.some((x) => x.slots.some((y) => y.free));
@@ -286,7 +287,7 @@ ${steps(t, 3)}
 <div class="f"><label class="lb s" for="note">${t.note} <span class="opt">${t.opt}</span></label><textarea class="ta" id="note" rows="2" maxlength="500" placeholder="${t.note_ph}"></textarea></div>${honeypot}</section>
 ${consent(d, t, lang, t.send)}
 ${errBox("err3")}
-<div class="bar col"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.send}</span></button><div class="sla">${esc(t.sla(n.short))}</div></div></main>`;
+<div class="bar col"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.send}</span></button><div class="sla">${esc(o.night ? t.sla_night : t.sla(n.short))}</div></div></main>`;
   return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { items, ts: o.token } });
 }
 
@@ -294,9 +295,9 @@ ${errBox("err3")}
 const tgBlock = (t: T, linked: boolean, link: string | null) => (linked
   ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div><a class="btn tgb" href="/my">${t.mine}</a></section>`
   : link ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" id="tg-open" href="${esc(link)}" rel="noopener">${t.tg_btn}</a></section>` : "");
-export function donePage(d: SiteView, lang: SiteLang, b: { number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null }, path: string): string {
+export function donePage(d: SiteView, lang: SiteLang, b: { number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean }, path: string): string {
   const t = TXT[lang], n = names(d, lang);
-  const head = b.state === "pending" ? [t.sent, `${esc(t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
+  const head = b.state === "pending" ? [t.sent, `${esc(b.night ? t.sla_night : t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
     : b.state === "declined" ? [t.h_declined, t.p_declined] : b.state === "cancelled" ? [t.h_cancelled, t.p_cancelled] : b.state === "expired" ? [t.h_expired, t.p_expired] : [t.h_done, t.p_done];
   const bad = b.state === "declined" || b.state === "cancelled" || b.state === "expired";
   const body = `<main class="scr end">

@@ -137,7 +137,8 @@
     "minutes_hint": "You can change it before confirming",
     "map": "View location",
     "accuracy": "±{{m}} m",
-    "escalation": "No answer in 30 minutes → reminder · 60 minutes → the CEO is told · the time passes → expired"
+    "escalation": "No answer in 30 minutes → reminder · 60 minutes → the CEO is told · the time passes → expired",
+    "test": "Test"
   },
   "website": {
     "title": "Shop website",
@@ -268,7 +269,13 @@
     "upload": "Upload",
     "office_here": "Use my current location as the office",
     "office_here_ok": "Location filled (±{{m}} m) — press Save",
-    "finance_title": "Finance · Telegram"
+    "finance_title": "Finance · Telegram",
+    "test_phones": "Test phone numbers",
+    "test_phones_hint": "Bookings and quote requests from these numbers are tests: only the CEO is told, they are left out of reports and customer lists, and they are cancelled automatically after 24 hours. One number per line.",
+    "test_phones_err": {
+      "INVALID_PHONE": "Not a valid phone number",
+      "TOO_MANY_PHONES": "Too many numbers (at most 10)"
+    }
   },
   "me": {
     "title": "Me",

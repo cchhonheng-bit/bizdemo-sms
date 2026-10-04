@@ -10,6 +10,7 @@ import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
 import { MIME_BY_EXT, saveImage } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
+import { getTestPhones, saveTestPhones } from "../services/test-mode.js";
 import { rateInfo, setRate } from "../services/fx.js";
 
 const settingsPatch = z.object({
@@ -36,7 +37,17 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/company", { preHandler: app.requireAuth }, async (req) => {
     if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403);
     const r = await sql`select * from company_settings where company_id = ${req.user!.companyId}`;
-    return r[0] ?? null;
+    if (!r[0]) return null;
+    const row: Record<string, unknown> = { ...r[0] };
+    delete row.test_phones; // D-120: the test phones are the CEO's (/test-phones)
+    return row;
+  });
+
+  // D-120 (CEO): «លេខទូរស័ព្ទសាកល្បង» — bookings / quotes from these phones are tests (the CEO only, hidden, cancelled after 24 h)
+  app.get("/test-phones", { preHandler: app.requireAuth }, async (req) => getTestPhones(req.user!));
+  app.put("/test-phones", { preHandler: app.requireAuth }, async (req) => {
+    const { phones } = z.object({ phones: z.array(z.string().max(40)).max(50) }).strict().parse(req.body);
+    return saveTestPhones(req.user!, req.ip, phones);
   });
 
   app.patch("/company", { preHandler: app.requirePerm("settings.manage") }, async (req) => {

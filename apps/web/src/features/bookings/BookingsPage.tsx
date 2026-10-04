@@ -96,7 +96,7 @@ function BookingCard({ b }: { b: Booking }) {
         {b.zone === "inside" && <span className="inline-flex items-center gap-1"><MapPin size={12} /> {t("zone.inside")}</span>}
         {lead && <span className="inline-flex items-center gap-1"><Users size={12} /> {lead.full_name}{(b.technicians?.length ?? 0) > 1 ? ` +${(b.technicians!.length - 1)}` : ""}</span>}
       </div>
-      <div className="mt-2 flex gap-1"><CategoryBadge category={b.category} /><StatusBadge status={b.status} />{b.web_status === "pending" && <span className="badge bg-warning-50 text-warning">🌐</span>}</div>
+      <div className="mt-2 flex gap-1"><CategoryBadge category={b.category} /><StatusBadge status={b.status} />{b.web_status === "pending" && <span className="badge bg-warning-50 text-warning">🌐</span>}{b.is_test && <span className="badge bg-grey-bg text-muted" title={t("requests.test")}>🧪</span>}</div>
     </Link>
   );
 }

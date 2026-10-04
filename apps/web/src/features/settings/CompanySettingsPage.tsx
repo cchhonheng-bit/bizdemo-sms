@@ -10,6 +10,7 @@ import { readGps } from "@/lib/offline";
 import { api, errCode } from "@/lib/api";
 import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
+import { useAuth } from "@/lib/auth";
 import WebsiteCard from "./WebsiteCard";
 
 type Settings = CompanySettingsInput & { company_id: string; telegram_group_chat_id: number | null; telegram_group_title?: string | null };
@@ -62,6 +63,7 @@ export default function CompanySettingsPage() {
   const [newV, setNewV] = useState({ code: "", plate: "", owner: "" });
 
   const websiteOn = useFeature("website");
+  const isCeo = useAuth((s) => s.me?.role === "ceo");
   if (settings.isLoading) return <Skeleton />;
   if (settings.isError) return <ErrorState text={t("app.error")} onRetry={() => void settings.refetch()} />;
 
@@ -112,6 +114,7 @@ export default function CompanySettingsPage() {
       <InvoiceImagesCard current={settings.data as unknown as Record<string, unknown> | undefined} />
       <TelegramGroupCard current={settings.data} />
       {websiteOn && <WebsiteCard />}
+      {isCeo && <TestPhonesCard />}
 
       <Card title={t("settings.vehicles")}>
         <table className="table table-stack mb-3">
@@ -140,6 +143,32 @@ export default function CompanySettingsPage() {
       </Card>
 
     </div>
+  );
+}
+
+/** D-120 (CEO only): bookings / quotes from these phones are tests — the CEO alone is told, reports and customer lists leave them
+ *  out, whatever is still open after 24 h is cancelled by itself. One number per line. */
+function TestPhonesCard() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["test_phones"], queryFn: api.testPhones.get });
+  const [text, setText] = useState<string | null>(null);
+  const value = text ?? (q.data?.phones ?? []).join("\n");
+  const save = useMutation({
+    mutationFn: () => api.testPhones.save(value.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean)),
+    onSuccess: (r) => { setText(r.phones.join("\n")); toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["test_phones"] }); },
+    onError: (e) => toast.error(t(`settings.test_phones_err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  return (
+    <Card title={`🧪 ${t("settings.test_phones")}`}>
+      <p className="text-xs text-muted mb-2">{t("settings.test_phones_hint")}</p>
+      {q.isLoading ? <Skeleton /> : (
+        <Field label={t("settings.test_phones")}>
+          <textarea className="input h-24 py-2 tabular" inputMode="tel" value={value} placeholder="012 345 678" onChange={(e) => setText(e.target.value)} data-testid="test-phones" />
+        </Field>
+      )}
+      <div className="flex justify-end"><Button variant="primary" loading={save.isPending} disabled={q.isLoading} onClick={() => save.mutate()} data-testid="test-phones-save">{t("app.save")}</Button></div>
+    </Card>
   );
 }
 

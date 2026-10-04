@@ -3,11 +3,16 @@ import type { FastifyInstance } from "fastify";
 import { buildApp } from "../src/app.js";
 import { config } from "../src/config.js";
 import { migrate, sql, tx } from "../src/db.js";
+import { clock } from "../src/lib/clock.js";
 import { hashPassword } from "../src/lib/password.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
 import { seedPermissions } from "../src/services/permissions.js";
 
 export const PW = "Passw0rd!x";
+
+// D-119: the night rule (20:00–08:00 shop time) must not depend on the hour a suite runs at — always day here; the night rule
+// tests (210) set the window and the clock themselves
+clock.day = { from: 0, to: 24 };
 
 export async function resetDb(): Promise<void> {
   await sql.unsafe("drop schema public cascade; create schema public;");

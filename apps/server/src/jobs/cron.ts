@@ -8,6 +8,7 @@ import { hubAlert } from "../services/hub-client.js";
 import { lateAlerts } from "../services/jobs.js";
 import { customerNotices } from "../services/customer-notify.js";
 import { webBookingAlerts } from "../services/web-booking.js";
+import { cancelOldTests } from "../services/test-mode.js";
 import { sendSummaries } from "../services/reports.js";
 
 export function startCron(log: FastifyBaseLogger): () => void {
@@ -33,6 +34,8 @@ export function startCron(log: FastifyBaseLogger): () => void {
   const notices = setInterval(() => { customerNotices().then((n) => { if (n) log.info({ notices: n }, "customer notices"); }).catch((e) => log.warn(e, "customer notices")); }, 60_000);
   // D-106 (CEO): an online booking nobody answered — 30 min → Admin + GM, 60 min → CEO; the appointment time passed → «expired»
   const waiting = setInterval(() => { webBookingAlerts().then((r) => { if (r.reminded || r.escalated || r.expired) log.info(r, "web booking alerts"); }).catch((e) => log.warn(e, "web booking alerts")); }, 60_000);
-  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref();
-  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); };
+  // D-120 (CEO): bookings / quotes from the test phones still open after 24 h are cancelled — no message, audit only
+  const tests = setInterval(() => { cancelOldTests().then((r) => { if (r.bookings || r.requests) log.info(r, "test bookings cancelled"); }).catch((e) => log.warn(e, "test cleanup")); }, 10 * 60_000);
+  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref(); tests.unref();
+  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); clearInterval(tests); };
 }

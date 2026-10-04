@@ -21,7 +21,7 @@ export async function techPerformance(companyId: string, from: string, to: strin
   const tz = await tzOf(sql, companyId);
   const inRange = (col: ReturnType<typeof sql>) => sql`${localDay(col, tz)} between ${from}::date and ${to}::date`;
   return sql<{ user_id: string; full_name: string; jobs: number; work_min: number; revisions: number; late: number }[]>`
-    with crew as (select t.user_id, t.booking_id from booking_technicians t join bookings b on b.id = t.booking_id where b.company_id = ${companyId}),
+    with crew as (select t.user_id, t.booking_id from booking_technicians t join bookings b on b.id = t.booking_id where b.company_id = ${companyId} and not b.is_test),
     fin as (select k.booking_id, k.at as finish_at, (select s.at from booking_checkpoints s where s.booking_id = k.booking_id and s.step = 'start') as start_at
       from booking_checkpoints k where k.company_id = ${companyId} and k.step = 'finish' and ${inRange(sql`k.at`)})
     select u.id as user_id, u.full_name,
@@ -78,7 +78,7 @@ export async function exportCsv(user: SessionUser, perms: string[], kind: Export
         cu.name as customer, b.type, b.category, b.zone, b.service_text,
         (select string_agg(u.full_name, ' + ' order by t.role, u.full_name) from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as crew, b.cancel_reason
       from bookings b join customers cu on cu.id = b.customer_id
-      where b.company_id = ${c} and ${day} between ${from}::date and ${to}::date order by b.scheduled_at`;
+      where b.company_id = ${c} and not b.is_test and ${day} between ${from}::date and ${to}::date order by b.scheduled_at`;
     return csv([["number", "status", "date", "time", "customer", "type", "category", "zone", "service", "crew", "cancel_reason"],
       ...rows.map((r) => [r.number, r.status, r.day, r.time, r.customer, r.type, r.category, r.zone, r.service_text, r.crew, r.cancel_reason])]);
   }

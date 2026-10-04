@@ -5,17 +5,19 @@
 // · unanswered bookings (30 / 60 min, expired) · quote with photos (metadata stripped) · customer login (rules, every lock step,
 // unlock paths, reset only from the bot into the linked chat, no enumeration, sessions end, /app closed) · customer home (own
 // data, IDOR, notification settings) · the customer bot keyboard (each button), share-my-phone, location · messages ≤ 4 lines ·
-// tracking messages (reminder the day before 17:00–20:00, on the way, done) · Settings → Website (hours, promotion gap).
+// tracking messages (reminder the day before 17:00–20:00, on the way, done) · Settings → Website (hours, promotion gap) ·
+// D-119 night rule (timers 08:00–20:00, «we confirm at 8 am», silent staff alert) · D-120 test phones (CEO only, hidden, 24 h).
 // The Telegram side (hub: consent, contact, 🔕 menu, promotions) is in 40_hub_telegram; here the hub is a stub.
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CUSTOMER_MENU, customerText, SITE_CONSENT_VERSION } from "@sms/shared";
+import { CUSTOMER_MENU, customerText, NIGHT_CONFIRM, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
 import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
+import { clock } from "../src/lib/clock.js";
 import { hashPassword } from "../src/lib/password.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
 import { readXlsx, writeXlsx } from "../src/lib/xlsx.js";
@@ -23,6 +25,8 @@ import { seedWebCatalog } from "../src/services/catalog.js";
 import { customerNotices } from "../src/services/customer-notify.js";
 import { resetBotCache, setHubTransport } from "../src/services/hub-client.js";
 import { formToken } from "../src/services/site.js";
+import { flushOutbox } from "../src/services/telegram.js";
+import { cancelOldTests } from "../src/services/test-mode.js";
 import { webBookingAlerts, webLimits } from "../src/services/web-booking.js";
 
 let app: FastifyInstance; let s: Seed;
@@ -848,5 +852,195 @@ describe("Settings → Website: booking hours + promotion gap (CEO), indexing, p
     expect((await ceo.req("DELETE", `/api/website/photos/${g}`)).status).toBe(200);
     expect((await page(`/pub/img/${g}`)).statusCode).toBe(404);
     for (const f of ["site.css", "site.js"]) expect((await page(`/pub/${f}`)).statusCode).toBe(200);
+  });
+});
+
+// ---------- D-119 / D-120 (CEO decisions 04-10) ----------
+const ppDate = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Phnom_Penh" }).format(d); // YYYY-MM-DD in shop time
+const localAt = (date: string, hm: string) => new Date(`${date}T${hm}:00+07:00`);
+const firstFree = async () => (await days()).slice(1).flatMap((d) => d.slots).find((x) => x.free)!;
+/** wait until the outbox has delivered every row that mentions this text (another flush may be running) */
+async function deliver(text: string) {
+  for (let i = 0; i < 40; i++) {
+    await flushOutbox(50);
+    if ((await sql`select 1 from telegram_outbox where text like ${"%" + text + "%"} and status = 'pending'`).length === 0) return;
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
+describe("D-119 night rule: made 20:00–08:00 → «we confirm at 8 am» and a silent staff alert; the timers run 08:00–20:00 only", () => {
+  const today = ppDate(new Date());
+  const NIGHT = localAt(today, "22:00"), DAY = localAt(today, "10:00");
+  beforeEach(() => { clock.day = { ...WEB_TIMER_HOURS }; });
+  afterEach(() => { clock.now = () => new Date(); clock.day = { from: 0, to: 24 }; });
+
+  it("at night: the booking screen, screen 4 and the bot say «យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក»; Admin + GM get the alert without sound, asked for 8 am", async () => {
+    clock.now = () => NIGHT;
+    expect((await page(`/book?items=${ac()}`)).body).toContain(NIGHT_CONFIRM.km);
+    const r = await book((await firstFree()).at, { phone: "011404040", name: "ភ្ញៀវ យប់" });
+    expect(r.statusCode).toBe(200);
+    const { ref, number } = r.json() as { ref: string; number: string };
+    const done = (await page(`/book/done/${ref}`)).body;
+    expect(done).toContain(NIGHT_CONFIRM.km); expect(done).not.toContain("នឹងបញ្ជាក់ក្នុងរយៈពេល");
+    const rows = await sql<{ chat_id: string; text: string; silent: boolean }[]>`select chat_id::text as chat_id, text, silent from telegram_outbox where text like ${"%" + number + "%"} order by chat_id`;
+    expect(rows.map((x) => [Number(x.chat_id), x.silent])).toEqual([[CHAT.gm, true], [CHAT.admin, true]]);
+    for (const x of rows) { expect(x.text).toContain("សូមបញ្ជាក់ម៉ោង ៨ ព្រឹក"); expect(x.text).not.toContain("៣០ នាទី"); }
+    hubCalls.length = 0;
+    await deliver(number);
+    const sends = hubCalls.filter((c) => c.path === "/internal/send" && String(c.body.text).includes(number));
+    expect(sends.length).toBe(2); for (const c of sends) expect(c.body.silent).toBe(true);
+    const x = (await internal("customer-subscribed", { code: (await linkToken(ref))!, subscriber_id: 78 })).json();
+    expect(x.text.split("\n").slice(0, 2)).toEqual(["✅ ភ្ជាប់រួចរាល់", `ការកក់ #${number} · ${NIGHT_CONFIRM.km}`]);
+    expect(lines4(x.text)).toBe(true);
+  });
+
+  it("in the day: «within 30 minutes» as before and an alert with sound", async () => {
+    clock.now = () => DAY;
+    expect((await page(`/book?items=${ac()}`)).body).not.toContain(NIGHT_CONFIRM.km);
+    const r = await book((await firstFree()).at, { phone: "011404041", name: "ភ្ញៀវ ថ្ងៃ" });
+    const { ref, number } = r.json() as { ref: string; number: string };
+    expect((await page(`/book/done/${ref}`)).body).toContain("នឹងបញ្ជាក់ក្នុងរយៈពេល ៣០ នាទី");
+    const rows = await sql<{ text: string; silent: boolean }[]>`select text, silent from telegram_outbox where text like ${"%" + number + "%"}`;
+    expect(rows.length).toBe(2); for (const x of rows) { expect(x.silent).toBe(false); expect(x.text).toContain("សូមបញ្ជាក់ក្នុង ៣០ នាទី"); }
+    hubCalls.length = 0;
+    await deliver(number);
+    for (const c of hubCalls.filter((c) => c.path === "/internal/send" && String(c.body.text).includes(number))) expect(c.body.silent).toBeUndefined();
+    const x = (await internal("customer-subscribed", { code: (await linkToken(ref))!, subscriber_id: 79 })).json();
+    expect(x.text.split("\n")[1]).toBe(`ការកក់ #${number} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)`);
+  });
+
+  it("the 30 / 60 minutes count 08:00–20:00 only: made at 21:00 → Admin + GM at 08:30, the CEO at 09:00; made at 19:45 → 08:15 / 08:45", async () => {
+    // days in the past, so the bookings of the other tests (made just now) stay out of these runs
+    const d0 = ppDate(new Date(Date.now() - 3 * 86_400_000)), d1 = ppDate(new Date(Date.now() - 2 * 86_400_000));
+    const alertsAt = (t: Date) => { clock.now = () => t; return webBookingAlerts(t); };
+    const none = { reminded: 0, escalated: 0, expired: 0 };
+    clock.now = () => DAY;
+    const b = await bookingOf((await book((await firstFree()).at, { phone: "011404042", name: "ភ្ញៀវ ម៉ោង ៩ យប់" })).json().ref);
+    await sql`update bookings set created_at = ${localAt(d0, "21:00")} where id = ${b.id}`;
+    expect(await alertsAt(localAt(d0, "23:30"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "07:59"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "08:29"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "08:30"))).toEqual({ reminded: 1, escalated: 0, expired: 0 });
+    for (const u of [s.users.admin!, s.users.gm01!]) expect((await sql`select 1 from notifications where user_id = ${u} and title like ${"%" + b.number + "%៣០ នាទីហើយ%"}`).length).toBe(1);
+    expect((await sql`select 1 from notifications where user_id = ${s.users.ceo!} and title like ${"%" + b.number + "%"}`).length).toBe(0);
+    expect(await alertsAt(localAt(d1, "08:59"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "09:00"))).toEqual({ reminded: 0, escalated: 1, expired: 0 });
+    expect((await sql`select 1 from notifications where user_id = ${s.users.ceo!} and title like ${"%" + b.number + "%"}`).length).toBe(1);
+    clock.now = () => DAY;
+    const b2 = await bookingOf((await book((await firstFree()).at, { phone: "011404043", name: "ភ្ញៀវ ម៉ោង ៨ យប់" })).json().ref);
+    await sql`update bookings set created_at = ${localAt(d0, "19:45")} where id = ${b2.id}`;
+    expect(await alertsAt(localAt(d0, "23:59"))).toEqual(none); // 15 minutes that evening
+    expect(await alertsAt(localAt(d1, "08:14"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "08:15"))).toEqual({ reminded: 1, escalated: 0, expired: 0 });
+    expect(await alertsAt(localAt(d1, "08:44"))).toEqual(none);
+    expect(await alertsAt(localAt(d1, "08:45"))).toEqual({ reminded: 0, escalated: 1, expired: 0 });
+    expect((await bookingOf(b2.web_ref)).web_status).toBe("pending"); // still never declined by itself
+  });
+});
+
+describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, holds nobody, stays out of reports and lists, ends after 24 h", () => {
+  const TEST_PHONE = "017888999", CEO_CHAT = 920001;
+  const testRefs: string[] = [];
+  let realT = "", tb: Record<string, any> = {}, quoteId = "";
+  beforeAll(async () => { await sql`update users set telegram_chat_id = ${CEO_CHAT}, telegram_user_id = ${CEO_CHAT} where id = ${s.users.ceo!}`; });
+  afterAll(async () => { await sql`update users set telegram_chat_id = null, telegram_user_id = null where id = ${s.users.ceo!}`; });
+  const notesOf = async (user: string, text: string) => (await sql<{ title: string }[]>`select title from notifications where user_id = ${user} and (title like ${"%" + text + "%"} or body like ${"%" + text + "%"}) order by id`).map((x) => x.title);
+  const chatsFor = async (text: string) => [...new Set((await sql<{ chat_id: string }[]>`select chat_id::text as chat_id from telegram_outbox where text like ${"%" + text + "%"}`).map((x) => Number(x.chat_id)))];
+
+  it("Settings: only the CEO reads and writes the list; numbers are checked and kept in one form; audited; other settings readers never see it", async () => {
+    expect((await admin.req("GET", "/api/settings/test-phones")).status).toBe(403);
+    expect((await gm.req("PUT", "/api/settings/test-phones", { phones: [TEST_PHONE] })).status).toBe(403);
+    expect((await ceo.req("GET", "/api/settings/test-phones")).json).toEqual({ phones: [], max: 10 });
+    expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: ["12 34"] })).json.error).toBe("INVALID_PHONE");
+    expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: Array.from({ length: 11 }, (_, i) => `0119000${String(i).padStart(2, "0")}`) })).json.error).toBe("TOO_MANY_PHONES");
+    expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: ["+855 17 888 999", "017888999", " "] })).json).toEqual({ ok: true, phones: [TEST_PHONE] });
+    expect((await ceo.req("GET", "/api/settings/test-phones")).json.phones).toEqual([TEST_PHONE]);
+    expect((await sql`select new_data from audit_log where action = 'settings.test_phones' order by at desc limit 1`)[0]!.new_data).toEqual({ phones: [TEST_PHONE] });
+    expect("test_phones" in (await admin.req("GET", "/api/settings/company")).json).toBe(false);
+    realT = (await ceo.req("POST", "/api/customers", { name: "ម្ចាស់លេខពិត", phones: [TEST_PHONE], zone: "inside" })).json.id; // a real customer with the same number
+  });
+
+  it("a booking from a test phone: its own test customer (the real one untouched), only the CEO is told (🧪), no technician held, no daily phone limit", async () => {
+    const slot = await firstFree();
+    for (let i = 0; i < 4; i++) { const r = await book(slot.at, { phone: "017 888 999", name: "Heng សាកល្បង" }); expect(r.statusCode).toBe(200); testRefs.push(r.json().ref); }
+    expect((await days()).flatMap((d) => d.slots).find((x) => x.at === slot.at)!.free).toBe(true); // a real booking would take a technician each time
+    tb = await bookingOf(testRefs[0]!);
+    expect(tb).toMatchObject({ is_test: true, web_status: "pending", cname: "Heng សាកល្បង" });
+    expect(tb.customer_id).not.toBe(realT);
+    expect((await sql`select is_test from customers where id = ${tb.customer_id}`)[0]!.is_test).toBe(true);
+    expect(new Set((await Promise.all(testRefs.map(bookingOf))).map((x) => x.customer_id)).size).toBe(1); // the same test record each time
+    expect((await sql`select name, is_test, tg_subscriber_id from customers where id = ${realT}`)[0]).toMatchObject({ name: "ម្ចាស់លេខពិត", is_test: false, tg_subscriber_id: null });
+    expect((await requestOf(tb.id)).is_test).toBe(true);
+    const mine = await notesOf(s.users.ceo!, tb.number);
+    expect(mine.length).toBe(1); expect(mine[0]).toMatch(/^🧪 /);
+    for (const u of [s.users.admin!, s.users.gm01!]) expect(await notesOf(u, tb.number)).toEqual([]);
+    expect(await chatsFor(tb.number)).toEqual([CEO_CHAT]);
+  });
+
+  it("the CEO sees tests (🧪) in requests and bookings; Admin / GM, the bot list, the customer list, reports and the CSV never do", async () => {
+    const reqA = (await admin.req("GET", "/api/requests?all=1")).json as any[];
+    expect(reqA.some((x) => x.is_test || x.booking_id === tb.id)).toBe(false);
+    expect(((await ceo.req("GET", "/api/requests?all=1")).json as any[]).find((x) => x.booking_id === tb.id)).toMatchObject({ is_test: true });
+    expect(((await gm.req("GET", "/api/bookings")).json as any[]).some((x) => x.id === tb.id)).toBe(false);
+    expect(((await ceo.req("GET", "/api/bookings")).json as any[]).find((x) => x.id === tb.id)).toMatchObject({ is_test: true });
+    const custs = (await ceo.req("GET", "/api/customers")).json as any[];
+    expect(custs.some((x) => x.id === tb.customer_id)).toBe(false); expect(custs.some((x) => x.id === realT)).toBe(true);
+    expect(JSON.stringify((await internal("tg-menu", { chat_id: CHAT.admin, view: "req" })).json())).not.toContain(tb.number);
+    const day = ppDate(new Date());
+    const real = (await sql`select count(*)::int as n from bookings where company_id = ${s.a} and not is_test and (created_at at time zone 'Asia/Phnom_Penh')::date = ${day}::date`)[0]!.n;
+    expect((await ceo.req("GET", `/api/reports/summary?from=${day}&to=${day}`)).json.jobs.created).toBe(real);
+    const until = ppDate(new Date(Date.now() + 8 * 86_400_000));
+    const csv = await app.inject({ method: "GET", url: `/api/reports/export?kind=jobs&from=${day}&to=${until}`, headers: { cookie: ceo.cookie! } });
+    expect(csv.statusCode).toBe(200); expect(csv.body).not.toContain(tb.number);
+  });
+
+  it("a quote from a test phone, and what the CEO does with a test (confirm, assign, cancel): nobody else hears; the customer side works as real", async () => {
+    const gmBefore = (await sql`select count(*)::int as n from notifications where user_id = ${s.users.gm01!}`)[0]!.n;
+    const q = await quote({ phone: TEST_PHONE, name: "Heng សាកល្បង" });
+    expect(q.statusCode).toBe(200);
+    const rq = (await sql<Record<string, any>[]>`select * from service_requests where kind = 'quote' order by created_at desc limit 1`)[0]!;
+    quoteId = rq.id;
+    expect(rq.is_test).toBe(true);
+    expect((await sql`select is_test from customers where id = ${rq.customer_id}`)[0]!.is_test).toBe(true);
+    expect((await sql`select count(*)::int as n from notifications where user_id = ${s.users.gm01!}`)[0]!.n).toBe(gmBefore);
+    expect((await notesOf(s.users.ceo!, "សំណើសុំតម្លៃ · Heng សាកល្បង")).at(-1)).toMatch(/^🧪 /);
+    // the tester links the chat; the CEO confirms → the password arrives there and signs in to the TEST account (not the real customer)
+    expect((await internal("customer-subscribed", { code: (await linkToken(tb.web_ref))!, subscriber_id: 91 })).json().ok).toBe(true);
+    const staffIds = [s.users.admin!, s.users.gm01!, s.users.kim!, s.users.dara!, (await sql<{ id: string }[]>`select id from users where username = 'cfo'`)[0]!.id];
+    const countOf = async () => (await sql<{ n: number }[]>`select count(*)::int as n from notifications where user_id = any(${sql.array(staffIds)}::uuid[])`)[0]!.n;
+    const staffBefore = await countOf();
+    expect((await ceo.req("POST", `/api/requests/${(await requestOf(tb.id)).id}/confirm`, {})).status).toBe(200);
+    expect(told(91).some((t) => t.startsWith(`✅ បានបញ្ជាក់ #${tb.number}`))).toBe(true); // the tester gets the real customer messages
+    const pw = told(91).map(pwIn).find(Boolean)!;
+    expect(pw).toMatch(/^\d{4}$/);
+    expect((await tryLogin(TEST_PHONE, pw)).statusCode).toBe(200);
+    expect((await sql`select tg_subscriber_id::text as sub from customers where id = ${tb.customer_id}`)[0]!.sub).toBe("91");
+    // assign (whichever technician is free) → cancel, by the CEO: the group, the technicians, Admin, GM and CFO hear nothing
+    let assigned = 0;
+    for (const tech of [s.users.kim!, s.users.dara!]) if (!assigned && (await ceo.req("POST", `/api/bookings/${tb.id}/assign`, { lead: tech, assistants: [] })).status === 200) assigned++;
+    expect(assigned).toBe(1);
+    expect((await notesOf(s.users.ceo!, tb.number)).some((t) => t === `🧪 ${tb.number}`)).toBe(true); // the job message the group would get
+    expect((await ceo.req("POST", `/api/bookings/${tb.id}/cancel`, { reason: "សាកល្បងរួចរាល់" })).status).toBe(200);
+    expect(await countOf()).toBe(staffBefore);
+    for (const u of staffIds) expect(await notesOf(u, tb.number)).toEqual([]);
+    expect(await chatsFor(tb.number)).toEqual([CEO_CHAT]);
+  });
+
+  it("after 24 h whatever is still open is cancelled by itself — no message to anybody, audited; real bookings are never touched", async () => {
+    const open = testRefs.slice(1);
+    const ids = (await Promise.all(open.map(bookingOf))).map((x) => x.id as string);
+    const realB = await bookingOf((await book((await firstFree()).at, { phone: "011404044", name: "ភ្ញៀវ ពិត" })).json().ref);
+    await sql`update bookings set created_at = now() - interval '25 hours' where id = any(${sql.array([...ids, realB.id])}::uuid[])`;
+    await sql`update service_requests set created_at = now() - interval '25 hours' where id = ${quoteId}`;
+    const before = (await sql`select (select count(*) from notifications)::int as n, (select count(*) from telegram_outbox)::int as o`)[0];
+    hubCalls.length = 0;
+    expect(await cancelOldTests()).toEqual({ bookings: 3, requests: 4 });
+    for (const r of open) { const b = await bookingOf(r); expect(b.status).toBe("cancelled"); expect(b.cancel_reason).toMatch(/^🧪 /); }
+    expect((await sql`select status, outcome from service_requests where id = ${quoteId}`)[0]).toMatchObject({ status: "done", outcome: "expired" });
+    expect(await bookingOf(realB.web_ref)).toMatchObject({ status: "new", web_status: "pending" });
+    expect((await sql`select (select count(*) from notifications)::int as n, (select count(*) from telegram_outbox)::int as o`)[0]).toEqual(before);
+    expect(hubCalls.filter((c) => c.path === "/internal/notify-subscriber")).toEqual([]);
+    expect((await sql`select count(*)::int as n from audit_log where action = 'booking.test_expired'`)[0]!.n).toBe(3);
+    expect(await cancelOldTests()).toEqual({ bookings: 0, requests: 0 }); // once
   });
 });

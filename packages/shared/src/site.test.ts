@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { consentText, CONSENT_VERSION } from "./legal";
-import { customerLockFor, fromPriceText, kmDigits, normalizeKhPhone, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT } from "./site";
+import { customerText, NIGHT_CONFIRM } from "./customer-text";
+import { customerLockFor, fromPriceText, isNight, kmDigits, normalizeKhPhone, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT,
+  workingMinutes } from "./site";
 
 describe("public website helpers (D-96…)", () => {
   it("phone: national, with 0, with +855 → one form; garbage → null", () => {
@@ -59,5 +61,41 @@ describe("final combined brief (D-106…): consent, booking hours, service lines
     expect(parseWebLines(`${a}:2,${a}:3`)).toEqual([{ id: a, qty: 5 }]);
     expect(webLinesParam([{ id: a, qty: 2 }, { id: b, qty: 1 }])).toBe(`${a}:2,${b}:1`);
     for (const bad of ["", "x", `${a}:0`, `${a}:21`, `${a}:1.5`, `${a}:-1`, `not-a-uuid:1`, Array.from({ length: 9 }, (_, i) => `${a.slice(0, -1)}${i}:1`).join(",")]) expect(parseWebLines(bad)).toBeNull();
+  });
+});
+
+describe("D-119 night rule: the pending-booking clock runs only 08:00–20:00 shop time", () => {
+  const PP = "Asia/Phnom_Penh", at = (s: string) => new Date(`${s}+07:00`), add = (d: Date, min: number) => new Date(d.getTime() + min * 60_000);
+  it("20:00–08:00 is night, 08:00–19:59 is day", () => {
+    for (const s of ["2026-10-05T20:00:00", "2026-10-05T23:30:00", "2026-10-06T00:00:00", "2026-10-06T07:59:00"]) expect(isNight(at(s), PP)).toBe(true);
+    for (const s of ["2026-10-06T08:00:00", "2026-10-06T12:00:00", "2026-10-06T19:59:00"]) expect(isNight(at(s), PP)).toBe(false);
+  });
+  it("made at night: 30 minutes are reached at 08:30, 60 at 09:00 (CEO)", () => {
+    const made = at("2026-10-05T21:00:00");
+    expect(workingMinutes(made, at("2026-10-06T07:59:00"), PP)).toBe(0);
+    expect(workingMinutes(made, at("2026-10-06T08:29:00"), PP)).toBe(29);
+    expect(workingMinutes(made, at("2026-10-06T08:30:00"), PP)).toBe(30);
+    expect(workingMinutes(made, at("2026-10-06T09:00:00"), PP)).toBe(60);
+    expect(workingMinutes(at("2026-10-06T02:15:00"), at("2026-10-06T08:30:00"), PP)).toBe(30); // after midnight: the same morning
+  });
+  it("made before 20:00: the minutes before closing count, the rest runs from 08:00", () => {
+    const made = at("2026-10-05T19:45:00");
+    expect(workingMinutes(made, at("2026-10-05T23:00:00"), PP)).toBe(15);
+    expect(workingMinutes(made, at("2026-10-06T08:15:00"), PP)).toBe(30);
+    expect(workingMinutes(made, at("2026-10-06T08:45:00"), PP)).toBe(60);
+  });
+  it("in the day the clock is the wall clock; across two nights both are skipped; nothing before the start", () => {
+    const made = at("2026-10-06T10:00:00");
+    expect(workingMinutes(made, add(made, 30), PP)).toBe(30);
+    expect(workingMinutes(made, at("2026-10-07T09:00:00"), PP)).toBe(10 * 60 + 60);
+    expect(workingMinutes(made, at("2026-10-08T09:00:00"), PP)).toBe(10 * 60 + 12 * 60 + 60);
+    expect(workingMinutes(add(made, 5), made, PP)).toBe(0);
+  });
+  it("customer texts: «we confirm at 8 am» instead of «≤30 minutes» at night — the owner's exact words", () => {
+    expect(NIGHT_CONFIRM.km).toBe("យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក");
+    expect(customerText.received("BK-0007")).toContain("(≤៣០ នាទី)");
+    expect(customerText.received("BK-0007", true)).toBe(`✅ បានទទួលការកក់ #BK-0007\n${NIGHT_CONFIRM.km}`);
+    expect(customerText.linked("BK-0007", "4827", true).split("\n")).toEqual(["✅ ភ្ជាប់រួចរាល់", `ការកក់ #BK-0007 · ${NIGHT_CONFIRM.km}`, "🔑 ពាក្យសម្ងាត់៖ 4827", "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ"]);
+    expect(customerText.linked("BK-0007", null)).not.toContain(NIGHT_CONFIRM.km);
   });
 });

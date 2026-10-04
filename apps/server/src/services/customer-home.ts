@@ -100,8 +100,8 @@ export async function setMyPrefs(s: CustomerSession, ip: string | null, p: Notif
 }
 
 async function myBooking(s: CustomerSession, id: string) {
-  const b = (await sql<{ id: string; number: string; status: string; scheduled_at: Date | null; ends_at: Date | null; customer_id: string; cname: string; tz: string }[]>`
-    select b.id, b.number, b.status, b.scheduled_at, b.ends_at, b.customer_id, c.name as cname, co.timezone as tz
+  const b = (await sql<{ id: string; number: string; status: string; scheduled_at: Date | null; ends_at: Date | null; customer_id: string; cname: string; tz: string; is_test: boolean }[]>`
+    select b.id, b.number, b.status, b.scheduled_at, b.ends_at, b.customer_id, c.name as cname, co.timezone as tz, b.is_test
     from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id where b.id = ${id} and ${mine(s)}`)[0];
   if (!b) throw notFound(); // not yours = does not exist
   return b;
@@ -134,11 +134,11 @@ export async function requestReschedule(s: CustomerSession, ip: string | null, i
     if ((await t`select 1 from service_requests where booking_id = ${id} and kind = 'reschedule' and status = 'new'`).length) throw new AppError("ALREADY_REQUESTED", 409);
     const tz = b.tz || "Asia/Phnom_Penh";
     const text = [`🔁 ${b.number}`, `❌ ${b.scheduled_at ? fmtLocal(b.scheduled_at, tz) : "—"}`, `✅ ${fmtLocal(at, tz)}`, `📝 ${why}`].join("\n");
-    const rid = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, booking_id, customer_id, subscriber_id, name, text, meta)
-      values (${s.companyId}, 'website', 'reschedule', ${id}, ${b.customer_id}, ${s.subscriberId}, ${b.cname.slice(0, 120)}, ${text},
+    const rid = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, booking_id, customer_id, subscriber_id, name, text, is_test, meta)
+      values (${s.companyId}, 'website', 'reschedule', ${id}, ${b.customer_id}, ${s.subscriberId}, ${b.cname.slice(0, 120)}, ${text}, ${b.is_test},
         ${t.json({ requested_by: "customer", old_start: b.scheduled_at?.toISOString() ?? null, new_start: at.toISOString(), new_end: new Date(at.getTime() + minutes * 60_000).toISOString(), reason: why } as never)}) returning id`)[0]!.id;
     await audit(t, { companyId: s.companyId, userId: null, action: "booking.reschedule_request", source: "system", table: "bookings", rowId: id, new: { new_start: at, requested_by: "customer", reason: why }, ip });
-    await notifyRequestStaff(t, s.companyId, ["admin", "gm"], { km: `🔁 សំណើប្ដូរម៉ោង · ${b.number}`, en: `🔁 Reschedule request · ${b.number}` }, `👤 ${b.cname}\n${text}`, rid);
+    await notifyRequestStaff(t, s.companyId, ["admin", "gm"], { km: `🔁 សំណើប្ដូរម៉ោង · ${b.number}`, en: `🔁 Reschedule request · ${b.number}` }, `👤 ${b.cname}\n${text}`, rid, { test: b.is_test });
     return { ok: true };
   });
 }

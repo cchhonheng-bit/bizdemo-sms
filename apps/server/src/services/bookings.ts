@@ -12,6 +12,7 @@ import { issueInitialPassword } from "./customer-auth.js";
 import { btn, row, tellSubscriber } from "./customer-bot.js";
 import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
+import { seesTests, testTitle } from "./test-mode.js";
 
 export type BookingRow = Record<string, unknown> & {
   id: string; company_id: string; number: string; status: BookingStatus; type: "A" | "B";
@@ -22,7 +23,7 @@ export type BookingRow = Record<string, unknown> & {
 function baseSelect(db: Db) {
   return db`select b.id, b.company_id, b.number, b.customer_id, c.name as customer_name, c.phones as customer_phones,
          b.type, b.category, b.status, b.service_text, b.service_item_id, b.scheduled_at, b.ends_at, b.address, b.lat, b.lng, b.zone,
-         b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at, b.origin, b.web_status,
+         b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at, b.origin, b.web_status, b.is_test,
          b.created_by, b.created_at, b.updated_at, b.parent_booking_id as warranty_of, pb.number as warranty_of_number,
          ${warrantyJson(db)} as warranty,
          (select json_agg(json_build_object('id', cu.id, 'label', cu.label) order by cu.label) from booking_units bu join customer_units cu on cu.id = bu.unit_id where bu.booking_id = b.id) as units,
@@ -42,10 +43,12 @@ export function warrantyJson(db: Db) {
 
 const techFilter = (db: Db, user: SessionUser) =>
   user.role === "tech" ? db`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = ${user.id})` : db``;
+/** D-120: test bookings are listed for the CEO only */
+const testFilter = (db: Db, user: SessionUser) => (seesTests(user) ? db`` : db`and not b.is_test`);
 
 export async function listBookings(user: SessionUser, o: { statuses?: BookingStatus[]; from?: string; to?: string; limit?: number }) {
   return sql`${baseSelect(sql)}
-    where b.company_id = ${user.companyId} ${techFilter(sql, user)}
+    where b.company_id = ${user.companyId} ${techFilter(sql, user)} ${testFilter(sql, user)}
       ${o.statuses?.length ? sql`and b.status = any(${sql.array(o.statuses)}::booking_status[])` : sql``}
       ${o.from ? sql`and b.scheduled_at >= ${o.from}` : sql``}
       ${o.to ? sql`and b.scheduled_at < ${o.to}` : sql``}
@@ -393,8 +396,10 @@ export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | nu
   await enqueueBookingCancelled(t, id, reason);
   // BR-21 · FR-1002: CEO + CFO hear about every deletion (never the person who did it); a customer's own cancellation also reaches Admin + GM
   const cname = (await t<{ name: string }[]>`select name from customers where id = ${b.customer_id as string}`)[0]?.name ?? "";
-  const roles = actor.userId ? ["ceo", "cfo"] : ["ceo", "cfo", "admin", "gm"];
+  const test = b.is_test === true; // D-120: a test reaches the CEO only
+  const roles = test ? ["ceo"] : actor.userId ? ["ceo", "cfo"] : ["ceo", "cfo", "admin", "gm"];
+  const title = { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` };
   for (const u of await t<{ id: string }[]>`select id from users where company_id = ${actor.companyId} and is_active and role::text = any(${t.array(roles)}) and id::text <> ${actor.userId ?? ""}`)
-    await notifyUser(t, actor.companyId, u.id, "booking.cancelled", { km: `❌ លុបចោលការងារ · ${b.number}`, en: `❌ Booking cancelled · ${b.number}` }, { km: `👤 ${cname}\nដោយ ${actor.name.km}\n📝 ${reason}`, en: `👤 ${cname}\nby ${actor.name.en}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
+    await notifyUser(t, actor.companyId, u.id, "booking.cancelled", test ? testTitle(title) : title, { km: `👤 ${cname}\nដោយ ${actor.name.km}\n📝 ${reason}`, en: `👤 ${cname}\nby ${actor.name.en}\n📝 ${reason}` }, `/bookings/${id}`, `cancel-boss:${id}:${u.id}`);
   return { id, status: "cancelled" as const };
 }

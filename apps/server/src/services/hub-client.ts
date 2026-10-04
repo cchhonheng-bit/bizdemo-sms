@@ -37,11 +37,12 @@ export async function hubCall(method: "GET" | "POST", path: string, body?: unkno
 }
 
 /** Outbox delivery through the hub (same result shape as the old direct Bot API sender). */
-export async function sendViaHub(chatId: number | string, text: string, replyMarkup?: unknown): Promise<SendResult> {
+/** silent (D-119): Telegram delivers it without sound */
+export async function sendViaHub(chatId: number | string, text: string, replyMarkup?: unknown, silent = false): Promise<SendResult> {
   if (!hubConfigured()) return { ok: false, error: "HUB_NOT_CONFIGURED", permanent: false };
   let r: HubResponse;
   try {
-    r = await transport("POST", "/internal/send", { chat_id: String(chatId), text, reply_markup: replyMarkup ?? null });
+    r = await transport("POST", "/internal/send", { chat_id: String(chatId), text, reply_markup: replyMarkup ?? null, ...(silent ? { silent: true } : {}) });
   } catch (e) {
     return { ok: false, error: `HUB_UNREACHABLE ${(e as Error).message}`, permanent: false };
   }

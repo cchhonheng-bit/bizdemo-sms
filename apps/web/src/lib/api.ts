@@ -26,6 +26,8 @@ export type Booking = {
   units?: { id: string; label: string }[] | null;
   /** D-96: made on the public website; "pending" = waits for Admin / GM to confirm or decline (Customer requests) */
   origin?: "staff" | "website"; web_status?: "pending" | "confirmed" | "declined" | null;
+  /** D-120: from one of the CEO's test phones (listed for the CEO only) */
+  is_test?: boolean;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
@@ -156,7 +158,7 @@ export type ServiceRequest = { id: string; source: "telegram" | "website"; kind:
   outcome: "confirmed" | "declined" | "approved" | "rejected" | "expired" | null; note: string | null; meta: Record<string, unknown> | null;
   created_at: string; handled_at: string | null; customer_id: string | null; customer_name: string | null; handled_by_name: string | null;
   booking_id: string | null; booking_number: string | null; booking_at: string | null; booking_ends: string | null; booking_status: BookingStatus | null; web_status: "pending" | "confirmed" | "declined" | "expired" | null;
-  lat: number | null; lng: number | null; loc_accuracy: number | null; photos: { id: string }[] };
+  lat: number | null; lng: number | null; loc_accuracy: number | null; photos: { id: string }[]; is_test?: boolean };
 
 /** API errors carry a stable code ("FORBIDDEN", "NOT_FOUND", "BOOKING_LOCKED", …) */
 export function errCode(e: unknown): string {
@@ -370,6 +372,8 @@ export const api = {
   resetPassword: (id: string) => post<{ temp_password?: string }>(`/api/users/${id}/reset-password`, {}),
 
   settings: () => get<CompanySettings | null>("/api/settings/company"),
+  /** D-120 (CEO only) */
+  testPhones: { get: () => get<{ phones: string[]; max: number }>("/api/settings/test-phones"), save: (phones: string[]) => put<{ ok: true; phones: string[] }>("/api/settings/test-phones", { phones }) },
   updateSettings: (patchBody: Record<string, unknown>) => patch("/api/settings/company", patchBody),
   setFx: (rate: number) => post("/api/settings/fx", { rate }),
   vehicles: async (): Promise<Vehicle[]> => (await get<Vehicle[]>("/api/settings/vehicles")).filter((v) => v.is_active),

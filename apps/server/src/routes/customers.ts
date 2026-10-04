@@ -14,7 +14,8 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
   app.get("/", { preHandler: app.requireAuth }, async (req) => {
     if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403);
     const q = z.object({ active: z.enum(["true", "false"]).optional() }).parse(req.query ?? {});
-    return sql`select ${COLS} from customers where company_id = ${req.user!.companyId}
+    // D-120: test customers (made by the CEO's test phones) never appear in the list
+    return sql`select ${COLS} from customers where company_id = ${req.user!.companyId} and not is_test
                ${q.active === "true" ? sql`and is_active` : sql``} order by name`;
   });
 

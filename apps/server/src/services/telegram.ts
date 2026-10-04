@@ -1,7 +1,7 @@
 // Telegram (shop side, v2.1): outbox (queue in DB, retry ≤ 5, blocked chat → failed at once — D-15) delivered
 // THROUGH THE HUB (the shop has no bot token — D-51), "Booking Confirmed" text (Architecture §8.1),
 // staff/group codes ONETEAM-S-xxxxxx / ONETEAM-G-xxxxxx (A3, S-11) validated when the hub forwards them.
-import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN } from "@sms/shared";
+import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN, TEST_MARK } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
@@ -9,31 +9,33 @@ import { appUrl } from "../lib/app-url.js";
 import { asLang, LEAD, pick, tx, ZONE, type Lang, type Tx } from "../lib/i18n.js";
 import { audit } from "./audit.js";
 import { hubCall, hubConfigured, sendViaHub, shopBotUsername } from "./hub-client.js";
+import { ceoIds, isTestBooking } from "./test-mode.js";
 
 export type SendResult = { ok: true } | { ok: false; error: string; permanent: boolean; retryAfter?: number };
 
 // ---------- outbox --------------------------------------------------------------
-export async function enqueue(db: Db, companyId: string, chatId: number | string, text: string, replyMarkup: unknown, dedupeKey: string): Promise<void> {
-  await db`insert into telegram_outbox (company_id, chat_id, text, reply_markup, dedupe_key)
-           values (${companyId}, ${String(chatId)}::bigint, ${text}, ${replyMarkup ? db.json(replyMarkup as never) : null}, ${dedupeKey})
+/** silent (D-119): delivered without sound — staff alerts of customer requests made 20:00–08:00 */
+export async function enqueue(db: Db, companyId: string, chatId: number | string, text: string, replyMarkup: unknown, dedupeKey: string, o: { silent?: boolean } = {}): Promise<void> {
+  await db`insert into telegram_outbox (company_id, chat_id, text, reply_markup, dedupe_key, silent)
+           values (${companyId}, ${String(chatId)}::bigint, ${text}, ${replyMarkup ? db.json(replyMarkup as never) : null}, ${dedupeKey}, ${o.silent === true})
            on conflict (dedupe_key) do nothing`;
 }
 
 let flushing = false;
 /** Deliver pending outbox rows (called after assign and by the cron every 30 s). Returns counts. */
-export async function flushOutbox(limit = 20, send: (chatId: number | string, text: string, markup?: unknown) => Promise<SendResult> = sendViaHub): Promise<{ taken: number; sent: number; failed: number; retry: number }> {
+export async function flushOutbox(limit = 20, send: (chatId: number | string, text: string, markup?: unknown, silent?: boolean) => Promise<SendResult> = sendViaHub): Promise<{ taken: number; sent: number; failed: number; retry: number }> {
   if (flushing) return { taken: 0, sent: 0, failed: 0, retry: 0 };
   if (send === sendViaHub && !hubConfigured()) return { taken: 0, sent: 0, failed: 0, retry: 0 }; // no hub configured → keep rows pending
   flushing = true;
   const out = { taken: 0, sent: 0, failed: 0, retry: 0 };
   try {
-    const rows = await sql<{ id: number; chat_id: string; text: string; reply_markup: unknown; attempts: number }[]>`
+    const rows = await sql<{ id: number; chat_id: string; text: string; reply_markup: unknown; attempts: number; silent: boolean }[]>`
       update telegram_outbox o set attempts = attempts + 1
       where o.id in (select id from telegram_outbox where status = 'pending' and attempts < 5 order by created_at limit ${Math.max(1, Math.min(limit, 50))} for update skip locked)
-      returning o.id, o.chat_id, o.text, o.reply_markup, o.attempts`;
+      returning o.id, o.chat_id, o.text, o.reply_markup, o.attempts, o.silent`;
     out.taken = rows.length;
     for (const r of rows) {
-      const res = await send(r.chat_id, r.text, r.reply_markup ?? undefined);
+      const res = r.silent ? await send(r.chat_id, r.text, r.reply_markup ?? undefined, true) : await send(r.chat_id, r.text, r.reply_markup ?? undefined);
       if (res.ok) {
         out.sent++;
         await sql`update telegram_outbox set status = 'sent', sent_at = now(), last_error = null where id = ${r.id}`;
@@ -103,10 +105,19 @@ export function fmtLocal(d: Date, timeZone: string): string {
   return `${g("day")}-${g("month")}-${g("year")} · ${g("hour")}:${g("minute")}`;
 }
 
+/** D-120: a test booking never reaches the group or the technicians — the CEO gets the same message, marked 🧪 */
+async function toCeoInstead(db: Db, companyId: string, bookingId: string, number: string, textIn: (lang: Lang) => string, key: string): Promise<boolean> {
+  if (!(await isTestBooking(db, bookingId))) return false;
+  for (const id of await ceoIds(db, companyId))
+    await notifyUser(db, companyId, id, "booking.test", `${TEST_MARK} ${number}`, { km: textIn("km"), en: textIn("en") }, `/bookings/${bookingId}`, `${key}:ceo:${id}`);
+  return true;
+}
+
 /** Group + every linked technician of the team get the message; every technician gets an in-app notification. */
 export async function enqueueBookingConfirmed(db: Db, bookingId: string, reason: string): Promise<void> {
   const km = await bookingConfirmedText(db, bookingId, "km"), en = await bookingConfirmedText(db, bookingId, "en");
   const { companyId, number } = km;
+  if (await toCeoInstead(db, companyId, bookingId, number, (l) => (l === "en" ? en : km).text, `booking:${bookingId}:${reason}`)) return;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${companyId}`)[0]?.telegram_group_chat_id;
   if (group) await enqueue(db, companyId, group, km.text, withApp(km.markup, bookingId, false, "km"), `booking:${bookingId}:${reason}:group`);
   const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
@@ -137,6 +148,7 @@ export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { 
   ].join("\n"); };
   const text = textIn("km");
   const key = `resched:${bookingId}:${Date.now()}`;
+  if (await toCeoInstead(db, b.company_id, bookingId, b.number, textIn, key)) return;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
   if (group) await enqueue(db, b.company_id, group, text, withApp(null, bookingId, false, "km"), `${key}:group`);
   const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;
@@ -149,11 +161,11 @@ export async function enqueueBookingRescheduled(db: Db, bookingId: string, r: { 
 }
 
 /** a personal Telegram message + in-app notification to one user, in that user's language (a plain string = the same in both) */
-export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string | Tx, body: string | Tx, link: string | null, dedupe: string, markup: unknown = null): Promise<void> {
+export async function notifyUser(db: Db, companyId: string, userId: string, kind: string, title: string | Tx, body: string | Tx, link: string | null, dedupe: string, markup: unknown = null, o: { silent?: boolean } = {}): Promise<void> {
   const u = (await db<{ chat: string | null; active: boolean; language: string }[]>`select telegram_chat_id as chat, is_active as active, language from users where id = ${userId}`)[0];
   const lang = asLang(u?.language), t = pick(title, lang), b = pick(body, lang);
   await db`insert into notifications (company_id, user_id, kind, title, body, link) values (${companyId}, ${userId}, ${kind}, ${t}, ${b.slice(0, 300)}, ${link})`;
-  if (u?.chat && u.active) await enqueue(db, companyId, u.chat, `${t}\n${b}`, markup, dedupe);
+  if (u?.chat && u.active) await enqueue(db, companyId, u.chat, `${t}\n${b}`, markup, dedupe, o);
 }
 
 /** R4: the group + every linked technician of the (former) team get a cancel notice; technicians an in-app notification. */
@@ -169,6 +181,7 @@ export async function enqueueBookingCancelled(db: Db, bookingId: string, reason:
     L("ការងារនេះត្រូវបានលុបចោល — មិនចាំបាច់ចុះទីតាំងទេ។", "This job is cancelled — no need to go on site."),
   ].join("\n"); };
   const text = textIn("km");
+  if (await toCeoInstead(db, b.company_id, bookingId, b.number, textIn, `cancel:${bookingId}`)) return;
   const group = (await db<{ telegram_group_chat_id: string | null }[]>`select telegram_group_chat_id from company_settings where company_id = ${b.company_id}`)[0]?.telegram_group_chat_id;
   if (group) await enqueue(db, b.company_id, group, text, null, `cancel:${bookingId}:group`);
   const team = await db<{ id: string; telegram_chat_id: string | null; language: string }[]>`select u.id, u.telegram_chat_id, u.language from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${bookingId}`;

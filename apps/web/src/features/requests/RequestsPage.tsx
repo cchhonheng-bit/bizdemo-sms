@@ -54,6 +54,7 @@ export default function RequestsPage() {
           return (
             <Card key={r.id}>
               <div className="flex flex-wrap items-center gap-2 mb-1" data-testid="req-card">
+                {r.is_test && <Badge tone="purple">🧪 {t("requests.test")}</Badge>}
                 <Badge tone={r.source === "website" ? "blue" : "navy"}>{t(`requests.source.${r.source}`)}</Badge>
                 {r.kind !== "request" && <Badge tone={waiting ? "warning" : "grey"}>{t(`requests.kind.${r.kind}`)}</Badge>}
                 {r.kind === "quote" && typeof r.meta?.category === "string" && <Badge tone="purple">{t(`category.${r.meta.category}`, { defaultValue: r.meta.category })}</Badge>}

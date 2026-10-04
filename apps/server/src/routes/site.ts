@@ -11,9 +11,10 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { isAllowedMapsHost, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
+import { isAllowedMapsHost, isNight, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
+import { clock } from "../lib/clock.js";
 import { AppError, unauthenticated } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
 import { changeCustomerPassword, passwordLogin } from "../services/customer-auth.js";
@@ -117,7 +118,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const r = await resolveLines(sql, d.companyId, refs).catch(() => null);
     if (!r) return reply.redirect("/", 302);
     if (r.quote) return reply.redirect(`/quote?items=${webLinesParam(refs)}`, 302); // quote-only items: the quote screen
-    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: await prefillOf(req) }));
+    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: await prefillOf(req), night: isNight(clock.now(), d.tz, clock.day) }));
   });
   app.get("/book/done/:ref", async (req, reply) => {
     const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);

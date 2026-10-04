@@ -10,6 +10,7 @@ import { stripImageMeta } from "../lib/image-meta.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { enqueue, fmtLocal, notifyUser } from "./telegram.js";
+import { ceoIds, isTestBooking } from "./test-mode.js";
 
 export const STEPS = ["depart", "arrive", "start", "finish", "return"] as const;
 export type Step = (typeof STEPS)[number];
@@ -54,7 +55,7 @@ export async function recordCheckpoint(user: SessionUser, perms: string[], ip: s
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.checkpoint", table: "bookings", rowId: id, new: { step: v.step, at: when, no_gps: noGps, offline: v.offline === true }, ip });
     // FR-1001: the work group sees departed / arrived / finished
     const icon = { depart: "🚐 ចេញដំណើរ", arrive: "📍 ដល់ទីតាំង", finish: "✅ បញ្ចប់ការងារ" } as Partial<Record<Step, string>>;
-    if (icon[v.step]) {
+    if (icon[v.step] && !(await isTestBooking(t, id))) { // D-120: a test never reaches the work group
       const group = (await t<{ g: string | null }[]>`select telegram_group_chat_id as g from company_settings where company_id = ${b.company_id}`)[0]?.g;
       if (group) await enqueue(t, b.company_id, group, `${icon[v.step]} · ${b.number}\n👷 ${user.fullName} · ${fmtLocal(when, b.timezone || "Asia/Phnom_Penh").slice(-5)}${noGps ? " · ⚠️ គ្មាន GPS" : ""}`, null, `cp:${id}:${v.step}`);
     }
@@ -187,7 +188,8 @@ export async function submitReport(user: SessionUser, perms: string[], ip: strin
     await t`update bookings set status = 'pending_review' where id = ${id}`;
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.report", table: "booking_reports", rowId: id, new: { notes: v.notes.trim() }, ip });
     // FR-1002: GM receives the job waiting for review
-    const reviewers = await t<{ id: string }[]>`select distinct u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
+    const reviewers = (await isTestBooking(t, id)) ? (await ceoIds(t, b.company_id)).map((x) => ({ id: x })) // D-120: a test → the CEO only
+      : await t<{ id: string }[]>`select distinct u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
       where u.company_id = ${b.company_id} and u.is_active and ((rp.permission_key = 'job.review' and rp.allowed and u.role = 'gm') or (u.role = 'tech' and u.is_lead and u.id <> ${user.id}))`;
     for (const r of reviewers) await notifyUser(t, b.company_id, r.id, "job.review", { km: `🔎 រង់ចាំពិនិត្យ · ${b.number}`, en: `🔎 Waiting for review · ${b.number}` }, { km: `របាយការណ៍ការងារពី ${user.fullName}`, en: `Job report from ${user.fullName}` }, `/bookings/${id}`, `review-req:${id}:${Date.now()}:${r.id}`);
     return { ok: true, status: "pending_review" as const };
@@ -205,7 +207,7 @@ export async function reviewReport(user: SessionUser, ip: string | null, id: str
     await t`update booking_reports set status = ${status}::report_status, review_note = ${note.trim() || null}, reviewed_by = ${user.id}, reviewed_at = now() where booking_id = ${id}`;
     await t`update bookings set status = ${status}::booking_status where id = ${id}`;
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.review", table: "booking_reports", rowId: id, new: { decision, note: note.trim() }, ip });
-    const crew = await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`;
+    const crew = (await isTestBooking(t, id)) ? [] : await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`; // D-120: a test tells nobody
     for (const c of crew) await notifyUser(t, b.company_id, c.user_id, decision === "approve" ? "job.reviewed" : "job.revision",
       decision === "approve" ? { km: `✅ ការងារត្រឹមត្រូវ · ${b.number}`, en: `✅ Job approved · ${b.number}` } : { km: `✏️ សូមកែរបាយការណ៍ · ${b.number}`, en: `✏️ Please fix the report · ${b.number}` },
       decision === "approve" ? { km: `ពិនិត្យដោយ ${user.fullName}`, en: `Reviewed by ${user.fullName}` } : `📝 ${note.trim()}`,
@@ -216,7 +218,7 @@ export async function reviewReport(user: SessionUser, ip: string | null, id: str
 
 // ---------- late alert (BR-07 · FR-603 · AC-08): once per job ----------
 export async function lateAlerts(): Promise<number> {
-  const late = await sql<{ id: string; company_id: string; number: string; scheduled_at: Date; timezone: string; crew: string | null }[]>`
+  const late = await sql<{ id: string; company_id: string; number: string; scheduled_at: Date; timezone: string; crew: string | null; is_test: boolean }[]>`
     update bookings b set late_alerted_at = now()
     from company_settings s, companies c
     where s.company_id = b.company_id and c.id = b.company_id and b.late_alerted_at is null
@@ -224,10 +226,11 @@ export async function lateAlerts(): Promise<number> {
       and now() > b.scheduled_at + make_interval(mins => s.late_alert_min)
       and b.scheduled_at > now() - interval '1 day'
       and not exists (select 1 from booking_checkpoints k where k.booking_id = b.id and k.step = 'arrive')
-    returning b.id, b.company_id, b.number, b.scheduled_at, c.timezone,
+    returning b.id, b.company_id, b.number, b.scheduled_at, c.timezone, b.is_test,
       (select string_agg(u.full_name, ', ') from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as crew`;
   for (const b of late) {
-    const to = await sql<{ id: string }[]>`select id from users where company_id = ${b.company_id} and is_active and role in ('admin', 'gm')`;
+    const to = b.is_test ? (await ceoIds(sql, b.company_id)).map((x) => ({ id: x })) // D-120: a test → the CEO only
+      : await sql<{ id: string }[]>`select id from users where company_id = ${b.company_id} and is_active and role in ('admin', 'gm')`;
     for (const u of to) await notifyUser(sql, b.company_id, u.id, "booking.late", { km: `⏰ ជាងយឺត · ${b.number}`, en: `⏰ Technician late · ${b.number}` },
       { km: `ណាត់ ${fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh").slice(-5)} · មិនទាន់ចុច «ដល់ទីតាំង»\n👷 ${b.crew ?? "—"}`, en: `Due ${fmtLocal(b.scheduled_at, b.timezone || "Asia/Phnom_Penh").slice(-5)} · «Arrived on site» not pressed yet\n👷 ${b.crew ?? "—"}` }, `/bookings/${b.id}`, `late:${b.id}:${u.id}`);
   }

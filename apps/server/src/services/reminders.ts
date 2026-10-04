@@ -41,7 +41,7 @@ export async function listReminders(user: SessionUser, days = 14): Promise<Remin
       a.action::text as last_action, a.note as last_note, a.at as last_action_at,
       coalesce(a.action = 'snoozed' and a.until > d.today, false) as snoozed, coalesce(a.action = 'dismissed', false) as dismissed,
       exists (select 1 from bookings o where o.customer_id = d.customer_id and o.service_item_id = d.service_item_id and o.status = any(${sql.array(OPEN)}::booking_status[])) as booked
-    from due d join customers cu on cu.id = d.customer_id and cu.is_active
+    from due d join customers cu on cu.id = d.customer_id and cu.is_active and not cu.is_test
       left join customer_units un on un.id = d.unit_id
       left join lateral (select action, note, at, until from reminder_actions r where r.company_id = ${c} and r.customer_id = d.customer_id and r.service_item_id = d.service_item_id
         and r.due_on = d.due_on and r.unit_id is not distinct from d.unit_id order by r.at desc, r.id desc limit 1) a on true
