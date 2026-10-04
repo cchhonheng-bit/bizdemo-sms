@@ -105,7 +105,7 @@ describe("reviews: one per video and reviewer, both see each other", () => {
     expect(l1.find((r: any) => r.name === "CEO A")).toMatchObject({ verdict: "ok", comment: "ល្អ", platform: false });
     expect(l1.find((r: any) => r.name === "HangKH Support")).toMatchObject({ verdict: "ok", comment: null, platform: true });
     expect(d.reviews.find((r: any) => r.video_id === "L2-03")).toMatchObject({ verdict: "fix", comment: "ខ្ញុំនឹងកែ" });
-    const log = await sql<{ old_data: any; new_data: any }[]>`select old_data, new_data from audit_log where action = 'guide.review' and user_id = ${s.users.ceo} order by id`;
+    const log = await sql<{ old_data: any; new_data: any }[]>`select old_data, new_data from audit_log where action = 'guide.review' and user_id = ${s.users.ceo!} order by id`;
     expect(log).toHaveLength(2);
     expect(log[0]!.old_data).toBeNull();
     expect(log[1]).toMatchObject({ old_data: { verdict: "fix", comment: "សំឡេងតិចពេក" }, new_data: { video: "L1-00", verdict: "ok", comment: "ល្អ" } });

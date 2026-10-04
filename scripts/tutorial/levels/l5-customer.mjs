@@ -187,21 +187,20 @@ insert into hub_subscriptions (shop_code, subscriber_id) select 'DEMO', id from 
       await browser(v, "/", "#cats");
     }, async (v, d, u) => {
       const { A, T } = u;
-      await v.caption("បើកគេហទំព័ររបស់ហាង\nក្នុងទូរស័ព្ទ"); await v.hold(3000);
-      await v.caption("ជ្រើសប្រភេទសេវា"); await v.tap(T('#cats .cat[data-cat="ac"]')); await v.hold(500);
-      await v.caption("ជ្រើសសេវា និងចំនួន"); await v.look(T("#lines .line").first(), { zoom: 1.4, after: 800 }); await v.tap(T('#lines [data-q="1"]').first(), null, { before: 1200 }); await v.hold(500);
+      await v.caption("បើកគេហទំព័ររបស់ហាង\nហើយជ្រើសប្រភេទសេវា"); await v.tap(T('#cats .cat[data-cat="ac"]'), null, { before: 2400 }); await v.hold(400);
+      await v.caption("ជ្រើសសេវា និងចំនួន"); await v.look(T("#lines .line").first(), { zoom: 1.4, after: 500 }); await v.tap(T('#lines [data-q="1"]').first(), null, { before: 900 }); await v.hold(400);
       await v.caption("ចុច «កក់សេវា»"); await v.tap(T("#go")); await v.idle(); await A.locator("#days").waitFor();
-      await v.caption("ជ្រើសថ្ងៃ និងម៉ោង\nបង្ហាញតែម៉ោងជាងទំនេរ"); await v.tap(T(`#days .day[data-day="${d.bookDay}"]`), null, { before: 1600 }); await v.hold(400);
-      await v.tap(T(".slots:not([hidden]) .slot:not([disabled])").first(), null, { before: 1000 }); await v.hold(500);
-      await v.caption("ចុច «ប្រើទីតាំងបច្ចុប្បន្ន»"); await v.tap(T("#gps")); await A.locator("#loc-ok:not([hidden])").waitFor({ timeout: 12_000 }); await v.hold(700);
-      await v.caption("អាសយដ្ឋាន — មិនចាំបាច់\nតែជួយជាងរកផ្ទះ"); await v.type(T("#addr"), "ផ្ទះលេខ 15 ផ្លូវសាកល្បង", { before: 1200 });
-      await v.caption("ចុច «បន្ត»"); await v.tap(T("#next")); await A.locator("#s3:not([hidden])").waitFor(); await v.hold(500);
-      await v.caption("វាយឈ្មោះ\nនិងលេខទូរស័ព្ទ"); await v.type(T("#name"), "ដារ៉ា សាកល្បង", { before: 1200 }); await v.type(T("#phone"), "12 000 203", { before: 700 });
-      await v.caption("ពេលចុចប៊ូតុង អ្នកយល់ព្រម\nទទួលដំណឹងពីហាង"); const consent = T("#consent-text"); await v.scrollTo(consent); await v.look(consent, { zoom: 1.4, after: 1800 });
+      await v.caption("ជ្រើសថ្ងៃ និងម៉ោង\nបង្ហាញតែម៉ោងជាងទំនេរ"); await v.tap(T(`#days .day[data-day="${d.bookDay}"]`), null, { before: 1400 }); await v.hold(300);
+      await v.tap(T(".slots:not([hidden]) .slot:not([disabled])").first(), null, { before: 900 }); await v.hold(400);
+      await v.caption("ចុច «ប្រើទីតាំងបច្ចុប្បន្ន»\nអាសយដ្ឋាន ជួយជាងរកផ្ទះ"); await v.tap(T("#gps")); await A.locator("#loc-ok:not([hidden])").waitFor({ timeout: 12_000 });
+      await v.type(T("#addr"), "ផ្ទះលេខ 15 ផ្លូវសាកល្បង", { before: 600 });
+      await v.caption("ចុច «បន្ត»"); await v.tap(T("#next")); await A.locator("#s3:not([hidden])").waitFor(); await v.hold(400);
+      await v.caption("វាយឈ្មោះ\nនិងលេខទូរស័ព្ទ"); await v.type(T("#name"), "ដារ៉ា សាកល្បង", { before: 1000 }); await v.type(T("#phone"), "12 000 203", { before: 500 });
+      await v.caption("ពេលចុចប៊ូតុង អ្នកយល់ព្រម\nទទួលដំណឹងពីហាង"); const consent = T("#consent-text"); await v.scrollTo(consent); await v.look(consent, { zoom: 1.4, after: 1400 });
       await v.caption("ចុច «កក់ និងភ្ជាប់ Telegram»"); await v.tap(T("#send"), async () => { await T("#send").click({ noWaitAfter: true }); await v.caption("ទូរស័ព្ទភាគច្រើន បើក Telegram ឯង"); });
-      await A.locator('body[data-page="done"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(1200);
-      await v.caption("បានផ្ញើ! ម៉ោងនេះរក្សាទុកសម្រាប់អ្នក\nហាងបញ្ជាក់ក្នុង ៣០ នាទី"); await v.look(T(".sum"), { zoom: 1.25, after: 1800 });
-      await v.caption("បន្ទាប់៖ ភ្ជាប់ Telegram\nមើលវីដេអូបន្ទាប់"); await v.hold(2600);
+      await A.locator('body[data-page="done"]').waitFor({ timeout: 15_000 }); await v.idle(); await v.hold(900);
+      await v.caption("បានផ្ញើ! ម៉ោងនេះរក្សាទុកសម្រាប់អ្នក\nហាងបញ្ជាក់ក្នុង ៣០ នាទី"); await v.look(T(".sum"), { zoom: 1.25, after: 1400 });
+      await v.caption("បន្ទាប់៖ ភ្ជាប់ Telegram\nមើលវីដេអូបន្ទាប់"); await v.hold(2000);
     }),
     clip("L5-02_link-telegram-password_v1", async (v, d) => {
       await v.tg("start", true);
