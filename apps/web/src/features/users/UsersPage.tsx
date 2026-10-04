@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
-type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; language: string };
+type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; language: string };
 
 export default function UsersPage() {
   const { t } = useTranslation();
