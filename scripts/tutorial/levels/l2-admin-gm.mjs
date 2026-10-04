@@ -83,13 +83,13 @@ export default {
       if (tech) await v.api("POST", `/api/bookings/${b.id}/assign`, { lead: tech.id, assistants: [] });
       return b;
     };
-    // today's board: one job per technician, two hours apart; two technicians have already pressed their steps
+    // today's board: one job per technician, an hour apart; two technicians have already pressed their steps
     const t0 = new Date(); t0.setMinutes(0, 0, 0); t0.setHours(t0.getHours() + 1);
     const today = (h) => new Date(t0.getTime() + h * 3_600_000);
-    if (today(6).toDateString() !== new Date().toDateString()) throw new Error("record before ~17:00 — today's jobs must fit in the day");
+    if (today(4).toDateString() !== new Date().toDateString()) throw new Error("record before ~19:00 — today's jobs must fit in the day");
     const TODAY = [["អតិថិជន ក", "លាងម៉ាស៊ីនត្រជាក់"], ["អតិថិជន ខ", "ជួសជុលភ្លើង"], ["អតិថិជន គ", "ជួសជុលទុយោទឹក"]];
     const jobs = [];
-    for (const [i, [name, svc]] of TODAY.entries()) jobs.push(await book(name, `01200001${i}`, today(i * 2), svc, techs[i]));
+    for (const [i, [name, svc]] of TODAY.entries()) jobs.push(await book(name, `01200001${i}`, today(i), svc, techs[i]));
     const press = async (t, id, steps) => { const s = await v.session(t.username, t.p); for (const step of steps) await s.call("POST", `/api/bookings/${id}/checkpoint`, { step, at: new Date().toISOString(), ...AT, accuracy: 10, no_gps: false, offline: false }); };
     await press(techs[1], jobs[1].id, ["depart"]);
     await press(techs[2], jobs[2].id, ["depart", "arrive", "start"]);

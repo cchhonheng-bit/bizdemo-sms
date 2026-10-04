@@ -34,7 +34,7 @@ const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 // ---------- the demo instance (server) ----------
 execFileSync("ssh", [SSH, "cat > /tmp/tutorial-server.sh"], { input: readFileSync(join(HERE, "server.sh")) });
-log(remote(level.hub ? "up hub" : "up"));
+log(remote(`up ${level.hub ? "hub" : "nohub"} ${level.features ?? "website,subscribe,reminders"}`)); // level.features: the demo shop's modules
 let tunnel = null, browser = null, page = null;
 try {
   await run();

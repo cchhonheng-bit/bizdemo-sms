@@ -3,7 +3,7 @@
 # image: its own database, localhost only, never production data. With "up hub" also a throwaway hub (its own database, a bot row
 # whose token is a dummy that cannot be decrypted → nothing can ever reach Telegram). Plus the tools image (Debian ffmpeg + node)
 # for the music and the H.264 encoding. Nothing here touches the live shop or the live hub.
-#   server.sh up [hub] | seed | secret <hubkey|ceo> | sql "<stmt>" | sqlhub < stmts | encode <name> <seconds> | down
+#   server.sh up <hub|nohub> [features] | seed | secret <hubkey|ceo> | sql "<stmt>" | sqlhub < stmts | encode <name> <seconds> | down
 set -euo pipefail
 cd /opt/hangkh
 T=/tmp/tutorial; NAME=app-tutorial; HUB=app-tutorial-hub; DB=shop_tutorial; HDB=hub_tutorial; PORT=3998
@@ -26,12 +26,12 @@ case "${1:-}" in
       HUBENV=(-e "HUB_URL=http://$HUB:3000")
     fi
     docker run -d --name "$NAME" --network "$NET" -p 127.0.0.1:$PORT:3000 --memory 400m -v tutorial_uploads:/app/data/uploads "${HUBENV[@]}" \
-      -e APP_MODE=shop -e SHOP_CODE=DEMO -e APP_NAME="One Team Service" -e FEATURES="website,subscribe,reminders" -e HUB_KEY="$(cat "$T/hubkey")" \
+      -e APP_MODE=shop -e SHOP_CODE=DEMO -e APP_NAME="One Team Service" -e FEATURES="${3:-website,subscribe,reminders}" -e HUB_KEY="$(cat "$T/hubkey")" \
       -e DATABASE_URL="postgres://tutorial:$PW@postgres:5432/$DB" -e PUBLIC_URL="http://localhost:$PORT" -e SESSION_SECRET="$(openssl rand -hex 32)" \
       -e TELEGRAM_BOT_USERNAME=Oneteam_app_bot -e TRUST_PROXY=false -e CRON=false -e NODE_OPTIONS="--max-old-space-size=300" "$IMG" > /dev/null
     for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$PORT/healthz" > /dev/null 2>&1 && break; sleep 2; done
     if [ "${2:-}" = hub ]; then for _ in $(seq 1 30); do docker logs "$HUB" 2>&1 | grep -q 'shop registry' && break; sleep 2; done; fi # migrated + shops synced
-    echo "demo instance $(curl -s "http://127.0.0.1:$PORT/healthz") · $IMG${2:+ · with a demo hub}";;
+    echo "demo instance $(curl -s "http://127.0.0.1:$PORT/healthz") · $IMG · ${3:-website,subscribe,reminders}$([ "${2:-}" = hub ] && echo " · with a demo hub")";;
   seed)
     docker exec "$NAME" node dist/cli.mjs create-company "One Team Engineering" oneteam > "$T/create.txt" 2>&1 < /dev/null
     docker exec "$NAME" node dist/cli.mjs seed-web-catalog oneteam --prices < /dev/null 2>&1 | tail -1;;

@@ -97,9 +97,10 @@ export default {
       await v.caption("ចំណូល តាមក្នុង/ក្រៅបុរី\nនិងតាមផ្នែកការងារ"); await v.look(card("ក្រៅបុរី"), { zoom: 1.3, after: 1800 });
       await v.caption("សមិទ្ធផលជាង៖ ការងារ ម៉ោង\nការឲ្យកែ និងការយឺត"); await v.scrollTo(T("tech-perf")); await v.look(T("tech-perf"), { zoom: 1.3, after: 1800 });
       await v.chapter("៣ · កំណត់ហេតុសកម្មភាព");
-      await v.caption("គ្រប់ការកែប្រែ មានឈ្មោះ និងម៉ោង\nមិនអាចលុបបាន"); await v.tap(tab("កំណត់ហេតុសកម្មភាព")); await v.idle(); await v.hold(2400);
+      await v.caption("អ្នកណា ធ្វើអ្វី ពី → ទៅ ពេលណា\nជាភាសាខ្មែរ មិនអាចលុបបាន"); await v.tap(tab("កំណត់ហេតុសកម្មភាព")); await v.idle(); await v.look(T("audit-row").first(), { zoom: 1.3, after: 1800 });
       await v.chapter("៤ · ការកំណត់");
-      await v.caption("ចុច «ការកំណត់»\nគេហទំព័រ លេខសាកល្បង និងច្រើនទៀត"); await v.tap(nav("settings/company")); await v.idle(); await v.scrollTo(T("web-view")); await v.hold(1600);
+      await v.caption("ចុច «ការកំណត់»\nឃើញអ្នកកែចុងក្រោយ និងម៉ោង"); await v.tap(nav("settings/company")); await v.idle(); await v.look(T("last-change-settings"), { zoom: 1.6, after: 1200 });
+      await v.caption("ចុច «គេហទំព័រ»\nពាក្យ និងរូបរបស់ហាង"); await v.tap(nav("website")); await v.idle(); await v.hold(1400);
       await v.caption("ចុច «អ្នកប្រើ»\nបុគ្គលិក និងតួនាទីរបស់គេ"); await v.tap(nav("settings/users")); await v.idle(); await v.hold(1800);
       await v.caption("វីដេអូខ្លីៗ បង្ហាញការងារនីមួយៗ\nលម្អិត"); await v.hold(2200);
     }),
@@ -116,7 +117,7 @@ export default {
       await v.tap(T("verify-btn").first(), null, { before: 1200 }); await v.idle(); await v.hold(1200);
     }),
     clip("L3-02_website-settings_v1", async (v, d, { A, nav, T }) => {
-      await v.caption("ចុច «ការកំណត់»\nហើយរកផ្នែក «គេហទំព័រហាង»"); await v.tap(nav("settings/company")); await v.idle(); await v.scrollTo(T("web-tagline_km"));
+      await v.caption("ចុច «គេហទំព័រ»\nក្នុងម៉ឺនុយខាងឆ្វេង"); await v.tap(nav("website")); await v.idle(); await v.scrollTo(T("web-tagline_km"));
       await v.caption("កែពាក្យស្វាគមន៍\nអតិថិជនឃើញនៅទំព័រដើម"); await v.type(T("web-tagline_km"), "ជួសជុល និងថែទាំ រហ័ស ទុកចិត្តបាន", { clear: true, before: 1200 });
       await v.caption("បន្ថែមរូបការងារ\nរូបពិត ជួយឲ្យអតិថិជនទុកចិត្ត"); const g = T("web-photo-gallery"); await v.scrollTo(g.locator("xpath=.."));
       await v.tap(g.locator("xpath=.."), () => g.setInputFiles(d.photo)); await v.idle(); await v.hold(600);
@@ -126,6 +127,7 @@ export default {
       await v.caption("ធីក «Google» ពេលគេហទំព័ររួចរាល់\nអ្នកស្វែងរកនឹងឃើញហាង"); await v.scrollTo(google);
       if (await google.isChecked()) await v.look(google.locator("xpath=.."), { zoom: 1.5 }); else await v.tap(google.locator("xpath=.."));
       await v.caption("ចុច «រក្សាទុក»"); await v.tap(T("web-save")); await v.idle(); await v.hold(800);
+      await v.caption("ឃើញអ្នកកែចុងក្រោយ និងម៉ោង"); const last = T("last-change-website"); await v.scrollTo(last); await v.look(last, { zoom: 1.6, after: 1200 });
       await v.caption("ទំព័រដើម បង្ហាញពាក្យ និងរូបថ្មី"); await v.preloadApp("/"); await v.hold(1500); await v.idle(3000); await v.hold(1600);
     }),
     clip("L3-03_test-phones_v1", async (v, d, { nav, T }) => {
@@ -139,6 +141,7 @@ export default {
     }),
     clip("L3-04_staff-roles_v1", async (v, d, { A, nav, dlg }) => {
       await v.caption("ចុច «អ្នកប្រើ»"); await v.tap(nav("settings/users")); await v.idle();
+      await v.caption("គណនី HangKH នៅខាងក្រោម\nសម្រាប់ជំនួយបច្ចេកទេស មិនអាចកែ"); const sup = T("user-platform"); await v.scrollTo(sup); await v.look(sup, { zoom: 1.3, after: 1400 });
       await v.caption("ចុច «អ្នកប្រើថ្មី»"); await v.tap(A.getByRole("button", { name: "អ្នកប្រើថ្មី" })); await v.hold(300);
       await v.caption("វាយឈ្មោះពេញ ឈ្មោះចូល\nនិងលេខទូរស័ព្ទ"); await v.type(dlg().locator('input[name="full_name"]'), "ជាង សាកល្បង ៤", { before: 1200 });
       await v.type(dlg().locator('input[name="username"]'), "jang4", { before: 800 }); await v.type(dlg().locator('input[name="phone"]'), "012000105", { before: 800 });
@@ -155,10 +158,12 @@ export default {
     }),
     clip("L3-05_audit-log_v1", async (v, d, { A, nav, T, tab }) => {
       await v.caption("ចុច «របាយការណ៍»\nហើយ «កំណត់ហេតុសកម្មភាព»"); await v.tap(nav("reports")); await v.idle(); await v.tap(tab("កំណត់ហេតុសកម្មភាព"), null, { before: 1000 }); await v.idle();
-      await v.caption("ការកែប្រែនីមួយៗ៖ នរណា ពេលណា\nពីអ្វី ទៅអ្វី"); await v.hold(2200);
-      await v.caption("វាយ «user.» ដើម្បីមើល\nតែការកែប្រែអ្នកប្រើ"); await v.type(A.getByPlaceholder(/តម្រងសកម្មភាព/), "user.", { before: 1200 }); await v.idle(); await v.hold(1600);
-      await v.caption("កំណត់ហេតុ មិនអាចលុប ឬកែបានទេ\nសូម្បីនាយកប្រតិបត្តិ"); await v.hold(2200);
-      await v.caption("ទំនិញ និងសេវាកម្ម៖\nឃើញ «កែប្រែចុងក្រោយ» ដោយនរណា"); await v.tap(nav("catalog")); await v.idle(); await v.look(T("cat-last"), { zoom: 1.7, after: 2600 });
+      await v.caption("ជួរនីមួយៗ៖ អ្នកណា · ធ្វើអ្វី\nពី → ទៅ · ពេលណា"); await v.look(T("audit-row").first(), { zoom: 1.3, after: 1800 });
+      await v.caption("ជ្រើសប្រភេទ — ឧ. «លុយ»"); const type = T("audit-type"); await v.tap(type, () => type.selectOption("money"), { before: 1200 }); await v.idle(); await v.hold(1200);
+      await v.caption("ជ្រើសអ្នកធ្វើ\nមើលតែការងាររបស់គាត់"); const who = T("audit-person"); await v.tap(who, () => who.selectOption({ label: "រដ្ឋបាល សាកល្បង" }), { before: 1200 }); await v.idle(); await v.hold(1200);
+      await v.caption("ចុច «លម្អិត»\nឃើញទិន្នន័យដើម"); await v.tap(T("audit-row").first().getByRole("button", { name: "លម្អិត" })); await v.hold(1400);
+      await v.caption("កំណត់ហេតុ មិនអាចលុប ឬកែបានទេ\nសូម្បីនាយកប្រតិបត្តិ"); await v.hold(1800);
+      await v.caption("ការកំណត់ គេហទំព័រ អ្នកប្រើ ទំនិញ\nបង្ហាញ «កែប្រែចុងក្រោយ» ដោយនរណា"); await v.tap(nav("settings/company")); await v.idle(); await v.look(T("last-change-settings"), { zoom: 1.6, after: 2000 });
     }),
   ],
 };
