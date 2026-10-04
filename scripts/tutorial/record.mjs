@@ -13,8 +13,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, "../../.."), SSH = process.env.TUTORIAL_SSH || "hangkh";
-const BASE = "http://localhost:3998", W = 540, H = 960;
+const BASE = "http://localhost:3998";
 const level = (await import(pathToFileURL(resolve(process.argv[2] ?? "levels/l1-technician.mjs")).href)).default;
+// the stage in CSS px × scale = the video size (phone 540×960 ×2 = 1080×1920 · desktop 1280×720 ×1.5 = 1920×1080)
+const SZ = level.size ?? { w: 540, h: 960, scale: 2 }, W = SZ.w, H = SZ.h, S = SZ.scale, DESK = level.layout === "desktop", CAP = level.captionSize ?? 27;
 const { chromium, request } = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import("playwright-core");
 const WORK = join(tmpdir(), "hangkh-tutorial", level.name), FRAMES = join(WORK, "frames");
 rmSync(WORK, { recursive: true, force: true }); mkdirSync(FRAMES, { recursive: true });
@@ -31,7 +33,7 @@ if (!(await fetch(`${BASE}/healthz`).then((r) => r.ok).catch(() => false))) { tu
 const HUBKEY = remote("secret hubkey"), CEO_TEMP = remote("secret ceo");
 
 const browser = await chromium.launch({ channel: "msedge", headless: true });
-const ctx = await browser.newContext({ viewport: { width: W * 2, height: H * 2 }, deviceScaleFactor: 1, locale: "km-KH", timezoneId: "Asia/Phnom_Penh", bypassCSP: true,
+const ctx = await browser.newContext({ viewport: { width: W * S, height: H * S }, deviceScaleFactor: 1, locale: "km-KH", timezoneId: "Asia/Phnom_Penh", bypassCSP: true,
   geolocation: { latitude: 11.5566, longitude: 104.9284, accuracy: 12 }, permissions: ["geolocation"] });
 const password = () => "Dm" + randomBytes(9).toString("base64url") + "!7";
 async function staffSession(rc, user, pw) { // log in; the first login asks for a new password
@@ -58,15 +60,16 @@ const ASSETS = { "oneteam.png": join(ROOT, "Doc_Sup/00_Reference_Customer/One Te
 const font = (w) => `@font-face{font-family:KH;font-weight:${w};src:url(/pub/fonts/noto-sans-khmer-${w}.woff2) format("woff2")}`;
 const STAGE = `<!doctype html><html><head><meta charset="utf-8"><style>${font(400)}${font(600)}${font(700)}
 @font-face{font-family:PO;font-weight:600;src:url(/pub/fonts/poppins-600.woff2) format("woff2")}
-html,body{margin:0;width:${W * 2}px;height:${H * 2}px;overflow:hidden;background:#fff}
-#st{position:absolute;left:0;top:0;width:${W}px;height:${H}px;overflow:hidden;transform:scale(2);transform-origin:0 0}
+html,body{margin:0;width:${W * S}px;height:${H * S}px;overflow:hidden;background:#fff}
+#st{position:absolute;left:0;top:0;width:${W}px;height:${H}px;overflow:hidden;transform:scale(${S});transform-origin:0 0}
+#scr{position:absolute;inset:0;transition:transform .5s cubic-bezier(.2,.8,.2,1)}
 iframe{position:absolute;left:0;top:0;width:${W}px;height:${H}px;border:0;background:#fff}
 #map{opacity:0;transition:opacity .45s;z-index:5;pointer-events:none}#map.in{opacity:1}
 #appw{position:absolute;inset:0;z-index:6;background:#fff;transform:translateX(100%);transition:transform .5s cubic-bezier(.2,.8,.2,1)}#appw.in{transform:none}
 #bar{height:48px;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid #E5E9EC;font:600 17px PO,KH,sans-serif;color:#14213D;background:#fff}
 #bar i{font-style:normal;font-size:22px;color:#5B6B7A}#bar span{flex:1}
 #appw iframe{top:48px;height:${H - 48}px}
-#cap{position:absolute;left:22px;right:22px;bottom:44px;z-index:9;font:600 27px/1.62 KH,sans-serif;color:#fff;background:rgba(15,23,42,.8);border-radius:18px;padding:12px 18px;
+#cap{position:absolute;left:22px;right:22px;bottom:44px;z-index:9;font:600 ${CAP}px/1.62 KH,sans-serif;color:#fff;background:rgba(15,23,42,.8);border-radius:18px;padding:12px 18px;
   text-align:center;white-space:pre-line;pointer-events:none;opacity:0;transform:translateY(10px);transition:opacity .3s,transform .3s}
 #cap.on{opacity:1;transform:none}
 #tap{position:absolute;left:0;top:0;width:60px;height:60px;margin:-30px 0 0 -30px;border-radius:50%;border:4px solid #fff;background:rgba(20,184,166,.38);
@@ -75,10 +78,15 @@ iframe{position:absolute;left:0;top:0;width:${W}px;height:${H}px;border:0;backgr
 @keyframes tap{0%{opacity:0;transform:scale(.3)}25%{opacity:1;transform:scale(1)}55%{opacity:1;transform:scale(.8)}100%{opacity:0;transform:scale(1.5)}}
 #card{position:absolute;inset:0;z-index:12;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;transition:opacity .5s}
 #card.off{opacity:0;pointer-events:none}#card .x{font:600 40px PO,sans-serif;color:#94A3B8}#card .t{font:600 30px PO,sans-serif;color:#14213D;letter-spacing:.5px;margin-top:10px}
-#pre{position:absolute;left:-999px;font:600 20px KH}</style></head><body><div id="st">
-<iframe name="tg" src="/__tg"></iframe><iframe id="map"></iframe><div id="appw"><div id="bar"><i>✕</i><span>One Team</span><i>⋮</i></div><iframe name="app"></iframe></div>
+#pre{position:absolute;left:-999px;font:600 20px KH}
+#card .lg{display:flex;flex-direction:${DESK ? "row" : "column"};align-items:center;gap:${DESK ? 44 : 26}px}
+#chap{position:absolute;inset:0;z-index:11;background:#14213D;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;opacity:0;pointer-events:none;transition:opacity .4s}
+#chap.on{opacity:1}#chap .k{font:700 ${Math.round(CAP * 1.5)}px/1.5 KH,sans-serif;text-align:center;padding:0 40px}#chap .f{font:600 ${Math.round(CAP * 0.6)}px PO,sans-serif;color:#94A3B8;letter-spacing:.5px}
+${DESK ? `#tgf{display:none}#appw{transform:none;transition:none}#bar{display:none}#appw iframe{top:0;height:${H}px}#cap{left:50%;right:auto;max-width:${Math.round(W * 0.72)}px;transform:translate(-50%,10px)}#cap.on{transform:translate(-50%,0)}` : ""}</style></head><body><div id="st"><div id="scr">
+<iframe id="tgf" name="tg" src="/__tg"></iframe><iframe id="map"></iframe><div id="appw"><div id="bar"><i>✕</i><span>One Team</span><i>⋮</i></div><iframe name="app"></iframe></div></div>
 <div id="tap"></div><div id="cap"></div><span id="pre">ការងារ</span>
-<div id="card"><img src="/__asset/oneteam.png" style="width:360px" alt=""><div class="x">×</div><img src="/__asset/hangkh.svg" style="width:230px" alt=""><div class="t">OneTeam × HangKH</div></div>
+<div id="card"><div class="lg"><img src="/__asset/oneteam.png" style="width:360px" alt=""><div class="x">×</div><img src="/__asset/hangkh.svg" style="width:230px" alt=""></div><div class="t">OneTeam × HangKH</div></div>
+<div id="chap"><div class="k"></div><div class="f">OneTeam × HangKH</div></div>
 </div></body></html>`;
 // a Telegram-style chat that shows what the bot answers (the texts and buttons come from the demo instance = the live code)
 const TG = `<!doctype html><html><head><meta charset="utf-8"><style>${font(400)}${font(600)}
@@ -141,24 +149,39 @@ const v = {
   async caption(text, pos = "low") {
     const bottom = pos === "tg" ? (await page.frame("tg").evaluate(() => document.getElementById("kb").offsetHeight + document.querySelector(".in").offsetHeight)) + 14 : 44;
     await page.evaluate(() => document.getElementById("cap").classList.remove("on"));
-    await sleep(text ? 280 : 300);
+    await sleep(text ? 220 : 240);
     if (!text) return;
     await page.evaluate(([t, b]) => { const c = document.getElementById("cap"); c.textContent = t; c.style.bottom = b + "px"; c.classList.add("on"); }, [text, bottom]);
     marks.push({ at: Date.now() / 1000 + 1.6, text });
   },
   /** ~2 s pause (the viewer reads the caption), the tap circle on the target, then the action (default: a real click) */
   async tap(loc, action, o = {}) {
-    await sleep(o.before ?? 2000);
+    const b0 = await loc.boundingBox();
+    if (!b0) throw new Error("tap target not visible");
+    const small = o.zoom !== false && (o.zoom || (b0.width / S < 72 && b0.height / S < 46));
+    if (small) {
+      await sleep(Math.max(0, (o.before ?? level.tapBefore ?? 2000) - 550));
+      await page.evaluate(([x, y, z]) => { const r = document.getElementById("scr"); r.style.transformOrigin = x + "px " + y + "px"; r.style.transform = "scale(" + z + ")"; }, [(b0.x + b0.width / 2) / S, (b0.y + b0.height / 2) / S, typeof o.zoom === "number" ? o.zoom : 2]);
+      await sleep(550);
+    } else await sleep(o.before ?? level.tapBefore ?? 2000);
     const b = await loc.boundingBox();
-    if (!b) throw new Error("tap target not visible");
-    await page.evaluate(([x, y]) => { const t = document.getElementById("tap"); t.className = ""; t.style.left = x + "px"; t.style.top = y + "px"; void t.offsetWidth; t.className = "go"; }, [(b.x + b.width / 2) / 2, (b.y + b.height / 2) / 2]);
+    if (o.circle !== false) await page.evaluate(([x, y]) => { const t = document.getElementById("tap"); t.className = ""; t.style.left = x + "px"; t.style.top = y + "px"; void t.offsetWidth; t.className = "go"; }, [(b.x + b.width / 2) / S, (b.y + b.height / 2) / S]);
     await sleep(430);
     if (action) await action(); else await loc.click({ noWaitAfter: true });
-    await sleep(o.after ?? 600);
+    await sleep(o.after ?? 450);
+    if (small) { await page.evaluate(() => { document.getElementById("scr").style.transform = ""; }); await sleep(350); }
   },
-  async scrollTo(loc) { await loc.evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "center" })); await sleep(800); },
+  /** tap a field, then type like a person (clear: empty it first) */
+  async type(loc, text, o = {}) { await v.tap(loc, async () => { await loc.click(); if (o.clear) await loc.fill(""); }, o); await loc.pressSequentially(text, { delay: o.delay ?? 45 }); await sleep(o.after ?? 500); },
+  /** tap a download link; the file is saved in the work folder → its path */
+  async download(loc, o = {}) { const ev = page.waitForEvent("download"); await v.tap(loc, null, o); const d = await ev; const p = join(WORK, d.suggestedFilename()); await d.saveAs(p); return p; },
+  /** a chapter card (2 s) between the parts */
+  async chapter(text) { await v.caption(null); await page.evaluate((t) => { const c = document.getElementById("chap"); c.querySelector(".k").textContent = t; c.classList.add("on"); }, text); await sleep(2000); await page.evaluate(() => document.getElementById("chap").classList.remove("on")); await sleep(300); },
+  /** another signed-in user of the demo (e.g. a technician pressing steps) or a visitor (user null) → call(method, path, data) */
+  async session(user, pw) { const rc = await request.newContext({ baseURL: BASE }); if (user) await staffSession(rc, user, pw); return { call: (m, p, d) => call(rc, m, p, d), text: async (p) => (await rc.get(`${BASE}${p}`)).text() }; },
+  async scrollTo(loc) { await loc.evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "center" })); await sleep(550); },
   /** wait until the demo instance has answered everything the page asked for */
-  async idle(max = 1500) { const t0 = Date.now(); let quiet = 0; while (Date.now() - t0 < max) { await sleep(100); quiet = inflight ? 0 : quiet + 100; if (quiet >= 300) return; } },
+  async idle(max = 1500) { const t0 = Date.now(); let quiet = 0; while (Date.now() - t0 < max) { await sleep(100); quiet = inflight ? 0 : quiet + 100; if (quiet >= 250) return; } },
   /** a finger drawing (signature): points 0..1 inside the target, the small circle follows */
   async draw(loc, strokes) {
     const b = await loc.boundingBox();
@@ -168,7 +191,7 @@ const v = {
       for (let i = 1; i < s.length; i++) {
         const [x, y] = p(i);
         await page.mouse.move(x, y, { steps: 5 });
-        await page.evaluate(([px, py]) => { const t = document.getElementById("tap"); t.className = "drag"; t.style.left = px + "px"; t.style.top = py + "px"; }, [x / 2, y / 2]);
+        await page.evaluate(([px, py]) => { const t = document.getElementById("tap"); t.className = "drag"; t.style.left = px + "px"; t.style.top = py + "px"; }, [x / S, y / S]);
         await sleep(40);
       }
       await page.mouse.up();
@@ -197,7 +220,7 @@ cdp.on("Page.screencastFrame", (f) => {
   writing = writing.then(() => writeFileSync(join(FRAMES, file), Buffer.from(f.data, "base64")));
   cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }).catch(() => {});
 });
-await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, maxWidth: W * 2, maxHeight: H * 2, everyNthFrame: 1 });
+await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, maxWidth: W * S, maxHeight: H * S, everyNthFrame: 1 });
 await sleep(300);
 const t0 = Date.now() / 1000;
 await level.play(v, data);
@@ -216,8 +239,9 @@ log(`recorded ${used.length} frames · ${seconds} s`);
 // a contact sheet of the captions (for checking the Khmer and the screens) → <work>/contact.png
 const pick = marks.map((m) => used.filter((f) => f.t <= m.at).at(-1)).filter(Boolean);
 const sheet = await ctx.newPage();
-await sheet.setViewportSize({ width: 1080, height: Math.ceil(pick.length / 5) * 384 });
-await sheet.setContent(`<body style="margin:0;display:grid;grid-template-columns:repeat(5,216px);background:#000">${pick.map((f) => `<img src="data:image/jpeg;base64,${readFileSync(join(FRAMES, f.file)).toString("base64")}" style="width:216px;height:384px">`).join("")}</body>`);
+const tw = Math.round((W * S) / 5), th = Math.round((tw * H) / W);
+await sheet.setViewportSize({ width: tw * 5, height: Math.ceil(pick.length / 5) * th });
+await sheet.setContent(`<body style="margin:0;display:grid;grid-template-columns:repeat(5,${tw}px);background:#000">${pick.map((f) => `<img src="data:image/jpeg;base64,${readFileSync(join(FRAMES, f.file)).toString("base64")}" style="width:${tw}px;height:${th}px">`).join("")}</body>`);
 await sheet.screenshot({ path: join(WORK, "contact.png") });
 await browser.close(); await ceo.dispose();
 
