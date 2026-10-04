@@ -82,10 +82,12 @@ export default {
       await v.caption("ជ្រើសថ្ងៃចាប់ផ្ដើមសៀវភៅ"); const date = T("op-date"); await v.scrollTo(date); await v.tap(date, () => date.fill(d.openDate), { before: 1200 });
       await v.caption("វាយលុយដែលមាន នៅថ្ងៃនោះ\nសាច់ប្រាក់ ABA ACLEDA"); await v.type(T("op-cash-usd"), "2500", { before: 1200 });
       await v.type(T("op-cash-khr"), "2050000", { before: 800 }); await v.type(T("op-aba"), "12000", { before: 800 }); await v.type(T("op-acleda"), "4000", { before: 800 });
-      await v.caption("ប្រាក់ចំណេញរក្សាទុក\nពីមុនពេលចាប់ផ្ដើមសៀវភៅ"); await v.type(T("op-retained"), "9000", { before: 1200 });
-      await v.caption("ចុច «ចាប់ផ្តើមសៀវភៅបញ្ជី»\nធ្វើបានតែម្ដង"); const save = T("op-save"); await v.scrollTo(save); await v.tap(save);
+      await v.caption("ប្រាក់ចំណេញរក្សាទុក\nពីមុនពេលចាប់ផ្ដើមសៀវភៅ"); await v.type(T("op-retained"), "8000", { before: 1200 });
+      await v.caption("ចុច «រក្សាទុក» — នៅកែបានទៀត\nមិនទាន់កត់ត្រាក្នុងសៀវភៅ"); const keep = T("op-draft"); await v.scrollTo(keep); await v.tap(keep); await v.idle(); await v.hold(600);
+      await v.caption("ខុស? កែ ហើយរក្សាទុកម្ដងទៀត\nការកែនីមួយៗ កត់ក្នុងកំណត់ហេតុ"); await v.type(T("op-retained"), "9000", { clear: true, before: 1200 }); await v.tap(keep, null, { before: 1000 }); await v.idle(); await v.hold(500);
+      await v.caption("ត្រឹមត្រូវហើយ? ចុច «បញ្ជាក់សមតុល្យដើម»\nក្រោយនេះ កែមិនបានទៀតទេ"); const save = T("op-save"); await v.tap(save, null, { before: 1200 });
       await v.tap(dlg().getByRole("button", { name: "បញ្ជាក់" }), null, { before: 1200 }); await v.idle(); await v.hold(800);
-      await v.caption("ពីពេលនេះ វិក្កយបត្រ និងប្រាក់ទទួល\nកត់ត្រាដោយស្វ័យប្រវត្តិ"); await v.hold(2000);
+      await v.caption("ពីពេលនេះ វិក្កយបត្រ និងប្រាក់ទទួល\nកត់ត្រាដោយស្វ័យប្រវត្តិ"); await v.hold(1800);
     }),
     clip("L4-00_overview_v1", async (v, d, u) => {
       const { T } = u;
@@ -98,7 +100,7 @@ export default {
       await v.chapter("៤ · ប្លង់គណនី");
       await v.caption("គណនីទាំងអស់ តាមប្រភេទ\nនីមួយៗមានសមតុល្យ"); await v.tap(T("tab-accounts")); await v.idle(); await v.hold(2200);
       await v.chapter("៥ · ការកំណត់");
-      await v.caption("សមតុល្យដើម — កំណត់តែម្ដង\nនៅថ្ងៃចាប់ផ្ដើមសៀវភៅ"); await v.tap(T("tab-setup")); await v.idle(); await v.hold(1800);
+      await v.caption("សមតុល្យដើម — កែបានរហូតដល់បញ្ជាក់\nក្រោយបញ្ជាក់ ជាប់សោ"); await v.tap(T("tab-setup")); await v.idle(); await v.hold(1800);
       await v.caption("ចុងឆ្នាំ — បិទបញ្ជី\nសម្រាប់នាយកហិរញ្ញវត្ថុ"); await v.look(T("close-next"), { zoom: 1.4, after: 1400 });
       await v.caption("វីដេអូខ្លីៗ បង្ហាញការងារនីមួយៗ\nលម្អិត"); await v.hold(2200);
     }, seedYear),
@@ -142,7 +144,8 @@ export default {
       await v.caption("ចុច «គណនេយ្យ»\nហើយ «របាយការណ៍លទ្ធផល»"); await openAccounting(v, u); await v.tap(T("rep-pl"), null, { before: 1000 }); await v.idle();
       await v.caption("ជ្រើស «ខែនេះ» ឬ «ខែមុន»"); await v.tap(preset("ខែនេះ"), null, { before: 1200 }); await v.idle();
       await v.caption("ចំណូល ក្នុងបុរី / ក្រៅបុរី"); await v.look(T("is-zones"), { zoom: 1.6, after: 1400 });
-      await v.caption("ចំណេញសុទ្ធ ខែនេះ"); const net = T("pl-net"); await v.scrollTo(net); await v.look(net, { zoom: 1.6, after: 1400 });
+      await v.caption("ជួរនីមួយៗ៖ ខែមុន\nនិងបម្រែបម្រួល"); await v.look(T("is-income"), { zoom: 1.6, after: 1600 });
+      await v.caption("ចំណេញសុទ្ធ ខែនេះ ធៀបខែមុន"); const net = T("pl-net"); await v.scrollTo(net); await v.look(net, { zoom: 1.6, after: 1400 });
       await v.caption("តារាងតុល្យការ៖ ខែមុន\nនិងបម្រែបម្រួល"); await v.tap(T("rep-bs")); await v.idle(); await v.look(T("bs-assets").locator("xpath=.."), { zoom: 1.25, after: 2000 });
       await v.caption("ទ្រព្យសកម្ម = បំណុល + មូលធន ✓"); const chk = A.getByText(/ទ្រព្យសកម្ម = បំណុល \+ មូលធន/).first(); await v.scrollTo(chk); await v.look(chk, { zoom: 1.6, after: 1600 });
     }),
