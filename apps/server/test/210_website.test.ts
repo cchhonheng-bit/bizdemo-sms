@@ -9,7 +9,7 @@
 // D-119 night rule (timers 08:00–20:00, «we confirm at 8 am», silent staff alert) · D-120 test phones (CEO only, hidden, 24 h) ·
 // D-121 customer pages: exact bot URLs, skeleton first, Telegram sign-in before the page, never a login screen in Telegram.
 // The Telegram side (hub: consent, contact, 🔕 menu, promotions) is in 40_hub_telegram; here the hub is a stub.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -686,10 +686,14 @@ describe("customer login: phone + password from the bot; a new password only fro
   });
 
   it("per visitor: after 50 failed logins in an hour the next one is refused", async () => {
-    resetRateLimits();
-    for (let i = 0; i < 50; i++) expect((await tryLogin(`0965550${String(i).padStart(2, "0")}`, "9z9z")).statusCode).toBe(401);
-    expect(await code(tryLogin("096555099", "9z9z"))).toEqual([429, "RATE_LIMITED"]);
-    resetRateLimits();
+    // the limiter counts in fixed clock hours: pin the clock mid-hour so the 51 tries cannot straddle a new hour (flaky at hh:00)
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Math.floor(Date.now() / 3_600_000) * 3_600_000 + 1_800_000);
+    try {
+      resetRateLimits();
+      for (let i = 0; i < 50; i++) expect((await tryLogin(`0965550${String(i).padStart(2, "0")}`, "9z9z")).statusCode).toBe(401);
+      expect(await code(tryLogin("096555099", "9z9z"))).toEqual([429, "RATE_LIMITED"]);
+    } finally { vi.useRealTimers(); resetRateLimits(); }
   });
 });
 
@@ -840,7 +844,7 @@ describe("tracking: reminder the day before (17:00–20:00 shop time), on the wa
     expect(await customerNotices(tomorrow10.at18)).toBe(0); expect(hubCalls.length).toBe(n); // once
     await sql`update bookings set status = 'en_route' where id = ${bk1}`;
     expect(await customerNotices()).toBeGreaterThanOrEqual(1);
-    expect(told(SUB.a).at(-1)).toBe("🚗 ជាងកំពុងមក"); // no technician on it yet
+    expect(told(SUB.a).at(-1)).toBe("🚗 ជាង Kim កំពុងមក"); // confirmed = assigned (CEO 04-10): the technician is named
     await sql`update bookings set web_subscriber_id = 99, created_at = now() - interval '3 days', scheduled_at = ${tomorrow10.t}, ends_at = ${tomorrow10.t}::timestamptz + interval '2 hours' where id = ${bkC}`;
     await customerNotices(tomorrow10.at18);
     expect((await sql`select ok from customer_notices where booking_id = ${bkC}`)[0]).toMatchObject({ ok: false });
