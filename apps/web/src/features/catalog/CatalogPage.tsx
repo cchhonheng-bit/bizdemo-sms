@@ -133,10 +133,17 @@ export default function CatalogPage() {
   );
 }
 
+/** a changed field in the words of the screen (D-89): its own label, dollars (not cents), yes / no, the category's name */
+const FIELD_LABEL: Record<string, string> = { name_km: "catalog.name_km", name_en: "catalog.name_en", web_category: "catalog.web_category", unit: "catalog.unit",
+  from_price: "catalog.from_price", duration_min: "catalog.duration", show_on_website: "catalog.show_on_website", quote_only: "catalog.quote_only", is_active: "app.active" };
+
 function PreviewDialog({ preview, loading, onClose, onApply }: { preview: CatalogPreview; loading: boolean; onClose: () => void; onApply: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language === "en" ? "en" : "km";
   const c = preview.counts, blocked = c.error > 0 || preview.file_errors.length > 0, nothing = !blocked && c.new + c.changed === 0;
   const errText = (e: string) => { const [code, col] = e.split(":"); return t(`catalog.import_err.${code}`, { col, defaultValue: e }); };
+  const value = (k: string, v: unknown) => v == null || v === "" ? "—" : k === "from_price" ? formatUsd(Number(v), lang) : typeof v === "boolean" ? t(v ? "app.yes" : "app.no")
+    : k === "web_category" ? WEB_CATEGORY_LABEL[v as WebCategory]?.[lang] ?? String(v) : String(v);
   return (
     <Dialog open onClose={onClose} title={t("catalog.preview_title")} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
@@ -154,7 +161,7 @@ function PreviewDialog({ preview, loading, onClose, onApply }: { preview: Catalo
               <span className="tabular text-xs">{r.code}</span><span className="font-semibold break-words min-w-0">{r.name}</span>
             </div>
             {r.errors.length > 0 && <div className="text-xs text-danger">{r.errors.map(errText).join(" · ")}</div>}
-            {Object.entries(r.changes).map(([k, [a, b]]) => <div key={k} className="text-xs text-muted break-words">{k}: {String(a ?? "—")} → {String(b ?? "—")}</div>)}
+            {Object.entries(r.changes).map(([k, [a, b]]) => <div key={k} className="text-xs text-muted break-words" data-testid="cat-change">{FIELD_LABEL[k] ? t(FIELD_LABEL[k]) : k}: {value(k, a)} → {value(k, b)}</div>)}
           </li>
         ))}
       </ul>
