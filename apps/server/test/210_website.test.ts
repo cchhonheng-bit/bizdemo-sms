@@ -845,6 +845,7 @@ describe("tracking: reminder the day before (17:00–20:00 shop time), on the wa
     await sql`update bookings set status = 'en_route' where id = ${bk1}`;
     expect(await customerNotices()).toBeGreaterThanOrEqual(1);
     expect(told(SUB.a).at(-1)).toBe("🚗 ជាង Kim កំពុងមក"); // confirmed = assigned (CEO 04-10): the technician is named
+    await sql`delete from booking_technicians where booking_id = ${bkC}`; // confirmed = assigned now: free its crew before it moves onto bk1's time
     await sql`update bookings set web_subscriber_id = 99, created_at = now() - interval '3 days', scheduled_at = ${tomorrow10.t}, ends_at = ${tomorrow10.t}::timestamptz + interval '2 hours' where id = ${bkC}`;
     await customerNotices(tomorrow10.at18);
     expect((await sql`select ok from customer_notices where booking_id = ${bkC}`)[0]).toMatchObject({ ok: false });
