@@ -1,7 +1,7 @@
 // Customer messages on Telegram (final combined brief, section F · D-106…): Khmer only, at most 4 lines, one idea per line,
 // one emoji at the start, no technical words, a button for the next step (the shop / hub attach it). The brief's exact texts;
 // the other customer messages follow the same style. The bot keyboard labels live here too — the hub and the shop both read them.
-import { CUSTOMER_PASSWORD_HINT, kmDigits, WEB_CONFIRM_MIN } from "./site";
+import { kmDigits, WEB_CONFIRM_MIN } from "./site";
 
 /** the customer keyboard (reply keyboard grid — the only customer menu) */
 export const CUSTOMER_MENU = {
@@ -42,7 +42,8 @@ export const customerText = {
   linkedKnown: lines("✅ ភ្ជាប់រួចរាល់", "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់ដែលមានស្រាប់"),
   /** the first password, sent when the staff confirmed (the record was linked only then) */
   password: (pw: string) => lines(...pwLines(pw)),
-  hint: CUSTOMER_PASSWORD_HINT.km,
+  /** the silent line after every password the bot sends (CEO D-127); the birthday / phone hint is only on the change form */
+  hint: "អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»",
   /** a customer who is already linked booked again (signed in, or inside Telegram) */
   received: (no: string, night = false) => lines(`✅ បានទទួលការកក់ #${no}`, night ? NIGHT_CONFIRM.km : `រង់ចាំបញ្ជាក់ ${wait}`),
   quoteReceived: lines("✅ បានទទួលសំណើតម្លៃ", "យើងនឹងទាក់ទងអ្នកវិញឆាប់ៗ"),

@@ -14,7 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CUSTOMER_MENU, customerText, NIGHT_CONFIRM, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
+import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, customerText, NIGHT_CONFIRM, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
 import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
@@ -437,7 +437,7 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     pwA = pwIn(x.text)!;
     expect(pwA).toMatch(/^\d{4}$/);
     expect(x.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${n1} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\n🔑 ពាក្យសម្ងាត់៖ ${pwA}\nចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ`);
-    expect(x.hint).toBe("កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ"); expect(x.menu_url).toBe("https://oneteam.test/my");
+    expect(x.hint).toBe("អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»"); expect(x.menu_url).toBe("https://oneteam.test/my");
     expect(x.keyboard).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }, { text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }],
       [{ text: "🎁 ប្រូម៉ូសិន" }, { text: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី" }], [{ text: "🔕 ឈប់ទទួលដំណឹង" }]]);
     expect(Number((await bookingOf(ref1)).web_subscriber_id)).toBe(SUB.a); expect(Number((await bookingOf(ref1)).csub)).toBe(SUB.a);
@@ -601,6 +601,17 @@ describe("customer login: phone + password from the bot; a new password only fro
     for (const x of ['id="phone"', 'id="pw"', 'type="password"', "ភ្លេចពាក្យសម្ងាត់?", 'id="forgot" href="https://t.me/Oneteam_app_bot"', "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", "សូមភ្ជាប់ Telegram ជាមុនសិន"]) expect(r.body).toContain(x);
     expect((await pub("POST", "/api/public/password-reset", { phone: "12 666 555" })).statusCode).toBe(404);
     expect((await pub("GET", "/api/my")).statusCode).toBe(401);
+  });
+
+  it("CEO D-127: the bot's password messages say where to change it — the birthday / phone hint only on the change-password form", async () => {
+    expect(customerText.hint).toBe("អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»");
+    expect(customerText.hint).not.toBe(CUSTOMER_PASSWORD_HINT.km);
+    for (const p of ["/my/login", `/book/done/${ref1}`]) expect((await page(p)).body).not.toContain(CUSTOMER_PASSWORD_HINT.km);
+    const A = await signIn("12 345 678", pwA);
+    const home = (await page("/my", { cookie: A.cookie! })).body, form = home.indexOf('id="pw-card"');
+    expect(form).toBeGreaterThan(0);
+    expect(home.indexOf(CUSTOMER_PASSWORD_HINT.km)).toBeGreaterThan(form); // inside the change-password form, nowhere before it
+    expect((await page("/my/bookings", { cookie: A.cookie! })).body).not.toContain(CUSTOMER_PASSWORD_HINT.km);
   });
 
   it("only an argon2 hash is stored; nothing else carries the password", async () => {

@@ -142,7 +142,7 @@ const KM_DIGITS = "០១២៣៤៥៦៧៨៩";
 export const kmDigits = (n: number | string): string => String(n).replace(/[0-9]/g, (d) => KM_DIGITS[Number(d)]!);
 
 // ---------- customer login: phone + password, the password is sent to the linked Telegram chat ----------
-/** shown only under a password (bot message, change form) — the owner's exact text */
+/** shown only on the website's change-password form (CEO D-127; the bot's password messages say where to change it) — the owner's exact text */
 export const CUSTOMER_PASSWORD_HINT = {
   km: "កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ",
   en: "Do not use your birthday or the last 4 digits of your phone number",
