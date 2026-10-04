@@ -1094,6 +1094,7 @@ describe("D-121 customer pages: the bot opens exact addresses; skeleton first; i
     const js = (await page("/pub/site.js")).body;
     expect(js).toContain('"/api/customer/tg-auth"'); expect(js).toContain("tgWebAppData"); expect(js).toContain("getRegistrations"); // read from the address at once; the old "/" worker removed
     expect(js).toContain('location.replace("/my/login?next="'); // outside Telegram the sign-in page — only there
+    expect(js).toContain('history.replaceState(null, "", to)'); expect(js).toContain("location.reload();"); // signed in: a REAL reload of the same address (a #-only change loads nothing)
   });
 
   it("outside Telegram: /my/login (phone + password) returns to the page that asked — never another site; a live session skips it", async () => {

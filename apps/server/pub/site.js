@@ -77,7 +77,10 @@
       tgAuth().then(function (r) {
         if (!r.ok) return fail(r.json.error);
         if (again) return fail("ERROR");
-        location.replace(next + (location.hash ? location.hash + "&ot_gate=1" : "#ot_gate=1"));
+        // the same address again, now with the session: a real reload — replacing only the #part would not load anything
+        var to = next + (location.hash ? location.hash + "&ot_gate=1" : "#ot_gate=1");
+        try { history.replaceState(null, "", to); } catch (e) { return location.replace(to); }
+        location.reload();
       }).catch(function () { fail("ERROR"); });
     }
     if (retry) retry.addEventListener("click", go);
