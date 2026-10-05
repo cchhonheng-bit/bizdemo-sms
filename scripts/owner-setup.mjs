@@ -3,7 +3,8 @@
 // Every step first checks whether it is already done (safe to run again), prints "រួច ✓" or a clear error + how to fix,
 // and stops only where the owner must type something: the server password (once, for the SSH key), the sudo password
 // (only if the server asks), the bot token (in Notepad — never in chat), an e-mail address.
-// Secrets never go to the screen, to a file in the project, or to the report. Report: ..\Doc_Sup\SETUP_REPORT.html
+// Secrets never go to a file or to the report (D-130: no password in any file). The new accounts' one-time passwords are shown
+// once on the terminal only — shop accounts must change theirs at first login. Report: ..\Doc_Sup\SETUP_REPORT.html
 // Usage: node scripts/owner-setup.mjs [--verify] [--new-token] [--redeploy] [--skip-tests] [--reset-passwords] [--build-on-server] [--no-demo]
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -322,8 +323,8 @@ export async function main(argv, sys = makeSys()) {
     ok("deploy", "Deploy", `hangkh/app:${sha} → hub + oneteam`);
   }
 
-  // 12 ── accounts + demo data (D-62). Temp passwords are NOT shown on screen: owner's decision 29-09 → Doc_Sup\_demo_accounts.txt
-  //       (outside git; every account must change its password at first login; delete the file after handing them out)
+  // 12 ── accounts + demo data. D-130 (CEO 05-10, ends D-62): no password in any file — the one-time passwords are shown once on the
+  //       terminal (written on paper); every shop account must change its password at first login
   head("គណនី + ទិន្នន័យ Demo (ceo · gm01 · admin · kim · dara · platform heng)");
   const q = (db, sql) => ssh(`${cfg.dir}/bin/dc exec -T postgres psql -U postgres -d ${db} -tAc "${sql}"`).out.trim();
   const cli = (app, cmd) => sys.run("ssh", [cfg.ssh, `${cfg.dir}/bin/dc exec -T ${app} node dist/cli.mjs ${cmd}`], { timeout: 120_000 });
@@ -361,9 +362,10 @@ export async function main(argv, sys = makeSys()) {
     notes.push(made.length ? `demo: ${made.join(" · ")}` : "demo មានរួច");
   }
   if (creds.length) {
-    const f = saveAccounts(sys, cfg, creds);
-    notes.push(`ពាក្យសម្ងាត់ ${creds.length} គណនី → ${f ?? "(សរសេរ file មិនបាន)"}`);
-    sys.out(col("33;1", `\n   📝 ពាក្យសម្ងាត់បណ្ដោះអាសន្ន ${creds.length} គណនី → ${f} (មិនបង្ហាញលើអេក្រង់ · ត្រូវប្តូរពេលចូលដំបូង · លុប file ក្រោយចែក)\n`));
+    sys.out(col("33;1", `\n   🔑 ពាក្យសម្ងាត់បណ្ដោះអាសន្ន ${creds.length} គណនី — បង្ហាញតែម្ដងនេះ · មិនរក្សាទុកក្នុង file · សរសេរលើក្រដាស\n`)
+      + "   គណនីហាង ត្រូវប្តូរពាក្យសម្ងាត់ពេលចូលដំបូង · heng ប្តូរនៅទំព័រ Platform\n"
+      + accountLines(cfg, creds).map((l) => `   ${l}\n`).join(""));
+    notes.push(`ពាក្យសម្ងាត់ ${creds.length} គណនី បង្ហាញលើអេក្រង់តែម្ដង (គ្មាន file)`);
   }
   ok("accounts", "គណនី", notes.join(" · "));
 
@@ -441,29 +443,15 @@ async function verify(sys, cfg, results, head, ok, warn, fail, ssh, dnsKnownOk) 
   return !results.some((r) => r.status === "fail");
 }
 
-// --------------------------------------------------------------------------------------------------------------- demo accounts file (owner's decision, D-62)
-export function accountsText(cfg, creds, now) {
+// --------------------------------------------------------------------------------------------------------------- new accounts (D-130: terminal only)
+/** the new accounts as terminal lines (username · one-time password · role · where to sign in) — never written to a file */
+export function accountLines(cfg, creds) {
   const role = { ceo: "CEO", support: "Admin (support)", gm: "GM", admin: "Admin", tech: "Technician" };
-  const lines = creds.map(([where, user, pw, r]) => {
+  return creds.map(([where, user, pw, r]) => {
     const url = where === "hub" ? `https://${cfg.domains.hub}/platform` : `https://${cfg.domains.oneteam}`;
     const rl = where === "hub" ? "Platform owner" : role[r ?? user] ?? r ?? "";
     return `${user.padEnd(10)} ${pw.padEnd(16)} ${rl.padEnd(16)} ${url}`;
   });
-  return [`# ${now} — HangKH គណនីថ្មី (ពាក្យសម្ងាត់បណ្ដោះអាសន្ន · ត្រូវប្តូរពេលចូលដំបូង)`,
-    "# ⚠️ កុំផ្ញើ file នេះក្នុង Telegram/ឆាត · ប្រគល់ផ្ទាល់ដៃ · លុប file ក្រោយគ្រប់គ្នាប្តូររួច",
-    `# username   password         role             URL`, ...lines, "", ""].join("\n");
-}
-function saveAccounts(sys, cfg, creds) {
-  const docDir = resolve(sys.cwd, "..", "Doc_Sup");
-  const dir = sys.exists(docDir) ? docDir : join(sys.home, "Documents"); // never inside the repo
-  const f = join(dir, "_demo_accounts.txt");
-  const now = new Date().toLocaleString("en-GB", { timeZone: "Asia/Phnom_Penh" });
-  try {
-    sys.mkdir(dir);
-    const prev = sys.exists(f) ? sys.read(f) : "";
-    sys.write(f, accountsText(cfg, creds, now) + prev, { mode: 0o600 });
-    return f;
-  } catch { return null; }
 }
 
 // --------------------------------------------------------------------------------------------------------------- report (no secrets)

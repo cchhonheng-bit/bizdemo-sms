@@ -1,5 +1,6 @@
-// 04: owner-setup.mjs with a fake PC + fake server (node --test). Proves: idempotent re-run, secrets never printed or
-// written to the report, token only via Notepad file which is shredded, password steps only when needed, clear errors.
+// 04: owner-setup.mjs with a fake PC + fake server (node --test). Proves: idempotent re-run, the token never printed, no secret
+// in the report, NO password in any file (D-130 — the one-time passwords are shown once on the terminal only), token only via
+// Notepad file which is shredded, password steps only when needed, clear errors.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, existsSync } from "node:fs";
@@ -95,7 +96,8 @@ function world(over = {}) {
   return w;
 }
 const PASSWORDS = ["Xy7pQ2mN8k", "Ss5Tt6Uu7V", "Zz9Yy8Xx7Ww6", "Gg1Mm2Nn3P", "Aa4Dd5Mm6N", "Kk7Ii8Mm9Q", "Dd2Rr3Aa4S"];
-const accountsFile = (w) => Object.entries(w.files).find(([k]) => k.endsWith("_demo_accounts.txt"))?.[1] ?? "";
+/** D-130: every file the run wrote or touched (report, ssh config, token file, …) — none may hold a password */
+const filesWith = (w, pw) => Object.entries(w.files).filter(([, v]) => String(v).includes(pw)).map(([k]) => k);
 const report = (w) => Object.entries(w.files).filter(([k]) => k.includes("SETUP_REPORT")).map(([, v]) => v).join("\n");
 
 test("helpers: token extraction ignores comments, redact masks secrets, ssh parsing", () => {
@@ -133,10 +135,11 @@ test("first run: every step, password + sudo typed once, token via Notepad (shre
   const r = report(w);
   assert.ok(r.includes("រួចរាល់"));
   for (const secret of [TOKEN, ...PASSWORDS]) assert.ok(!r.includes(secret), `report leaks ${secret}`);
-  // D-62: temp passwords go to _demo_accounts.txt (owner's decision), never to the screen
-  for (const pw of PASSWORDS) { assert.ok(!w.out.includes(pw), `screen shows ${pw}`); assert.ok(accountsFile(w).includes(pw), `file misses ${pw}`); }
-  for (const u of ["ceo", "support", "heng", "gm01", "admin", "kim", "dara"]) assert.match(accountsFile(w), new RegExp(`^${u} `, "m"));
-  assert.match(accountsFile(w), /heng .*https:\/\/hub\.hangkh\.com\/platform/);
+  // D-130: the one-time passwords are on the terminal (once), in no file at all
+  for (const pw of PASSWORDS) { assert.ok(w.out.includes(pw), `terminal misses ${pw}`); assert.deepEqual(filesWith(w, pw), [], `${pw} written to a file`); }
+  for (const u of ["ceo", "support", "heng", "gm01", "admin", "kim", "dara"]) assert.match(w.out, new RegExp(`^   ${u} +\\S+ `, "m"));
+  assert.match(w.out, /heng .*https:\/\/hub\.hangkh\.com\/platform/);
+  assert.ok(!Object.keys(w.files).some((k) => k.endsWith("_demo_accounts.txt")), "no accounts file");
   assert.match(w.out, /BK-0001 BK-0002/);
   assert.ok((w.out.match(/រួច ✓/g) ?? []).length >= 12);
 });
@@ -151,7 +154,7 @@ test("second run: nothing to type, nothing redeployed (idempotent)", async () =>
   assert.equal(w.tested || w.deployed, false);
   assert.ok(w.out.includes("រំលង"));
   assert.ok(w.out.includes("demo មានរួច"));
-  assert.equal((accountsFile(w).match(/^# .*HangKH/gm) ?? []).length, 1, "no new passwords on a re-run");
+  for (const pw of PASSWORDS) assert.ok(!w.out.includes(pw), `a re-run shows ${pw} again`); // no new passwords on a re-run
 });
 
 test("Docker Desktop not running → warning, image built on the server (D-61), rest continues", async () => {
@@ -185,7 +188,7 @@ test("getMe unreachable → token NOT stored, clear error (P3)", async () => {
   assert.ok(w.out.includes("Internet"));
 });
 
-test("--reset-passwords on an existing box writes new passwords to the accounts file, report stays clean (P7)", async () => {
+test("--reset-passwords on an existing box shows the new password once on the terminal — no file, report clean (P7, D-130)", async () => {
   const w = world();
   await main([], w.sys);
   const calls = [];
@@ -193,8 +196,22 @@ test("--reset-passwords on an existing box writes new passwords to the accounts 
   w.sys.run = (c, a, o) => { if (c === "ssh") calls.push(a[a.length - 1]); return orig(c, a, o); };
   assert.equal(await main(["--reset-passwords"], w.sys), 0);
   assert.ok(calls.some((c) => c.includes("reset-password oneteam ceo")) && calls.some((c) => c.includes("hub-admin heng")));
-  assert.ok(!report(w).includes("Qq1Ww2Ee3R") && !w.out.includes("Qq1Ww2Ee3R"));
-  assert.ok(accountsFile(w).includes("Qq1Ww2Ee3R"));
+  assert.ok(!report(w).includes("Qq1Ww2Ee3R"));
+  assert.ok(w.out.includes("Qq1Ww2Ee3R"), "shown on the terminal");
+  assert.deepEqual(filesWith(w, "Qq1Ww2Ee3R"), [], "written to a file");
+});
+
+test("D-130: no password ever reaches a file — Doc_Sup, home or anywhere — across first run, re-run and reset", async () => {
+  const w = world();
+  const writes = [];
+  const write = w.sys.write;
+  w.sys.write = (p, d) => { writes.push([p, String(d)]); return write(p, d); };
+  await main([], w.sys);
+  await main([], w.sys);
+  await main(["--reset-passwords"], w.sys);
+  for (const pw of [...PASSWORDS, "Qq1Ww2Ee3R"]) for (const [p, d] of writes) assert.ok(!d.includes(pw), `${pw} written to ${p}`);
+  assert.ok(writes.some(([p]) => p.endsWith("SETUP_REPORT.html")), "the report is still written");
+  assert.ok(!writes.some(([p]) => /accounts/i.test(p)), "no accounts file");
 });
 
 test("server unreachable → Error ✗ with a fix, report written", async () => {

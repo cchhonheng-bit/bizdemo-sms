@@ -50,7 +50,7 @@ async function createCompany(name: string, slug: string, opts: { ceoName?: strin
 }
 
 // Demo accounts + data for the owner's demo (29-09, D-62). Idempotent: every part is skipped when already present.
-// Prints "DEMO_ACCOUNT <username> <role> <temp password>" lines — owner-setup writes them to Doc_Sup\_demo_accounts.txt.
+// Prints "DEMO_ACCOUNT <username> <role> <temp password>" lines — owner-setup shows them once on the terminal, never in a file (D-130).
 async function seedDemo(slug: string) {
   const c = (await sql<{ id: string }[]>`select id from companies where slug = ${slug}`)[0];
   if (!c) throw new Error(`company "${slug}" not found — run create-company first`);
