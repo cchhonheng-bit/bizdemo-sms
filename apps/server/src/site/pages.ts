@@ -25,6 +25,7 @@ const TXT = {
     n_items: (n: number) => `${kmDigits(n)} សេវា`, none: "សេវានឹងបង្ហាញនៅទីនេះឆាប់ៗ។", cats: "ប្រភេទសេវា", item: "សេវា", qty: "ចំនួន", less: "បន្ថយ", more_q: "បន្ថែម", remove: "ដកចេញ",
     add_line: "បន្ថែមសេវា", price_from: (p: string) => `តម្លៃប្រហែល ចាប់ពី ${p}`, price_contact: "តម្លៃបញ្ជាក់ពេលទាក់ទង", pick_none: "— ជ្រើសសេវា (មិនចាំបាច់) —",
     t1: "បញ្ជាក់ក្នុង<br>៣០ នាទី", t2: (n: string) => `ធានាការងារ<br>${n} ខែ`, t3: "តាមដានតាម<br>Telegram",
+    guide: "របៀបប្រើ", guide_h: "វីដេអូណែនាំ", guide_sub: "កក់ តាមដាន និងប្រើគណនី", guide_list: "វីដេអូទាំងអស់", guide_none: "វីដេអូនឹងមកដល់ឆាប់ៗ",
     privacy: "ឯកជនភាព", terms: "លក្ខខណ្ឌ", powered: "ដំណើរការដោយ", other: "English", about: "អំពីយើង", gallery: "រូបភាពការងារ", contact: "ទំនាក់ទំនង", map: "មើលក្នុង Google Maps", facebook: "ទំព័រហ្វេសប៊ុក",
     back: "ត្រឡប់ក្រោយ", change: "ប្ដូរ", about_h: (h: string) => `ប្រហែល ${h} ម៉ោង`, day: "ជ្រើសថ្ងៃ", time: "ជ្រើសម៉ោង", hint: "បង្ហាញតែម៉ោងជាងទំនេរ", loc: "ទីតាំង",
     gps: "ប្រើទីតាំងបច្ចុប្បន្ន", gps_ok: "បានចាប់ទីតាំង", map_view: "មើលលើផែនទី", paste_open: "ឬបិទភ្ជាប់តំណ Google Maps", paste_ph: "បិទភ្ជាប់តំណ Google Maps នៅទីនេះ", paste_go: "យក",
@@ -67,6 +68,7 @@ const TXT = {
     n_items: (n: number) => `${n} ${n === 1 ? "service" : "services"}`, none: "Services will be listed here soon.", cats: "Service types", item: "Service", qty: "Quantity", less: "Less", more_q: "More", remove: "Remove",
     add_line: "Add a service", price_from: (p: string) => `About, from ${p}`, price_contact: "Price confirmed when we contact you", pick_none: "— Choose a service (optional) —",
     t1: "Confirmed in<br>30 minutes", t2: (n: string) => `Work warranty<br>${n} ${n === "1" ? "month" : "months"}`, t3: "Follow on<br>Telegram",
+    guide: "How to use", guide_h: "Video guide", guide_sub: "Book, track and use your account", guide_list: "All videos", guide_none: "The videos are coming soon",
     privacy: "Privacy", terms: "Terms", powered: "Powered by", other: "ខ្មែរ", about: "About us", gallery: "Our work", contact: "Contact", map: "Open in Google Maps", facebook: "Facebook page",
     back: "Back", change: "Change", about_h: (h: string) => `about ${h} ${h === "1" ? "hour" : "hours"}`, day: "Choose a day", time: "Choose a time", hint: "Only times with a free technician", loc: "Location",
     gps: "Use my current location", gps_ok: "Location added", map_view: "View on the map", paste_open: "or paste a Google Maps link", paste_ph: "Paste a Google Maps link here", paste_go: "Use",
@@ -118,6 +120,7 @@ const I = {
   send: '<path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/>', clock: '<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>', shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
   back: '<path d="m15 18-6-6 6-6"/>', chev: '<path d="m9 18 6-6-6-6"/>', check: '<path d="M20 6 9 17l-5-5"/>', pin: '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
   photo: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>',
+  play: '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4z"/>',
   bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>', key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
 };
 type Cat = (typeof WEB_CATEGORIES)[number] | "other";
@@ -181,7 +184,7 @@ const consent = (d: SiteView, t: T, lang: SiteLang, button: string, small = fals
 };
 const honeypot = '<div class="hp" aria-hidden="true"><input id="company_url" tabindex="-1" autocomplete="off"></div>';
 const errBox = (id = "err") => `<p class="err" id="${id}" role="alert" hidden></p>`;
-const footer = (t: T, lang: SiteLang, path: string, area = "") => `<footer class="ft">${area ? `<div>${esc(area)}</div>` : ""}<nav><a href="/privacy">${t.privacy}</a><a href="/terms">${t.terms}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>`;
+const footer = (t: T, lang: SiteLang, path: string, area = "") => `<footer class="ft">${area ? `<div>${esc(area)}</div>` : ""}<nav><a href="/guide">${t.guide}</a><a href="/privacy">${t.privacy}</a><a href="/terms">${t.terms}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>`;
 
 /** the location card: «use my current location» (Telegram's location inside the Mini App, else the browser), the result with a map
  *  link, the Google Maps link to paste when that fails, an optional address */
@@ -407,7 +410,7 @@ ${view === "bookings" ? "" : `<section class="card s g8" id="settings"><h2 class
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
 <div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></div>
 <button type="button" class="ob m w" id="logout">${t.logout}</button></section>`}
-<footer class="ft low"><nav><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>
+<footer class="ft low"><nav><a href="/guide">${t.guide}</a><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>
 <div class="bar"><a class="btn" href="/book">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
   return shell(d, lang, { title: `${view === "bookings" ? t.track_h : t.upcoming} — ${n.full}`, page: "my", path, body, data: { view } });
 }
@@ -422,6 +425,21 @@ ${backHeader(t, "/", esc(doc.title), "", " data-legal-back")}
 <p class="hint">${t.version}: ${esc(LEGAL_VERSION)}</p></section>
 ${footer(t, lang, path)}</main>`;
   return shell(d, lang, { title: `${doc.title} — ${n.full}`, page: "legal", path, body, msg: false });
+}
+
+// ---------- the customers' video guide (D-129): overview on top, then every clip — a clip plays in the player above ----------
+export type GuideCard = { id: string; title: string; title_en: string; ready: boolean; seconds: number | null; url: string | null };
+export function guidePage(d: SiteView, lang: SiteLang, videos: GuideCard[], path: string): string {
+  const t = TXT[lang], n = names(d, lang), title = (v: GuideCard) => (lang === "en" ? v.title_en : v.title);
+  const len = (s: number | null) => (s == null ? "" : `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`);
+  const ready = videos.filter((v) => v.ready), first = ready[0];
+  const body = `<main class="scr end guide">
+${backHeader(t, "/", t.guide_h, t.guide_sub)}
+${first ? `<section class="card s"><video class="gv" id="gv" src="${esc(first.url!)}" controls playsinline preload="metadata"></video><b class="gt" id="gt">${esc(title(first))}</b></section>
+<section class="card s"><h2 class="h2">${t.guide_list}</h2>${ready.map((v) => `<button type="button" class="gl" data-src="${esc(v.url!)}" data-title="${esc(title(v))}"><span class="ic sm">${svg(I.play, 16)}</span><span class="tx"><b>${esc(title(v))}</b><span>${len(v.seconds)}</span></span></button>`).join("")}</section>`
+    : `<section class="card s"><p class="sub">${t.guide_none}</p></section>`}
+${footer(t, lang, path)}</main>`;
+  return shell(d, lang, { title: `${t.guide_h} — ${n.full}`, page: "guide", path, body, msg: false });
 }
 
 export function notFoundPage(d: SiteView, lang: SiteLang): string {

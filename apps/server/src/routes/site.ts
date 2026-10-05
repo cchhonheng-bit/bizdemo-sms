@@ -24,7 +24,8 @@ import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookPage, donePage, gatePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
+import { assets, bookPage, donePage, gatePage, guidePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
+import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
 const LANG_COOKIE = "sl";
@@ -163,6 +164,12 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE])) return reply.redirect(next, 302);
     return html(reply, 200, loginPage(d, lang, pathOf(req), next), "no-store");
   });
+  // D-129: the customers' video guide — public; the videos keep in any cache (the address carries the file's version)
+  app.get("/guide", async (req, reply) => {
+    const lang = langOf(req, reply);
+    return html(reply, 200, guidePage(await site(), lang, await customerGuide(), pathOf(req)));
+  });
+  app.get("/guide/v/:id", async (req, reply) => sendGuideFile(req, reply, customerVideoPath(z.object({ id: z.string().regex(/^L5-\d{2}$/) }).parse(req.params).id), "video/mp4", "public, max-age=31536000, immutable"));
   app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").header("Cache-Control", "no-cache").send(robotsTxt((await siteData())?.website.published === true)));
   app.get("/pub/img/:id", async (req, reply) => image(reply, await readSiteImage(z.object({ id: uuid }).parse(req.params).id)));
   app.get("/pub/logo", async (_req, reply) => image(reply, await readSiteLogo(), "public, max-age=3600"));

@@ -54,7 +54,8 @@
     "reminders": "Reminders",
     "inventory": "Stock",
     "accounting": "Accounting",
-    "all_guide": "Guide videos"
+    "all_guide": "Guide videos",
+    "guide": "How to use"
   },
   "roles": {
     "ceo": "CEO",
@@ -1502,5 +1503,14 @@
     "step2": "2️⃣ Tap «START» in Telegram",
     "step3": "3️⃣ Tap the ☑ agree button",
     "stop": "/stop — stop anytime"
+  },
+  "guide": {
+    "title": "How to use",
+    "clips": "All videos",
+    "soon": "Not ready yet",
+    "pdf": "Download the PDF guide",
+    "help": "Help",
+    "all": "All videos for my role",
+    "none": "No videos for this role"
   }
 }

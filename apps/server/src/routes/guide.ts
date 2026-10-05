@@ -1,8 +1,10 @@
-// /api/guide — the all-guide page (CEO 04-10, D-128): the shop's CEO and the platform account only.
+// /api/guide — the all-guide page (CEO 04-10, D-128): the shop's CEO and the platform account only; /mine (D-129): every staff
+// member's own position — the videos and PDF of their role.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { GUIDE_VIDEO_ID } from "@sms/shared";
-import { guideAccess, guideOverview, guidePdfPath, guideVideoPath, saveGuideReview, sendGuideFile } from "../services/guide.js";
+import { AppError } from "../lib/errors.js";
+import { canReadPdf, canWatch, guideAccess, guideMine, guideOverview, guidePdfPath, guideVideoPath, saveGuideReview, sendGuideFile } from "../services/guide.js";
 
 export const guideRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireAuth);
@@ -13,10 +15,15 @@ export const guideRoutes: FastifyPluginAsync = async (app) => {
     const b = z.object({ verdict: z.enum(["ok", "fix"]), comment: z.string().max(1000).nullable().optional() }).strict().parse(req.body);
     return saveGuideReview(req.user!, req.ip, platform, id(req), b);
   });
-  app.get("/videos/:id", async (req, reply) => { await guideAccess(req.user!); return sendGuideFile(req, reply, guideVideoPath(id(req)), "video/mp4"); });
+  app.get("/mine", async (req) => guideMine(req.user!));
+  app.get("/videos/:id", async (req, reply) => {
+    const v = id(req);
+    if (!(await canWatch(req.user!, v))) throw new AppError("FORBIDDEN", 403);
+    return sendGuideFile(req, reply, guideVideoPath(v), "video/mp4");
+  });
   app.get("/pdf/:tab", async (req, reply) => {
-    await guideAccess(req.user!);
     const tab = z.object({ tab: z.string().max(20) }).parse(req.params).tab;
+    if (!(await canReadPdf(req.user!, tab))) throw new AppError("FORBIDDEN", 403);
     reply.header("Content-Disposition", `attachment; filename="guide-${tab}.pdf"`);
     return sendGuideFile(req, reply, guidePdfPath(tab), "application/pdf");
   });

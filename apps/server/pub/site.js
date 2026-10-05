@@ -420,6 +420,19 @@
     $("#pw").addEventListener("keydown", function (e) { if (e.key === "Enter") go.click(); });
   })();
 
+  // ---- the video guide (D-129): a clip from the list plays in the player on top
+  if (page === "guide") (function () {
+    var v = $("#gv"), tt = $("#gt");
+    $$(".gl").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (!v) return;
+        v.src = b.dataset.src; if (tt) tt.textContent = b.dataset.title;
+        v.scrollIntoView({ behavior: "smooth", block: "start" });
+        var p = v.play(); if (p && p.catch) p.catch(function () { /* the person presses play */ });
+      });
+    });
+  })();
+
   // ---- privacy / terms: back = the previous page, else "/"
   if (page === "legal") { var lb = $("[data-legal-back]"); if (lb) lb.addEventListener("click", function (e) {
     var ref = ""; try { ref = document.referrer ? new URL(document.referrer).origin : ""; } catch (x) { ref = ""; }

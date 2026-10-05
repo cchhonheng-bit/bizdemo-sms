@@ -61,7 +61,7 @@ const T = (u: { language: string }) => (km: string, en: string) => pick(tx(km, e
 type Action = "today" | "steps" | "report" | "att" | "leave" | "tomorrow" | "review" | "survey" | "team"
   | "new_booking" | "waiting_invoice" | "due_cleaning" | "find_customer" | "receive_payment" | "requests"
   | "approvals" | "where_techs" | "summary_today" | "summary" | "alerts" | "staff_today" | "cash_today" | "to_verify" | "finance" | "low_stock"
-  | "c_bookings" | "c_warranty" | "c_contact" | "c_history" | "c_request" | "c_promo" | "me" | "help";
+  | "c_bookings" | "c_warranty" | "c_contact" | "c_history" | "c_request" | "c_promo" | "me" | "help" | "guide";
 const LABEL: Record<Action, { km: string; en: string; app?: string }> = {
   today: { km: "📋 ការងារថ្ងៃនេះ", en: "📋 Today's jobs" }, steps: { km: "🔧 ជំហានការងារ", en: "🔧 Job steps" },
   report: { km: "📝 របាយការណ៍ការងារ", en: "📝 Job report" }, att: { km: "📍 វត្តមាន", en: "📍 Attendance" },
@@ -78,6 +78,7 @@ const LABEL: Record<Action, { km: string; en: string; app?: string }> = {
   c_bookings: { km: "📋 ការកក់របស់ខ្ញុំ", en: "📋 My bookings" }, c_warranty: { km: "🛡 ការធានា", en: "🛡 Warranty" }, c_contact: { km: "📞 ទាក់ទងហាង", en: "📞 Contact shop" },
   c_history: { km: "📜 ប្រវត្តិ", en: "📜 History" }, c_request: { km: "🛠 ស្នើសេវាកម្ម", en: "🛠 Request service" }, c_promo: { km: "🎁 ប្រូម៉ូសិន", en: "🎁 Promotions" },
   me: { km: "👤 ខ្ញុំ", en: "👤 Me" }, help: { km: "❓ របៀបប្រើ", en: "❓ How to use" },
+  guide: { km: "📘 របៀបប្រើ", en: "📘 How to use", app: "/guide" }, // D-129: the staff menu opens the role's video guide
 };
 const BY_LABEL = new Map<string, Action>();
 for (const [a, l] of Object.entries(LABEL) as [Action, { km: string; en: string }][]) { BY_LABEL.set(l.km, a); BY_LABEL.set(l.en, a); }
@@ -104,7 +105,7 @@ async function actionsFor(u: Staff): Promise<Action[]> {
     add("cash_today", has("payment.record") || has("report.verify")); add("to_verify", has("report.verify")); add("finance", has("accounting.view") && featureOn("accounting"));
     add("low_stock", has("inventory.view") && featureOn("inventory"));
   }
-  out.push("me", "help");
+  out.push("me", "guide"); // «❓ របៀបប្រើ» of older keyboards still answers (help)
   return out;
 }
 function rows2<B>(btns: B[]): B[][] { const rows: B[][] = []; for (let i = 0; i < btns.length; i += 2) rows.push(btns.slice(i, i + 2)); return rows; }
@@ -507,6 +508,7 @@ async function staffAction(u: Staff, chatId: number, a: Action): Promise<Menu> {
     case "low_stock": return lowStock(u);
     case "me": return meScreen(u);
     case "help": return { text: helpStaff(u) };
+    case "guide": return { text: L("📘 វីដេអូណែនាំ តាមតួនាទីរបស់អ្នក 👇", "📘 The videos for your role 👇"), buttons: [[appBtn(LABEL.guide[asLang(u.language)], "/guide")], backHome(u)] };
     case "new_booking": case "receive_payment": case "finance": case "leave":
       return { text: L("📱 បើកក្នុងកម្មវិធី 👇", "📱 Open in the app 👇"), buttons: [[appBtn(LABEL[a][asLang(u.language)], LABEL[a].app!)], backHome(u)] };
     default: return staffHome(u);

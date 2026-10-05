@@ -51,7 +51,7 @@ describe("keyboards per role (permissions of the app)", () => {
     const m = await start(CHAT.kim);
     expect(m.kind).toBe("staff");
     const l = labels(m);
-    expect(l).toEqual(["📋 ការងារថ្ងៃនេះ", "🔧 ជំហានការងារ", "📝 របាយការណ៍ការងារ", "📍 វត្តមាន", "🗓 សុំច្បាប់ឈប់", "📅 ការងារថ្ងៃស្អែក", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
+    expect(l).toEqual(["📋 ការងារថ្ងៃនេះ", "🔧 ជំហានការងារ", "📝 របាយការណ៍ការងារ", "📍 វត្តមាន", "🗓 សុំច្បាប់ឈប់", "📅 ការងារថ្ងៃស្អែក", "👤 ខ្ញុំ", "📘 របៀបប្រើ"]);
     for (const row of m.keyboard) expect(row.length).toBeLessThanOrEqual(2);
     expect(JSON.stringify(labels(m))).not.toMatch(/[A-Za-z]{3,}/); // Khmer only for a Khmer-mode user (icons aside)
     expect(m.keyboard.flat().find((b: any) => b.text.includes("សុំច្បាប់")).web_app).toBe("https://oneteam.test/app/tg?to=%2Fleave"); // D-96: the staff app lives under /app
@@ -60,15 +60,15 @@ describe("keyboards per role (permissions of the app)", () => {
   it("lead technician adds Review jobs · Site survey · My team today; the English-mode user gets English labels", async () => {
     await sql`update users set is_lead = true, language = 'en' where id = ${s.users.kim!}`;
     const l = labels(await start(CHAT.kim));
-    expect(l).toEqual(expect.arrayContaining(["🔎 Review jobs", "📐 Site survey", "👥 My team today", "👤 Me", "❓ How to use"]));
+    expect(l).toEqual(expect.arrayContaining(["🔎 Review jobs", "📐 Site survey", "👥 My team today", "👤 Me", "📘 How to use"]));
     expect(l.length).toBe(11);
     await sql`update users set language = 'km' where id = ${s.users.kim!}`;
   });
   it("admin / GM / CEO / CFO menus follow the brief; a button disappears when the role loses the permission", async () => {
-    expect(labels(await start(CHAT.admin))).toEqual(["📝 ការងារថ្មី", "📋 ការងារថ្ងៃនេះ", "🧾 រង់ចាំវិក្កយបត្រ", "🔔 ដល់ពេលលាង", "🔍 រកអតិថិជន", "💵 ទទួលប្រាក់", "🌐 សំណើអតិថិជន", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
-    expect(labels(await start(CHAT.gm))).toEqual(["📝 ការងារថ្មី", "✅ រង់ចាំអនុម័ត", "📋 ការងារថ្ងៃនេះ", "📍 ជាងនៅណា", "📊 សង្ខេបថ្ងៃនេះ", "🌐 សំណើអតិថិជន", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
-    expect(labels(await start(CHAT.ceo))).toEqual(["📊 សង្ខេប", "✅ រង់ចាំអនុម័ត", "🚨 ដំណឹងសំខាន់", "👷 បុគ្គលិកថ្ងៃនេះ", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
-    expect(labels(await start(CHAT.cfo))).toEqual(["💵 សាច់ប្រាក់ថ្ងៃនេះ", "🔎 ត្រូវផ្ទៀងផ្ទាត់", "📒 ហិរញ្ញវត្ថុ", "📦 ស្តុកជិតអស់", "👤 ខ្ញុំ", "❓ របៀបប្រើ"]);
+    expect(labels(await start(CHAT.admin))).toEqual(["📝 ការងារថ្មី", "📋 ការងារថ្ងៃនេះ", "🧾 រង់ចាំវិក្កយបត្រ", "🔔 ដល់ពេលលាង", "🔍 រកអតិថិជន", "💵 ទទួលប្រាក់", "🌐 សំណើអតិថិជន", "👤 ខ្ញុំ", "📘 របៀបប្រើ"]);
+    expect(labels(await start(CHAT.gm))).toEqual(["📝 ការងារថ្មី", "✅ រង់ចាំអនុម័ត", "📋 ការងារថ្ងៃនេះ", "📍 ជាងនៅណា", "📊 សង្ខេបថ្ងៃនេះ", "🌐 សំណើអតិថិជន", "👤 ខ្ញុំ", "📘 របៀបប្រើ"]);
+    expect(labels(await start(CHAT.ceo))).toEqual(["📊 សង្ខេប", "✅ រង់ចាំអនុម័ត", "🚨 ដំណឹងសំខាន់", "👷 បុគ្គលិកថ្ងៃនេះ", "👤 ខ្ញុំ", "📘 របៀបប្រើ"]);
+    expect(labels(await start(CHAT.cfo))).toEqual(["💵 សាច់ប្រាក់ថ្ងៃនេះ", "🔎 ត្រូវផ្ទៀងផ្ទាត់", "📒 ហិរញ្ញវត្ថុ", "📦 ស្តុកជិតអស់", "👤 ខ្ញុំ", "📘 របៀបប្រើ"]);
     await sql`update role_permissions set allowed = false where company_id = ${s.a} and role = 'admin' and permission_key = 'booking.create'`;
     expect(labels(await start(CHAT.admin))).not.toContain("📝 ការងារថ្មី");
     await sql`update role_permissions set allowed = true where company_id = ${s.a} and role = 'admin' and permission_key = 'booking.create'`;
@@ -158,7 +158,10 @@ describe("lead technician, managers, CEO, CFO", () => {
     expect((await sql`select language from users where id = ${s.users.dara!}`)[0]!.language).toBe("en");
     expect(labels(await start(CHAT.dara))).toContain("👤 Me");
     await internal("tg-menu", { chat_id: CHAT.dara, view: "lang_km" });
-    expect((await say(CHAT.dara, "❓ របៀបប្រើ")).text.length).toBeGreaterThan(40);
+    expect((await say(CHAT.dara, "❓ របៀបប្រើ")).text.length).toBeGreaterThan(40); // older keyboards: the text help still answers
+    // D-129: «📘 របៀបប្រើ» opens the role's video guide (the staff app's /guide, signed in from Telegram)
+    expect((await start(CHAT.dara)).keyboard.flat().find((b: any) => b.text === "📘 របៀបប្រើ").web_app).toBe("https://oneteam.test/app/tg?to=%2Fguide");
+    expect((await say(CHAT.dara, "📘 របៀបប្រើ")).buttons.flat().some((b: any) => b.web_app === "https://oneteam.test/app/tg?to=%2Fguide")).toBe(true);
     expect(inlineViews((await internal("tg-menu", { chat_id: CHAT.dara, view: "unlink" })).json().menu)).toContain("unlink_yes");
     const done = (await internal("tg-menu", { chat_id: CHAT.dara, view: "unlink_yes" })).json().menu;
     expect(done.remove_keyboard).toBe(true);

@@ -35,6 +35,12 @@ export type UserRow = {
   id: string; company_id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; language: string;
   is_active: boolean; must_change_password: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; telegram_linked: boolean; created_at: string; updated_at: string;
 };
+/** the signed-in role's videos (D-129) */
+export type GuideMine = {
+  tab: { key: string; label: string; label_en: string };
+  videos: { id: string; title: string; title_en: string; ready: boolean; seconds: number | null; url: string | null }[];
+  pdf: string | null;
+};
 /** the all-guide page (D-128) */
 export type GuideData = {
   tabs: { key: string; label: string; videos: string[] }[];
@@ -404,6 +410,7 @@ export const api = {
 
   notifications: () => get<Notification[]>("/api/notifications"),
   guide: () => get<GuideData>("/api/guide"),
+  guideMine: () => get<GuideMine>("/api/guide/mine"),
   guideReview: (id: string, v: { verdict: "ok" | "fix"; comment: string | null }) => put<{ ok: true }>(`/api/guide/reviews/${id}`, v),
   unreadCount: async () => (await get<{ count: number }>("/api/notifications/unread-count")).count,
   markRead: (id: number) => post(`/api/notifications/${id}/read`, {}),

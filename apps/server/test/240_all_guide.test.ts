@@ -38,14 +38,14 @@ beforeAll(async () => {
 afterAll(async () => { setHubTransport(null); config.guideDir = savedDir; await app.close(); });
 
 describe("access: the shop's CEO and the platform account only", () => {
-  it("CEO and HangKH Support open it; GM, Admin, CFO and a technician get 403 («គ្មានសិទ្ធិ»); nobody signed in: 401", async () => {
+  it("CEO and HangKH Support open it; GM, Admin, CFO and a technician get 403 («គ្មានសិទ្ធិ») — and no other position's video (D-129); nobody signed in: 401", async () => {
     expect((await ceo.req("GET", "/api/guide")).status).toBe(200);
     expect((await support.req("GET", "/api/guide")).status).toBe(200);
     for (const u of ["gm01", "admin", "cfo", "kim"]) {
       const c = await loginAs(app, u);
       expect((await c.req("GET", "/api/guide")).status).toBe(403);
       expect((await c.req("PUT", "/api/guide/reviews/L1-00", { verdict: "ok" })).status).toBe(403);
-      expect((await c.req("GET", "/api/guide/videos/L1-00")).status).toBe(403);
+      expect((await c.req("GET", `/api/guide/videos/${u === "kim" ? "L2-00" : "L1-00"}`)).status).toBe(403);
     }
     expect((await app.inject({ method: "GET", url: "/api/guide" })).statusCode).toBe(401);
     expect((await app.inject({ method: "GET", url: "/api/guide/videos/L1-00" })).statusCode).toBe(401);

@@ -1,7 +1,8 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, PlayCircle, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, BookOpen, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, PlayCircle, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import HelpButton from "@/features/guide/HelpButton";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
@@ -59,6 +60,7 @@ export default function Shell() {
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
     { to: "/all_guide", label: t("nav.all_guide"), icon: PlayCircle, hidden: me.role !== "ceo" }, // D-128: the CEO's menu only (the platform account opens the address)
+    { to: "/guide", label: t("nav.guide"), icon: BookOpen }, // D-129: the role's own videos (technicians: the (?) button and the bot)
     { to: "/me", label: t("nav.me"), icon: User },
   ];
   const desktopItems = allDesktop.filter((i) => !i.hidden && (!i.perm || can(i.perm)));
@@ -115,6 +117,7 @@ export default function Shell() {
           <div className="hidden md:block text-sm text-muted">{me.company.name}</div>
           <div className="flex items-center gap-1 sm:gap-2 shrink-0">
             {!online && <span className="badge bg-warning-50 text-warning flex items-center gap-1"><WifiOff size={12} /> {t("app.offline")}</span>}
+            <HelpButton />
             {langBtn}
             <NavLink to="/notifications" className="relative tap-target rounded hover:bg-grey-bg" aria-label={t("nav.notifications")}>
               <Bell size={18} />
