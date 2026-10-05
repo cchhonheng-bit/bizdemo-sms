@@ -24,7 +24,7 @@ beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   const dir = mkdtempSync(join(tmpdir(), "guide-roles-"));
   config.guideDir = dir;
-  for (const [folder, file] of [["Technician", "L1-00_overview_v1.mp4"], ["Admin_GM", "L2-00_overview_v1.mp4"], ["Customer", "L5-00_overview_v1.mp4"]]) {
+  for (const [folder, file] of [["Technician", "L1-00_overview_v1.mp4"], ["Admin_GM", "L2-00_overview_v1.mp4"], ["Customer", "L5-00_overview_v1.mp4"]] as [string, string][]) {
     mkdirSync(join(dir, folder), { recursive: true }); writeFileSync(join(dir, folder, file), fakeMp4());
   }
   mkdirSync(join(dir, "pdf")); writeFileSync(join(dir, "pdf", "engineer.pdf"), "%PDF-1.4 demo");
