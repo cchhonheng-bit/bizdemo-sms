@@ -49,7 +49,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "reminder.telegram": T("ផ្ញើការរំលឹកថែទាំ", "Reminder sent"), "reminder.contacted": T("បានទាក់ទងតាមការរំលឹក", "Reminder: contacted"),
   "reminder.snoozed": T("ពន្យារការរំលឹក", "Reminder snoozed"), "reminder.dismissed": T("បិទការរំលឹក", "Reminder dismissed"),
   "report.verify": T("ផ្ទៀងផ្ទាត់", "Verified"), "service.request": T("សំណើអតិថិជន", "Customer request"), "service.request_done": T("សំណើរួចរាល់", "Request done"),
-  "service.request_test_expired": T("សំណើសាកល្បង ផុតពេល", "Test request expired"), "service.request_tg_link": T("សំណើភ្ជាប់ Telegram", "Request linked to Telegram"),
+  "service.request_test": T("កំណត់ជាសំណើសាកល្បង", "Marked as a test request"), "service.request_test_expired": T("សំណើសាកល្បង ផុតពេល", "Test request expired"), "service.request_tg_link": T("សំណើភ្ជាប់ Telegram", "Request linked to Telegram"),
   "settings.test_phones": T("កែលេខទូរស័ព្ទសាកល្បង", "Test phones changed"), "settings.update": T("កែការកំណត់", "Settings changed"),
   "settings.logo": T("ប្ដូរឡូហ្គោ", "Logo changed"), "settings.qr": T("ប្ដូររូប QR", "QR changed"),
   "stock.adjust": T("កែស្តុក", "Stock adjusted"), "stock.in": T("ចូលស្តុក", "Stock in"), "stock.job_confirm": T("ដកស្តុកតាមការងារ", "Stock used by a job"),

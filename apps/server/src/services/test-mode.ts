@@ -61,6 +61,9 @@ export async function markAsTest(user: SessionUser, ip: string | null, o: { cust
     for (const id of o.bookings) {
       const r = await t`update bookings set is_test = true where id = ${id} and company_id = ${user.companyId} and not is_test returning id`;
       if (r.length) await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.test", table: "bookings", rowId: id, old: { is_test: false }, new: { is_test: true }, ip });
+      // its customer requests (booking, reschedule) are tests with it — hidden the same way (D-133)
+      const reqs = await t<{ id: string }[]>`update service_requests set is_test = true where booking_id = ${id} and company_id = ${user.companyId} and not is_test returning id`;
+      for (const q of reqs) await audit(t, { companyId: user.companyId, userId: user.id, action: "service.request_test", table: "service_requests", rowId: q.id, old: { is_test: false }, new: { is_test: true }, ip });
     }
     return { ok: true };
   });

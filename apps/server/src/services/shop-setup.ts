@@ -124,7 +124,8 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
   for (const n of input.test?.bookings ?? []) {
     const b = (await sql<{ id: string; status: string; is_test: boolean }[]>`select id, status::text as status, is_test from bookings where company_id = ${c.id} and number = ${n}`)[0];
     if (!b) throw new Error(`test booking ${n}: not found`);
-    out.push(`booking ${n} (${b.status}): test ${b.is_test ? "same" : "no → yes"}`);
+    const reqs = (await sql<{ n: number }[]>`select count(*)::int as n from service_requests where booking_id = ${b.id} and not is_test`)[0]!.n;
+    out.push(`booking ${n} (${b.status}): test ${b.is_test ? "same" : `no → yes${reqs ? ` (+${reqs} customer request${reqs > 1 ? "s" : ""})` : ""}`}`);
     if (!b.is_test) tests.bookings.push(b.id);
   }
   if (!apply) return out;

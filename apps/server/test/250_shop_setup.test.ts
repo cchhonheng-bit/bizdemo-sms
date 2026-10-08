@@ -137,6 +137,7 @@ describe("CLI shop-setup (D-131)", () => {
       values (${s.a}, 'លោក សុខា (Demo)', ${sql.array(["012345678"])}, 'ផ្ទះ 12', 'inside', 'DEMO') returning id`)[0]!.id;
     const bk = (await sql<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, ends_at, zone, notes)
       values (${s.a}, 'BK-0901', ${cust}, 'A', 'mep', 'new', 'ជួសជុលម៉ាស៊ីនត្រជាក់', now() + interval '1 day', now() + interval '1 day 2 hours', 'inside', 'DEMO') returning id`)[0]!.id;
+    const req = (await sql<{ id: string }[]>`insert into service_requests (company_id, source, customer_id, text, kind, booking_id) values (${s.a}, 'website', ${cust}, 'ការកក់ពីគេហទំព័រ', 'booking', ${bk}) returning id`)[0]!.id;
     const plan = {
       catalog: [{ code: "AC-REPAIR", sell_price: 1500, cost_price: null }, { code: "EL-CHECK", duration_min: 60, sell_price: 1500 }],
       users: [{ username: "kim", active: false }, { username: "dara", active: false }],
@@ -149,7 +150,7 @@ describe("CLI shop-setup (D-131)", () => {
     expect(dry).toContain("user kim (Kim): active yes → no");
     expect(dry).toContain("user dara (Dara): active yes → no");
     expect(dry).toContain("customer 012345678 (លោក សុខា (Demo)): test no → yes");
-    expect(dry).toContain("booking BK-0901 (new): test no → yes");
+    expect(dry).toContain("booking BK-0901 (new): test no → yes (+1 customer request)"); // D-133: its request goes with it
     expect((await sql`select count(*)::int n from audit_log`)[0]!.n).toBe(audits); // the preview writes nothing
     expect((await sql`select is_active from users where id = ${s.users.kim!}`)[0]!.is_active).toBe(true);
 
@@ -161,12 +162,14 @@ describe("CLI shop-setup (D-131)", () => {
     expect((await kim.req("GET", "/api/me")).status).toBe(401); // the session ended at once
     expect((await sql`select is_test from customers where id = ${cust}`)[0]!.is_test).toBe(true);
     expect((await sql`select is_test from bookings where id = ${bk}`)[0]!.is_test).toBe(true);
-    const acts = await sql<{ action: string; user_id: string | null }[]>`select action, user_id from audit_log where company_id = ${s.a} order by id desc limit 7`;
-    expect(acts.map((x) => x.action).reverse()).toEqual(["catalog.upsert", "catalog.upsert", "user.update", "telegram.unlink", "user.update", "customer.test", "booking.test"]);
+    expect((await sql`select is_test from service_requests where id = ${req}`)[0]!.is_test).toBe(true);
+    const acts = await sql<{ action: string; user_id: string | null }[]>`select action, user_id from audit_log where company_id = ${s.a} order by id desc limit 8`;
+    expect(acts.map((x) => x.action).reverse()).toEqual(["catalog.upsert", "catalog.upsert", "user.update", "telegram.unlink", "user.update", "customer.test", "booking.test", "service.request_test"]);
     expect(acts.every((x) => x.user_id === support)).toBe(true);
     // the 24 h test rule then cancels the demo booking, without a message to anybody
     await cancelOldTests(new Date(Date.now() + 25 * 3_600_000));
     expect((await sql`select status from bookings where id = ${bk}`)[0]!.status).toBe("cancelled");
+    expect(await sql`select status, outcome from service_requests where id = ${req}`).toEqual([{ status: "done", outcome: "expired" }]);
     // the Users page's rules hold here too: never a CEO account (HangKH Support is an Admin), never the platform account
     await expect(shopSetup("oneteam", { users: [{ username: "ceo", active: false }] }, true)).rejects.toThrow("a CEO account only by a CEO");
     await expect(shopSetup("oneteam", { users: [{ username: "support", active: false }] }, true)).rejects.toThrow("never changed here");
