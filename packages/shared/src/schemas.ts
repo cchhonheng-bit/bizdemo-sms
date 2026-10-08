@@ -68,7 +68,7 @@ export const catalogItemSchema = z.object({
   unit: z.string().trim().max(20).optional().or(z.literal("")),
   sell_price: z.number().int().min(0),
   cost_price: z.number().int().min(0).nullable().optional(),
-  /** Booking Rules v1.3 R3: default job length of a service (placeholder 120 min until One Team confirms) */
+  /** Booking Rules v1.3 R3: default job length of a service (D-132 defaults: cleaning / check 60 min, install / repair / CCTV 120; the shop edits them) */
   duration_min: z.number().int().min(15, "DURATION_RANGE").max(1440, "DURATION_RANGE").optional(),
   /** A2: service reminder interval in months (e.g. AC cleaning every 3); null = no reminder */
   reminder_months: z.number().int().min(1).max(60).nullable().optional(),

@@ -51,6 +51,21 @@ export async function saveTestPhones(user: SessionUser, ip: string | null, raw: 
   });
 }
 
+// ---------- D-132 (shop-setup): existing rows that are tests — demo data hidden like any test; the 24 h rule cancels what is open ----------
+export async function markAsTest(user: SessionUser, ip: string | null, o: { customers: string[]; bookings: string[] }) {
+  return tx(user.id, async (t) => {
+    for (const id of o.customers) {
+      const r = await t`update customers set is_test = true where id = ${id} and company_id = ${user.companyId} and not is_test returning id`;
+      if (r.length) await audit(t, { companyId: user.companyId, userId: user.id, action: "customer.test", table: "customers", rowId: id, old: { is_test: false }, new: { is_test: true }, ip });
+    }
+    for (const id of o.bookings) {
+      const r = await t`update bookings set is_test = true where id = ${id} and company_id = ${user.companyId} and not is_test returning id`;
+      if (r.length) await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.test", table: "bookings", rowId: id, old: { is_test: false }, new: { is_test: true }, ip });
+    }
+    return { ok: true };
+  });
+}
+
 // ---------- 24 h later: cancelled by itself ----------
 const REASON = `${TEST_MARK} សាកល្បង — បោះបង់ដោយស្វ័យប្រវត្តិក្រោយ ${kmDigits(TEST_TTL_HOURS)} ម៉ោង`;
 export async function cancelOldTests(now: Date = new Date()): Promise<{ bookings: number; requests: number }> {

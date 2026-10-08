@@ -177,7 +177,7 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
   const qc = useQueryClient();
   const [sell, setSell] = useState(item?.sell_price != null ? String(fromCents(item.sell_price)) : "");
   const [cost, setCost] = useState(item?.cost_price != null ? String(fromCents(item.cost_price)) : "");
-  const [duration, setDuration] = useState(String(item?.duration_min ?? 120)); // R3 placeholder 120 min until One Team confirms
+  const [duration, setDuration] = useState(String(item?.duration_min ?? 120)); // R3: a new service starts at 120 min (the shop edits it)
   const [code, setCode] = useState(item?.code ?? "");
   const [webCategory, setWebCategory] = useState<string>(item?.web_category ?? "");
   const [fromPrice, setFromPrice] = useState(item?.from_price != null ? String(fromCents(item.from_price)) : "");
