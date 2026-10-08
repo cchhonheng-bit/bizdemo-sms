@@ -10,6 +10,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "acct.opening": T("បញ្ជាក់សមតុល្យដើម", "Opening balances confirmed"), "acct.opening_draft": T("កែសមតុល្យដើម (ព្រាង)", "Opening balances draft saved"), "acct.reverse": T("បង្វិលទិនានុប្បវត្តិ", "Entry reversed"), "acct.transaction": T("កត់ត្រាប្រតិបត្តិការ", "Transaction recorded"),
   "attendance.in": T("ចូលធ្វើការ", "Checked in"), "attendance.out": T("ចេញពីការងារ", "Checked out"), "auth.login": T("ចូលប្រព័ន្ធ", "Signed in"),
   "auth.password_expired": T("ចូលមិនបាន — ពាក្យសម្ងាត់ដំបូងផុតកំណត់", "Sign-in refused — first password expired"),
+  "auth.test_password_ended": T("ពាក្យសម្ងាត់សាកល្បងផុតពេល — ត្រូវប្ដូរ", "Test password ended — new password required"),
   "booking.assign": T("ចាត់ជាង", "Technicians assigned"), "booking.cancel": T("បោះបង់ការងារ", "Job cancelled"), "booking.create": T("បង្កើតការងារ", "Job created"),
   "booking.link_failed": T("ភ្ជាប់ Telegram មិនបាន", "Telegram link failed"), "booking.linked": T("ភ្ជាប់ការកក់ទៅ Telegram", "Booking linked to Telegram"),
   "booking.reassign": T("ប្ដូរជាង", "Technicians changed"), "booking.reschedule": T("ប្ដូរម៉ោង", "Rescheduled"),
@@ -40,6 +41,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "leave.rejected": T("ច្បាប់ត្រូវបានបដិសេធ", "Leave rejected"), "leave.request": T("ស្នើច្បាប់ឈប់", "Leave requested"),
   "menu.customer": T("ម៉ឺនុយអតិថិជន", "Customer menu"), "menu.staff": T("ម៉ឺនុយបុគ្គលិក", "Staff menu"),
   "password.changed": T("ប្ដូរពាក្យសម្ងាត់", "Password changed"), "password.reset": T("កំណត់ពាក្យសម្ងាត់ថ្មី", "Password reset"),
+  "password.test_set": T("កំណត់ពាក្យសម្ងាត់សាកល្បង", "Test password set"),
   "payment.record": T("ទទួលប្រាក់", "Payment received"), "payment.void": T("មោឃៈការបង់ប្រាក់", "Payment voided"),
   "payment.void_reject": T("បដិសេធការមោឃៈការបង់ប្រាក់", "Payment void rejected"), "payment.void_request": T("ស្នើមោឃៈការបង់ប្រាក់", "Payment void requested"),
   "payroll.adjust": T("កែប្រាក់ខែ", "Payroll adjusted"), "payroll.adjust_remove": T("ដកការកែប្រាក់ខែ", "Payroll adjustment removed"),
@@ -100,9 +102,10 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   retained_earnings: { ...T("ប្រាក់ចំណេញរក្សាទុក", "Retained earnings"), kind: "usd" }, issued_on: T("ថ្ងៃវិក្កយបត្រ", "Invoice date"), back_days: T("ថយក្រោយ (ថ្ងៃ)", "Days back"),
   video: T("វីដេអូ", "Video"), verdict: { ...T("លទ្ធផលពិនិត្យ", "Review"), kind: "verdict" }, comment: T("មតិ", "Comment"),
   open: T("ម៉ោងបើកកក់", "Booking opens"), close: T("ម៉ោងបិទកក់", "Booking closes"), lunch_start: T("សម្រាកពី", "Lunch from"), lunch_end: T("សម្រាកដល់", "Lunch until"),
+  until: { ...T("រហូតដល់", "Until"), kind: "time" },
 };
-/** never shown, not even in «លម្អិត»: anything secret */
-export const AUDIT_SECRET = /password|hash|token|secret|init_data/i;
+/** never shown, not even in «លម្អិត»: anything secret (the password rules' yes / no and end time are no secret — D-136) */
+export const AUDIT_SECRET = /^(?!must_change_password$|temp_password_expires_at$).*(password|hash|token|secret|init_data)/i;
 
 /** the «type» filter: groups of action codes */
 export const AUDIT_GROUPS: (AuditText & { key: string; prefixes: string[] })[] = [
@@ -119,7 +122,7 @@ export const AUDIT_GROUP_KEYS = AUDIT_GROUPS.map((g) => g.key) as [string, ...st
 
 /** «កែប្រែចុងក្រោយ» on Settings / Website / Users: the actions that count for each page */
 export const LAST_CHANGE_SCOPES: Record<"settings" | "website" | "users", string[]> = {
-  settings: ["settings.", "vehicle.", "telegram.group"], website: ["website."], users: ["user.", "password.reset"],
+  settings: ["settings.", "vehicle.", "telegram.group"], website: ["website."], users: ["user.", "password.reset", "password.test_set"],
 };
 
 export const AUDIT_VALUE: Record<string, Record<string, AuditText>> = {

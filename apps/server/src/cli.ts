@@ -5,7 +5,8 @@
 //   node dist/cli.mjs list-companies
 //   node dist/cli.mjs seed-web-catalog [oneteam] [--prices]               → the sample items of the website catalog (D-106; --prices = demo / test only)
 //   node dist/cli.mjs shop-setup <slug> [--apply] < setup.json             → a shop's start material (website, logo, QR, photos, catalog) as its HangKH Support
-//                                                                            account, through the app's own functions (D-131); a dry run without --apply
+//                                                                            account, through the app's own functions (D-131); a dry run without --apply;
+//                                                                            also staff accounts: on / off, password rules, test passwords + new test accounts (D-136)
 // Hub container (MODE=hub):
 //   node dist/cli.mjs hub-admin <username>          → platform owner login, temp password printed once
 //   node dist/cli.mjs list-shops                    → registry + subscriber counts
@@ -211,9 +212,10 @@ async function main() {
     }
     case "shop-setup": { // D-131: the JSON comes on STDIN (images + the catalog Excel as base64); nothing is written without --apply
       if (!a[0] || a[0].startsWith("--")) throw new Error("usage: shop-setup <slug> [--apply] < setup.json");
-      let raw = "";
+      let raw = "", input: unknown;
       for await (const chunk of process.stdin) raw += chunk;
-      for (const line of await shopSetup(a[0], JSON.parse(raw), a.includes("--apply"))) console.log(line);
+      try { input = JSON.parse(raw); } catch { throw new Error("setup.json: not valid JSON"); } // never echo the input (a test password may be in it — D-136)
+      for (const line of await shopSetup(a[0], input, a.includes("--apply"))) console.log(line);
       break;
     }
     case "list-companies": {

@@ -30,6 +30,16 @@
     var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } }); }, { rootMargin: "300px 0px" });
     gal.forEach(function (img) { io.observe(img); });
   })();
+  // D-136: the eye button of each password field shows / hides what was typed (hidden at first); its label says what a tap does
+  $$("[data-eye]").forEach(function (b) {
+    var input = document.getElementById(b.dataset.eye);
+    if (input) b.addEventListener("click", function () {
+      var show = input.type === "password";
+      input.type = show ? "text" : "password";
+      b.classList.toggle("on", show);
+      b.setAttribute("aria-label", show ? b.dataset.hide : b.dataset.show);
+    });
+  });
   function send(method, url, data) {
     return fetch(url, { method: method, credentials: "same-origin", headers: data === undefined ? {} : { "content-type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, json: j || {} }; }); });

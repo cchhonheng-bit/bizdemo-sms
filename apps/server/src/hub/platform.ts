@@ -6,7 +6,7 @@ import { sql } from "../db.js";
 import { DUMMY_HASH_PROMISE, hashPassword, verifyPassword } from "../lib/password.js";
 import { checkRate } from "../lib/rate-limit.js";
 import { sha256 } from "../lib/secure.js";
-import { esc, layout } from "./pages.js";
+import { esc, EYE_JS, layout, pwField } from "./pages.js";
 import { callShop, type Shop } from "./shops.js";
 import { AppError } from "../lib/errors.js";
 import { disableBot, enableBot, listBots, MASTER_CODE, rotateSecret, setBot, webhookInfo, type Bot } from "./bots.js";
@@ -30,7 +30,7 @@ function sameOrigin(req: FastifyRequest): boolean {
 
 const loginForm = (msg = "") => layout("Platform · HangKH", `<div class="card" style="max-width:380px;margin:40px auto"><h1>Platform</h1>
 ${msg ? `<p class="bad">${esc(msg)}</p>` : ""}<form method="post" action="/platform/login"><p><input name="username" placeholder="Username" autocomplete="username" required></p>
-<p><input name="password" type="password" placeholder="Password" autocomplete="current-password" required></p><p><button>Sign in</button></p></form></div>`);
+<p>${pwField('<input name="password" type="password" placeholder="Password" autocomplete="current-password" required>', "password")}</p><p><button>Sign in</button></p></form></div>`);
 
 export async function createHubAdmin(username: string, password: string): Promise<void> {
   await sql`insert into hub_admins (username, password_hash) values (${username}, ${await hashPassword(password)})
@@ -45,6 +45,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   const noStore = (reply: FastifyReply) => reply.header("Cache-Control", "no-store").type("text/html; charset=utf-8");
 
   app.get("/login", async (_req, reply) => noStore(reply).send(loginForm()));
+  app.get("/eye.js", async (_req, reply) => reply.header("Cache-Control", "public, max-age=3600").type("text/javascript; charset=utf-8").send(EYE_JS)); // D-136
 
   app.post("/login", async (req, reply) => {
     noStore(reply);
@@ -178,7 +179,7 @@ async function botsSection(shops: Shop[], adminId: string): Promise<string> {
     <table><tr><th>Code</th><th>Bot</th><th>Webhook</th><th></th></tr>${rows || '<tr><td colspan="4" class="muted">No bot yet</td></tr>'}</table>
     <h2>Add / replace a bot</h2><p class="muted">@BotFather → /newbot (or /mybots → API Token) → paste the token here. It is stored encrypted and never shown again.</p>
     <form method="post" action="/platform/bots/set"><p><select name="code" style="width:100%;padding:10px">${options}</select></p>
-    <p><input name="token" type="password" autocomplete="off" placeholder="123456789:AA…" required></p><p><button>Save bot</button></p></form></div>
+    <p>${pwField('<input name="token" type="password" autocomplete="off" placeholder="123456789:AA…" required>', "token")}</p><p><button>Save bot</button></p></form></div>
     <div class="card"><h2>Alerts to my Telegram</h2><p>${linked ? '<span class="ok">● linked</span>' : '<span class="muted">not linked</span>'}</p>
     <form class="inline" method="post" action="/platform/alerts/link"><button>Link my Telegram</button></form>
     <form class="inline" method="post" action="/platform/alerts/test"><button>Send test alert</button></form></div>`;

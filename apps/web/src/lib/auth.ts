@@ -54,3 +54,10 @@ export const useAuth = create<State>((set, get_) => ({
     return get_().me?.permissions.includes(key) ?? false;
   },
 }));
+
+// D-136: the server asks for a new password in the middle of a session (test password ended) → reload «me» once; RequireAuth then
+// sends the person to /first-login before anything else
+if (typeof window !== "undefined") window.addEventListener("sms:password-change", () => {
+  const { me, load } = useAuth.getState();
+  if (me && !me.must_change_password) void load();
+});

@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
 import { setLanguage } from "@/lib/i18n";
-import { Badge, Button, Card, Field, Input } from "@/components/ui";
+import { Badge, Button, Card, Field, PasswordInput } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { api, errCode } from "@/lib/api";
 import { Copy, Send } from "lucide-react";
@@ -87,9 +87,9 @@ export default function MePage() {
       </Card>
       <Card title={t("me.change_password")}>
         <form onSubmit={changePw} className="max-w-sm">
-          <Field label={t("auth.current_password")}><Input type="password" autoComplete="current-password" value={pw0} onChange={(e) => setPw0(e.target.value)} /></Field>
-          <Field label={t("auth.new_password")}><Input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
-          <Field label={t("auth.confirm_password")}><Input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
+          <Field label={t("auth.current_password")}><PasswordInput autoComplete="current-password" value={pw0} onChange={(e) => setPw0(e.target.value)} /></Field>
+          <Field label={t("auth.new_password")}><PasswordInput autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} /></Field>
+          <Field label={t("auth.confirm_password")}><PasswordInput autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
           <Button type="submit" variant="primary" loading={busy}>{t("app.save")}</Button>
         </form>
       </Card>

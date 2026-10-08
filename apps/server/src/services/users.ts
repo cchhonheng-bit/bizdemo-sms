@@ -3,6 +3,7 @@ import type { z } from "zod";
 import type { updateUserSchema } from "@sms/shared";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
+import { hashPassword } from "../lib/password.js";
 import { audit } from "./audit.js";
 import { revokeUserSessions, type SessionUser } from "./auth.js";
 import { hubForgetChat } from "./telegram.js";
@@ -12,6 +13,33 @@ export const USER_COLS = sql`id, company_id, username, phone, email, full_name, 
 /** CEO 04-10: the HangKH support account belongs to the platform — the shop sees it but never changes it */
 export const PLATFORM_LOCKED = () => new AppError("PLATFORM_USER", 403);
 export type UserPatch = z.infer<typeof updateUserSchema> & { is_active?: boolean };
+
+/** a new staff account (the Users page and shop-setup): the password checks and the one-time password stay with the caller */
+export async function insertUser(actor: SessionUser, ip: string | null, b: { username: string; full_name: string; role: string; phone?: string | null; email?: string | null }, passwordHash: string): Promise<string> {
+  return tx(actor.id, async (t) => {
+    const id = (await t<{ id: string }[]>`insert into users (company_id, username, phone, email, full_name, role, password_hash)
+      values (${actor.companyId}, ${b.username}, ${b.phone || null}, ${b.email || null}, ${b.full_name}, ${b.role}::user_role, ${passwordHash}) returning id`)[0]!.id;
+    await audit(t, { companyId: actor.companyId, userId: actor.id, action: "user.create", table: "users", rowId: id, new: { username: b.username, role: b.role, full_name: b.full_name }, ip });
+    return id;
+  });
+}
+
+/** D-136 (shop-setup, HangKH, test phase): a simple shared test password — the strength rules waived — that ends at `until` (in the
+ *  future); no new password at sign-in until then; afterwards the account must set its own before anything else (auth.ts). The
+ *  password itself is never written anywhere but as its hash. Never the platform account. */
+export async function setTestPassword(actor: SessionUser, ip: string | null, id: string, password: string, until: Date) {
+  if (until.getTime() <= Date.now()) throw new AppError("TEST_PASSWORD_NEEDS_END", 400);
+  const hash = await hashPassword(password);
+  await tx(actor.id, async (t) => {
+    const u = (await t<{ is_platform: boolean }[]>`select is_platform from users where id = ${id} and company_id = ${actor.companyId} for update`)[0];
+    if (!u) throw notFound();
+    if (u.is_platform) throw PLATFORM_LOCKED();
+    await t`update users set password_hash = ${hash}, must_change_password = false where id = ${id}`; // the trigger clears the old end + test mark
+    await t`update users set test_password_hash = password_hash, temp_password_expires_at = ${until} where id = ${id}`;
+    await audit(t, { companyId: actor.companyId, userId: actor.id, action: "password.test_set", table: "users", rowId: id, new: { until }, ip });
+  });
+  await revokeUserSessions(id);
+}
 
 /** D-135 (shop-setup, HangKH): a new password at the next sign-in, and a deadline for the temporary password (null = none) — any
  *  new password clears the deadline (DB trigger). Never the platform account; the CEO account too (as the server's reset-password). */

@@ -1,6 +1,6 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect } from "react";
+import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { X } from "lucide-react";
+import { Eye, EyeOff, X } from "lucide-react";
 import { useToast } from "@/lib/toast";
 
 // ---------- Button ----------
@@ -35,6 +35,23 @@ export function Field({ label, error, hint, children, required }: { label: strin
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(
   function Input({ invalid, className = "", ...rest }, ref) {
     return <input ref={ref} className={`input ${invalid ? "input-error" : ""} ${className}`} {...rest} />;
+  },
+);
+/** every password field (CEO 08-10, D-136): hidden at first; the eye button shows / hides it and says what a tap will do (44 px) */
+export const PasswordInput = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { invalid?: boolean }>(
+  function PasswordInput({ invalid, className = "", ...rest }, ref) {
+    const { t } = useTranslation();
+    const [shown, setShown] = useState(false);
+    const Icon = shown ? EyeOff : Eye;
+    return (
+      <div className="relative">
+        <input ref={ref} type={shown ? "text" : "password"} className={`input pr-12 ${invalid ? "input-error" : ""} ${className}`} {...rest} />
+        <button type="button" onClick={() => setShown((s) => !s)} aria-label={t(shown ? "app.hide_password" : "app.show_password")} data-testid="pw-eye"
+          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-sm text-muted hover:text-ink focus:outline-none focus-visible:ring-2 focus-visible:ring-blue">
+          <Icon size={18} aria-hidden="true" />
+        </button>
+      </div>
+    );
   },
 );
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }>(

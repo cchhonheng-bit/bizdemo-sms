@@ -7,7 +7,7 @@ import { createUserSchema, ROLES, type CreateUserInput } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PasswordInput, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; language: string };
@@ -156,7 +156,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
           <Field label={t("users.phone")} error={errText(errors.phone?.message)}><Input inputMode="tel" invalid={!!errors.phone} {...register("phone")} /></Field>
         </div>
         <Field label={t("users.email")} error={errText(errors.email?.message)}><Input type="email" invalid={!!errors.email} {...register("email")} /></Field>
-        {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><Input type="text" autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}
+        {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><PasswordInput autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}
         <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={tracks} onChange={(e) => setTracks(e.target.checked)} /> {t("users.tracks_attendance")}</label>
         {isTech && <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={lead} onChange={(e) => setLead(e.target.checked)} /> {t("users.is_lead")}</label>}
       </form>

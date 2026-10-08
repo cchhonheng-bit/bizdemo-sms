@@ -6,15 +6,19 @@
 // first and the plan is printed; a bad file stops it before anything is written.
 // D-132 (final handover): also a field by code for the invoice price / cost, staff accounts turned off / on by username (the Users
 // page's own rules) and existing rows marked as tests (demo customers by phone, demo bookings by number) — never a delete.
+// D-136 (test phase): a shared test password on chosen accounts (strength rules waived, audited, ends at a set moment — afterwards a
+// new password before anything else) and new test accounts that start on it; the password is read from STDIN, never printed.
 import { z } from "zod";
-import { CATALOG_CODE_RE, normalizeKhPhone, type CatalogItemInput } from "@sms/shared";
+import { randomBytes } from "node:crypto";
+import { CATALOG_CODE_RE, createUserSchema, normalizeKhPhone, usernameSchema, type CatalogItemInput } from "@sms/shared";
 import { sql } from "../db.js";
+import { hashPassword } from "../lib/password.js";
 import type { SessionUser } from "./auth.js";
 import { applyImport, previewImport, upsertItem } from "./catalog.js";
 import { checkImage } from "./jobs.js";
 import { addSitePhoto, INFO_KEYS, MAX_GALLERY, removeSitePhoto, saveCompanyImage, saveSite, sitePatch, type SiteContent } from "./site.js";
 import { markAsTest } from "./test-mode.js";
-import { setPasswordRules, updateUser } from "./users.js";
+import { insertUser, setPasswordRules, setTestPassword, updateUser } from "./users.js";
 
 const image = z.string().min(10).max(2_800_000);
 export const shopSetupInput = z.object({
@@ -31,7 +35,12 @@ export const shopSetupInput = z.object({
   /** staff accounts turned off / on by username — the Users page's rules: never the platform account, a CEO account only by a CEO */
   users: z.array(z.object({ username: z.string().min(1).max(40), active: z.boolean().optional(),
     /** D-135: a new password at the next sign-in · the temporary password stops working at this moment (null = no deadline) */
-    must_change: z.literal(true).optional(), temp_expires: z.string().datetime({ offset: true }).nullable().optional() }).strict()).max(50).optional(),
+    must_change: z.literal(true).optional(), temp_expires: z.string().datetime({ offset: true }).nullable().optional(),
+    /** D-136: a new account (the Users page's fields, never a CEO) — it gets the test password below, never a printed one */
+    create: createUserSchema.pick({ full_name: true, role: true, phone: true, email: true }).strict().optional(),
+    /** D-136 (test phase): a simple shared password, the strength rules waived, until `temp_expires` (in the future); afterwards the
+     *  account sets its own before anything else. Read from the input only — never printed, never stored but as its hash. */
+    test_password: z.string().min(6).max(72).optional() }).strict()).max(50).optional(),
   /** existing rows that are tests (demo data): customers by phone, bookings by number — hidden like any test (D-120) */
   test: z.object({ customers: z.array(z.string().max(40)).max(100).default([]), bookings: z.array(z.string().max(20)).max(100).default([]) }).strict().optional(),
 }).strict();
@@ -106,29 +115,56 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
     }
   }
   const people: { id: string; active: boolean }[] = [], rules: { id: string; mustChange?: boolean; tempExpires?: Date | null }[] = [];
+  const made: { username: string; full_name: string; role: string; phone?: string; email?: string }[] = [];
+  const testPw: { username: string; id: string | null; password: string; until: Date }[] = []; // id null = made in this run
   if (input.users?.length) {
     const rows = new Map((await sql<{ id: string; username: string; full_name: string; role: string; is_active: boolean; is_platform: boolean; must_change_password: boolean; temp_password_expires_at: Date | null }[]>`
       select id, username, full_name, role::text as role, is_active, is_platform, must_change_password, temp_password_expires_at from users where company_id = ${c.id}`).map((u) => [u.username, u]));
     const yn = (b: boolean) => (b ? "yes" : "no"), when = (d: Date | null) => (d ? d.toISOString() : "—");
+    const seen = new Set<string>();
     for (const x of input.users) {
+      if (seen.has(x.username)) throw new Error(`user ${x.username}: listed twice`);
+      seen.add(x.username);
       const u = rows.get(x.username);
-      if (!u) throw new Error(`user: no account "${x.username}"`);
-      if (u.is_platform || u.id === user.id) throw new Error(`user ${x.username}: the HangKH Support account is never changed here`);
-      // turning an account off / on follows the Users page (a CEO account only by a CEO); the password rules may touch it (as the server's reset-password)
-      if (x.active !== undefined && u.role === "ceo" && user.role !== "ceo") throw new Error(`user ${x.username}: a CEO account only by a CEO`);
-      const bits: string[] = [];
-      if (x.active !== undefined) {
-        bits.push(`active ${u.is_active === x.active ? "same" : `${yn(u.is_active)} → ${yn(x.active)}`}`);
-        if (u.is_active !== x.active) people.push({ id: u.id, active: x.active });
+      // D-136: a test password needs its end, in the future; until then no new password is asked (so never with must_change)
+      let until: Date | undefined;
+      if (x.test_password !== undefined) {
+        if (!x.temp_expires) throw new Error(`user ${x.username}: a test password needs temp_expires (its end)`);
+        until = new Date(x.temp_expires);
+        if (until.getTime() <= Date.now()) throw new Error(`user ${x.username}: the test password's end must be in the future`);
+        if (x.must_change) throw new Error(`user ${x.username}: a test password and must_change exclude each other`);
       }
-      if (x.must_change || x.temp_expires !== undefined) {
-        const exp = x.temp_expires === undefined ? undefined : x.temp_expires === null ? null : new Date(x.temp_expires);
-        if (x.must_change) bits.push(`new password at sign-in ${u.must_change_password ? "same" : "no → yes"}`);
-        if (exp !== undefined) bits.push(`first password ends ${when(u.temp_password_expires_at)} → ${when(exp)}`);
-        rules.push({ id: u.id, mustChange: x.must_change, tempExpires: exp });
+      const bits: string[] = [];
+      if (x.create) {
+        if (u) throw new Error(`user ${x.username}: the account exists already`);
+        if (usernameSchema.safeParse(x.username).data !== x.username) throw new Error(`user ${x.username}: not a valid username (3–30 of a-z 0-9 . _ -)`);
+        if (x.create.role === "ceo") throw new Error(`user ${x.username}: a CEO account only by a CEO`);
+        if (!until) throw new Error(`user ${x.username}: a new account here needs a test_password (+ temp_expires)`);
+        if (x.active === false) throw new Error(`user ${x.username}: a new account starts active`);
+        made.push({ username: x.username, ...x.create });
+        bits.push(`new account · role ${x.create.role}`);
+      } else {
+        if (!u) throw new Error(`user: no account "${x.username}"`);
+        if (u.is_platform || u.id === user.id) throw new Error(`user ${x.username}: the HangKH Support account is never changed here`);
+        // turning an account off / on follows the Users page (a CEO account only by a CEO); the password rules may touch it (as the server's reset-password)
+        if (x.active !== undefined && u.role === "ceo" && user.role !== "ceo") throw new Error(`user ${x.username}: a CEO account only by a CEO`);
+        if (x.active !== undefined) {
+          bits.push(`active ${u.is_active === x.active ? "same" : `${yn(u.is_active)} → ${yn(x.active)}`}`);
+          if (u.is_active !== x.active) people.push({ id: u.id, active: x.active });
+        }
+        if (x.must_change || (x.temp_expires !== undefined && !until)) {
+          const exp = x.temp_expires === undefined ? undefined : x.temp_expires === null ? null : new Date(x.temp_expires);
+          if (x.must_change) bits.push(`new password at sign-in ${u.must_change_password ? "same" : "no → yes"}`);
+          if (exp !== undefined) bits.push(`first password ends ${when(u.temp_password_expires_at)} → ${when(exp)}`);
+          rules.push({ id: u.id, mustChange: x.must_change, tempExpires: exp });
+        }
+      }
+      if (until) {
+        testPw.push({ username: x.username, id: u?.id ?? null, password: x.test_password!, until });
+        bits.push(`test password until ${until.toISOString()} (strength rules waived; then a new password before anything else)`);
       }
       if (!bits.length) throw new Error(`user ${x.username}: nothing to change`);
-      out.push(`user ${u.username} (${u.full_name}): ${bits.join(" · ")}`);
+      out.push(`user ${x.username} (${u?.full_name ?? x.create!.full_name}): ${bits.join(" · ")}`);
     }
   }
   const tests = { customers: [] as string[], bookings: [] as string[] };
@@ -163,7 +199,10 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
       unit: it.unit, sell_price: p.sell_price ?? it.sell_price, duration_min: p.duration_min ?? it.duration_min, ...(p.from_price !== undefined ? { from_price: p.from_price } : {}),
       ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}) }, p.cost_price !== undefined);
   }
+  const newIds = new Map<string, string>(); // a new account has no usable password until its test password below
+  for (const m of made) newIds.set(m.username, await insertUser(user, null, m, await hashPassword(randomBytes(24).toString("base64url"))));
   for (const x of people) await updateUser(user, null, x.id, { is_active: x.active });
+  for (const x of testPw) await setTestPassword(user, null, x.id ?? newIds.get(x.username)!, x.password, x.until);
   for (const x of rules) await setPasswordRules(user, null, x.id, x);
   if (tests.customers.length || tests.bookings.length) await markAsTest(user, null, tests);
   out.push("applied ✓");

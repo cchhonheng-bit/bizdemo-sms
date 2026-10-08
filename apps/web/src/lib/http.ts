@@ -22,6 +22,8 @@ export async function http<T = unknown>(method: "GET" | "POST" | "PATCH" | "PUT"
   try { json = text ? JSON.parse(text) : null; } catch { json = text; }
   if (!res.ok) {
     const e = (json ?? {}) as { error?: string; details?: unknown };
+    // D-136: the test password ended while this session was open → auth.ts reloads «me» and the guard opens the new-password screen
+    if (e.error === "PASSWORD_CHANGE_REQUIRED" && typeof window !== "undefined") window.dispatchEvent(new Event("sms:password-change"));
     throw new ApiError(e.error ?? (res.status === 401 ? "UNAUTHENTICATED" : "ERROR"), res.status, e.details);
   }
   return json as T;

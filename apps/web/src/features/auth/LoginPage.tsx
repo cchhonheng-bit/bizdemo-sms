@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Navigate, useLocation, Link } from "react-router-dom";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, Input, PasswordInput } from "@/components/ui";
 import { setLanguage } from "@/lib/i18n";
 import PoweredBy from "@/components/PoweredBy";
 
@@ -36,7 +36,7 @@ export default function LoginPage() {
           <Input autoComplete="username" autoFocus invalid={!!errors.identifier} {...register("identifier")} />
         </Field>
         <Field label={t("auth.password")} error={errors.password && t("app.required")} required>
-          <Input type="password" autoComplete="current-password" invalid={!!errors.password} {...register("password")} />
+          <PasswordInput autoComplete="current-password" invalid={!!errors.password} {...register("password")} />
         </Field>
         <Field label={t("auth.company")}><Input placeholder="oneteam" {...register("company")} /></Field>
         {err && <p className="text-sm text-danger mb-3" role="alert">{err}</p>}

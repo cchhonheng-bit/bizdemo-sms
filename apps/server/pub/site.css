@@ -267,6 +267,13 @@ select.in{padding-right:8px;text-overflow:ellipsis}
 .pj .w{color:#0F766E;font-weight:600}
 .pj a{font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
 
+/* D-136: password fields with the eye button — hidden at first, a tap shows / hides (44 px tap target) */
+.pwf{position:relative}
+.pwf .in{padding-right:46px}
+.eye{position:absolute;top:50%;right:0;width:44px;height:44px;margin-top:-22px;padding:0;display:flex;align-items:center;justify-content:center;border:0;border-radius:10px;background:none;color:#5B6676;cursor:pointer}
+.eye svg+svg,.eye.on svg:first-child{display:none}
+.eye.on svg+svg{display:block}
+
 /* iOS zooms into fields below 16px — only there the fields get the larger size */
 @supports (-webkit-touch-callout:none){.in,.ta{font-size:16px}}
 /* wider screens: the same phone-width column, centred */

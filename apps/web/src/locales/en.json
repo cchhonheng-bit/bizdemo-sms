@@ -2,6 +2,8 @@
   "app": {
     "name": "Service Manager",
     "loading": "Loading…",
+    "show_password": "Show password",
+    "hide_password": "Hide password",
     "save": "Save",
     "cancel": "Cancel",
     "edit": "Edit",

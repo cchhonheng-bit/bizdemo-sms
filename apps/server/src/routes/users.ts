@@ -2,12 +2,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { createUserSchema, updateUserSchema } from "@sms/shared";
-import { sql, tx } from "../db.js";
+import { sql } from "../db.js";
 import { AppError, bad, notFound } from "../lib/errors.js";
 import { hashPassword, tempPassword, validatePassword } from "../lib/password.js";
 import { audit } from "../services/audit.js";
 import { revokeUserSessions } from "../services/auth.js";
-import { PLATFORM_LOCKED, updateUser, USER_COLS } from "../services/users.js";
+import { insertUser, PLATFORM_LOCKED, updateUser, USER_COLS } from "../services/users.js";
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/users/basic — every authenticated user (names for assign dialogs, vehicle owners)
@@ -29,15 +29,7 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     if (generated) password = tempPassword();
     const pwErr = validatePassword(password);
     if (pwErr) throw bad(pwErr);
-    const id = await tx(req.user!.id, async (t) => {
-      const r = await t<{ id: string }[]>`
-        insert into users (company_id, username, phone, email, full_name, role, password_hash)
-        values (${req.user!.companyId}, ${b.username}, ${b.phone || null}, ${b.email || null}, ${b.full_name}, ${b.role}::user_role, ${await hashPassword(password)})
-        returning id`;
-      const id = r[0]!.id;
-      await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: "user.create", table: "users", rowId: id, new: { username: b.username, role: b.role, full_name: b.full_name }, ip: req.ip });
-      return id;
-    });
+    const id = await insertUser(req.user!, req.ip, b, await hashPassword(password));
     return { id, temp_password: generated ? password : undefined };
   });
 

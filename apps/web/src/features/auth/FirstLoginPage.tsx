@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Field, Input } from "@/components/ui";
+import { Button, Field, PasswordInput } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 const COMMON = new Set(["12345678", "password", "password1", "qwerty123", "11111111", "abcd1234", "iloveyou", "admin123"]);
@@ -39,8 +39,8 @@ export default function FirstLoginPage() {
       <form onSubmit={submit} className="card w-full max-w-sm p-6">
         <h1 className="mb-1">{t("auth.first_title")}</h1>
         <p className="text-sm text-muted mb-4">{t("auth.first_hint")}</p>
-        <Field label={t("auth.new_password")} required><Input type="password" autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus /></Field>
-        <Field label={t("auth.confirm_password")} required><Input type="password" autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
+        <Field label={t("auth.new_password")} required><PasswordInput autoComplete="new-password" value={pw} onChange={(e) => setPw(e.target.value)} autoFocus /></Field>
+        <Field label={t("auth.confirm_password")} required><PasswordInput autoComplete="new-password" value={pw2} onChange={(e) => setPw2(e.target.value)} /></Field>
         {err && <p className="text-sm text-danger mb-3" role="alert">{err}</p>}
         <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy}>{t("app.save")}</Button>
       </form>

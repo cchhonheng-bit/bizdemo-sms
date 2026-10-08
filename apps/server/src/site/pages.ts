@@ -43,6 +43,7 @@ const TXT = {
     again: "កក់ម្ដងទៀត", call_shop: (shop: string) => `ហៅ ${shop}`, new: "កក់សេវាថ្មី", no_up: "មិនមានការកក់ខាងមុខទេ។", logout: "ចាកចេញ", pending_move: "សំណើប្ដូរម៉ោងកំពុងរង់ចាំការឆ្លើយតប",
     why_cancel: "មូលហេតុបោះបង់", confirm_cancel: "បញ្ជាក់ការបោះបង់", keep: "មិនបោះបង់", new_time: "ជ្រើសម៉ោងថ្មី", why_move: "មូលហេតុ (មិនចាំបាច់)", send_move: "ផ្ញើសំណើប្ដូរម៉ោង", close: "បិទ",
     l_h1: "ចូលគណនី", l_p: "ប្រើលេខទូរស័ព្ទរបស់អ្នក និងពាក្យសម្ងាត់ដែលអ្នកបានទទួលតាម Telegram។", l_pw: "ពាក្យសម្ងាត់", l_go: "ចូល", l_forgot: "ភ្លេចពាក្យសម្ងាត់?",
+    show_pw: "បង្ហាញពាក្យសម្ងាត់", hide_pw: "លាក់ពាក្យសម្ងាត់",
     l_forgot_p: "បើក Telegram រួចចុច «{b}»", l_link: "សូមភ្ជាប់ Telegram ជាមុនសិន",
     l_link_p: "មិនទាន់មានគណនី? សូមកក់សេវា រួចចុច «កក់ និងភ្ជាប់ Telegram»។ ពាក្យសម្ងាត់នឹងមកដល់ក្នុង Telegram របស់អ្នក។", l_open: "បើក Telegram របស់ហាង",
     settings: "ការកំណត់", n_title: "ដំណឹងតាម Telegram", n_service: "ដំណឹងអំពីការកក់របស់ខ្ញុំ", n_promo: "ប្រូម៉ូសិន", n_off: "ការកំណត់ដំណឹងមិនអាចប្រើបានពេលនេះ",
@@ -86,6 +87,7 @@ const TXT = {
     again: "Book again", call_shop: (shop: string) => `Call ${shop}`, new: "New booking", no_up: "No upcoming booking.", logout: "Sign out", pending_move: "Your reschedule request is waiting for an answer",
     why_cancel: "Reason for cancelling", confirm_cancel: "Confirm cancellation", keep: "Keep the booking", new_time: "Choose a new time", why_move: "Reason (optional)", send_move: "Send reschedule request", close: "Close",
     l_h1: "Sign in", l_p: "Use your phone number and the password you received on Telegram.", l_pw: "Password", l_go: "Sign in", l_forgot: "Forgot password?",
+    show_pw: "Show password", hide_pw: "Hide password",
     l_forgot_p: "Open Telegram, then tap \"{b}\"", l_link: "Please connect Telegram first",
     l_link_p: "No account yet? Book a service and tap \"Book and connect Telegram\". The password arrives in your Telegram.", l_open: "Open the shop on Telegram",
     settings: "Settings", n_title: "Telegram notifications", n_service: "News about my bookings", n_promo: "Promotions", n_off: "Notification settings are not available right now",
@@ -122,7 +124,11 @@ const I = {
   photo: '<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>', plus: '<path d="M12 5v14M5 12h14"/>', minus: '<path d="M5 12h14"/>', x: '<path d="M18 6 6 18M6 6l12 12"/>',
   play: '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4z"/>',
   bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>', key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
+  eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="m1 1 22 22"/>',
 };
+/** a password field with the eye button (CEO 08-10, D-136): hidden at first; site.js swaps the type, the icon and the label */
+const pwIn = (t: T, id: string, cls: string, autocomplete: string) => `<div class="pwf"><input class="${cls}" id="${id}" type="password" inputmode="numeric" maxlength="64" autocomplete="${autocomplete}"><button type="button" class="eye" data-eye="${id}" aria-label="${t.show_pw}" data-show="${t.show_pw}" data-hide="${t.hide_pw}">${svg(I.eye)}${svg(I.eyeOff)}</button></div>`;
 type Cat = (typeof WEB_CATEGORIES)[number] | "other";
 const CAT_ICON: Record<Cat, string> = { ac: I.ac, water: I.drop, electric: I.bolt, cctv: I.cam, construction: I.build, decor: I.brush, other: I.tool };
 const CAT_OTHER = { km: "ផ្សេងៗ", en: "Other" };
@@ -370,7 +376,7 @@ export function loginPage(d: SiteView, lang: SiteLang, path: string, next = "/my
   const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
 <section class="card s"><div class="okc mid">${svg(I.user, 26)}</div><h1 class="ctr">${t.l_h1}</h1><p class="sub ctr">${t.l_p}</p>
 <div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="username" placeholder="12 345 678"></div></div>
-<div class="f"><label class="lb s" for="pw">${t.l_pw}</label><input class="in" id="pw" type="password" inputmode="numeric" maxlength="64" autocomplete="current-password"></div>
+<div class="f"><label class="lb s" for="pw">${t.l_pw}</label>${pwIn(t, "pw", "in", "current-password")}</div>
 ${errBox()}
 <button type="button" class="btn" id="login">${t.l_go}</button>
 ${bot ? `<a class="lk mid" id="forgot" href="${bot}" rel="noopener">${t.l_forgot}</a><p class="hint ctr">${esc(t.l_forgot_p.replace("{b}", CUSTOMER_MENU.password))}</p>` : ""}</section>
@@ -406,8 +412,8 @@ ${view === "bookings" ? "" : `<section class="card s g8" id="settings"><h2 class
 <p class="note g" id="n-ok" hidden>${t.msg.SAVED}</p><p class="err" id="n-err" role="alert" hidden></p>
 <button type="button" class="ob m w" id="pw-open">${svg(I.key, 14)}${t.pw_title}</button>
 <div class="pn" id="pw-card" hidden>
-<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</label><input class="in sm" id="pw-cur" type="password" inputmode="numeric" maxlength="64" autocomplete="current-password"></div>
-<div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label><input class="in sm" id="pw-new" type="password" inputmode="numeric" maxlength="64" autocomplete="new-password"></div>
+<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</label>${pwIn(t, "pw-cur", "in sm", "current-password")}</div>
+<div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label>${pwIn(t, "pw-new", "in sm", "new-password")}</div>
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
 <div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></div>
 <button type="button" class="ob m w" id="logout">${t.logout}</button></section>`}
