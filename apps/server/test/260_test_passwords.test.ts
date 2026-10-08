@@ -29,7 +29,7 @@ beforeAll(async () => {
   support = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, password_hash, is_platform)
     values (${s.a}, 'support', 'HangKH Support', 'admin', ${await hashPassword(PW)}, true) returning id`)[0]!.id;
   // as D-135 left them on the live shop: a new password at the first sign-in, the first password ending at go-live
-  await sql`update users set must_change_password = true, temp_password_expires_at = now() + interval '5 days' where company_id = ${s.a} and username in ${sql(TEST)}`;
+  await sql`update users set must_change_password = true, temp_password_expires_at = now() + interval '5 days' where company_id = ${s.a} and username = any(${sql.array(TEST)}::text[])`;
 });
 afterAll(async () => { await app.close(); });
 
@@ -87,7 +87,7 @@ describe("D-136 test passwords", () => {
   it("after the end: an open session must set a new password before anything else; a new sign-in still works and asks for it too", async () => {
     const open = (await signIn("gm01")).c;
     expect((await open.req("GET", "/api/bookings")).status).toBe(200);
-    await sql`update users set temp_password_expires_at = now() - interval '1 minute' where company_id = ${s.a} and username in ${sql([...TEST, "cfo"])}`;
+    await sql`update users set temp_password_expires_at = now() - interval '1 minute' where company_id = ${s.a} and username = any(${sql.array([...TEST, "cfo"])}::text[])`;
     const r1 = await open.req("GET", "/api/bookings");
     expect(r1.status).toBe(403); expect(r1.json.error).toBe("PASSWORD_CHANGE_REQUIRED");
     expect((await open.req("GET", "/api/me")).json.must_change_password).toBe(true);
