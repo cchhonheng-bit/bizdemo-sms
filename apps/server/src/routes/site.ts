@@ -21,7 +21,7 @@ import { checkRate } from "../lib/rate-limit.js";
 import { changeCustomerPassword, passwordLogin } from "../services/customer-auth.js";
 import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myHome, myPrefs, mySlots, requestReschedule, resolveCustomerSession, setMyPrefs } from "../services/customer-home.js";
 import { listRequests, markRequestDone } from "../services/requests.js";
-import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, type SiteView } from "../services/site.js";
+import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
 import { assets, bookPage, donePage, gatePage, guidePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
@@ -264,21 +264,6 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     return r;
   });
 };
-
-const text = (n: number) => z.string().trim().max(n);
-const hm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "BAD_TIME");
-const sitePatch = z.object({
-  published: z.boolean().optional(),
-  name_km: text(120).optional(), name_en: text(120).optional(), short_name: text(40).optional(), phone: text(80).optional(), address: text(300).optional(),
-  tagline_km: text(160).optional(), tagline_en: text(160).optional(), about_km: text(1200).optional(), about_en: text(1200).optional(),
-  area_km: text(300).optional(), area_en: text(300).optional(), hours_km: text(120).optional(), hours_en: text(120).optional(),
-  highlights_km: z.array(text(120)).max(6).optional(), highlights_en: z.array(text(120)).max(6).optional(),
-  facebook: z.union([z.literal(""), z.string().max(200).regex(/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\s]+$/, "BAD_URL")]).optional(),
-  // D-106 (CEO): online booking hours with the lunch break (One Team to confirm), and the gap between two promotions per customer
-  hours: z.object({ open: hm, close: hm, lunch_start: hm, lunch_end: hm }).strict()
-    .refine((h) => h.open < h.close && h.lunch_start <= h.lunch_end && (h.lunch_start === h.lunch_end || (h.lunch_start >= h.open && h.lunch_end <= h.close)), "BAD_HOURS").optional(),
-  promo_gap_days: z.number().int().min(1).max(60).optional(),
-}).strict();
 
 /** Settings → Website (settings.manage) */
 export const websiteRoutes: FastifyPluginAsync = async (app) => {

@@ -5,6 +5,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { z } from "zod";
 import { config } from "../config.js";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
@@ -72,7 +73,22 @@ export function checkFormToken(tok: string, now = Date.now()): "ok" | "fresh" | 
 
 // ---------- Settings → Website (settings.manage) ----------
 export type SitePatch = Partial<Omit<SiteContent, "hero" | "gallery">> & { name_km?: string; name_en?: string; phone?: string; address?: string };
-const INFO_KEYS = ["name_km", "name_en", "phone", "address"] as const;
+export const INFO_KEYS = ["name_km", "name_en", "phone", "address"] as const;
+/** the checks of a Settings → Website save (the route and shop-setup, D-131) */
+const text = (n: number) => z.string().trim().max(n);
+const hm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "BAD_TIME");
+export const sitePatch = z.object({
+  published: z.boolean().optional(),
+  name_km: text(120).optional(), name_en: text(120).optional(), short_name: text(40).optional(), phone: text(80).optional(), address: text(300).optional(),
+  tagline_km: text(160).optional(), tagline_en: text(160).optional(), about_km: text(1200).optional(), about_en: text(1200).optional(),
+  area_km: text(300).optional(), area_en: text(300).optional(), hours_km: text(120).optional(), hours_en: text(120).optional(),
+  highlights_km: z.array(text(120)).max(6).optional(), highlights_en: z.array(text(120)).max(6).optional(),
+  facebook: z.union([z.literal(""), z.string().max(200).regex(/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\s]+$/, "BAD_URL")]).optional(),
+  // D-106 (CEO): online booking hours with the lunch break (One Team to confirm), and the gap between two promotions per customer
+  hours: z.object({ open: hm, close: hm, lunch_start: hm, lunch_end: hm }).strict()
+    .refine((h) => h.open < h.close && h.lunch_start <= h.lunch_end && (h.lunch_start === h.lunch_end || (h.lunch_start >= h.open && h.lunch_end <= h.close)), "BAD_HOURS").optional(),
+  promo_gap_days: z.number().int().min(1).max(60).optional(),
+}).strict();
 
 export async function getSiteSettings(user: SessionUser) {
   const r = (await sql<{ website: SiteContent | null; info: Record<string, string> | null }[]>`select website, company_info as info from company_settings where company_id = ${user.companyId}`)[0];
@@ -128,6 +144,17 @@ export async function removeSitePhoto(user: SessionUser, ip: string | null, id: 
     await audit(t, { companyId: user.companyId, userId: user.id, action: "website.photo_remove", table: "job_files", rowId: id, ip });
     return { ok: true };
   });
+}
+
+/** Settings → Company: the invoice logo (also the website's round mark) or the ACLEDA QR (FR-803 · BR-16) — PNG / JPEG / WebP */
+export async function saveCompanyImage(user: SessionUser, ip: string | null, kind: "logo" | "qr", data: string) {
+  const img = await saveImage(user.companyId, data);
+  await tx(user.id, async (t) => {
+    if (kind === "logo") await t`update company_settings set logo_path = ${img.rel}, updated_by = ${user.id} where company_id = ${user.companyId}`;
+    else await t`update company_settings set qr_image_path = ${img.rel}, updated_by = ${user.id} where company_id = ${user.companyId}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: `settings.${kind}`, table: "company_settings", rowId: user.companyId, new: { bytes: img.bytes, mime: img.mime }, ip });
+  });
+  return { ok: true };
 }
 
 // ---------- public files: website photos and the company logo only ----------

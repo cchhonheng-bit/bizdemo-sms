@@ -4,6 +4,8 @@
 //   node dist/cli.mjs seed-demo [oneteam]                                  → demo users gm01/admin/kim/dara + 3 customers, 4 services, BK-0001/0002 (idempotent)
 //   node dist/cli.mjs list-companies
 //   node dist/cli.mjs seed-web-catalog [oneteam] [--prices]               → the sample items of the website catalog (D-106; --prices = demo / test only)
+//   node dist/cli.mjs shop-setup <slug> [--apply] < setup.json             → a shop's start material (website, logo, QR, photos, catalog) as its HangKH Support
+//                                                                            account, through the app's own functions (D-131); a dry run without --apply
 // Hub container (MODE=hub):
 //   node dist/cli.mjs hub-admin <username>          → platform owner login, temp password printed once
 //   node dist/cli.mjs list-shops                    → registry + subscriber counts
@@ -21,6 +23,7 @@ import { syncShops } from "./hub/shops.js";
 import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
 import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
 import { seedWebCatalog } from "./services/catalog.js";
+import { shopSetup } from "./services/shop-setup.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -206,13 +209,20 @@ async function main() {
       console.log(`website catalog: ${r.added} sample items added, ${r.updated} existing items completed${a.includes("--prices") ? " (with demo prices)" : " (no prices)"}`);
       break;
     }
+    case "shop-setup": { // D-131: the JSON comes on STDIN (images + the catalog Excel as base64); nothing is written without --apply
+      if (!a[0] || a[0].startsWith("--")) throw new Error("usage: shop-setup <slug> [--apply] < setup.json");
+      let raw = "";
+      for await (const chunk of process.stdin) raw += chunk;
+      for (const line of await shopSetup(a[0], JSON.parse(raw), a.includes("--apply"))) console.log(line);
+      break;
+    }
     case "list-companies": {
       const rows = await sql`select c.slug, c.name, c.is_active, (select count(*) from users u where u.company_id = c.id) as users, (select count(*) from bookings b where b.company_id = c.id) as bookings from companies c order by c.created_at`;
       console.table(rows.map((r) => ({ ...r })));
       break;
     }
     default:
-      console.log("commands: create-company, reset-password, seed-demo, seed-web-catalog, list-companies");
+      console.log("commands: create-company, reset-password, seed-demo, seed-web-catalog, shop-setup, list-companies");
   }
   await sql.end({ timeout: 3 });
 }

@@ -8,8 +8,9 @@ import { config } from "../config.js";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { audit } from "../services/audit.js";
-import { MIME_BY_EXT, saveImage } from "../services/jobs.js";
+import { MIME_BY_EXT } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
+import { saveCompanyImage } from "../services/site.js";
 import { getTestPhones, saveTestPhones } from "../services/test-mode.js";
 import { lastChange } from "../services/reports.js";
 import { rateInfo, setRate } from "../services/fx.js";
@@ -103,13 +104,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/image/:kind", { preHandler: app.requirePerm("settings.manage"), bodyLimit: 3_000_000 }, async (req) => {
     const { kind } = z.object({ kind: z.enum(["logo", "qr"]) }).parse(req.params);
     const { data } = z.object({ data: z.string().min(10).max(2_800_000) }).parse(req.body);
-    const img = await saveImage(req.user!.companyId, data);
-    await tx(req.user!.id, async (t) => {
-      if (kind === "logo") await t`update company_settings set logo_path = ${img.rel}, updated_by = ${req.user!.id} where company_id = ${req.user!.companyId}`;
-      else await t`update company_settings set qr_image_path = ${img.rel}, updated_by = ${req.user!.id} where company_id = ${req.user!.companyId}`;
-      await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: `settings.${kind}`, table: "company_settings", rowId: req.user!.companyId, new: { bytes: img.bytes, mime: img.mime }, ip: req.ip });
-    });
-    return { ok: true };
+    return saveCompanyImage(req.user!, req.ip, kind, data);
   });
   app.get("/image/:kind", { preHandler: app.requireAuth }, async (req, reply) => {
     const { kind } = z.object({ kind: z.enum(["logo", "qr"]) }).parse(req.params);
