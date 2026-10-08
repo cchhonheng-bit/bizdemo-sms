@@ -84,7 +84,7 @@ export const sitePatch = z.object({
   area_km: text(300).optional(), area_en: text(300).optional(), hours_km: text(120).optional(), hours_en: text(120).optional(),
   highlights_km: z.array(text(120)).max(6).optional(), highlights_en: z.array(text(120)).max(6).optional(),
   facebook: z.union([z.literal(""), z.string().max(200).regex(/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\s]+$/, "BAD_URL")]).optional(),
-  // D-106 (CEO): online booking hours with the lunch break (One Team to confirm), and the gap between two promotions per customer
+  // D-106 (CEO): online booking hours with a lunch break (from = until: none — One Team 08-10), and the gap between two promotions per customer
   hours: z.object({ open: hm, close: hm, lunch_start: hm, lunch_end: hm }).strict()
     .refine((h) => h.open < h.close && h.lunch_start <= h.lunch_end && (h.lunch_start === h.lunch_end || (h.lunch_start >= h.open && h.lunch_end <= h.close)), "BAD_HOURS").optional(),
   promo_gap_days: z.number().int().min(1).max(60).optional(),

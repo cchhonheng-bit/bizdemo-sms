@@ -1,6 +1,6 @@
 // Settings → Website (flag "website", D-95): the texts and photos of the shop's public page. Empty fields hide their section;
 // name / phone / address are the company's public details (the invoice prints the same). Photos here are public.
-// D-106 (CEO): the online booking hours with the lunch break (One Team to confirm) and the days between two promotions per customer.
+// D-106 (CEO): the online booking hours with a lunch break (the same time twice = none) and the days between two promotions per customer.
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

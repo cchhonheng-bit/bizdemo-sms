@@ -239,7 +239,7 @@ export async function applyImport(user: SessionUser, ip: string | null, buf: Buf
   });
 }
 
-// ---------- sample items (owner brief C3 — One Team still has to confirm them) ----------
+// ---------- sample items for a new shop (owner brief C3; the shop's own Excel replaces them — One Team's did on 08-10, D-131) ----------
 type Sample = { code: string; cat: WebCategory; km: string; en: string; unit: string; price?: number; quote?: true; also?: string[] };
 export const SAMPLE_ITEMS: Sample[] = [
   { code: "AC-CLEAN", cat: "ac", km: "លាងម៉ាស៊ីនត្រជាក់", en: "AC cleaning", unit: "គ្រឿង", price: 1500 },

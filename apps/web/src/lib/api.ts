@@ -10,7 +10,7 @@ export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
   sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
   /** D-106 website catalog: «from» price (cents; null = told on contact, still bookable), code (the Excel key), website category,
-   *  shown on the website, quote only, sample (seeded, the shop still has to confirm it) */
+   *  shown on the website, quote only, sample (seeded for a new shop until its own Excel or an edit replaces it) */
   from_price: number | null; code?: string | null; web_category?: WebCategory | null; show_on_website?: boolean; quote_only?: boolean; is_sample?: boolean;
 };
 export type CatalogPreviewRow = { row: number; code: string; name: string; action: "new" | "changed" | "same" | "error"; errors: string[]; changes: Record<string, [unknown, unknown]> };
