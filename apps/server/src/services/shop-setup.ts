@@ -12,7 +12,7 @@ import { sql } from "../db.js";
 import type { SessionUser } from "./auth.js";
 import { applyImport, previewImport, upsertItem } from "./catalog.js";
 import { checkImage } from "./jobs.js";
-import { addSitePhoto, INFO_KEYS, MAX_GALLERY, saveCompanyImage, saveSite, sitePatch, type SiteContent } from "./site.js";
+import { addSitePhoto, INFO_KEYS, MAX_GALLERY, removeSitePhoto, saveCompanyImage, saveSite, sitePatch, type SiteContent } from "./site.js";
 import { markAsTest } from "./test-mode.js";
 import { updateUser } from "./users.js";
 
@@ -21,6 +21,8 @@ export const shopSetupInput = z.object({
   website: sitePatch.omit({ published: true }).optional(),
   logo: image.optional(), qr: image.optional(), hero: image.optional(),
   gallery: z.array(image).min(1).max(MAX_GALLERY).optional(),
+  /** D-134: the new photos take the place of the current ones (each removed as in Settings → Website — the file stays on disk) */
+  gallery_replace: z.boolean().optional(),
   catalog_xlsx: z.string().min(10).max(14_000_000).optional(),
   /** after the Excel: a field by item code, like the catalog form (prices in cents, as the API; sell_price = the invoice line's default) */
   catalog: z.array(z.object({ code: z.string().regex(CATALOG_CODE_RE), duration_min: z.number().int().min(15).max(1440).optional(),
@@ -74,9 +76,10 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
   const qr = input.qr ? pic(`ACLEDA QR${s.qr ? " (replaces the current one)" : ""}`, input.qr, false) : null;
   const hero = input.hero ? pic(`website hero photo${s.website?.hero ? " (replaces the current one)" : ""}`, input.hero, true) : null;
   const gallery = (input.gallery ?? []).map((g, i) => pic(`website photo ${i + 1}`, g, true));
-  const have = (s.website?.gallery ?? []).length;
+  const current = s.website?.gallery ?? [], replace = input.gallery_replace === true && gallery.length > 0;
+  const have = replace ? 0 : current.length;
   if (have + gallery.length > MAX_GALLERY) throw new Error(`website photos: ${have} now + ${gallery.length} new > ${MAX_GALLERY}`);
-  if (gallery.length) out.push(`website photos: ${have} → ${have + gallery.length} of ${MAX_GALLERY}`);
+  if (gallery.length) out.push(`website photos: ${current.length} → ${have + gallery.length} of ${MAX_GALLERY}${replace ? ` (the ${current.length} current ones replaced)` : ""}`);
 
   const planned = new Map<string, Record<string, unknown>>(); // code → the fields the Excel changes
   if (input.catalog_xlsx) {
@@ -135,6 +138,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
   if (logo) await saveCompanyImage(user, null, "logo", logo);
   if (qr) await saveCompanyImage(user, null, "qr", qr);
   if (hero) await addSitePhoto(user, null, "hero", hero);
+  if (replace) for (const id of current) await removeSitePhoto(user, null, id).catch(() => undefined); // gone already = nothing to remove
   for (const g of gallery) await addSitePhoto(user, null, "gallery", g);
   if (input.catalog_xlsx) await applyImport(user, null, Buffer.from(input.catalog_xlsx, "base64"));
   for (const p of input.catalog ?? []) {

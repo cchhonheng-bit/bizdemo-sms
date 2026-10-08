@@ -4,7 +4,7 @@
 // shown on the public page. It never publishes; a bad file stops it before anything is written. D-132: the invoice price / cost by
 // code, demo staff turned off with the Users page's own rules, demo customers and bookings marked as tests — never a delete.
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -178,4 +178,18 @@ describe("CLI shop-setup (D-131)", () => {
     expect((await sql`select is_active from users where company_id = ${s.a} and username = 'ceo'`)[0]!.is_active).toBe(true);
   });
 
+  it("D-134: gallery_replace swaps the work photos for lighter copies — each removed as in Settings → Website (audited), the files stay on disk", async () => {
+    const gal = async () => (await sql<{ g: string[] }[]>`select website->'gallery' as g from company_settings where company_id = ${s.a}`)[0]!.g;
+    const before = await gal();
+    expect(before.length).toBe(2);
+    expect((await shopSetup("oneteam", { gallery: [PNG], gallery_replace: true }, false)).join("\n")).toContain("website photos: 2 → 1 of 12 (the 2 current ones replaced)");
+    expect(await gal()).toEqual(before); // the preview changes nothing
+    await shopSetup("oneteam", { gallery: [PNG], gallery_replace: true }, true);
+    const after = await gal();
+    expect(after).toHaveLength(1); expect(before).not.toContain(after[0]);
+    const old = await sql<{ deleted_at: Date | null; path: string }[]>`select deleted_at, path from job_files where id = any(${sql.array(before)}::uuid[])`;
+    expect(old.length).toBe(2); expect(old.every((f) => f.deleted_at)).toBe(true);
+    for (const f of old) expect(existsSync(join(config.uploadsDir, f.path))).toBe(true);
+    expect((await sql`select count(*)::int n from audit_log where action = 'website.photo_remove' and user_id = ${support}`)[0]!.n).toBe(2);
+  });
 });
