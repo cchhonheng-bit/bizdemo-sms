@@ -21,6 +21,15 @@
     if (on) { btn.dataset.html = btn.innerHTML; btn.textContent = M.SENDING || "..."; btn.disabled = true; }
     else { if (btn.dataset.html) btn.innerHTML = btn.dataset.html; btn.disabled = false; }
   }
+  // D-134: the home page's work photos load when the visitor comes near them, not with the page (a slow phone network got ~3.7 MB at once)
+  (function () {
+    var gal = $$(".gal img[data-src]");
+    if (!gal.length) return;
+    var show = function (img) { img.src = img.dataset.src; img.removeAttribute("data-src"); };
+    if (!("IntersectionObserver" in window)) return gal.forEach(show);
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } }); }, { rootMargin: "300px 0px" });
+    gal.forEach(function (img) { io.observe(img); });
+  })();
   function send(method, url, data) {
     return fetch(url, { method: method, credentials: "same-origin", headers: data === undefined ? {} : { "content-type": "application/json" }, body: data === undefined ? undefined : JSON.stringify(data) })
       .then(function (r) { return r.json().catch(function () { return {}; }).then(function (j) { return { ok: r.ok, status: r.status, json: j || {} }; }); });

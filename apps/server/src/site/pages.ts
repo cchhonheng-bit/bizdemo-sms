@@ -244,7 +244,8 @@ export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLi
   const about = pick(w.about_km, w.about_en), points = ((lang === "en" ? w.highlights_en : w.highlights_km) ?? []).map((x) => x.trim()).filter(Boolean);
   const extra = [
     about || points.length ? `<section class="card s"><h2 class="h2">${t.about}</h2>${w.hero ? `<img class="hero" src="/pub/img/${esc(w.hero)}" alt="" loading="lazy">` : ""}${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</section>` : "",
-    (w.gallery ?? []).length ? `<section class="card s"><h2 class="h2">${t.gallery}</h2><div class="gal">${w.gallery!.map((g) => `<img src="/pub/img/${esc(g)}" alt="" loading="lazy">`).join("")}</div></section>` : "",
+    // D-134: the work photos load when the visitor comes near them (site.js), not with the page — 11 photos were ~3.7 MB at once on a slow network
+    (w.gallery ?? []).length ? `<section class="card s"><h2 class="h2">${t.gallery}</h2><div class="gal">${w.gallery!.map((g) => `<img data-src="/pub/img/${esc(g)}" alt="" decoding="async">`).join("")}</div></section>` : "",
     d.info.address || d.office || w.facebook || phones.length > 1 ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}${d.office ? `<iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe><a class="ln" href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a>` : ""}</section>` : "",
   ].join("");
   const body = `<main class="scr home">

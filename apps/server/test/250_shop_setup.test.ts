@@ -104,7 +104,8 @@ describe("CLI shop-setup (D-131)", () => {
     expect(r.statusCode).toBe(200);
     const gallery = (await sql<{ g: string[] }[]>`select website->'gallery' as g from company_settings where company_id = ${s.a}`)[0]!.g;
     expect(r.body).toContain('<img src="/pub/logo"');
-    for (const id of gallery) expect(r.body).toContain(`/pub/img/${id}`);
+    for (const id of gallery) expect(r.body).toContain(`<img data-src="/pub/img/${id}"`); // D-134: loaded when the visitor comes near, not with the page
+    expect(r.body).not.toMatch(/<img src="\/pub\/img\//);
     expect(r.body).toContain('href="tel:077632899"'); expect(r.body).toContain('href="tel:015899632"');
     expect(r.body).toContain(ADDRESS);
     expect(r.body).toContain('<meta name="robots" content="noindex,nofollow">'); // search engines: only when the shop ticks «published»

@@ -48,7 +48,8 @@ export default function WebsiteCard() {
   const upload = async (slot: "hero" | "gallery", file: File | undefined) => {
     if (!file) return;
     setBusy(slot);
-    try { await api.website.addPhoto(slot, await compressPhoto(file)); void qc.invalidateQueries({ queryKey: ["website"] }); toast.success(t("app.saved")); }
+    // D-134: a work photo is a small square on the page — 1000 px is plenty (the wide photo at the top keeps 1600)
+    try { await api.website.addPhoto(slot, await compressPhoto(file, slot === "gallery" ? 1000 : 1600, 0.75)); void qc.invalidateQueries({ queryKey: ["website"] }); toast.success(t("app.saved")); }
     catch (e) { onErr(e); } finally { setBusy(null); }
   };
   const remove = useMutation({ mutationFn: (id: string) => api.website.removePhoto(id), onSuccess: () => void qc.invalidateQueries({ queryKey: ["website"] }), onError: onErr });
