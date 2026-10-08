@@ -21,22 +21,27 @@ export async function login(identifier: string, password: string, companySlug: s
     throw new AppError("RATE_LIMITED", 429);
   }
   // up to 2 candidates (same username in two companies) — the password decides
-  const rows = await sql<{ id: string; password_hash: string; is_active: boolean; company_active: boolean }[]>`
-    select u.id, u.password_hash, u.is_active, c.is_active as company_active
+  const rows = await sql<{ id: string; company_id: string; password_hash: string; is_active: boolean; company_active: boolean; must_change_password: boolean; temp_password_expires_at: Date | null }[]>`
+    select u.id, u.company_id, u.password_hash, u.is_active, c.is_active as company_active, u.must_change_password, u.temp_password_expires_at
     from users u join companies c on c.id = u.company_id
     where (u.phone = ${id} or lower(u.email) = ${id.toLowerCase()}
            or (u.username = ${id.toLowerCase()} and (${companySlug ?? null}::text is null or c.slug = ${companySlug ?? null})))
     limit 2`;
-  let userId: string | null = null;
+  let hit: (typeof rows)[number] | null = null;
   for (const r of rows) {
     if (!r.is_active || !r.company_active) continue;
-    if (await verifyPassword(password, r.password_hash)) { userId = r.id; break; }
+    if (await verifyPassword(password, r.password_hash)) { hit = r; break; }
   }
-  if (!userId) {
+  if (!hit) {
     await verifyPassword(password, await DUMMY_HASH_PROMISE); // constant-ish timing
     throw new AppError("INVALID_CREDENTIALS", 401);
   }
-  return createSession(userId, ip, userAgent, "password");
+  // D-135: a temporary password past its deadline (the person never set their own) — told only after the right password
+  if (hit.must_change_password && hit.temp_password_expires_at && hit.temp_password_expires_at.getTime() <= Date.now()) {
+    await audit(sql, { companyId: hit.company_id, userId: hit.id, action: "auth.password_expired", table: "users", rowId: hit.id, ip });
+    throw new AppError("PASSWORD_EXPIRED", 403);
+  }
+  return createSession(hit.id, ip, userAgent, "password");
 }
 
 /** a new session for a known user (password login, or a Telegram Mini App opened by a linked staff member — D-91) */

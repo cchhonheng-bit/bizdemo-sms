@@ -14,7 +14,7 @@ import { applyImport, previewImport, upsertItem } from "./catalog.js";
 import { checkImage } from "./jobs.js";
 import { addSitePhoto, INFO_KEYS, MAX_GALLERY, removeSitePhoto, saveCompanyImage, saveSite, sitePatch, type SiteContent } from "./site.js";
 import { markAsTest } from "./test-mode.js";
-import { updateUser } from "./users.js";
+import { setPasswordRules, updateUser } from "./users.js";
 
 const image = z.string().min(10).max(2_800_000);
 export const shopSetupInput = z.object({
@@ -29,7 +29,9 @@ export const shopSetupInput = z.object({
     from_price: z.number().int().min(0).max(100_000_000).nullable().optional(), sell_price: z.number().int().min(0).max(100_000_000).optional(),
     cost_price: z.number().int().min(0).max(100_000_000).nullable().optional() }).strict()).max(500).optional(),
   /** staff accounts turned off / on by username — the Users page's rules: never the platform account, a CEO account only by a CEO */
-  users: z.array(z.object({ username: z.string().min(1).max(40), active: z.boolean() }).strict()).max(50).optional(),
+  users: z.array(z.object({ username: z.string().min(1).max(40), active: z.boolean().optional(),
+    /** D-135: a new password at the next sign-in · the temporary password stops working at this moment (null = no deadline) */
+    must_change: z.literal(true).optional(), temp_expires: z.string().datetime({ offset: true }).nullable().optional() }).strict()).max(50).optional(),
   /** existing rows that are tests (demo data): customers by phone, bookings by number — hidden like any test (D-120) */
   test: z.object({ customers: z.array(z.string().max(40)).max(100).default([]), bookings: z.array(z.string().max(20)).max(100).default([]) }).strict().optional(),
 }).strict();
@@ -103,17 +105,30 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
       out.push(`catalog ${p.code}: ${ch.join(" · ") || "nothing to change"}`);
     }
   }
-  const people: { id: string; active: boolean }[] = [];
+  const people: { id: string; active: boolean }[] = [], rules: { id: string; mustChange?: boolean; tempExpires?: Date | null }[] = [];
   if (input.users?.length) {
-    const rows = new Map((await sql<{ id: string; username: string; full_name: string; role: string; is_active: boolean; is_platform: boolean }[]>`
-      select id, username, full_name, role::text as role, is_active, is_platform from users where company_id = ${c.id}`).map((u) => [u.username, u]));
+    const rows = new Map((await sql<{ id: string; username: string; full_name: string; role: string; is_active: boolean; is_platform: boolean; must_change_password: boolean; temp_password_expires_at: Date | null }[]>`
+      select id, username, full_name, role::text as role, is_active, is_platform, must_change_password, temp_password_expires_at from users where company_id = ${c.id}`).map((u) => [u.username, u]));
+    const yn = (b: boolean) => (b ? "yes" : "no"), when = (d: Date | null) => (d ? d.toISOString() : "—");
     for (const x of input.users) {
       const u = rows.get(x.username);
       if (!u) throw new Error(`user: no account "${x.username}"`);
       if (u.is_platform || u.id === user.id) throw new Error(`user ${x.username}: the HangKH Support account is never changed here`);
-      if (u.role === "ceo" && user.role !== "ceo") throw new Error(`user ${x.username}: a CEO account only by a CEO`);
-      out.push(`user ${u.username} (${u.full_name}): active ${u.is_active === x.active ? "same" : `${u.is_active ? "yes" : "no"} → ${x.active ? "yes" : "no"}`}`);
-      if (u.is_active !== x.active) people.push({ id: u.id, active: x.active });
+      // turning an account off / on follows the Users page (a CEO account only by a CEO); the password rules may touch it (as the server's reset-password)
+      if (x.active !== undefined && u.role === "ceo" && user.role !== "ceo") throw new Error(`user ${x.username}: a CEO account only by a CEO`);
+      const bits: string[] = [];
+      if (x.active !== undefined) {
+        bits.push(`active ${u.is_active === x.active ? "same" : `${yn(u.is_active)} → ${yn(x.active)}`}`);
+        if (u.is_active !== x.active) people.push({ id: u.id, active: x.active });
+      }
+      if (x.must_change || x.temp_expires !== undefined) {
+        const exp = x.temp_expires === undefined ? undefined : x.temp_expires === null ? null : new Date(x.temp_expires);
+        if (x.must_change) bits.push(`new password at sign-in ${u.must_change_password ? "same" : "no → yes"}`);
+        if (exp !== undefined) bits.push(`first password ends ${when(u.temp_password_expires_at)} → ${when(exp)}`);
+        rules.push({ id: u.id, mustChange: x.must_change, tempExpires: exp });
+      }
+      if (!bits.length) throw new Error(`user ${x.username}: nothing to change`);
+      out.push(`user ${u.username} (${u.full_name}): ${bits.join(" · ")}`);
     }
   }
   const tests = { customers: [] as string[], bookings: [] as string[] };
@@ -149,6 +164,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
       ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}) }, p.cost_price !== undefined);
   }
   for (const x of people) await updateUser(user, null, x.id, { is_active: x.active });
+  for (const x of rules) await setPasswordRules(user, null, x.id, x);
   if (tests.customers.length || tests.bookings.length) await markAsTest(user, null, tests);
   out.push("applied ✓");
   return out;

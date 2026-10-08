@@ -13,6 +13,24 @@ export const USER_COLS = sql`id, company_id, username, phone, email, full_name, 
 export const PLATFORM_LOCKED = () => new AppError("PLATFORM_USER", 403);
 export type UserPatch = z.infer<typeof updateUserSchema> & { is_active?: boolean };
 
+/** D-135 (shop-setup, HangKH): a new password at the next sign-in, and a deadline for the temporary password (null = none) — any
+ *  new password clears the deadline (DB trigger). Never the platform account; the CEO account too (as the server's reset-password). */
+export async function setPasswordRules(actor: SessionUser, ip: string | null, id: string, o: { mustChange?: boolean; tempExpires?: Date | null }) {
+  return tx(actor.id, async (t) => {
+    const old = (await t<{ must_change_password: boolean; temp_password_expires_at: Date | null; is_platform: boolean }[]>`
+      select must_change_password, temp_password_expires_at, is_platform from users where id = ${id} and company_id = ${actor.companyId} for update`)[0];
+    if (!old) throw notFound();
+    if (old.is_platform) throw PLATFORM_LOCKED();
+    const r = (await t<{ must_change_password: boolean; temp_password_expires_at: Date | null }[]>`update users set
+        must_change_password = ${o.mustChange === true ? true : old.must_change_password},
+        temp_password_expires_at = ${o.tempExpires !== undefined ? o.tempExpires : old.temp_password_expires_at}
+      where id = ${id} returning must_change_password, temp_password_expires_at`)[0]!;
+    await audit(t, { companyId: actor.companyId, userId: actor.id, action: "user.update", table: "users", rowId: id,
+      old: { must_change_password: old.must_change_password, temp_password_expires_at: old.temp_password_expires_at }, new: r, ip });
+    return r;
+  });
+}
+
 /** never your own role or «active», never the platform account, a CEO account only by a CEO; turning someone off ends their
  *  sessions at once (S-05) and unlinks their Telegram here and at the hub — they stop receiving job messages (R6) */
 export async function updateUser(actor: SessionUser, ip: string | null, id: string, patch: UserPatch) {

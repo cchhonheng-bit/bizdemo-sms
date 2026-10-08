@@ -73,6 +73,7 @@
     "forgot": "Forgot password? Contact your company Admin or CEO",
     "invalid": "Invalid credentials",
     "rate_limited": "Too many attempts · wait 1 minute",
+    "password_expired": "This first password has expired · ask your CEO to set a new one",
     "network": "Cannot reach the server",
     "first_title": "Set your password",
     "first_hint": "For security, choose a new password (at least 8 characters)",

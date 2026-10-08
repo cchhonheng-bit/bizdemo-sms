@@ -22,7 +22,7 @@ export default function LoginPage() {
   const onSubmit = handleSubmit(async (v) => {
     setErr(null);
     const r = await login(v.identifier, v.password, v.company);
-    if (!r.ok) setErr(r.code === "RATE_LIMITED" ? t("auth.rate_limited") : r.code === "NETWORK" ? t("auth.network") : t("auth.invalid"));
+    if (!r.ok) setErr(r.code === "RATE_LIMITED" ? t("auth.rate_limited") : r.code === "NETWORK" ? t("auth.network") : r.code === "PASSWORD_EXPIRED" ? t("auth.password_expired") : t("auth.invalid"));
   });
 
   return (
