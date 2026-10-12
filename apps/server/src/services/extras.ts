@@ -70,7 +70,7 @@ async function tellClash(t: Db, user: SessionUser, b: { id: string; number: stri
   const crew = await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${b.id}`;
   for (const m of crew) await notifyUser(t, user.companyId, m.user_id, "job.extra_clash",
     { km: `⚠️ ការងារបន្ទាប់ ${c.number} ម៉ោង ${at}`, en: `⚠️ Next job ${c.number} at ${at}` },
-    { km: `ការងារបន្ថែមនេះអាចយឺតដល់ការងារបន្ទាប់ · Admin / GM បានទទួលដំណឹង`, en: `This added work may run into your next job · Admin / GM have been told` }, `/tech/job/${b.id}`, `extra-clash-crew:${key}:${m.user_id}`);
+    { km: `ការងារបន្ថែមនេះអាចយឺតដល់ការងារបន្ទាប់ · រដ្ឋបាល និងអ្នកគ្រប់គ្រង បានទទួលដំណឹង`, en: `This added work may run into your next job · Admin / GM have been told` }, `/tech/job/${b.id}`, `extra-clash-crew:${key}:${m.user_id}`);
 }
 
 /** the one who added a line takes it back while it still waits and the report is not sent */

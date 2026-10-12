@@ -12,7 +12,7 @@ const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, "../.
 const SRC = join(ROOT, "Doc_Sup/09_Tutorials"), DEST = "/opt/hangkh/guide";
 const FOLDERS = ["Technician", "Admin_GM", "CEO_CFO", "Accounting", "Customer"];
 const GUIDES = join(ROOT, "Doc_Sup/08_Sales_Delivery/Guides");
-const PDFS = { "Guide_Technician.pdf": "engineer", "Guide_Admin_GM.pdf": "admin", "Guide_CEO.pdf": "ceo", "Guide_CFO.pdf": "cfo", "Guide_Customer.pdf": "customer" };
+const PDFS = { "Guide_Technician.pdf": "engineer", "Guide_Admin_GM.pdf": "admin", "Guide_CEO.pdf": "ceo", "Guide_CFO.pdf": "cfo", "Guide_Customer.pdf": "customer", "Stock_Guide_KH.pdf": "stock" };
 
 const local = new Map();
 for (const f of FOLDERS) {

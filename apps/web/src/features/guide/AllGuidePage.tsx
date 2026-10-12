@@ -104,6 +104,7 @@ export default function AllGuidePage() {
         {d.pdfs[t.key]
           ? <a className="btn-secondary w-full justify-center" href={d.pdfs[t.key]!} download data-testid="guide-pdf"><FileDown size={16} /> {K.pdf}</a>
           : <p className="text-sm text-muted text-center">{K.pdf_soon}</p>}
+        {(d.docs ?? []).filter((x) => x.tab === t.key).map((x) => <a key={x.key} className="btn-secondary w-full justify-center mt-2" href={x.url} download data-testid={`guide-doc-${x.key}`}><FileDown size={16} /> {x.label}</a>)}
       </Card>
     </div>
   );

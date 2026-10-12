@@ -49,6 +49,8 @@ export type GuideMine = {
   tab: { key: string; label: string; label_en: string };
   videos: { id: string; title: string; title_en: string; ready: boolean; seconds: number | null; url: string | null }[];
   pdf: string | null;
+  /** guides beside the position's PDF (the stock guide for Admin / GM / CEO) */
+  docs?: { key: string; label: string; label_en: string; url: string }[];
 };
 /** the all-guide page (D-128) */
 export type GuideData = {
@@ -56,6 +58,8 @@ export type GuideData = {
   videos: { id: string; title: string; ready: boolean; seconds: number | null; url: string | null }[];
   reviews: { video_id: string; user_id: string; name: string; platform: boolean; verdict: "ok" | "fix"; comment: string | null; updated_at: string }[];
   pdfs: Record<string, string | null>; me: string; total: number;
+  /** the stock guide (CEO 12-10) — in its tab */
+  docs?: { key: string; label: string; tab: string; url: string }[];
 };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };

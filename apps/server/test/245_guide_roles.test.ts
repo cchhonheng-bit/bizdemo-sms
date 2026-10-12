@@ -27,7 +27,7 @@ beforeAll(async () => {
   for (const [folder, file] of [["Technician", "L1-00_overview_v1.mp4"], ["Admin_GM", "L2-00_overview_v1.mp4"], ["Customer", "L5-00_overview_v1.mp4"]] as [string, string][]) {
     mkdirSync(join(dir, folder), { recursive: true }); writeFileSync(join(dir, folder, file), fakeMp4());
   }
-  mkdirSync(join(dir, "pdf")); writeFileSync(join(dir, "pdf", "engineer.pdf"), "%PDF-1.4 demo");
+  mkdirSync(join(dir, "pdf")); writeFileSync(join(dir, "pdf", "engineer.pdf"), "%PDF-1.4 demo"); writeFileSync(join(dir, "pdf", "stock.pdf"), "%PDF-1.4 stock");
   const hash = await hashPassword(PW);
   await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance) values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false)`;
   for (const u of ["ceo", "admin", "gm01", "kim", "cfo"]) c[u] = await loginAs(app, u);
@@ -62,6 +62,21 @@ describe("in the app: only the signed-in role's videos", () => {
     expect(await get("kim", "/api/guide/pdf/engineer")).toBe(200);
     expect(await get("admin", "/api/guide/pdf/engineer")).toBe(403);
     expect((await app.inject({ method: "GET", url: "/api/guide/mine" })).statusCode).toBe(401);
+  });
+});
+
+describe("the stock guide (CEO 12-10)", () => {
+  it("on «របៀបប្រើ» for Admin, GM and CEO — never the technician or the CFO; in the all-guide page's Admin tab", async () => {
+    const get = async (u: string, url: string) => (await app.inject({ method: "GET", url, headers: { cookie: c[u]!.cookie! } })).statusCode;
+    for (const u of ["admin", "gm01", "ceo"]) {
+      expect((await c[u]!.req("GET", "/api/guide/mine")).json.docs, u).toEqual([expect.objectContaining({ key: "stock", url: "/api/guide/pdf/stock" })]);
+      expect(await get(u, "/api/guide/pdf/stock"), u).toBe(200);
+    }
+    for (const u of ["kim", "cfo"]) {
+      expect((await c[u]!.req("GET", "/api/guide/mine")).json.docs, u).toEqual([]);
+      expect(await get(u, "/api/guide/pdf/stock"), u).toBe(403);
+    }
+    expect((await c.ceo!.req("GET", "/api/guide")).json.docs).toEqual([expect.objectContaining({ key: "stock", tab: "admin" })]);
   });
 });
 

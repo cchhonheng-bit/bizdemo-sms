@@ -90,6 +90,11 @@ export const GUIDE_TABS: readonly GuideTab[] = [
 ];
 export const GUIDE_VIDEO_ID = /^L[1-5]-\d{2}$/;
 
+/** guides beside the positions' PDFs (CEO 12-10): the stock guide — on «របៀបប្រើ» for these roles and in the all-guide page's tab */
+export const GUIDE_DOCS: readonly { key: string; label: string; label_en: string; tab: GuideTab["key"]; roles: readonly string[] }[] = [
+  { key: "stock", label: "សៀវភៅណែនាំ ស្តុកទំនិញ", label_en: "Stock guide", tab: "admin", roles: ["admin", "gm", "ceo"] },
+];
+
 /** D-129: each staff role's own videos (the in-app «របៀបប្រើ» page, the help button, the bot's «📘 របៀបប្រើ») */
 export const GUIDE_ROLE_TAB: Record<string, GuideTab["key"]> = { tech: "engineer", admin: "admin", gm: "admin", ceo: "ceo", cfo: "cfo" };
 /** the help (?) button: a page's own clip (the longest matching start of the address), else the position's overview */

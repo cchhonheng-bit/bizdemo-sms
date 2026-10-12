@@ -39,6 +39,7 @@ export default function GuidePage() {
         </ul>
       </Card>
       {d.pdf && <a className="btn-secondary w-full justify-center" href={d.pdf} download data-testid="guide-pdf"><FileDown size={16} /> {t("guide.pdf")}</a>}
+      {(d.docs ?? []).map((x) => <a key={x.key} className="btn-secondary w-full justify-center" href={x.url} download data-testid={`guide-doc-${x.key}`}><FileDown size={16} /> {i18n.language === "en" ? x.label_en : x.label}</a>)}
     </div>
   );
 }

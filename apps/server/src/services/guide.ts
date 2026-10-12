@@ -6,7 +6,7 @@ import { createReadStream } from "node:fs";
 import { stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyReply, FastifyRequest } from "fastify";
-import { GUIDE_ROLE_TAB, GUIDE_TABS, GUIDE_VIDEOS, type GuideVideo } from "@sms/shared";
+import { GUIDE_DOCS, GUIDE_ROLE_TAB, GUIDE_TABS, GUIDE_VIDEOS, type GuideVideo } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { AppError } from "../lib/errors.js";
@@ -34,6 +34,7 @@ export async function canWatch(user: SessionUser, id: string): Promise<boolean> 
 /** a position's PDF: the own one — every one for the CEO and the platform account */
 export async function canReadPdf(user: SessionUser, tab: string): Promise<boolean> {
   if (tabOf(user.role)?.key === tab) return true;
+  if (GUIDE_DOCS.some((d) => d.key === tab && d.roles.includes(user.role))) return true; // the stock guide: Admin / GM / CEO
   return guideAccess(user).then(() => true, () => false);
 }
 
@@ -58,7 +59,9 @@ export async function guideMine(user: SessionUser) {
   const tab = tabOf(user.role);
   if (!tab) throw new AppError("NOT_FOUND", 404);
   const videos = await Promise.all(tab.videos.map((id) => card(id, (x, ver) => `/api/guide/videos/${x}?v=${ver}`)));
-  return { tab: { key: tab.key, label: tab.label, label_en: tab.label_en }, videos, pdf: await pdfOf(tab.key) };
+  const docs = (await Promise.all(GUIDE_DOCS.filter((d) => d.roles.includes(user.role)).map(async (d) => ({ key: d.key, label: d.label, label_en: d.label_en, url: await pdfOf(d.key) }))))
+    .filter((d) => d.url);
+  return { tab: { key: tab.key, label: tab.label, label_en: tab.label_en }, videos, pdf: await pdfOf(tab.key), docs };
 }
 /** D-129: the customers' guide on the public site (/guide) — open to everybody */
 const CUSTOMER = GUIDE_TABS.find((t) => t.key === "customer")!;
@@ -74,7 +77,8 @@ export async function guideOverview(user: SessionUser) {
     select r.video_id, r.user_id, u.full_name as name, u.is_platform as platform, r.verdict, r.comment, r.updated_at
     from guide_reviews r join users u on u.id = r.user_id where r.company_id = ${user.companyId} order by r.updated_at`;
   const pdfs = Object.fromEntries(await Promise.all(GUIDE_TABS.map(async (t) => [t.key, (await stat(join(config.guideDir, "pdf", `${t.key}.pdf`)).catch(() => null))?.isFile() ? `/api/guide/pdf/${t.key}` : null])));
-  return { tabs: GUIDE_TABS, videos, reviews, pdfs, me: user.id, total: GUIDE_VIDEOS.length };
+  const docs = (await Promise.all(GUIDE_DOCS.map(async (d) => ({ key: d.key, label: d.label, tab: d.tab, url: await pdfOf(d.key) })))).filter((d) => d.url);
+  return { tabs: GUIDE_TABS, videos, reviews, pdfs, docs, me: user.id, total: GUIDE_VIDEOS.length };
 }
 
 /** one review per video and reviewer (changed in place; the audit log keeps every change) */
@@ -113,4 +117,4 @@ export async function sendGuideFile(req: FastifyRequest, reply: FastifyReply, pa
   return reply.send(createReadStream(path));
 }
 export const guideVideoPath = (id: string) => { const v = GUIDE_VIDEOS.find((x) => x.id === id); if (!v) throw new AppError("NOT_FOUND", 404); return fileOf(v); };
-export const guidePdfPath = (tab: string) => { if (!GUIDE_TABS.some((t) => t.key === tab)) throw new AppError("NOT_FOUND", 404); return join(config.guideDir, "pdf", `${tab}.pdf`); };
+export const guidePdfPath = (tab: string) => { if (!GUIDE_TABS.some((t) => t.key === tab) && !GUIDE_DOCS.some((d) => d.key === tab)) throw new AppError("NOT_FOUND", 404); return join(config.guideDir, "pdf", `${tab}.pdf`); };
