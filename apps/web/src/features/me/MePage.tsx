@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { formatKhPhone } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
@@ -59,7 +60,7 @@ export default function MePage() {
         </div>
         <dl className="mt-3 text-sm grid grid-cols-[120px_1fr] gap-y-1">
           <dt className="text-muted">{t("me.company")}</dt><dd>{me.company.name}</dd>
-          <dt className="text-muted">{t("users.phone")}</dt><dd>{me.phone ?? "—"}</dd>
+          <dt className="text-muted">{t("users.phone")}</dt><dd>{me.phone ? formatKhPhone(me.phone) : "—"}</dd>
           <dt className="text-muted">{t("users.email")}</dt><dd>{me.email ?? "—"}</dd>
           <dt className="text-muted">{t("app.language")}</dt>
           <dd className="flex gap-2">

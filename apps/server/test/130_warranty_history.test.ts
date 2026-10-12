@@ -1,7 +1,7 @@
 // Flow 7a: warranty 30 days (FR-1201 · AC-14) + customer history (FR-203) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 
 let app: FastifyInstance; let s: Seed;
@@ -10,7 +10,7 @@ let cust: string, other: string;
 let slot = 0;
 const when = () => new Date(Date.now() + (2 + 3 * slot++) * 3600_000).toISOString();
 const newBooking = (customer = cust, extra: Record<string, unknown> = {}) =>
-  admin.req("POST", "/api/bookings", { customer_id: customer, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", scheduled_at: when(), ...extra });
+  admin.req("POST", "/api/bookings", { customer_id: customer, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(when()), ...extra });
 
 /** a job closed `daysAgo` days ago (local days), paid in full */
 async function closedJob(daysAgo: number, customer = cust): Promise<string> {
@@ -28,8 +28,8 @@ async function closedJob(daysAgo: number, customer = cust): Promise<string> {
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក ធានា", phones: ["012303030"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
-  other = (await ceo.req("POST", "/api/customers", { name: "អតិថិជនផ្សេង", phones: ["012404040"], zone: "outside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក ធានា", phones: ["012303030"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  other = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជនផ្សេង", phones: ["012404040"], zone: "outside" })).json.id;
 });
 afterAll(async () => { await app.close(); });
 
@@ -55,8 +55,8 @@ describe("warranty 30 days from closing (FR-1201 · AC-14)", () => {
     expect((await newBooking(cust, { warranty_of: open })).json.error).toBe("NOT_CLOSED");
     expect((await newBooking(other, { warranty_of: recent })).json.error).toBe("WARRANTY_OTHER_CUSTOMER");
     const ceoB = await loginAs(app, "ceo_b");
-    const custB = (await ceoB.req("POST", "/api/customers", { name: "B", phones: ["012505050"], zone: "inside" })).json.id;
-    expect((await ceoB.req("POST", "/api/bookings", { customer_id: custB, type: "A", category: "mep", service_text: "x x", zone: "inside", scheduled_at: when(), warranty_of: recent })).status).toBe(404);
+    const custB = (await ceoB.req("POST", "/api/customers", { ...PLACE, name: "B", phones: ["012505050"], zone: "inside" })).json.id;
+    expect((await ceoB.req("POST", "/api/bookings", { customer_id: custB, type: "A", category: "mep", service_text: "x x", zone: "inside", ...span(when()), warranty_of: recent })).status).toBe(404);
   });
 
   it("the warranty job is free: the invoice is prefilled at $0 and closes the job on issue", async () => {

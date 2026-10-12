@@ -18,6 +18,7 @@ import { meRoutes } from "./routes/me.js";
 import { usersRoutes } from "./routes/users.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { customersRoutes } from "./routes/customers.js";
+import { boreysRoutes, geoRoutes } from "./routes/places.js";
 import { catalogRoutes } from "./routes/catalog.js";
 import { bookingsRoutes } from "./routes/bookings.js";
 import { leaveRoutes } from "./routes/leave.js";
@@ -145,6 +146,8 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(usersRoutes, { prefix: "/api/users" });
   app.register(settingsRoutes, { prefix: "/api/settings" });
   app.register(customersRoutes, { prefix: "/api/customers" });
+  app.register(geoRoutes, { prefix: "/api/geo" }); // D-137: the official gazetteer
+  app.register(boreysRoutes, { prefix: "/api/boreys" }); // D-137: «គម្រោងបុរី»
   app.register(catalogRoutes, { prefix: "/api/catalog" });
   app.register(bookingsRoutes, { prefix: "/api/bookings" });
   app.register(leaveRoutes, { prefix: "/api/leave" });

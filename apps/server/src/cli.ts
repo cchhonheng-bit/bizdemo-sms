@@ -14,6 +14,7 @@
 //   node dist/cli.mjs hub-bot-set <CODE|HANGKH> < token   → add/replace a shop bot (or the master bot); token from STDIN only, stored encrypted
 //   node dist/cli.mjs hub-bots                      → bots + webhook status (never tokens)
 //   node dist/cli.mjs alert <deploy|backup|outbox|error|test> <text…>   → message to the owner through the master bot (T4)
+import { normalizeKhPhone } from "@sms/shared";
 import { config } from "./config.js";
 import { migrate, sql, tx } from "./db.js";
 import { hashPassword, tempPassword } from "./lib/password.js";
@@ -78,7 +79,7 @@ async function seedDemo(slug: string) {
         ["Sok Dara (Demo)", "098765432", "Chbar Ampov", "outside", null, null],
         ["អ្នកស្រី ចាន់ថា (Demo)", "011222333", "បុរីប៉េងហួតបឹងស្នោរ", "inside", 11.5231, 104.9512]];
       for (const [name, phone, address, zone, lat, lng] of rows)
-        await t`insert into customers (company_id, name, phones, address, zone, lat, lng, notes, created_by) values (${id}, ${name}, ${t.array([phone])}, ${address}, ${zone}::zone, ${lat}, ${lng}, 'DEMO', ${ceo})`;
+        await t`insert into customers (company_id, name, phones, address, zone, lat, lng, notes, created_by) values (${id}, ${name}, ${t.array([normalizeKhPhone(phone)!])}, ${address}, ${zone}::zone, ${lat}, ${lng}, 'DEMO', ${ceo})`;
       customers = await t<{ id: string; name: string }[]>`select id, name from customers where company_id = ${id} and notes = 'DEMO' order by created_at`;
       out.push("DEMO_DATA customers 3");
     }

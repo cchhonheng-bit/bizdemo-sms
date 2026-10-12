@@ -1,6 +1,7 @@
 // A2 service reminders (flag "reminders"): overdue / due soon per unit or per customer · one-tap call · contacted / snooze / dismiss ·
 // book the job · optional Telegram reminder to customers who subscribed through their own link (once per due date, daily limit).
 import { useMemo, useState } from "react";
+import { formatKhPhone } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -63,7 +64,7 @@ export default function RemindersPage() {
                 </div>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
-                {r.phones[0] && <a className="btn-primary" href={`tel:${r.phones[0]}`} data-testid="rem-call"><Phone size={16} /> {r.phones[0]}</a>}
+                {r.phones[0] && <a className="btn-primary" href={`tel:${r.phones[0]}`} data-testid="rem-call"><Phone size={16} /> {formatKhPhone(r.phones[0])}</a>}
                 <Link className="btn-secondary" to={`/bookings/new?customer=${r.customer_id}&service=${r.service_item_id}${r.unit_id ? `&unit=${r.unit_id}` : ""}`}><CalendarPlus size={16} /> {t("reminders.book")}</Link>
                 <Button onClick={() => act.mutate({ r, action: "contacted" })} data-testid="rem-contacted"><Check size={16} /> {t("reminders.act.contacted")}</Button>
                 <Button onClick={() => act.mutate({ r, action: "snoozed", until: inDays(7) })}><Clock size={16} /> 7 {t("attendance.days_short")}</Button>

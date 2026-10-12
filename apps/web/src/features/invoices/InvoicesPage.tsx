@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatUsd } from "@sms/shared";
+import { formatKhPhone, formatUsd } from "@sms/shared";
 import { Plus } from "lucide-react";
 import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -84,7 +84,7 @@ function Debts() {
             {q.data.map((r) => (
               <li key={r.customer_id} className="py-3">
                 <div className="flex justify-between gap-2">
-                  <div className="min-w-0"><div className="font-semibold break-words">{r.customer_name}</div><div className="text-xs text-muted tabular">{r.phones[0] ?? ""} · {t("invoice.n_invoices", { n: r.invoices })}</div></div>
+                  <div className="min-w-0"><div className="font-semibold break-words">{r.customer_name}</div><div className="text-xs text-muted tabular">{formatKhPhone(r.phones[0])} · {t("invoice.n_invoices", { n: r.invoices })}</div></div>
                   <div className="font-bold tabular text-danger">{formatUsd(r.total)}</div>
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1 text-xs">

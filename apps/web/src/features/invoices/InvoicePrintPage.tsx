@@ -3,7 +3,7 @@
 import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatKhr, formatUsd } from "@sms/shared";
+import { formatKhPhone, formatKhr, formatUsd } from "@sms/shared";
 import { Printer } from "lucide-react";
 import { api, fmtDate } from "@/lib/api";
 import { Button, ErrorState, Skeleton } from "@/components/ui";
@@ -45,7 +45,7 @@ export default function InvoicePrintPage() {
           </div>
         </header>
         <section className="grid sm:grid-cols-2 gap-3 my-4">
-          <div><div className="text-xs text-muted">{t("print.customer")}</div><div className="font-semibold">{d.customer_name}</div><div className="text-xs">{d.customer_phones.join(", ")}</div><div className="text-xs">{d.address ?? ""}</div></div>
+          <div><div className="text-xs text-muted">{t("print.customer")}</div><div className="font-semibold">{d.customer_name}</div><div className="text-xs">{d.customer_phones.map(formatKhPhone).join(", ")}</div><div className="text-xs">{d.address ?? ""}</div></div>
           {d.booking_number && <div><div className="text-xs text-muted">{t("print.job")}</div><div>{d.booking_number}</div><div className="text-xs break-words">{d.service_text}</div></div>}
         </section>
         <table className="w-full border-collapse">

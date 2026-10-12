@@ -11,6 +11,7 @@ import { notifyUser } from "./telegram.js";
 import { pick, type Lang } from "../lib/i18n.js";
 import { uninvoiced } from "./invoices.js";
 import { checkRange, techPerformance } from "./reports-extra.js";
+import { geoName } from "../lib/gazetteer.js";
 
 const tzOf = async (db: Db, companyId: string) => (await db<{ tz: string }[]>`select timezone as tz from companies where id = ${companyId}`)[0]?.tz ?? "Asia/Phnom_Penh";
 const localDay = (col: ReturnType<typeof sql>, tz: string) => sql`(${col} at time zone ${tz})::date`;
@@ -19,10 +20,11 @@ const localDay = (col: ReturnType<typeof sql>, tz: string) => sql`(${col} at tim
 /** issued invoices with total and paid (all payments to date) */
 const INV = (companyId: string) => sql`
   select i.id, i.number, i.status, i.opening, i.issued_at, i.voided_at, i.discount, i.discount_status, i.discount_requested, i.customer_id,
+    c.district_code, c.borey_id, bo.name as borey_name,
     coalesce(b.zone, c.zone)::text as zone, coalesce(b.category::text, 'direct') as category,
     (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = i.id) - i.discount as total,
     (select coalesce(sum(p.usd_cents), 0)::int from payments p where p.invoice_id = i.id) as paid
-  from invoices i join customers c on c.id = i.customer_id left join bookings b on b.id = i.booking_id where i.company_id = ${companyId}`;
+  from invoices i join customers c on c.id = i.customer_id left join boreys bo on bo.id = c.borey_id left join bookings b on b.id = i.booking_id where i.company_id = ${companyId}`;
 
 type Money = { total: number; invoices: number; inside: number; outside: number; by_category: Record<string, number> };
 export async function summaryData(companyId: string, from: string, to: string, finance: boolean) {
@@ -42,7 +44,8 @@ export async function summaryData(companyId: string, from: string, to: string, f
       absent: day.filter((d) => d.status === "absent").length, leave: day.filter((d) => d.status === "leave").length, out_of_range: day.filter((d) => "out_of_range" in d && d.out_of_range).length };
   }
   if (!finance) return out;
-  const inv = await sql<{ status: string; opening: boolean; issued_at: Date | null; voided_at: Date | null; zone: string; category: string; total: number; paid: number; issued_day: string | null; void_day: string | null }[]>`
+  const inv = await sql<{ status: string; opening: boolean; issued_at: Date | null; voided_at: Date | null; zone: string; category: string; total: number; paid: number; issued_day: string | null; void_day: string | null;
+    district_code: string | null; borey_id: string | null; borey_name: string | null }[]>`
     select x.*, ${localDay(sql`x.issued_at`, tz)}::text as issued_day, ${localDay(sql`x.voided_at`, tz)}::text as void_day from (${INV(companyId)}) x`;
   const inPeriod = (d: string | null) => !!d && d >= from && d <= to;
   const issued = inv.filter((i) => i.status === "issued" && !i.opening && inPeriod(i.issued_day)); // an opening debt is not revenue
@@ -57,8 +60,17 @@ export async function summaryData(companyId: string, from: string, to: string, f
   const disc = (await sql<{ n: number; total: number; over: number }[]>`select count(*)::int as n, coalesce(sum(discount), 0)::int as total, count(*) filter (where discount >= ${limit})::int as over
     from invoices where company_id = ${companyId} and discount_status = 'applied' and discount > 0 and ${inRange(sql`coalesce(discount_decided_at, discount_at, created_at)`)}`)[0]!;
   const voids = inv.filter((i) => i.status === "void" && inPeriod(i.void_day));
+  // D-137 (CEO): revenue by khan / district and by borey — from the customer's address (null = not set yet)
+  const group = <K extends string | null>(key: (i: (typeof issued)[number]) => K) => {
+    const m = new Map<K, { total: number; invoices: number }>();
+    for (const i of issued) { const g = m.get(key(i)) ?? { total: 0, invoices: 0 }; g.total += i.total; g.invoices += 1; m.set(key(i), g); }
+    return [...m.entries()].sort((a, b) => b[1].total - a[1].total);
+  };
+  const by_khan = group((i) => i.district_code).map(([code, g]) => ({ code, name_km: geoName(code, "km"), name_en: geoName(code, "en"), ...g }));
+  const names = new Map(issued.map((i) => [i.borey_id, i.borey_name]));
+  const by_borey = group((i) => i.borey_id).map(([id, g]) => ({ id, name: id ? names.get(id) ?? null : null, ...g }));
   return {
-    ...out, revenue,
+    ...out, revenue, by_khan, by_borey,
     payments: { total: pays.reduce((s, p) => s + p.cents, 0), count: pays.reduce((s, p) => s + p.n, 0), by_method, khr_riel: pays.reduce((s, p) => s + p.riel, 0) },
     new_debt: issued.reduce((s, i) => s + Math.max(0, i.total - i.paid), 0),
     debt_total: inv.filter((i) => i.status === "issued").reduce((s, i) => s + Math.max(0, i.total - i.paid), 0),

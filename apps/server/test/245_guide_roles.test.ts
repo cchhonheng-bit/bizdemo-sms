@@ -29,7 +29,7 @@ beforeAll(async () => {
   }
   mkdirSync(join(dir, "pdf")); writeFileSync(join(dir, "pdf", "engineer.pdf"), "%PDF-1.4 demo");
   const hash = await hashPassword(PW);
-  await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance) values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false)`;
+  await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance) values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false)`;
   for (const u of ["ceo", "admin", "gm01", "kim", "cfo"]) c[u] = await loginAs(app, u);
 });
 afterAll(async () => { config.guideDir = savedDir; config.shop.features = ""; await app.close(); });

@@ -1,7 +1,7 @@
 // STEP 4 Part A (D-86): A1 done-but-not-invoiced · A3 exchange rate · deposits · payment void by reversal · A2 service reminders — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
@@ -16,7 +16,7 @@ const hubSent: { path: string; body: any }[] = [];
 
 /** a job stepped to `status` (default reviewed) for `customer`, service `item`, optional materials */
 async function job(o: { customer?: string; item?: string; status?: string; units?: string[]; materials?: boolean } = {}): Promise<string> {
-  const id = (await ceo.req("POST", "/api/bookings", { customer_id: o.customer ?? cust, type: "A", category: "mep", service_text: "សេវាកម្ម", zone: "inside", scheduled_at: when(), service_item_id: o.item ?? svc, unit_ids: o.units })).json.id;
+  const id = (await ceo.req("POST", "/api/bookings", { customer_id: o.customer ?? cust, type: "A", category: "mep", service_text: "សេវាកម្ម", zone: "inside", ...span(when()), service_item_id: o.item ?? svc, unit_ids: o.units })).json.id;
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "work_done", "pending_review", "reviewed"];
   for (const st of path.slice(0, path.indexOf(o.status ?? "reviewed") + 1)) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
@@ -42,11 +42,11 @@ beforeAll(async () => {
   });
   const hash = await hashPassword(PW);
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false) returning id`)[0]!.id;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false) returning id`)[0]!.id;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo"); kim = await loginAs(app, "kim");
   await ceo.req("POST", "/api/settings/fx", { rate: 4100 });
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក រំលឹក", phones: ["012707070"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
-  cust2 = (await ceo.req("POST", "/api/customers", { name: "អ្នកស្រី ពីរ", phones: ["012808080"], zone: "outside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក រំលឹក", phones: ["012707070"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust2 = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អ្នកស្រី ពីរ", phones: ["012808080"], zone: "outside" })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុល", kind: "service", category: "mep", unit: "job", sell_price: 3000 })).json.id;
   clean = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 1500, reminder_months: 3 })).json.id;
   prod = (await ceo.req("POST", "/api/catalog", { name_km: "ហ្គាស", kind: "product", category: "mep", unit: "kg", sell_price: 1000 })).json.id;
@@ -96,7 +96,7 @@ describe("A3 exchange rate", () => {
 describe("deposit when the customer accepts a quote", () => {
   let booking: string, quote: string;
   beforeAll(async () => {
-    booking = (await admin.req("POST", "/api/bookings", { customer_id: cust2, type: "B", category: "construction", service_text: "របង", zone: "outside", scheduled_at: when() })).json.id;
+    booking = (await admin.req("POST", "/api/bookings", { customer_id: cust2, type: "B", category: "construction", service_text: "របង", zone: "outside", ...span(when()) })).json.id;
     quote = (await gm.req("POST", "/api/quotes", { booking_id: booking, lines: [{ description: "របង", kind: "service", qty: 1, unit: "job", unit_price: 50000 }] })).json.id;
   });
 
@@ -123,7 +123,7 @@ describe("deposit when the customer accepts a quote", () => {
   });
 
   it("a deposit larger than the invoice stops the issue (fix the lines or void the deposit); GM/CEO void a deposit with a reason", async () => {
-    const b2 = (await admin.req("POST", "/api/bookings", { customer_id: cust2, type: "B", category: "construction", service_text: "ទ្វារ", zone: "outside", scheduled_at: when() })).json.id;
+    const b2 = (await admin.req("POST", "/api/bookings", { customer_id: cust2, type: "B", category: "construction", service_text: "ទ្វារ", zone: "outside", ...span(when()) })).json.id;
     const q2 = (await gm.req("POST", "/api/quotes", { booking_id: b2, lines: [{ description: "ទ្វារ", kind: "service", qty: 1, unit: "job", unit_price: 2000 }] })).json.id;
     await gm.req("POST", `/api/quotes/${q2}/accept`);
     const dep = (await admin.req("POST", `/api/bookings/${b2}/deposits`, { amount: 5000, currency: "usd", method: "cash_usd" })).json.id;
@@ -215,7 +215,7 @@ describe("A2 service reminders (flag reminders)", () => {
     const r2 = (await admin.req("GET", "/api/reminders?days=14")).json as any[];
     expect(r2.find((x) => x.unit_id === unit1)).toMatchObject({ last_action: "contacted", last_note: "នឹងតេវិញ" });
     expect(r2.find((x) => x.unit_id === unit2)).toBeUndefined();
-    await ceo.req("POST", "/api/bookings", { customer_id: cust2, type: "A", category: "mep", service_text: "លាង", zone: "outside", scheduled_at: when(24), service_item_id: clean });
+    await ceo.req("POST", "/api/bookings", { customer_id: cust2, type: "A", category: "mep", service_text: "លាង", zone: "outside", ...span(when(24)), service_item_id: clean });
     expect(((await admin.req("GET", "/api/reminders?days=14")).json as any[]).find((x) => x.customer_id === cust2)).toBeUndefined();
   });
 

@@ -1,7 +1,7 @@
 // Flow 6: reports (M10/M11 · FR-1004 · FR-1101 · FR-1102 · FR-1103 · FR-1106 · FR-1202 · BR-21 · AC-13) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
 import { sendSummaries } from "../src/services/reports.js";
@@ -16,7 +16,7 @@ const today = async () => (await sql<{ d: string }[]>`select (now() at time zone
 const notes = async (user: string, kind: string) => (await sql<{ n: number }[]>`select count(*)::int as n from notifications where user_id = ${s.users[user]!} and kind = ${kind}`)[0]!.n;
 
 async function reviewedJob(customer: string, category = "mep"): Promise<string> {
-  const id = (await ceo.req("POST", "/api/bookings", { customer_id: customer, type: "A", category, service_text: "ការងារ", zone: customer === inside ? "inside" : "outside", scheduled_at: when() })).json.id;
+  const id = (await ceo.req("POST", "/api/bookings", { customer_id: customer, type: "A", category, service_text: "ការងារ", zone: customer === inside ? "inside" : "outside", ...span(when()) })).json.id;
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
   return id;
@@ -33,12 +33,12 @@ beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   const hash = await hashPassword(PW);
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, telegram_chat_id, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, 950001, false) returning id`)[0]!.id;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, 950001, false) returning id`)[0]!.id;
   await sql`update users set telegram_chat_id = 950002 where id = ${s.users.ceo!}`;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo"); kim = await loginAs(app, "kim");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
-  inside = (await ceo.req("POST", "/api/customers", { name: "បុរីប៉េងហួត បឹងស្នោ", phones: ["012100100"], zone: "inside", lat: 11.55, lng: 104.95 })).json.id;
-  outside = (await ceo.req("POST", "/api/customers", { name: "ព្រែកឯង", phones: ["012200200"], zone: "outside", lat: 11.5, lng: 105.0 })).json.id;
+  inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "បុរីប៉េងហួត បឹងស្នោ", phones: ["012100100"], zone: "inside", lat: 11.55, lng: 104.95 })).json.id;
+  outside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ព្រែកឯង", phones: ["012200200"], zone: "outside", lat: 11.5, lng: 105.0 })).json.id;
 
   // today: inside job $100 (paid $40 cash + 200,000៛ ABA = $90) · outside camera job $300 (unpaid) · direct sale $50 (paid ACLEDA)
   paidInv = await issued({ booking_id: await reviewedJob(inside) }, 10000);
@@ -52,7 +52,7 @@ beforeAll(async () => {
   discounted = (await admin.req("POST", "/api/invoices", { customer_id: inside, lines: [line(20000)] })).json.id;
   await gm.req("POST", `/api/invoices/${discounted}/discount`, { amount: 6000, note: "អតិថិជនចាស់" });
   await ceo.req("POST", `/api/invoices/${discounted}/discount/approve`);
-  cancelled = (await admin.req("POST", "/api/bookings", { customer_id: outside, type: "A", category: "decor", service_text: "x x", zone: "outside", scheduled_at: when() })).json.id;
+  cancelled = (await admin.req("POST", "/api/bookings", { customer_id: outside, type: "A", category: "decor", service_text: "x x", zone: "outside", ...span(when()) })).json.id;
   await admin.req("POST", `/api/bookings/${cancelled}/cancel`, { reason: "ភ្ញៀវលុបចោល" });
 });
 afterAll(async () => { await app.close(); });

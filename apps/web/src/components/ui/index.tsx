@@ -1,6 +1,7 @@
 import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff, X } from "lucide-react";
+import { phoneFieldText } from "@sms/shared";
 import { useToast } from "@/lib/toast";
 
 // ---------- Button ----------
@@ -54,6 +55,14 @@ export const PasswordInput = forwardRef<HTMLInputElement, Omit<InputHTMLAttribut
     );
   },
 );
+/** every phone field (CEO 12-10, D-137): Khmer digits become Latin, only digits stay (at most 10), shown 012 123 123 / 097 123 4567
+ *  while typing; the server stores +855… */
+export const PhoneInput = forwardRef<HTMLInputElement, Omit<InputHTMLAttributes<HTMLInputElement>, "type"> & { invalid?: boolean }>(
+  function PhoneInput({ invalid, className = "", onChange, ...rest }, ref) {
+    return <input ref={ref} type="tel" inputMode="numeric" autoComplete="tel-national" placeholder="012 123 123" className={`input tabular ${invalid ? "input-error" : ""} ${className}`}
+      {...rest} onChange={(e) => { const v = phoneFieldText(e.target.value); if (e.target.value !== v) e.target.value = v; onChange?.(e); }} />;
+  },
+);
 export const Select = forwardRef<HTMLSelectElement, SelectHTMLAttributes<HTMLSelectElement> & { invalid?: boolean }>(
   function Select({ invalid, className = "", children, ...rest }, ref) {
     return <select ref={ref} className={`input ${invalid ? "input-error" : ""} ${className}`} {...rest}>{children}</select>;
@@ -78,8 +87,8 @@ const BADGE: Record<string, string> = {
   grey: "bg-[#EEF0F4] text-[#4B5263]", blue: "bg-blue-50 text-blue", green: "bg-success-50 text-success",
   warning: "bg-warning-50 text-warning", danger: "bg-danger-50 text-danger", purple: "bg-purple-50 text-purple", navy: "bg-[#E6EDFD] text-navy",
 };
-export function Badge({ tone = "grey", children }: { tone?: keyof typeof BADGE; children: ReactNode }) {
-  return <span className={`badge ${BADGE[tone]}`}>{children}</span>;
+export function Badge({ tone = "grey", children, "data-testid": testId }: { tone?: keyof typeof BADGE; children: ReactNode; "data-testid"?: string }) {
+  return <span className={`badge ${BADGE[tone]}`} data-testid={testId}>{children}</span>;
 }
 
 // ---------- ActionBar (sticky primary actions on phones) ----------

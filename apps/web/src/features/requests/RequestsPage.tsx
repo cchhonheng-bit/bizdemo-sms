@@ -12,7 +12,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, MapPin, Phone, Plus, X } from "lucide-react";
 import { api, errCode, fmtDate, type ServiceRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Dialog, Empty, ErrorState, Field, Input, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
+import { formatKhPhone } from "@sms/shared";
 import { toast } from "@/lib/toast";
 import { CrewList } from "@/features/bookings/CrewPicker";
 import { crewOf, useCrewAvailability } from "@/features/bookings/crew";
@@ -76,7 +77,7 @@ export default function RequestsPage() {
                 {r.customer_id && <Badge tone="green">{r.customer_name && r.customer_name !== r.name ? r.customer_name : t("requests.known")}</Badge>}
                 <span className="text-xs text-muted ml-auto whitespace-nowrap">{when(r.created_at)}</span>
               </div>
-              {r.phone && <div className="text-sm tabular">{r.phone}</div>}
+              {r.phone && <div className="text-sm tabular">{formatKhPhone(r.phone)}</div>}
               {r.booking_id && r.booking_number && <Link className="text-sm text-blue underline" to={`/bookings/${r.booking_id}`}>{r.booking_number}</Link>}
               <p className="text-sm whitespace-pre-line break-words mt-1">{r.text}</p>
               {where(r) && <a className="text-sm text-blue underline inline-flex items-center gap-1 mt-1" href={where(r)!.url} target="_blank" rel="noreferrer" data-testid="req-map"><MapPin size={14} /> {t("requests.map")}{where(r)!.acc != null ? ` (${t("requests.accuracy", { m: Math.round(where(r)!.acc!) })})` : ""}</a>}
@@ -126,10 +127,12 @@ function ConfirmBookingDialog({ r, onClose }: { r: ServiceRequest; onClose: () =
   const m = Number(mins), minutesOk = Number.isInteger(m) && m >= 15 && m <= 1440;
   const from = r.booking_at, to = from && minutesOk ? new Date(new Date(from).getTime() + m * 60_000).toISOString() : null;
   const windowOk = !!from && !isPastLocal(from);
-  const { q, people, free } = useCrewAvailability(from, to, r.booking_id ?? undefined);
+  const { q, people, free, vehicles } = useCrewAvailability(from, to, r.booking_id ?? undefined);
+  const [vehicle, setVehicle] = useState(""); // D-137: the vehicle is chosen here, with the crew
+  const freeVehicles = vehicles.filter((v) => v.available);
   const { crew, lead: leadOk } = crewOf(free, team, lead);
   const save = useMutation({
-    mutationFn: () => api.requests.confirm(r.id, { ...(minutesOk && m !== lengthOf(r) ? { minutes: m } : {}), lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk) }),
+    mutationFn: () => api.requests.confirm(r.id, { ...(minutesOk && m !== lengthOf(r) ? { minutes: m } : {}), lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null }),
     onSuccess: () => { toast.success(t("requests.ok.confirm")); void qc.invalidateQueries({ queryKey: ["requests"] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); onClose(); },
     onError: (e) => { toast.error(t(`requests.err.${errCode(e)}`, { defaultValue: t("app.error") })); void q.refetch(); },
   });
@@ -139,7 +142,7 @@ function ConfirmBookingDialog({ r, onClose }: { r: ServiceRequest; onClose: () =
       <Button variant="primary" className="flex-1 sm:flex-none" loading={save.isPending} disabled={!windowOk || !minutesOk || crew.length === 0} onClick={() => save.mutate()} data-testid="req-confirm-go"><Check size={16} /> {t("requests.confirm_assign")} ({crew.length})</Button>
     </>}>
       <div className="card bg-grey-bg p-3 mb-3 text-sm" data-testid="req-confirm-when">
-        <div className="font-semibold break-words">{r.name ?? r.customer_name ?? "—"}{r.phone ? ` · ${r.phone}` : ""}</div>
+        <div className="font-semibold break-words">{r.name ?? r.customer_name ?? "—"}{r.phone ? ` · ${formatKhPhone(r.phone)}` : ""}</div>
         <div className="font-bold tabular text-base">{from ? `${fmtDate(from)} · ${timeRange(from, to)}` : "—"}</div>
         <p className="whitespace-pre-line break-words mt-1">{r.text}</p>
       </div>
@@ -150,6 +153,13 @@ function ConfirmBookingDialog({ r, onClose }: { r: ServiceRequest; onClose: () =
         {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p>
           : <CrewList people={people} loading={q.isLoading && !q.data} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} />}
       </Field>
+      {windowOk && vehicles.length > 0 && (
+        <Field label={t("booking.vehicle")} hint={freeVehicles.length < vehicles.length ? t("booking.vehicles_busy_hidden") : undefined}>
+          <Select name="vehicle" value={vehicle} onChange={(e) => setVehicle(e.target.value)} data-testid="req-vehicle">
+            <option value="">—</option>{freeVehicles.map((v) => <option key={v.id} value={v.id}>{v.code}{v.plate ? ` · ${v.plate}` : ""}</option>)}
+          </Select>
+        </Field>
+      )}
       <p className="text-xs text-muted">{t("requests.confirm_hint")}</p>
     </Dialog>
   );

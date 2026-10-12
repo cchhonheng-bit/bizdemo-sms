@@ -3,7 +3,7 @@
 // more than 3 days back), never a future one — revenue and the journal entry take that date.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
@@ -18,10 +18,10 @@ beforeAll(async () => {
   config.shop.features = "accounting,inventory";
   const hash = await hashPassword(PW);
   await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false)`;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false)`;
   ceo = await loginAs(app, "ceo"); cfo = await loginAs(app, "cfo"); admin = await loginAs(app, "admin");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
-  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន ថ្ងៃមុន", phones: ["012636363"], zone: "inside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ថ្ងៃមុន", phones: ["012636363"], zone: "inside" })).json.id;
   const pp = "(now() at time zone 'Asia/Phnom_Penh')::date";
   today = await day(pp); prevFirst = await day(`date_trunc('month', ${pp}) - interval '1 month'`); lockDay = await day(`date_trunc('month', ${pp}) - interval '1 month' - interval '1 day'`);
 });

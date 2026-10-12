@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { createHmac, randomBytes } from "node:crypto";
 import { CONSENT_VERSION, consentText, CUSTOMER_MENU, customerText } from "@sms/shared";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { resetRateLimits } from "../src/lib/rate-limit.js";
@@ -225,9 +225,9 @@ describe("shop bot routing (T3)", () => {
 
 describe("shop → hub send (D-51 + T7: key, chat allowlist, own bot)", () => {
   it("booking confirmed goes out through the hub, via One Team's own bot, to allow-listed chats only", async () => {
-    const cust = (await ceo.req("POST", "/api/customers", { name: "Hub Customer", phones: ["012777777"], zone: "inside", lat: 11.5, lng: 104.9 })).json.id;
+    const cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "Hub Customer", phones: ["012777777"], zone: "inside", lat: 11.5, lng: 104.9 })).json.id;
     const when = new Date(Date.now() + 3 * 86400_000).toISOString();
-    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC", zone: "inside", scheduled_at: when })).json.id;
+    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC", zone: "inside", ...span(when) })).json.id;
     sent = [];
     expect((await gm.req("POST", `/api/bookings/${bk}/assign`, { scheduled_at: when, lead: s.users.kim, assistants: [] })).status).toBe(200);
     for (let i = 0; i < 40; i++) {
@@ -530,7 +530,7 @@ describe("I1 Telegram inline menus", () => {
     expect(lastText(830001)).toBe(customerText.askContact);
     await privateMsg(830001, "", { contact: { phone_number: "+85512919192", first_name: "Someone", user_id: 999999 } }); // a card of somebody else
     expect(lastText(830001)).toBe(customerText.ownContact);
-    expect((await sql`select 1 from customers where '012919192' = any(phones)`).length).toBe(0);
+    expect((await sql`select 1 from customers where '+85512919192' = any(phones)`).length).toBe(0);
     sent = [];
     await privateMsg(830001, "", { contact: { phone_number: "+855 12 919 192", first_name: "Dara", user_id: 830001 } });
     const linked = sent.find((x) => x.method === "sendMessage" && /^✅ ភ្ជាប់រួចរាល់/.test(String(x.payload.text)))!;
@@ -540,7 +540,7 @@ describe("I1 Telegram inline menus", () => {
     expect(hint.payload.disable_notification).toBe(true);
     expect(sent.some((x) => x.method === "setChatMenuButton" && x.payload.chat_id === 830001 && x.payload.menu_button.web_app.url === "https://hub.test/my")).toBe(true); // D-121: the customer home
     expect((await sql`select text from hub_message_log where chat_id = 830001 and kind like 'contact.linked%'`).every((x) => x.text === null)).toBe(true); // the password is never kept here
-    expect((await sql`select name, origin from customers where '012919192' = any(phones)`)[0]).toMatchObject({ name: "Dara", origin: "telegram" });
+    expect((await sql`select name, origin from customers where '+85512919192' = any(phones)`)[0]).toMatchObject({ name: "Dara", origin: "telegram" });
     // 🔕: the choices for the state the person is in
     await privateMsg(830001, CUSTOMER_MENU.stop);
     expect(lastText(830001)).toBe(customerText.stopAsk);
@@ -598,7 +598,7 @@ describe("I1 Telegram inline menus", () => {
 
   it("security: a technician cannot open another technician's job; a non-staff chat never gets staff data; bad callback data does nothing", async () => {
     const custId = (await ceo.req("GET", "/api/customers")).json[0].id;
-    const other = (await ceo.req("POST", "/api/bookings", { customer_id: custId, type: "A", category: "mep", service_text: "secret job", zone: "inside", scheduled_at: new Date(Date.now() + 5 * 86400_000).toISOString() })).json.id;
+    const other = (await ceo.req("POST", "/api/bookings", { customer_id: custId, type: "A", category: "mep", service_text: "secret job", zone: "inside", ...span(new Date(Date.now() + 5 * 86400_000).toISOString()) })).json.id;
     await cb(700001, `v:job:${other}`);
     expect(lastEdit(700001)!.payload.text).not.toContain("secret job");
     sent = [];
@@ -703,7 +703,7 @@ describe("FR-902 attendance by Telegram location (Flow 7c)", () => {
 describe("A2 customer's own subscribe link + service reminders through the hub (D-86)", () => {
   it("s_<code> → consent → the shop links that customer; the hub delivers a reminder only while the service subscription is active", async () => {
     config.shop.features = "subscribe,reminders";
-    const custId = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន Telegram", phones: ["012919191"], zone: "inside" })).json.id;
+    const custId = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន Telegram", phones: ["012919191"], zone: "inside" })).json.id;
     const l = (await admin.req("POST", `/api/customers/${custId}/tg-link`)).json;
     expect(l.link).toMatch(/^https:\/\/t\.me\/Oneteam_app_bot\?start=s_[A-HJ-NP-Z2-9]{8}$/);
     const code = l.link.split("s_")[1];

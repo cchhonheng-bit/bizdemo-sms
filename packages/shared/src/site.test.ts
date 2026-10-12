@@ -1,15 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { consentText, CONSENT_VERSION } from "./legal";
 import { customerText, NIGHT_CONFIRM } from "./customer-text";
-import { customerLockFor, fromPriceText, isNight, kmDigits, normalizeKhPhone, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT,
+import { normalizeKhPhone } from "./phone";
+import { customerLockFor, fromPriceText, isNight, kmDigits, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT,
   workingMinutes } from "./site";
 
 describe("public website helpers (D-96…)", () => {
-  it("phone: national, with 0, with +855 → one form; garbage → null", () => {
-    expect(normalizeKhPhone("12 345 678")).toBe("012345678");
-    expect(normalizeKhPhone("012345678")).toBe("012345678");
-    expect(normalizeKhPhone("+855 12 345 678")).toBe("012345678");
-    expect(normalizeKhPhone("85 512 345")).toBe("085512345"); // a national number that happens to start with 855
+  it("phone: national, with 0, with +855 → one form (+855…, D-137); garbage → null", () => {
+    expect(normalizeKhPhone("12 345 678")).toBe("+85512345678");
+    expect(normalizeKhPhone("012345678")).toBe("+85512345678");
+    expect(normalizeKhPhone("+855 12 345 678")).toBe("+85512345678");
+    expect(normalizeKhPhone("85 512 345")).toBe("+85585512345"); // a national number that happens to start with 855
     expect(normalizeKhPhone("12 34")).toBeNull();
     expect(normalizeKhPhone("abc")).toBeNull();
   });

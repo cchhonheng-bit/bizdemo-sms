@@ -3,7 +3,7 @@
 // Shop side through the internal API (the hub only forwards); the hub side (keyboard markup, HMAC verify) is in 40_hub_telegram.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { setHubTransport } from "../src/services/hub-client.js";
@@ -33,12 +33,12 @@ beforeAll(async () => {
   for (const [u, c] of [["kim", CHAT.kim], ["dara", CHAT.dara], ["gm01", CHAT.gm], ["admin", CHAT.admin], ["ceo", CHAT.ceo]] as const)
     await sql`update users set telegram_chat_id = ${c}, telegram_user_id = ${c} where id = ${s.users[u]!}`;
   await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, telegram_chat_id, telegram_user_id, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', 'x', false, ${CHAT.cfo}, ${CHAT.cfo}, false)`;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', 'x', false, ${CHAT.cfo}, ${CHAT.cfo}, false)`;
   await ceo.req("PATCH", "/api/settings/company", { office_lat: 11.5564, office_lng: 104.9282, geofence_m: 100, company_info: { name_km: "One Team", phone: "012 345 678", address: "ផ្លូវ 271" } });
-  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន Bot", phones: ["012777888"], zone: "inside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន Bot", phones: ["012777888"], zone: "inside" })).json.id;
   await sql`update customers set tg_subscriber_id = 55 where id = ${cust}`;
   const at = new Date(); at.setUTCHours(3, 0, 0, 0); if (at.getTime() < Date.now()) at.setUTCDate(at.getUTCDate() + 1);
-  kimJob = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", scheduled_at: at.toISOString() })).json.id;
+  kimJob = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(at.toISOString()) })).json.id;
   expect((await gm.req("POST", `/api/bookings/${kimJob}/assign`, { lead: s.users.kim, assistants: [s.users.dara] })).status).toBe(200);
   // today 10:00 shop time (whatever the clock says when the suite runs) and a work group that is told about job steps
   await sql`update bookings set scheduled_at = x.t, ends_at = x.t + interval '2 hours' from (select (date_trunc('day', now() at time zone 'Asia/Phnom_Penh') + interval '10 hours') at time zone 'Asia/Phnom_Penh' as t) x where id = ${kimJob}`;
@@ -99,7 +99,7 @@ describe("technician actions", () => {
     expect((await sql`select count(*)::int as n from telegram_outbox where text like '%' || (select number from bookings where id = ${kimJob}) || '%'`)[0]!.n).toBeGreaterThan(0);
   });
   it("another technician cannot step a job they are not on; location without a pending step = attendance", async () => {
-    const other = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", scheduled_at: new Date(Date.now() + 2 * 86400_000).toISOString() })).json.id;
+    const other = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", ...span(new Date(Date.now() + 2 * 86400_000).toISOString()) })).json.id;
     await gm.req("POST", `/api/bookings/${other}/assign`, { lead: s.users.dara, assistants: [] });
     expect((await internal("tg-menu", { chat_id: CHAT.kim, view: "step", id: other, arg: "depart" })).json().menu.text).toMatch(/❌/);
     const loc = (await internal("tg-location", { chat_id: CHAT.dara, tg_user: CHAT.dara, lat: 11.5564, lng: 104.9282, accuracy: 5, sent_at: Math.floor(Date.now() / 1000) })).json();

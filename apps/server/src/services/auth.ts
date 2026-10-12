@@ -1,6 +1,7 @@
 // Login / sessions (rule 6.2, 6.3): argon2id, session cookie backed by the `sessions` table,
 // rate limit 5/min/IP + 10/h/identifier, identical error for every failure (no enumeration).
 import { createHash, randomBytes } from "node:crypto";
+import { normalizeKhPhone } from "@sms/shared";
 import { sql } from "../db.js";
 import { config } from "../config.js";
 import { AppError } from "../lib/errors.js";
@@ -24,7 +25,7 @@ export async function login(identifier: string, password: string, companySlug: s
   const rows = await sql<{ id: string; company_id: string; password_hash: string; is_active: boolean; company_active: boolean; must_change_password: boolean; temp_password_expires_at: Date | null; test_password_hash: string | null }[]>`
     select u.id, u.company_id, u.password_hash, u.is_active, c.is_active as company_active, u.must_change_password, u.temp_password_expires_at, u.test_password_hash
     from users u join companies c on c.id = u.company_id
-    where (u.phone = ${id} or lower(u.email) = ${id.toLowerCase()}
+    where (u.phone = ${normalizeKhPhone(id) ?? id} or lower(u.email) = ${id.toLowerCase()}
            or (u.username = ${id.toLowerCase()} and (${companySlug ?? null}::text is null or c.slug = ${companySlug ?? null})))
     limit 2`;
   let hit: (typeof rows)[number] | null = null;

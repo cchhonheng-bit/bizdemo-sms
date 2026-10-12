@@ -17,3 +17,5 @@ mkdirSync("dist/brand", { recursive: true });
 cpSync("brand", "dist/brand", { recursive: true });
 mkdirSync("dist/pub", { recursive: true });
 cpSync("pub", "dist/pub", { recursive: true });
+mkdirSync("dist/data", { recursive: true }); // D-137: the gazetteer (lib/gazetteer.ts reads it next to the bundle)
+cpSync("src/data", "dist/data", { recursive: true });

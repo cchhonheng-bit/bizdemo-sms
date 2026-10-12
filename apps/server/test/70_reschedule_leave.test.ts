@@ -1,7 +1,7 @@
 // Owner decisions D2 (reschedule with requester + history + notice) and D3 (leave / absence hides technicians) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { endOf, loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { consumeLinkCode } from "../src/services/telegram.js";
 
@@ -15,14 +15,17 @@ function at(d: number, hh: number, mm = 0): string {
 }
 const day = (d: number) => at(d, 12).slice(0, 10); // YYYY-MM-DD of that local day (noon is safe)
 const mk = async (c: Client, extra: Record<string, unknown> = {}) =>
-  c.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...extra });
+  c.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside",
+    // D-137: the staff write the end themselves — 2 h here unless the test gives one (noEnd: none at all)
+    ...(typeof extra.scheduled_at === "string" && !("ends_at" in extra) && !extra.noEnd ? { ends_at: endOf(extra.scheduled_at) } : {}),
+    ...Object.fromEntries(Object.entries(extra).filter(([k]) => k !== "noEnd")) });
 const assign = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/assign`, { assistants: [], ...body });
 const resched = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/reschedule`, body);
 
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); dara = await loginAs(app, "dara");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក សុខា", phones: ["012345678"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
   v1 = (await ceo.req("GET", "/api/settings/vehicles")).json[0].id;
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100888" });
   const code = (await kim.req("POST", "/api/telegram/link-code")).json.code;

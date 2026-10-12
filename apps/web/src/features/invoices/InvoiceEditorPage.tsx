@@ -1,6 +1,7 @@
 // Invoice editor (Flow 4 · FR-801/802): /invoices/new?booking=<id> (lines prefilled from the reviewed job or the accepted quote),
 // /invoices/new (direct sale: pick a customer) and /invoices/:id/edit (draft only). Prices by Admin / CEO (BR-10); no discount here (AC-05).
 import { useEffect, useMemo, useState } from "react";
+import { formatKhPhone, matchesSearch } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,7 +35,7 @@ export default function InvoiceEditorPage() {
   const matches = useMemo(() => {
     const s = q.trim().toLowerCase();
     if (!s) return [];
-    return (customers.data ?? []).filter((c) => c.is_active && (c.name.toLowerCase().includes(s) || c.phones.some((p) => p.includes(s)))).slice(0, 8);
+    return (customers.data ?? []).filter((c) => c.is_active && matchesSearch(s, [c.name, c.address], c.phones)).slice(0, 8);
   }, [customers.data, q]);
 
   const fx = Number(existing.data?.fx_rate_khr ?? settings.data?.fx_rate_khr ?? 4100);
@@ -66,7 +67,7 @@ export default function InvoiceEditorPage() {
         <Card title={t("booking.customer")}>
           {cust ? (
             <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0"><div className="font-semibold break-words">{cust.name}</div><div className="text-sm text-muted tabular">{cust.phones.join(", ") || "—"}</div></div>
+              <div className="min-w-0"><div className="font-semibold break-words">{cust.name}</div><div className="text-sm text-muted tabular">{cust.phones.map(formatKhPhone).join(", ") || "—"}</div></div>
               <Button type="button" onClick={() => setCust(null)}>{t("booking.change_customer")}</Button>
             </div>
           ) : (
@@ -76,7 +77,7 @@ export default function InvoiceEditorPage() {
               {matches.length > 0 && (
                 <ul className="mt-1 card divide-y divide-grey-line max-h-72 overflow-auto overscroll-contain" role="listbox">
                   {matches.map((c) => <li key={c.id}><button type="button" className="w-full text-left px-3 py-3 min-h-[44px] hover:bg-grey-bg" onClick={() => { setCust(c); setQ(""); }}>
-                    <span className="font-semibold">{c.name}</span> <span className="text-sm text-muted tabular">{c.phones[0] ?? ""}</span></button></li>)}
+                    <span className="font-semibold">{c.name}</span> <span className="text-sm text-muted tabular">{formatKhPhone(c.phones[0])}</span></button></li>)}
                 </ul>
               )}
               {q && matches.length === 0 && !customers.isLoading && <p className="text-sm text-muted mt-2">{t("booking.customer_none")}</p>}

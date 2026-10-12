@@ -15,7 +15,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, customerText, NIGHT_CONFIRM, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
-import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { clock } from "../src/lib/clock.js";
@@ -62,7 +62,7 @@ const book = (at: string, over: Record<string, unknown> = {}) => pub("POST", "/a
 const quote = (over: Record<string, unknown> = {}) => pub("POST", "/api/public/quotes",
   { category: "construction", description: "ចង់ធ្វើពិដានបន្ទប់ទទួលភ្ញៀវ 4×5 ម៉ែត្រ", photos: [], name: "ចាន់ ថា", phone: "+855 11 222 333", location: "សង្កាត់ទួលគោក", consent: true, ts: oldToken(), ...over });
 async function staffJob(at: string, crew: string[] = [], customer = custK): Promise<string> {
-  const r = await admin.req("POST", "/api/bookings", { customer_id: customer, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", scheduled_at: at });
+  const r = await admin.req("POST", "/api/bookings", { customer_id: customer, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(at) });
   expect(r.status).toBe(200);
   if (crew.length) expect((await gm.req("POST", `/api/bookings/${r.json.id}/assign`, { lead: crew[0], assistants: crew.slice(1) })).status).toBe(200);
   return r.json.id;
@@ -136,7 +136,7 @@ beforeAll(async () => {
   });
   resetBotCache();
   app = await makeApp();
-  await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password) values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${await hashPassword(PW)}, false)`;
+  await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password) values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${await hashPassword(PW)}, false)`;
   await sql`update users set is_active = false where username = 'newbie'`; // two technicians work: Kim and Dara
   await sql`update users set telegram_chat_id = ${CHAT.admin}, telegram_user_id = ${CHAT.admin} where id = ${s.users.admin!}`;
   await sql`update users set telegram_chat_id = ${CHAT.gm}, telegram_user_id = ${CHAT.gm} where id = ${s.users.gm01!}`;
@@ -150,8 +150,8 @@ beforeAll(async () => {
   await ceo.req("POST", `/api/catalog/${ID.OFF}/active`, { active: false });
   ID.HIDDEN = (await ceo.req("POST", "/api/catalog", { name_km: "សេវាខាងក្នុង", kind: "service", category: "mep", unit: "unit", sell_price: 100, web_category: "ac", show_on_website: false })).json.id;
   await ceoB.req("POST", "/api/catalog", { name_km: "សេវារបស់ក្រុមហ៊ុន B", kind: "service", category: "mep", unit: "unit", sell_price: 100, web_category: "ac", from_price: 500 });
-  custK = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន ចាស់", phones: ["012777888"], zone: "inside" })).json.id;
-  custB = (await ceo.req("POST", "/api/customers", { name: "បុប្ផា", phones: ["012666555"], zone: "inside" })).json.id;
+  custK = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ចាស់", phones: ["012777888"], zone: "inside" })).json.id;
+  custB = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "បុប្ផា", phones: ["012666555"], zone: "inside" })).json.id;
   await sql`update customers set tg_subscriber_id = ${SUB.b} where id = ${custB}`;
   expect((await ceo.req("PATCH", "/api/settings/company", { work_days: [1, 2, 3, 4, 5, 6, 7] })).status).toBe(200); // every day is a working day in these tests
 });
@@ -484,9 +484,10 @@ describe("Admin / GM: confirm = confirmed + assigned (the job length may change 
     expect(await bookingOf(ref1)).toMatchObject({ status: "new", web_status: "pending" });
     expect((await sql`select count(*)::int as n from booking_technicians where booking_id = ${bk1}`)[0]!.n).toBe(0);
     hubCalls.length = 0;
-    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 300, lead: s.users.kim, assistants: [] })).status).toBe(200);
+    const van = (await sql<{ id: string }[]>`select id from vehicles where company_id = ${s.a} and code = '01'`)[0]!.id; // D-137: the vehicle is chosen with the crew
+    expect((await admin.req("POST", `/api/requests/${rq.id}/confirm`, { minutes: 300, lead: s.users.kim, assistants: [], vehicle_id: van })).status).toBe(200);
     const b = await bookingOf(ref1);
-    expect(b).toMatchObject({ status: "assigned", web_status: "confirmed", web_decided_by: s.users.admin });
+    expect(b).toMatchObject({ status: "assigned", web_status: "confirmed", web_decided_by: s.users.admin, vehicle_id: van });
     expect(new Date(b.ends_at).getTime() - new Date(b.scheduled_at).getTime()).toBe(300 * 60_000);
     expect([...(await sql`select user_id, role from booking_technicians where booking_id = ${bk1}`)]).toEqual([{ user_id: s.users.kim, role: "lead" }]);
     expect((await sql`select 1 from notifications where user_id = ${s.users.kim!} and kind = 'booking.assigned' and link = ${"/tech/job/" + bk1}`).length).toBe(1);
@@ -811,7 +812,7 @@ describe("the customer bot: the keyboard grid — each button; share my phone; a
     const x = (await internal("tg-contact", { subscriber_id: 91, tg_user: 9101, phone: "+855 97 555 1111", first_name: "Vanna" })).json();
     expect(x.ok).toBe(true); expect(x.text).toMatch(/^✅ ភ្ជាប់រួចរាល់\n🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/); expect(x.hint).toBe(customerText.hint);
     expect((await sql`select name, phones, origin, consent_source, tg_subscriber_id::text as sub from customers where tg_subscriber_id = 91`)[0]).toMatchObject({ name: "Vanna", phones: ["0975551111"], origin: "telegram", consent_source: "bot", sub: "91" });
-    const t = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន ហាង", phones: ["012454545"], zone: "inside" })).json.id;
+    const t = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ហាង", phones: ["012454545"], zone: "inside" })).json.id;
     const y = (await internal("tg-contact", { subscriber_id: 92, tg_user: 9201, phone: "85512454545", first_name: "X" })).json();
     expect(pwIn(y.text)).toMatch(/^\d{4}$/);
     expect((await sql`select tg_subscriber_id::text as sub, name from customers where id = ${t}`)[0]).toMatchObject({ sub: "92", name: "អតិថិជន ហាង" });
@@ -993,7 +994,7 @@ describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, h
     expect((await ceo.req("GET", "/api/settings/test-phones")).json.phones).toEqual([TEST_PHONE]);
     expect((await sql`select new_data from audit_log where action = 'settings.test_phones' order by at desc limit 1`)[0]!.new_data).toEqual({ phones: [TEST_PHONE] });
     expect("test_phones" in (await admin.req("GET", "/api/settings/company")).json).toBe(false);
-    realT = (await ceo.req("POST", "/api/customers", { name: "ម្ចាស់លេខពិត", phones: [TEST_PHONE], zone: "inside" })).json.id; // a real customer with the same number
+    realT = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ម្ចាស់លេខពិត", phones: [TEST_PHONE], zone: "inside" })).json.id; // a real customer with the same number
   });
 
   it("a booking from a test phone: its own test customer (the real one untouched), only the CEO is told (🧪), no technician held, no daily phone limit", async () => {

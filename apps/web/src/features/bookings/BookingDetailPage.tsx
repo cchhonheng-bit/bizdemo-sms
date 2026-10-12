@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ASSIGNABLE_STATUSES, CANCELLABLE_STATUSES, EDITABLE_STATUSES, RESCHEDULE_REQUESTERS } from "@sms/shared";
+import { ASSIGNABLE_STATUSES, CANCELLABLE_STATUSES, EDITABLE_STATUSES, formatKhPhone, RESCHEDULE_REQUESTERS } from "@sms/shared";
 import { ArrowLeft, Ban, CalendarClock, Pencil, Phone, UserPlus } from "lucide-react";
 import { api, errCode, fmtDate, fmtDateTime, type Booking, type Conflict } from "@/lib/api";
 import { ApiError } from "@/lib/http";
@@ -71,7 +71,7 @@ export default function BookingDetailPage() {
           <Card title={t("booking.customer")}>
             <div className="font-semibold text-base break-words">{bk.customer_name}</div>
             <div className="flex flex-wrap gap-2 mt-2">
-              {bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary !h-11"><Phone size={16} /> {p}</a>)}
+              {bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary !h-11"><Phone size={16} /> {formatKhPhone(p)}</a>)}
             </div>
             <div className="text-sm mt-2 break-words">{bk.address ?? "—"} <Badge tone={bk.zone === "inside" ? "green" : "grey"}>{t(`zone.${bk.zone}`)}</Badge></div>
             <div className="mt-3 flex gap-2 items-center"><DirectionLink lat={bk.lat} lng={bk.lng} />{bk.lat == null && <span className="text-sm text-muted">{t("booking.location_none")}</span>}</div>

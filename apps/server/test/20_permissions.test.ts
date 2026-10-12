@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, gm: Client, admin: Client, kim: Client, ceoB: Client;
@@ -9,8 +9,8 @@ let custA: string;
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); ceoB = await loginAs(app, "ceo_b");
-  custA = (await ceo.req("POST", "/api/customers", { name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
-  await ceoB.req("POST", "/api/customers", { name: "Customer B", phones: ["098000000"], zone: "outside" });
+  custA = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  await ceoB.req("POST", "/api/customers", { ...PLACE, name: "Customer B", phones: ["098000000"], zone: "outside" });
 });
 afterAll(async () => { await app.close(); });
 
@@ -24,7 +24,7 @@ describe("permissions in the API (rule 5)", () => {
   it("company isolation: B never sees A's customers, bookings, users, settings — even by id", async () => {
     expect((await ceoB.req("GET", "/api/customers")).json.map((c: any) => c.name)).toEqual(["Customer B"]);
     expect((await ceo.req("GET", "/api/customers")).json.map((c: any) => c.name)).toEqual(["លោក សុខា"]);
-    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: custA, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", scheduled_at: new Date(Date.now() + 3 * 86400_000).toISOString() })).json;
+    const bk = (await ceo.req("POST", "/api/bookings", { customer_id: custA, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(new Date(Date.now() + 3 * 86400_000).toISOString()) })).json;
     expect((await ceoB.req("GET", `/api/bookings/${bk.id}`)).status).toBe(404);
     expect((await ceoB.req("GET", "/api/bookings")).json).toEqual([]);
     expect((await ceoB.req("PATCH", `/api/bookings/${bk.id}`, { notes: "x" })).status).toBe(404);

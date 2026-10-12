@@ -45,7 +45,8 @@ function Row({ label, value, strong, tone }: { label: string; value: string | nu
 }
 
 function Summary({ range }: { range: Range }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const en = i18n.language === "en";
   const q = useQuery({ queryKey: ["report-summary", ...range], queryFn: () => api.reports.summary(range[0], range[1]), enabled: range[0] <= range[1] });
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <ErrorState text={t(`reports.err.${errCode(q.error)}`, { defaultValue: t("app.error") })} onRetry={() => void q.refetch()} />;
@@ -63,6 +64,19 @@ function Summary({ range }: { range: Range }) {
             <Row label={t("reports.outside")} value={formatUsd(s.revenue.outside)} />
             <div className="border-t border-grey-line my-1" />
             {Object.entries(s.revenue.by_category).map(([k, v]) => <Row key={k} label={t(k === "direct" ? "invoice.new_direct" : `category.${k}`)} value={formatUsd(v)} />)}
+          </Card>
+          {/* D-137 (CEO): revenue by the customer's khan / district and by borey */}
+          <Card title={t("reports.by_khan")}>
+            <div data-testid="rev-by-khan">
+              {(s.by_khan ?? []).length === 0 ? <p className="text-sm text-muted">{t("app.empty")}</p>
+                : (s.by_khan ?? []).map((g) => <Row key={g.code ?? "none"} label={`${(en ? g.name_en : g.name_km) ?? t("reports.area_not_set")} · ${t("invoice.n_invoices", { n: g.invoices })}`} value={formatUsd(g.total)} />)}
+            </div>
+          </Card>
+          <Card title={t("reports.by_borey")}>
+            <div data-testid="rev-by-borey">
+              {(s.by_borey ?? []).length === 0 ? <p className="text-sm text-muted">{t("app.empty")}</p>
+                : (s.by_borey ?? []).map((g) => <Row key={g.id ?? "none"} label={`${g.name ?? t("reports.no_borey")} · ${t("invoice.n_invoices", { n: g.invoices })}`} value={formatUsd(g.total)} />)}
+            </div>
           </Card>
           <Card title={t("reports.received")}>
             {(["cash_usd", "cash_khr", "aba", "acleda"] as const).map((m) => <Row key={m} label={t(`invoice.method.${m}`)} value={formatUsd(s.payments!.by_method[m] ?? 0)} />)}

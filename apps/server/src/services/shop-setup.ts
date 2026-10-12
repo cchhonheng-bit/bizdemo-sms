@@ -10,7 +10,7 @@
 // new password before anything else) and new test accounts that start on it; the password is read from STDIN, never printed.
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
-import { CATALOG_CODE_RE, createUserSchema, normalizeKhPhone, usernameSchema, type CatalogItemInput } from "@sms/shared";
+import { CATALOG_CODE_RE, createUserSchema, khPhoneLocal, normalizeKhPhone, usernameSchema, type CatalogItemInput } from "@sms/shared";
 import { sql } from "../db.js";
 import { hashPassword } from "../lib/password.js";
 import type { SessionUser } from "./auth.js";
@@ -172,7 +172,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
     const p = normalizeKhPhone(raw);
     const m = p ? await sql<{ id: string; name: string; is_test: boolean }[]>`select id, name, is_test from customers where company_id = ${c.id} and ${p} = any(phones)` : [];
     if (m.length !== 1) throw new Error(`test customer ${raw}: ${m.length} customers have this phone`);
-    out.push(`customer ${p} (${m[0]!.name}): test ${m[0]!.is_test ? "same" : "no → yes"}`);
+    out.push(`customer ${khPhoneLocal(p!)} (${m[0]!.name}): test ${m[0]!.is_test ? "same" : "no → yes"}`);
     if (!m[0]!.is_test) tests.customers.push(m[0]!.id);
   }
   for (const n of input.test?.bookings ?? []) {

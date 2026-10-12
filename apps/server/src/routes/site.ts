@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { isAllowedMapsHost, isNight, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
+import { formatKhPhone, isAllowedMapsHost, isNight, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { clock } from "../lib/clock.js";
@@ -54,7 +54,7 @@ const linesOf = (req: FastifyRequest) => {
 /** the customer record linked to a Telegram subscriber: name + phone for the booking form */
 async function customerOf(companyId: string, subscriberId: number): Promise<Prefill | null> {
   const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active order by created_at limit 1`)[0];
-  return c ? { name: c.name, phone: c.phone ?? "" } : null;
+  return c ? { name: c.name, phone: formatKhPhone(c.phone) } : null;
 }
 /** a signed-in customer: name and phone are filled in, and the booking is linked at once (signed = there is a customer session) */
 async function prefillOf(req: FastifyRequest): Promise<{ prefill: Prefill | null; signed: boolean }> {
@@ -293,7 +293,7 @@ export const requestsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/done", guard, async (req) => markRequestDone(req.user!, req.ip, id(req)));
   /** confirm = confirmed + assigned + technicians told (CEO 04-10); the job length may change here too (D-106, minutes) */
   app.post("/:id/confirm", decide, async (req) => {
-    const b = z.object({ minutes: z.number().int().min(15).max(1440).optional(), lead: uuid.nullable().optional(), assistants: z.array(uuid).max(10).optional() }).strict().parse(req.body ?? {});
+    const b = z.object({ minutes: z.number().int().min(15).max(1440).optional(), lead: uuid.nullable().optional(), assistants: z.array(uuid).max(10).optional(), vehicle_id: uuid.nullable().optional() }).strict().parse(req.body ?? {});
     const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm", "", b); flush(req); return r;
   });
   app.post("/:id/decline", decide, async (req) => { const r = await decideWebBooking(req.user!, req.ip, id(req), "decline", reason(req, true)); flush(req); return r; });

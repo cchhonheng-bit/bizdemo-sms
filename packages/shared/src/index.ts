@@ -10,3 +10,5 @@ export * from "./site";
 export * from "./customer-text";
 export * from "./audit-text";
 export * from "./guide";
+export * from "./phone";
+export * from "./address";

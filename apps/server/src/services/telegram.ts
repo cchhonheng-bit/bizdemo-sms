@@ -1,7 +1,7 @@
 // Telegram (shop side, v2.1): outbox (queue in DB, retry ≤ 5, blocked chat → failed at once — D-15) delivered
 // THROUGH THE HUB (the shop has no bot token — D-51), "Booking Confirmed" text (Architecture §8.1),
 // staff/group codes ONETEAM-S-xxxxxx / ONETEAM-G-xxxxxx (A3, S-11) validated when the hub forwards them.
-import { deepLink, GROUP_CODE_LEN, STAFF_CODE_LEN, TEST_MARK } from "@sms/shared";
+import { deepLink, formatKhPhone, GROUP_CODE_LEN, STAFF_CODE_LEN, TEST_MARK } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
@@ -87,7 +87,7 @@ export async function bookingConfirmedText(db: Db, bookingId: string, lang: Lang
   const text = [
     L(`✅ បញ្ជាក់ការងារ (${b.number})`, `✅ Booking confirmed (${b.number})`),
     `📅 ${dt}`,
-    `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}${b.phones?.[0] ? ` · 📞 ${b.phones[0]}` : ""}`,
+    `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}${b.phones?.[0] ? ` · 📞 ${formatKhPhone(b.phones[0])}` : ""}`,
     `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`,
     `🔧 ${L("សេវាកម្ម", "Service")}: ${b.service_text}`,
     `👷 ${L("ជាង", "Technicians")}: ${techLine}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`,

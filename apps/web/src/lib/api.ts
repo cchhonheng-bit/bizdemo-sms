@@ -1,11 +1,18 @@
 // Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
-import type { BookingStatus, BookingType, FeatureFlag, ServiceCategory, WebCategory, Zone } from "@sms/shared";
+import type { BookingStatus, BookingType, FeatureFlag, GeoType, ServiceCategory, WebCategory, Zone } from "@sms/shared";
 import { ApiError, del, get, patch, post, put } from "./http";
 
 export type Customer = {
   id: string; company_id: string; name: string; phones: string[]; address: string | null; zone: Zone;
   lat: number | null; lng: number | null; notes: string | null; is_active: boolean; created_at: string; updated_at: string;
+  /** D-137 structured address (gazetteer codes) + borey; address_complete = province + khan + sangkat set */
+  origin?: "staff" | "website" | "telegram"; house_no?: string | null; street?: string | null; borey_id?: string | null; borey_name?: string | null;
+  province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null; address_complete?: boolean;
 };
+export type CustomerSave = { id?: string | null; name: string; phones: string[]; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null;
+  house_no?: string | null; street?: string | null; borey_id?: string | null; province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null };
+export type GeoUnitRow = { code: string; km: string; en: string; type: GeoType };
+export type Borey = { id: string; name: string; province_code: string; district_code: string; commune_code: string | null; is_active: boolean; customers: number; area_km: string; area_en: string };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
   sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
@@ -107,7 +114,10 @@ export type ReportSummary = { from: string; to: string; cancels: number;
   attendance?: { people: number; present: number; late: number; absent: number; leave: number; out_of_range: number };
   revenue?: { total: number; invoices: number; inside: number; outside: number; by_category: Record<string, number> };
   payments?: { total: number; count: number; by_method: Record<PayMethod, number>; khr_riel: number };
-  new_debt?: number; debt_total?: number; voids?: { count: number; total: number }; discounts?: { count: number; total: number; over_limit: number } };
+  new_debt?: number; debt_total?: number; voids?: { count: number; total: number }; discounts?: { count: number; total: number; over_limit: number };
+  /** D-137: revenue by the customer's khan / district and by borey (code / id null = not set) */
+  by_khan?: { code: string | null; name_km: string | null; name_en: string | null; total: number; invoices: number }[];
+  by_borey?: { id: string | null; name: string | null; total: number; invoices: number }[] };
 export type VerifyItem = { type: "void" | "discount" | "cancel" | "payment"; id: string; at: string; ref: string; amount: number | null; reason: string | null; status: string | null; method: PayMethod | null;
   currency: "usd" | "khr" | null; raw_amount: number | null; link: string; requested_by_name: string | null; approved_by_name: string | null; verified_at: string | null; verified_by_name: string | null; verify_note: string | null };
 export type Dashboard = { date: string; pending_review: number; today: { jobs: number; done: number; revenue?: number; received?: number }; month?: { revenue: number; received: number };
@@ -201,8 +211,15 @@ export const api = {
   config: () => get<AppConfig>("/api/config"),
 
   customers: (activeOnly = false) => get<Customer[]>(`/api/customers${q({ active: activeOnly ? "true" : undefined })}`),
-  upsertCustomer: async (v: { id?: string | null; name: string; phones: string[]; address?: string | null; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null }) =>
-    (await post<{ id: string }>("/api/customers", { id: v.id ?? null, name: v.name, phones: v.phones, address: v.address ?? "", zone: v.zone, lat: v.lat ?? null, lng: v.lng ?? null, notes: v.notes ?? "" })).id,
+  upsertCustomer: async (v: CustomerSave) => (await post<{ id: string }>("/api/customers", { ...v, id: v.id ?? null, lat: v.lat ?? null, lng: v.lng ?? null, notes: v.notes ?? "" })).id,
+  /** D-137: the official gazetteer — the units directly under a code ("" = the provinces) */
+  geo: async (parent: string) => (await get<{ units: GeoUnitRow[] }>(`/api/geo${parent ? `?parent=${parent}` : ""}`)).units,
+  boreys: {
+    list: (all = false) => get<Borey[]>(`/api/boreys${all ? "?all=1" : ""}`),
+    save: (id: string | null, v: { name: string; province_code: string; district_code: string; commune_code: string | null }) =>
+      id ? patch<{ id: string }>(`/api/boreys/${id}`, v) : post<{ id: string }>("/api/boreys", v),
+    active: (id: string, active: boolean) => post(`/api/boreys/${id}/active`, { active }),
+  },
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
@@ -343,7 +360,7 @@ export const api = {
     act: (id: string, action: "done" | "decline" | "approve" | "reject", reason?: string) => post<{ ok: true }>(`/api/requests/${id}/${action}`,
       action === "decline" || action === "reject" ? { reason: reason ?? "" } : {}),
     /** CEO 04-10: confirm = confirmed + assigned + technicians told (the job length may change too) */
-    confirm: (id: string, v: { minutes?: number; lead: string | null; assistants: string[] }) => post<{ ok: true }>(`/api/requests/${id}/confirm`, v),
+    confirm: (id: string, v: { minutes?: number; lead: string | null; assistants: string[]; vehicle_id?: string | null }) => post<{ ok: true }>(`/api/requests/${id}/confirm`, v),
   },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),

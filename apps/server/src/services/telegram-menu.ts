@@ -3,7 +3,7 @@
 // may see — the same permissions as the app, technicians only their own jobs, never prices for technicians (AC-01).
 // A screen = { text, buttons (inline), keyboard (reply keyboard), ask_location, remove_keyboard, lang }. Labels are Khmer with
 // icons (English for English-mode staff); a label is dispatched by its text. Location sending happens only in private chats.
-import { CUSTOMER_MENU, customerText, formatUsd } from "@sms/shared";
+import { CUSTOMER_MENU, customerText, formatKhPhone, formatUsd, latinDigits } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { APP_BASE } from "../lib/app-url.js";
@@ -217,7 +217,7 @@ async function staffJob(u: Staff, id: string, back: string): Promise<Menu> {
   const crew = await sql<{ full_name: string; role: string; user_id: string }[]>`select u.full_name, t.role, t.user_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${b.id} order by t.role, u.full_name`;
   const tz = u.timezone;
   const text = [`🔧 ${b.number}`, `📅 ${dmy(b.scheduled_at, tz)} · ${hhmm(b.scheduled_at, tz)}${b.ends_at ? `–${hhmm(b.ends_at, tz)}` : ""}`,
-    `👤 ${b.cname}${b.phones?.[0] ? ` · 📞 ${b.phones[0]}` : ""}`, `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`, `🛠 ${b.service_text}`,
+    `👤 ${b.cname}${b.phones?.[0] ? ` · 📞 ${formatKhPhone(b.phones[0])}` : ""}`, `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`, `🛠 ${b.service_text}`,
     `👷 ${crew.map((c) => c.full_name + (c.role === "lead" ? ` (${pick(LEAD, lang)})` : "")).join(", ") || "—"}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`, b.notes ? `📝 ${b.notes}` : ""].filter(Boolean).join("\n");
   const rows: MenuButton[][] = [];
   const perms = await permissionsFor(sql, u.company_id, u.role);
@@ -300,16 +300,21 @@ async function waitingInvoice(u: Staff): Promise<Menu> {
 async function dueCleaning(u: Staff): Promise<Menu> {
   const L = T(u);
   const rows = (await listReminders(sessionOf(u), 14)).slice(0, 10);
-  const lines = rows.map((r) => `• ${r.customer_name}${r.unit_label ? ` · ${r.unit_label}` : ""} · ${r.service_name} · ${r.due_on}${r.phones?.[0] ? ` · 📞 ${r.phones[0]}` : ""}`);
+  const lines = rows.map((r) => `• ${r.customer_name}${r.unit_label ? ` · ${r.unit_label}` : ""} · ${r.service_name} · ${r.due_on}${r.phones?.[0] ? ` · 📞 ${formatKhPhone(r.phones[0])}` : ""}`);
   return { text: `${L("🔔 ដល់ពេលលាង (14 ថ្ងៃ)", "🔔 Due for cleaning (14 days)")} (${rows.length})\n${lines.join("\n") || "✅"}`, buttons: [[appBtn(L("📱 រំលឹកថែទាំ", "📱 Reminders"), "/reminders")], backHome(u)] };
 }
 async function findCustomer(u: Staff, q: string): Promise<Menu> {
   const L = T(u);
   const like = `%${q.trim().replace(/[%_]/g, "")}%`;
+  // D-137: a number typed in any form (Khmer digits, spaces, +855) finds the stored +855… phone by its local digits
+  let digits = latinDigits(q).replace(/\D/g, "");
+  if (digits.startsWith("855") && digits.length > 3) digits = `0${digits.slice(3)}`;
+  const phoneLike = digits.length >= 3 ? `%${digits}%` : null;
   const rows = await sql<{ name: string; phones: string[]; address: string | null; last: string | null }[]>`select c.name, c.phones, c.address,
       (select b.number || ' · ' || to_char(b.scheduled_at at time zone ${u.timezone}, 'DD-MM-YYYY') from bookings b where b.customer_id = c.id order by b.scheduled_at desc limit 1) as last
-    from customers c where c.company_id = ${u.company_id} and not c.is_test and (c.name ilike ${like} or exists (select 1 from unnest(c.phones) p where p like ${like})) order by c.name limit 8`;
-  const lines = rows.map((r) => `• ${r.name} · 📞 ${r.phones.join(", ")}${r.address ? `\n   📍 ${r.address}` : ""}${r.last ? `\n   🔧 ${r.last}` : ""}`);
+    from customers c where c.company_id = ${u.company_id} and not c.is_test and (c.name ilike ${like} or c.address ilike ${like}
+      or (${phoneLike}::text is not null and exists (select 1 from unnest(c.phones) p where regexp_replace(regexp_replace(p, '[^0-9]', '', 'g'), '^855', '0') like ${phoneLike}))) order by c.name limit 8`;
+  const lines = rows.map((r) => `• ${r.name} · 📞 ${r.phones.map(formatKhPhone).join(", ")}${r.address ? `\n   📍 ${r.address}` : ""}${r.last ? `\n   🔧 ${r.last}` : ""}`);
   return { text: rows.length ? `${L("🔍 លទ្ធផល", "🔍 Results")} (${rows.length})\n${lines.join("\n")}` : L("🔍 រកមិនឃើញ", "🔍 No match"), buttons: [[appBtn(L("📱 អតិថិជន", "📱 Customers"), "/customers")], backHome(u)] };
 }
 /** who handles customer requests in the bot — the same permissions as the app page */
@@ -327,7 +332,7 @@ async function requestsList(u: Staff): Promise<Menu> {
     select r.id, r.source, r.kind, r.text, r.name, r.phone, c.name as cname, r.created_at, b.number, b.web_status
     from service_requests r left join customers c on c.id = r.customer_id left join bookings b on b.id = r.booking_id where r.company_id = ${u.company_id} and r.status = 'new' ${u.role === "ceo" ? sql`` : sql`and not r.is_test`} order by r.created_at desc limit 10`;
   const icon = (r: { kind: string; source: string }) => (r.kind === "booking" ? "🗓" : r.kind === "quote" ? "🧱" : r.kind === "reschedule" ? "🔁" : r.source === "website" ? "🌐" : "✈️");
-  const lines = rows.map((r, i) => `${i + 1}. ${icon(r)} ${r.kind === "booking" && r.number ? `${r.number} · ` : ""}${r.name ?? r.cname ?? "—"}${r.phone ? ` · 📞 ${r.phone}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
+  const lines = rows.map((r, i) => `${i + 1}. ${icon(r)} ${r.kind === "booking" && r.number ? `${r.number} · ` : ""}${r.name ?? r.cname ?? "—"}${r.phone ? ` · 📞 ${formatKhPhone(r.phone)}` : ""} · ${fmtLocal(r.created_at, u.timezone)}\n   ${r.text}`);
   const pairs: MenuButton[][] = [], done: MenuButton[] = [];
   rows.forEach((r, i) => {
     const decision = r.kind === "booking" && r.web_status === "pending" ? ["confirm", "decline"] : r.kind === "reschedule" ? ["approve", "reject"] : null;

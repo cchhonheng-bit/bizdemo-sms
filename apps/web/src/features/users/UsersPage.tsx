@@ -3,11 +3,11 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { createUserSchema, ROLES, type CreateUserInput } from "@sms/shared";
+import { type CreateUserInput, createUserSchema, formatKhPhone, matchesSearch, ROLES } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PasswordInput, RowAction, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PasswordInput, PhoneInput, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 
 type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; language: string };
@@ -28,7 +28,7 @@ export default function UsersPage() {
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    return (users.data ?? []).filter((u) => !s || u.full_name.toLowerCase().includes(s) || u.username.includes(s) || (u.phone ?? "").includes(s));
+    return (users.data ?? []).filter((u) => matchesSearch(s, [u.full_name, u.username], u.phone ? [u.phone] : []));
   }, [users.data, q]);
 
   const errText = (code: string) => t(`users.err.${code}`, { defaultValue: t("app.error") });
@@ -66,7 +66,7 @@ export default function UsersPage() {
                     <td className="font-semibold">{u.full_name}{u.is_platform && <span className="block text-xs font-normal text-muted">{t("users.platform_hint")}</span>}</td>
                     <td className="font-mono text-xs">{u.username}</td>
                     <td><Badge tone={u.role === "tech" ? "green" : u.role === "gm" ? "purple" : "navy"}>{t(`roles.${u.role}`)}{u.is_lead ? " ★" : ""}</Badge></td>
-                    <td className="tabular">{u.phone ?? "—"}</td>
+                    <td className="tabular">{u.phone ? formatKhPhone(u.phone) : "—"}</td>
                     <td>{u.telegram_linked ? <Badge tone="green">{t("users.linked")}</Badge> : <Badge>{t("users.not_linked")}</Badge>}</td>
                     <td>{u.is_active ? <Badge tone="green">{t("app.active")}</Badge> : <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
                     <td className="text-right whitespace-nowrap cell-actions">{u.is_platform ? <span className="text-xs text-muted">{t("users.platform_locked")}</span> : <>
@@ -111,7 +111,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
   const [lead, setLead] = useState(user?.is_lead ?? false); // lead technician (D-91)
   const { register, handleSubmit, watch, formState: { errors, isSubmitting }, setError } = useForm<CreateUserInput>({
     resolver: zodResolver(createUserSchema),
-    defaultValues: user ? { username: user.username, full_name: user.full_name, role: user.role as CreateUserInput["role"], phone: user.phone ?? "", email: user.email ?? "" } : { role: "tech", phone: "", email: "" },
+    defaultValues: user ? { username: user.username, full_name: user.full_name, role: user.role as CreateUserInput["role"], phone: user.phone ? formatKhPhone(user.phone) : "", email: user.email ?? "" } : { role: "tech", phone: "", email: "" },
   });
   const errText = (code?: string) => (code ? t(`users.err.${code}`, { defaultValue: code }) : undefined);
   const isTech = watch("role") === "tech";
@@ -153,7 +153,7 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
           <Field label={t("users.role")} required>
             <Select {...register("role")}>{ROLES.map((r) => <option key={r} value={r}>{t(`roles.${r}`)}</option>)}</Select>
           </Field>
-          <Field label={t("users.phone")} error={errText(errors.phone?.message)}><Input inputMode="tel" invalid={!!errors.phone} {...register("phone")} /></Field>
+          <Field label={t("users.phone")} error={errText(errors.phone?.message)}><PhoneInput invalid={!!errors.phone} {...register("phone")} /></Field>
         </div>
         <Field label={t("users.email")} error={errText(errors.email?.message)}><Input type="email" invalid={!!errors.email} {...register("email")} /></Field>
         {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><PasswordInput autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}

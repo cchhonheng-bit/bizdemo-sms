@@ -20,7 +20,7 @@
 //  * Quote requests: the same lines + a description + up to 5 photos (type and size checked, metadata stripped) → the GM; the same
 //    one-tap link.
 import { createHmac, randomBytes } from "node:crypto";
-import { customerText, isNight, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN,
+import { customerText, formatKhPhone, isNight, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN,
   WEB_LEAD_MIN, WEB_MAX_PHOTOS, webHours, webSlotStarts, workingMinutes, type ConsentSource, type ServiceCategory, type WebCategory, type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, tx, type Db } from "../db.js";
@@ -281,7 +281,7 @@ export async function submitWebBooking(ip: string, v: WebBookingInput, who: { se
     const ask = night ? { km: "⏱ ការកក់ពេលយប់ · សូមបញ្ជាក់ម៉ោង ៨ ព្រឹក", en: "⏱ Night booking · please confirm at 8 am" }
       : { km: `⏱ សូមបញ្ជាក់ក្នុង ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, en: `⏱ Please confirm within ${WEB_CONFIRM_MIN} minutes` };
     await notifyRequestStaff(t, companyId, ["admin", "gm"], { km: `🌐 ការកក់ពីគេហទំព័រ · ${number}`, en: `🌐 Website booking · ${number}` },
-      { km: `👤 ${name} · 📞 ${phone}\n${text}\n${ask.km}`, en: `👤 ${name} · 📞 ${phone}\n${textEn}\n${ask.en}` }, rid, { test });
+      { km: `👤 ${name} · 📞 ${formatKhPhone(phone)}\n${text}\n${ask.km}`, en: `👤 ${name} · 📞 ${formatKhPhone(phone)}\n${textEn}\n${ask.en}` }, rid, { test });
     return { id, ref, number };
   });
   const l = await linkAfterSave({ bookingId: saved.id }, bookingToken(saved.id), { session: who.session, initData: v.init_data });
@@ -320,7 +320,7 @@ async function stillFree(db: Db, companyId: string, bookingId: string, start: Da
   return freeFor(await loadCapacity(db, companyId, start, end, bookingId), start.getTime(), end.getTime(), team);
 }
 /** CEO 04-10: «confirm» = confirmed + assigned + the technicians told, in one step (the dialog has the job length + the crew picker) */
-export type ConfirmInput = { minutes?: number; lead?: string | null; assistants?: string[] };
+export type ConfirmInput = { minutes?: number; lead?: string | null; assistants?: string[]; vehicle_id?: string | null }; // D-137: the vehicle is chosen with the crew
 export async function decideWebBooking(user: SessionUser, ip: string | null, requestId: string, decision: "confirm" | "decline", reason = "", o: ConfirmInput = {}) {
   const minutes = o.minutes;
   const done = await tx(user.id, async (t) => {
@@ -340,7 +340,7 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
       }
       // the crew for the (new) length: every availability rule runs; assigning a waiting website booking confirms it (D-96) and
       // queues the job message for the group + each technician — all or nothing with the confirmation
-      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: null, scheduled_at: null, ends_at: null })).account;
+      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: o.vehicle_id ?? null, scheduled_at: null, ends_at: null })).account;
     } else { // cancelled with the reason: the slot is free again; the request closes as «declined» inside
       await cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, r.booking_id, reason);
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_decline", table: "bookings", rowId: r.booking_id, new: { web_status: "declined", reason }, ip });
@@ -456,7 +456,7 @@ export async function submitQuote(ip: string, v: QuoteInput, who: { session: Cus
     await audit(t, { companyId, userId: null, action: "service.request", source: "system", table: "service_requests", rowId: id, new: { source: "website", kind: "quote", photos: files.length, customer_id: customerId }, ip });
     await audit(t, { companyId, userId: null, action: "customer.consent", source: "system", table: "customers", rowId: customerId, new: consent, ip });
     await notifyRequestStaff(t, companyId, ["gm"], { km: `🌐 សំណើសុំតម្លៃ · ${name}`, en: `🌐 Quote request · ${name}` },
-      { km: `🧩 ${CATEGORY.km[category]}\n📞 ${phone}\n${text}`, en: `🧩 ${CATEGORY.en[category]}\n📞 ${phone}\n${text}` }, id, { test }); // a quote goes to the GM
+      { km: `🧩 ${CATEGORY.km[category]}\n📞 ${formatKhPhone(phone)}\n${text}`, en: `🧩 ${CATEGORY.en[category]}\n📞 ${formatKhPhone(phone)}\n${text}` }, id, { test }); // a quote goes to the GM
     return { id };
   });
   const l = await linkAfterSave({ requestId: saved.id }, requestToken(saved.id), { session: who.session, initData: v.init_data });

@@ -123,14 +123,7 @@ export const TEST_MARK = "🧪";
 /** a test booking or quote is cancelled by itself after this many hours */
 export const TEST_TTL_HOURS = 24;
 
-/** "12 345 678", "012345678", "+855 12 345 678" → "012345678"; null when it is not a Cambodian phone number */
-export function normalizeKhPhone(raw: string): string | null {
-  const d = raw.replace(/\D/g, "");
-  const local = (x: string) => (x.startsWith("0") ? x : `0${x}`);
-  const ok = (x: string) => /^0[0-9]{8,9}$/.test(x);
-  if (d.startsWith("855") && ok(local(d.slice(3)))) return local(d.slice(3));
-  return ok(local(d)) ? local(d) : null;
-}
+// the phone number rules live in phone.ts (D-137: stored as +855…)
 
 /** cents → "$15" / "$15.50" / "$1,200" (the "from" price on the website) */
 export function fromPriceText(cents: number): string {

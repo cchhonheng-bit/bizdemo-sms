@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { consumeLinkCode, flushOutbox } from "../src/services/telegram.js";
 
@@ -18,7 +18,7 @@ const ddmmyyyy = (iso: string) => { const d = new Date(new Date(iso).getTime() +
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); dara = await loginAs(app, "dara");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12 ផ្លូវ 3", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12 ផ្លូវ 3", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
   vehicle = (await ceo.req("GET", "/api/settings/vehicles")).json[0].id;
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100123" });
   // kim linked to Telegram (chat 900002)
@@ -31,14 +31,14 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
   let bk1: string, bk2: string;
 
   it("create: numbering, defaults from customer, validation, type B → survey + GM notification", async () => {
-    const r = await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់ 2 គ្រឿង", scheduled_at: T9, zone: "inside", vehicle_id: vehicle, notes: "យកជណ្ដើរ" });
+    const r = await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់ 2 គ្រឿង", ...span(T9), zone: "inside", vehicle_id: vehicle, notes: "យកជណ្ដើរ" });
     expect(r.status).toBe(200); expect(r.json.number).toBe("BK-0001"); expect(r.json.status).toBe("new");
     bk1 = r.json.id;
     const b = (await ceo.req("GET", `/api/bookings/${bk1}`)).json;
     expect(b.address).toBe("ផ្ទះ 12 ផ្លូវ 3"); expect(b.lat).toBe(11.55); expect(b.customer_name).toBe("លោក សុខា"); expect(b.customer_phones).toEqual(["012345678"]); expect(b.vehicle_code).toBe("01");
     expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "", zone: "inside" })).json.error).toBe("REQUIRED");
-    expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", scheduled_at: at(4, 9), vehicle_id: "00000000-0000-0000-0000-000000000099" })).json.error).toBe("VEHICLE_NOT_FOUND");
-    const r2 = await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", scheduled_at: at(3, 9) });
+    expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", ...span(at(4, 9)), vehicle_id: "00000000-0000-0000-0000-000000000099" })).json.error).toBe("VEHICLE_NOT_FOUND");
+    const r2 = await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", ...span(at(3, 9)) });
     expect(r2.json.number).toBe("BK-0002"); expect(r2.json.status).toBe("survey");
     bk2 = r2.json.id;
     const notif = (await gm.req("GET", "/api/notifications")).json;
@@ -100,7 +100,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     const av = (await admin.req("GET", `/api/bookings/availability?at=${encodeURIComponent(T10)}`)).json.people;
     expect(av.find((p: any) => p.full_name === "Kim").busy[0].number).toBe("BK-0001");
     expect(av.find((p: any) => p.full_name === "GM A")).toBeUndefined(); // technicians only (CEO 04-10)
-    const bk3 = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "camera", service_text: "ដំឡើងកាមេរ៉ា", zone: "inside", scheduled_at: T10 })).json.id;
+    const bk3 = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "camera", service_text: "ដំឡើងកាមេរ៉ា", zone: "inside", ...span(T10) })).json.id;
     const r = await gm.req("POST", `/api/bookings/${bk3}/assign`, { lead: s.users.kim, assistants: [], scheduled_at: T10 });
     expect(r.status).toBe(409); expect(r.json.error).toBe("TECH_UNAVAILABLE");
     expect(r.json.details.conflicts).toEqual([expect.objectContaining({ user_id: s.users.kim, number: "BK-0001" })]);

@@ -9,6 +9,12 @@ import { resetRateLimits } from "../src/lib/rate-limit.js";
 import { seedPermissions } from "../src/services/permissions.js";
 
 export const PW = "Passw0rd!x";
+/** D-137: a staff-made customer needs province + khan + sangkat — Phnom Penh · Khan Chbar Ampov · Sangkat Chbar Ampov Ti Muoy */
+export const PLACE = { province_code: "12", district_code: "1212", commune_code: "121201" } as const;
+/** D-137: the staff write the end of a job themselves — start + minutes (120 = the old default) */
+export const endOf = (start: string, minutes = 120): string => new Date(new Date(start).getTime() + minutes * 60_000).toISOString();
+/** D-137: a staff booking's window — the start once, the end = start + minutes */
+export const span = (start: string, minutes = 120) => ({ scheduled_at: start, ends_at: endOf(start, minutes) });
 
 // D-119: the night rule (20:00–08:00 shop time) must not depend on the hour a suite runs at — always day here; the night rule
 // tests (210) set the window and the clock themselves
@@ -42,13 +48,13 @@ export async function seed(): Promise<Seed> {
       values (${company}, ${username}, ${full}, ${role}::user_role, ${phone}, ${hash}, ${mustChange}) returning id`;
     users[username] = r[0]!.id;
   };
-  await add(a, "ceo", "ceo", "CEO A", "012000001");
-  await add(a, "gm01", "gm", "GM A", "012000003");
-  await add(a, "admin", "admin", "Admin A", "012000005");
-  await add(a, "kim", "tech", "Kim", "012000002");
-  await add(a, "dara", "tech", "Dara", "012000006");
-  await add(a, "newbie", "tech", "Newbie", "012000007", true);
-  await add(b, "ceo_b", "ceo", "CEO B", "012000004");
+  await add(a, "ceo", "ceo", "CEO A", "+85512000001");
+  await add(a, "gm01", "gm", "GM A", "+85512000003");
+  await add(a, "admin", "admin", "Admin A", "+85512000005");
+  await add(a, "kim", "tech", "Kim", "+85512000002");
+  await add(a, "dara", "tech", "Dara", "+85512000006");
+  await add(a, "newbie", "tech", "Newbie", "+85512000007", true);
+  await add(b, "ceo_b", "ceo", "CEO B", "+85512000004");
   users.ceo_b_same = users.ceo_b!;
   await sql`insert into vehicles (company_id, code) values (${a}, '01'), (${a}, '02')`;
   return { a, b, users };

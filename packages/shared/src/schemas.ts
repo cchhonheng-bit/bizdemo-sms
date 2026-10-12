@@ -1,8 +1,15 @@
 import { z } from "zod";
 import { ROLES } from "./permissions";
+import { normalizeKhPhone } from "./phone";
+import { GEO_LEN, geoCodeRe } from "./address";
 
 export const usernameSchema = z.string().trim().toLowerCase().regex(/^[a-z0-9._-]{3,30}$/, "INVALID_USERNAME");
-export const phoneSchema = z.string().trim().regex(/^0[0-9]{8,9}$/, "INVALID_PHONE");
+/** D-137: typed in any common form (Khmer digits, spaces, +855) → stored as «+855…»; 9 or 10 digits in the local form */
+export const phoneSchema = z.string().max(40).transform((v, ctx) => {
+  const p = normalizeKhPhone(v);
+  if (!p) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: "INVALID_PHONE" }); return z.NEVER; }
+  return p;
+});
 export const emailSchema = z.string().trim().toLowerCase().email("INVALID_EMAIL");
 export const passwordSchema = z.string().min(8, "PASSWORD_TOO_SHORT").max(72, "PASSWORD_TOO_LONG");
 export const roleSchema = z.enum(ROLES);
@@ -49,16 +56,32 @@ export type CompanySettingsInput = z.infer<typeof companySettingsSchema>;
 // ---------- M2: customers / catalog / bookings ----------
 import { BOOKING_TYPES, SERVICE_CATEGORIES, ZONES } from "./booking";
 
+const geo = (len: number) => z.string().regex(geoCodeRe(len), "INVALID_PLACE").nullable().optional().or(z.literal(""));
 export const customerSchema = z.object({
   name: z.string().trim().min(1, "REQUIRED").max(120, "TOO_LONG"),
   phones: z.array(phoneSchema).max(3),
+  /** free text: the website's / Telegram's own address; for a customer with a structured address the server writes the composed line (D-137) */
   address: z.string().trim().max(300).optional().or(z.literal("")),
+  /** D-137 structured address: house no., street no., borey project, gazetteer codes province 2 → khan 4 → sangkat 6 → village 8 digits */
+  house_no: z.string().trim().max(40).optional().or(z.literal("")).nullable(),
+  street: z.string().trim().max(80).optional().or(z.literal("")).nullable(),
+  borey_id: z.string().uuid().nullable().optional().or(z.literal("")),
+  province_code: geo(GEO_LEN.province), district_code: geo(GEO_LEN.district), commune_code: geo(GEO_LEN.commune), village_code: geo(GEO_LEN.village),
   zone: z.enum(ZONES),
   lat: z.number().min(-90).max(90).nullable().optional(),
   lng: z.number().min(-180).max(180).nullable().optional(),
   notes: z.string().trim().max(500).optional().or(z.literal("")),
 });
-export type CustomerInput = z.infer<typeof customerSchema>;
+export type CustomerInput = z.input<typeof customerSchema>;
+
+/** D-137: «គម្រោងបុរី» — the shop's own list of borey projects (CEO / GM / Admin), each in its province / khan / sangkat */
+export const boreySchema = z.object({
+  name: z.string().trim().min(1, "REQUIRED").max(120, "TOO_LONG"),
+  province_code: z.string().regex(geoCodeRe(GEO_LEN.province), "INVALID_PLACE"),
+  district_code: z.string().regex(geoCodeRe(GEO_LEN.district), "INVALID_PLACE"),
+  commune_code: z.string().regex(geoCodeRe(GEO_LEN.commune), "INVALID_PLACE").nullable().optional().or(z.literal("")),
+}).strict();
+export type BoreyInput = z.infer<typeof boreySchema>;
 
 export const catalogItemSchema = z.object({
   name_km: z.string().trim().min(1, "REQUIRED").max(120, "TOO_LONG"),

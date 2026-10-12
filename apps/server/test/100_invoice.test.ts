@@ -1,7 +1,7 @@
 // Flow 4: invoices + payments (M8 · FR-801…807 · BR-09 · BR-10…21 · AC-02…07, AC-10, AC-11, AC-20, AC-21) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql, tx } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
 import { nextInvoiceNumber } from "../src/services/invoices.js";
@@ -18,7 +18,7 @@ const yymm = () => { const d = new Date(Date.now() + 7 * 3600_000); return `${St
 
 /** a type A job that the GM reviewed (BR-09): assigned to kim, then stepped through the allowed statuses; 3 × product used */
 async function reviewed(status = "reviewed"): Promise<string> {
-  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", scheduled_at: when(), service_item_id: svc })).json.id;
+  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុលម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(when()), service_item_id: svc })).json.id;
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "work_done", "pending_review", "reviewed"];
   for (const st of path.slice(0, path.indexOf(status) + 1)) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
@@ -41,8 +41,8 @@ beforeAll(async () => {
       values (${s.a}, ${u}, ${u.toUpperCase()}, ${role}::user_role, ${phone}, ${hash}, false, ${u === "cfo" ? 940001 : null}) returning id`)[0]!.id;
   await sql`update users set telegram_chat_id = 940002 where id = ${s.users.ceo!}`;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); gm2 = await loginAs(app, "gm02"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo"); kim = await loginAs(app, "kim");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក វណ្ណៈ", phones: ["012777888"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
-  cust2 = (await ceo.req("POST", "/api/customers", { name: "ហាង ស្រីមុំ", phones: ["012999000"], zone: "outside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក វណ្ណៈ", phones: ["012777888"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust2 = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ហាង ស្រីមុំ", phones: ["012999000"], zone: "outside" })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុលម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "job", sell_price: 2500 })).json.id;
   prod = (await ceo.req("POST", "/api/catalog", { name_km: "ហ្គាស R32", kind: "product", category: "mep", unit: "kg", sell_price: 1200, cost_price: 700 })).json.id;
   await ceo.req("POST", "/api/settings/fx", { rate: 4100 });
@@ -126,7 +126,7 @@ describe("invoice from a reviewed job (FR-801 · BR-09 · AC-02 · BR-10)", () =
   });
 
   it("type B job: prefill takes the accepted quote lines", async () => {
-    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "របង", zone: "outside", scheduled_at: when() })).json.id;
+    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "របង", zone: "outside", ...span(when()) })).json.id;
     const q = (await gm.req("POST", "/api/quotes", { booking_id: b, lines: [{ description: "ដំឡើងរបង", kind: "service", qty: 20, unit: "m", unit_price: 1500 }] })).json.id;
     await gm.req("POST", `/api/quotes/${q}/accept`);
     await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.dara, assistants: [] });
@@ -310,7 +310,7 @@ describe("void (BR-18 … BR-21 · AC-06 · AC-07 · AC-20)", () => {
 
 describe("debts by customer and age (FR-807) + print data (FR-803)", () => {
   it("only issued, unpaid balances count; buckets 0–30 / 31–60 / > 60 days by issue date", async () => {
-    const c3 = (await ceo.req("POST", "/api/customers", { name: "ក្រុមហ៊ុន ជំពាក់", phones: ["012123123"], zone: "outside" })).json.id;
+    const c3 = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្រុមហ៊ុន ជំពាក់", phones: ["012123123"], zone: "outside" })).json.id;
     const mk = async (cents: number, daysAgo: number) => { const id = (await direct(admin, [line(cents)], c3)).json.id; await issue(admin, id); await sql`update invoices set issued_at = now() - make_interval(days => ${daysAgo}) where id = ${id}`; return id; };
     await mk(10000, 5); const b = await mk(20000, 45); await mk(40000, 90);
     await pay(admin, b, 5000, "usd", "aba");

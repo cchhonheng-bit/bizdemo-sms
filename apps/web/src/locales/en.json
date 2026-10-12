@@ -383,7 +383,23 @@
     "login_locked_timed": "This customer's website login is locked for a while (too many wrong passwords)",
     "login_locked_permanent": "This customer's website login is locked (30 wrong passwords)",
     "login_unlock": "Unlock",
-    "login_unlocked": "Unlocked"
+    "login_unlocked": "Unlocked",
+    "house_no": "House no.",
+    "street": "Street no.",
+    "borey": "Borey project",
+    "borey_none": "— Not in a borey —",
+    "borey_hint": "Choosing a borey fills its province, khan and sangkat (editable)",
+    "province": "Province / capital",
+    "district": "Khan / district",
+    "commune": "Sangkat / commune",
+    "village": "Village",
+    "pick": "— Choose —",
+    "address_incomplete": "Address incomplete",
+    "address_written": "Address the customer wrote",
+    "phone_add": "Add a number",
+    "phone_remove": "Remove this number",
+    "boreys": "Borey projects",
+    "area": "Area"
   },
   "catalog": {
     "title": "Products & Services",
@@ -545,7 +561,13 @@
       "WARRANTY_EXPIRED": "The 30-day warranty has ended",
       "NOT_CLOSED": "The original job is not closed",
       "WARRANTY_OTHER_CUSTOMER": "Warranty only for the same customer",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "ADDRESS_INCOMPLETE": "Please choose the province, khan and sangkat",
+      "INVALID_PLACE": "This place is not valid",
+      "BOREY_NOT_FOUND": "Borey not found",
+      "BOREY_EXISTS": "A borey with this name already exists",
+      "END_REQUIRED": "Please set the end time",
+      "INVALID_PHONE": "Invalid phone number (9 or 10 digits)"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -605,7 +627,13 @@
     "f_cat_all": "All categories",
     "f_zone_all": "Inside + outside borey",
     "f_tech_all": "All technicians",
-    "f_clear": "Clear filters"
+    "f_clear": "Clear filters",
+    "end_hint": "Standard length {{len}} · ends about {{time}}",
+    "end_use": "Use this time",
+    "location_from_customer": "From the customer's address · change it when the job is somewhere else",
+    "vehicle_in_assign": "The vehicle is chosen when assigning the technicians",
+    "len_h": "{{n}} h",
+    "len_min": "{{n}} min"
   },
   "tech": {
     "hello": "Hello {{name}}",
@@ -1069,7 +1097,12 @@
     "audit_type": "Type",
     "audit_type_all": "All types",
     "audit_details": "Details",
-    "audit_system": "System"
+    "audit_system": "System",
+    "by_khan": "Revenue by khan / district",
+    "by_borey": "Revenue by borey",
+    "area_not_set": "Not set",
+    "no_borey": "Not in a borey",
+    "area_invoices": "Invoices"
   },
   "reminders": {
     "title": "Service reminders",
@@ -1515,5 +1548,18 @@
     "help": "Help",
     "all": "All videos for my role",
     "none": "No videos for this role"
+  },
+  "boreys": {
+    "title": "Borey projects",
+    "hint": "The company's borey list — choosing a borey on a customer fills its province, khan and sangkat",
+    "new": "New borey",
+    "name": "Borey name",
+    "customers": "Customers",
+    "empty": "No borey yet — tap «New borey»",
+    "show_off": "Show turned-off boreys",
+    "off": "Turn off",
+    "on": "Turn on",
+    "off_badge": "Off",
+    "off_confirm": "Turn this borey off? Customers who have it keep it"
   }
 }

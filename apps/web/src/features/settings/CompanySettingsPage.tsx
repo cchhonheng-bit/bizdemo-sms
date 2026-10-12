@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { companySettingsSchema, toCents, type CompanySettingsInput } from "@sms/shared";
+import { type CompanySettingsInput, companySettingsSchema, formatKhPhone, toCents } from "@sms/shared";
 import { Badge, Button, Card, Field, Input, Select, Skeleton, ErrorState } from "@/components/ui";
 import { Copy, Globe, ImageUp, MapPin, Plus, Send } from "lucide-react";
 import { readGps } from "@/lib/offline";
@@ -155,10 +155,10 @@ function TestPhonesCard() {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["test_phones"], queryFn: api.testPhones.get });
   const [text, setText] = useState<string | null>(null);
-  const value = text ?? (q.data?.phones ?? []).join("\n");
+  const value = text ?? (q.data?.phones ?? []).map(formatKhPhone).join("\n");
   const save = useMutation({
     mutationFn: () => api.testPhones.save(value.split(/[\n,]+/).map((x) => x.trim()).filter(Boolean)),
-    onSuccess: (r) => { setText(r.phones.join("\n")); toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["test_phones"] }); },
+    onSuccess: (r) => { setText(r.phones.map(formatKhPhone).join("\n")); toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["test_phones"] }); },
     onError: (e) => toast.error(t(`settings.test_phones_err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
   return (

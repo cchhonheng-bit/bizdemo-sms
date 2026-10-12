@@ -135,7 +135,7 @@ describe("CLI shop-setup (D-131)", () => {
     const kim = await loginAs(app, "kim");
     expect((await kim.req("GET", "/api/me")).status).toBe(200);
     const cust = (await sql<{ id: string }[]>`insert into customers (company_id, name, phones, address, zone, notes)
-      values (${s.a}, 'លោក សុខា (Demo)', ${sql.array(["012345678"])}, 'ផ្ទះ 12', 'inside', 'DEMO') returning id`)[0]!.id;
+      values (${s.a}, 'លោក សុខា (Demo)', ${sql.array(["+85512345678"])}, 'ផ្ទះ 12', 'inside', 'DEMO') returning id`)[0]!.id;
     const bk = (await sql<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, scheduled_at, ends_at, zone, notes)
       values (${s.a}, 'BK-0901', ${cust}, 'A', 'mep', 'new', 'ជួសជុលម៉ាស៊ីនត្រជាក់', now() + interval '1 day', now() + interval '1 day 2 hours', 'inside', 'DEMO') returning id`)[0]!.id;
     const req = (await sql<{ id: string }[]>`insert into service_requests (company_id, source, customer_id, text, kind, booking_id) values (${s.a}, 'website', ${cust}, 'ការកក់ពីគេហទំព័រ', 'booking', ${bk}) returning id`)[0]!.id;

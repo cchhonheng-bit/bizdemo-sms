@@ -14,6 +14,7 @@ import GuidePage from "@/features/guide/GuidePage";
 import MePage from "@/features/me/MePage";
 import DashboardPage from "@/features/dashboard/DashboardPage";
 import CustomersPage from "@/features/customers/CustomersPage";
+import BoreysPage from "@/features/customers/BoreysPage";
 import CatalogPage from "@/features/catalog/CatalogPage";
 import BookingsPage from "@/features/bookings/BookingsPage";
 import BookingFormPage from "@/features/bookings/BookingFormPage";
@@ -73,7 +74,7 @@ export default function App() {
                 <Route path="/bookings/:id/edit" element={<BookingFormPage />} />
               </Route>
               <Route path="/bookings/:id" element={<BookingDetailPage />} />
-              <Route element={<RequirePerm perm="customer.manage" />}><Route path="/customers" element={<CustomersPage />} /></Route>
+              <Route element={<RequirePerm perm="customer.manage" />}><Route path="/customers" element={<CustomersPage />} /><Route path="/customers/boreys" element={<BoreysPage />} /></Route>
               <Route element={<RequireAnyPerm perms={["booking.create", "customer.manage"]} />}><Route path="/requests" element={<RequestsPage />} /></Route>
               <Route element={<RequirePerm perm="catalog.manage" />}><Route path="/catalog" element={<CatalogPage />} /></Route>
               <Route element={<RequireFeature flag="subscribe" />}><Route element={<RequirePerm perm="customer.manage" />}><Route path="/subscribe" element={<SubscribePage />} /></Route></Route>

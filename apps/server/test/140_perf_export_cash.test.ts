@@ -1,7 +1,7 @@
 // Flow 7b: technician performance (FR-1104), Excel/CSV export (FR-1105), daily cash close (FR-1107) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
 
@@ -14,7 +14,7 @@ const today = async () => (await sql<{ d: string }[]>`select (now() at time zone
 
 /** kim's job with a start → finish of `minutes` today; optional revision round and late alert */
 async function job(minutes: number, o: { revision?: boolean; late?: boolean } = {}): Promise<string> {
-  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", scheduled_at: when() })).json.id;
+  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(when()) })).json.id;
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "working", "work_done", "pending_review", ...(o.revision ? ["revision", "pending_review"] : []), "reviewed"];
   for (const st of path) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
@@ -28,10 +28,10 @@ beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   const hash = await hashPassword(PW);
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false) returning id`)[0]!.id;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false) returning id`)[0]!.id;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo"); kim = await loginAs(app, "kim");
   await ceo.req("POST", "/api/settings/fx", { rate: 4100 });
-  cust = (await ceo.req("POST", "/api/customers", { name: "=HYPERLINK(\"http://x\")", phones: ["012606060"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "=HYPERLINK(\"http://x\")", phones: ["012606060"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
 });
 afterAll(async () => { await app.close(); });
 

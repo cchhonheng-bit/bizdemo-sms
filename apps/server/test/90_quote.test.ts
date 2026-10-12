@@ -1,7 +1,7 @@
 // Flow 3: Quote for type B jobs (M5 · FR-501…504 · BR-02 · BR-10) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 
 let app: FastifyInstance; let s: Seed;
@@ -10,7 +10,7 @@ let cust: string, svc: string, prod: string;
 const JPEG = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(400, 5)]).toString("base64");
 let slot = 0;
 const when = () => new Date(Date.now() + (2 + 3 * slot++) * 3600_000).toISOString();
-const mkB = async (c: Client = admin) => (await c.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", scheduled_at: when() })).json.id as string;
+const mkB = async (c: Client = admin) => (await c.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", ...span(when()) })).json.id as string;
 const lines = () => [
   { catalog_item_id: svc, description: "ដំឡើងរបង", kind: "service", qty: 20, unit: "m", unit_price: 1500 },  // $15.00 × 20 = $300.00
   { catalog_item_id: prod, description: "ដែកកាឡៃ", kind: "product", qty: 10, unit: "pcs", unit_price: 1250 }, // $12.50 × 10 = $125.00
@@ -19,7 +19,7 @@ const lines = () => [
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim");
-  cust = (await ceo.req("POST", "/api/customers", { name: "Quote Customer", phones: ["012555666"], zone: "outside", lat: 11.5, lng: 104.9 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "Quote Customer", phones: ["012555666"], zone: "outside", lat: 11.5, lng: 104.9 })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "ដំឡើងរបង", kind: "service", category: "construction", unit: "m", sell_price: 1500 })).json.id;
   prod = (await ceo.req("POST", "/api/catalog", { name_km: "ដែកកាឡៃ", kind: "product", category: "construction", unit: "pcs", sell_price: 1250, cost_price: 900 })).json.id;
   await ceo.req("POST", "/api/settings/fx", { rate: 4100 });
@@ -35,7 +35,7 @@ describe("survey (FR-501)", () => {
     const b = (await gm.req("GET", `/api/bookings/${id}`)).json;
     expect(b.survey_notes).toBe("វាស់ 20m · ដីរាបស្មើ");
     expect((await gm.req("GET", `/api/bookings/${id}/job`)).json.photos.filter((p: any) => p.kind === "survey")).toHaveLength(1);
-    const a = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", scheduled_at: when() })).json.id;
+    const a = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", ...span(when()) })).json.id;
     expect((await gm.req("POST", `/api/bookings/${a}/survey`, { notes: "x" })).json.error).toBe("NOT_TYPE_B");
   });
 });
@@ -62,7 +62,7 @@ describe("quote (FR-502 · BR-10)", () => {
     expect((await gm.req("POST", "/api/quotes", { booking_id: id, lines: [{ ...lines()[0], qty: 0 }] })).status).toBe(400);
     expect((await gm.req("POST", "/api/quotes", { booking_id: id, lines: [{ ...lines()[0], unit_price: -1 }] })).status).toBe(400);
     expect((await gm.req("POST", "/api/quotes", { booking_id: id, lines: lines() })).json.error).toBe("QUOTE_EXISTS");
-    const a = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", scheduled_at: when() })).json.id;
+    const a = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", ...span(when()) })).json.id;
     expect((await gm.req("POST", "/api/quotes", { booking_id: a, lines: lines() })).json.error).toBe("NOT_TYPE_B");
     const ceoB = await loginAs(app, "ceo_b");
     expect((await ceoB.req("GET", `/api/quotes/${q.id}`)).status).toBe(404);

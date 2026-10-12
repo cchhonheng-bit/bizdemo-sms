@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { BOARD_COLUMNS, SERVICE_CATEGORIES, ZONES, type BookingStatus } from "@sms/shared";
+import { BOARD_COLUMNS, matchesSearch, SERVICE_CATEGORIES, ZONES, type BookingStatus } from "@sms/shared";
 import { Clock, Filter, MapPin, Plus, Users } from "lucide-react";
 import { api, fmtDate, type Booking } from "@/lib/api";
 import { timeRange } from "./time";
@@ -41,7 +41,7 @@ export default function BookingsPage() {
     const [from, to] = day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : ["", ""];
     const localDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Phnom_Penh" }) : "");
     return (bookings.data ?? []).filter((b) => (b.status === "cancelled" ? showCancelled : !hideClosed || b.status !== "closed") &&
-      (!s || b.number.toLowerCase().includes(s) || b.customer_name.toLowerCase().includes(s) || b.service_text.toLowerCase().includes(s) || (b.technicians ?? []).some((x) => x.full_name.toLowerCase().includes(s))) &&
+      matchesSearch(s, [b.number, b.customer_name, b.service_text, b.address, ...(b.technicians ?? []).map((x) => x.full_name)], b.customer_phones ?? []) && // D-137: Khmer keyboard + phones
       (!day || (localDay(b.scheduled_at) >= from && localDay(b.scheduled_at) <= to)) && (!cat || b.category === cat) && (!zone || b.zone === zone) &&
       (!tech || (b.technicians ?? []).some((x) => x.user_id === tech)));
   }, [bookings.data, q, hideClosed, showCancelled, day, pickDate, cat, zone, tech]);

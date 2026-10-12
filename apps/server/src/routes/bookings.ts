@@ -38,6 +38,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/", async (req) => {
     if (!req.perms.includes("booking.create")) throw new AppError("FORBIDDEN", 403);
     const b = bookingSchema.parse(req.body);
+    // D-137 (CEO): the staff write the end themselves — needed for the overlap check (the website keeps the catalog length)
+    if (b.scheduled_at && !b.ends_at) throw new AppError("END_REQUIRED", 400);
     return createBooking(req.user!, req.ip, {
       customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, service_item_id: b.service_item_id || null,
       scheduled_at: b.scheduled_at || null, ends_at: b.ends_at || null,

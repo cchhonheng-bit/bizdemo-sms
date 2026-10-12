@@ -2,7 +2,7 @@
 // journal (balance, immutability, reversal, period lock), automatic postings, other transactions, payroll, reports, isolation — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, PW, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
@@ -26,10 +26,10 @@ beforeAll(async () => {
   config.shop.features = "accounting,inventory";
   const hash = await hashPassword(PW);
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false) returning id`)[0]!.id;
+    values (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false) returning id`)[0]!.id;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo"); kim = await loginAs(app, "kim"); ceoB = await loginAs(app, "ceo_b");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
-  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន គណនេយ្យ", phones: ["012626262"], zone: "inside" })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន គណនេយ្យ", phones: ["012626262"], zone: "inside" })).json.id;
   prod = (await ceo.req("POST", "/api/catalog", { name_km: "ខ្សែភ្លើង", kind: "product", category: "mep", unit: "m", sell_price: 200 })).json.id;
   prod2 = (await ceo.req("POST", "/api/catalog", { name_km: "បំពង់", kind: "product", category: "mep", unit: "pcs", sell_price: 300 })).json.id;
   const d = (await sql<{ t: string; y: string; s: string }[]>`select (now() at time zone 'Asia/Phnom_Penh')::date::text as t, ((now() at time zone 'Asia/Phnom_Penh')::date - 1)::text as y,
@@ -211,7 +211,7 @@ describe("C3 automatic postings from the app", () => {
     expect(await bal("1200")).toBe(inv0 + 1200);
     expect(await bal("5020")).toBe(adj0 + 300);
     // a job uses 3 m (Admin confirms)
-    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ភ្លើង", zone: "inside", scheduled_at: when() })).json.id;
+    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ភ្លើង", zone: "inside", ...span(when()) })).json.id;
     await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${b}, ${prod}, 3)`;
     await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.kim, assistants: [] });
     for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${b}`;
@@ -223,7 +223,7 @@ describe("C3 automatic postings from the app", () => {
   });
 
   it("deposit: Dr cash / Cr customer deposits; applied at issue: Dr deposits / Cr receivable; cash close over / short (re-count replaces it)", async () => {
-    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "ជញ្ជាំង", zone: "inside", scheduled_at: when() })).json.id;
+    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "ជញ្ជាំង", zone: "inside", ...span(when()) })).json.id;
     const q = (await gm.req("POST", "/api/quotes", { booking_id: b, lines: [{ description: "ជញ្ជាំង", kind: "service", qty: 1, unit: "job", unit_price: 30000 }] })).json.id;
     await gm.req("POST", `/api/quotes/${q}/accept`);
     const [dep0, cash0] = await Promise.all(["2020", "1010"].map(bal));

@@ -3,7 +3,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 
 const KHMER = /[ក-៙ៜ-៿]/; // ៛ (U+17DB) is the riel sign, allowed in English
@@ -43,9 +43,9 @@ describe("staff messages follow each person's language", () => {
     await sql`update users set telegram_chat_id = 900102, telegram_user_id = 900102 where id = ${s.users.dara!}`;
     await sql`update company_settings set telegram_group_chat_id = -100777 where company_id = ${s.a}`;
     const admin = await loginAs(app, "admin"), gm = await loginAs(app, "gm01");
-    const cust = (await admin.req("POST", "/api/customers", { name: "Mr Lang Test", phones: ["012555111"], zone: "inside", address: "Street 1" })).json.id;
+    const cust = (await admin.req("POST", "/api/customers", { ...PLACE, name: "Mr Lang Test", phones: ["012555111"], zone: "inside", address: "Street 1" })).json.id;
     const at = new Date(Date.now() + 5 * 86_400_000); at.setUTCHours(3, 0, 0, 0);
-    const bk = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC clean", zone: "inside", scheduled_at: at.toISOString() })).json.id;
+    const bk = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "AC clean", zone: "inside", ...span(at.toISOString()) })).json.id;
     expect((await gm.req("POST", `/api/bookings/${bk}/assign`, { lead: s.users.kim, assistants: [s.users.dara] })).status).toBe(200);
     const out = await sql<{ chat_id: string; text: string }[]>`select chat_id::text, text from telegram_outbox where text like ${"%" + "BK-" + "%"}`;
     const en = out.find((o) => o.chat_id === "900101")!.text, km = out.find((o) => o.chat_id === "900102")!.text, grp = out.find((o) => o.chat_id === "-100777")!.text;

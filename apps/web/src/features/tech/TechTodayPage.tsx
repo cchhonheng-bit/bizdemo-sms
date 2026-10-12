@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { formatKhPhone } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -75,7 +76,7 @@ export function TechJobPage() {
         <div className="text-2xl font-bold tabular">{bk.scheduled_at ? `${fmtDate(bk.scheduled_at)} · ${timeRange(bk.scheduled_at, bk.ends_at)}` : "—"}</div>
         {bk.status === "cancelled" && <div className="card border-danger bg-danger-50 p-3 mt-2 text-sm break-words" role="alert">❌ {bk.cancel_reason}</div>}
         <div className="font-semibold text-lg mt-2">{bk.customer_name}</div>
-        <div className="flex flex-wrap gap-2 mt-1">{bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary"><Phone size={16} /> {p}</a>)}</div>
+        <div className="flex flex-wrap gap-2 mt-1">{bk.customer_phones.map((p) => <a key={p} href={`tel:${p}`} className="btn-secondary"><Phone size={16} /> {formatKhPhone(p)}</a>)}</div>
         <div className="text-sm mt-2">{bk.address ?? "—"} <Badge tone={bk.zone === "inside" ? "green" : "grey"}>{t(`zone.${bk.zone}`)}</Badge></div>
         <div className="mt-3"><DirectionLink lat={bk.lat} lng={bk.lng} size="lg" /></div>
       </Card>

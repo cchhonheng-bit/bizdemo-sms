@@ -31,7 +31,7 @@ beforeAll(async () => {
   mkdirSync(join(dir, "Technician")); writeFileSync(join(dir, "Technician", "L1-00_overview_v1.mp4"), fakeMp4());
   const hash = await hashPassword(PW);
   await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance, is_platform) values
-    (${s.a}, 'support', 'HangKH Support', 'admin', null, ${hash}, false, false, true), (${s.a}, 'cfo', 'CFO A', 'cfo', '012000008', ${hash}, false, false, false)`;
+    (${s.a}, 'support', 'HangKH Support', 'admin', null, ${hash}, false, false, true), (${s.a}, 'cfo', 'CFO A', 'cfo', '+85512000008', ${hash}, false, false, false)`;
   ceo = await loginAs(app, "ceo"); support = await loginAs(app, "support");
   setHubTransport(async (_m, path, body) => { hubCalls.push({ path, body }); return { status: 200, json: { ok: true } }; });
 });

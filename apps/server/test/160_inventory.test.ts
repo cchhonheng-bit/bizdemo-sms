@@ -2,7 +2,7 @@
 // transfers, stock card, job materials confirmed by Admin, direct sales, no negative stock, low-stock alert — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 
@@ -22,7 +22,7 @@ beforeAll(async () => {
   pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោ PVC", kind: "product", category: "mep", unit: "m", sell_price: 250 })).json.id;
   gas = (await ceo.req("POST", "/api/catalog", { name_km: "ហ្គាស R32", kind: "product", category: "mep", unit: "kg", sell_price: 1500 })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុល", kind: "service", category: "mep", unit: "job", sell_price: 3000 })).json.id;
-  cust = (await ceo.req("POST", "/api/customers", { name: "អតិថិជន ស្តុក", phones: ["012616161"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ស្តុក", phones: ["012616161"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
 });
 afterAll(async () => { config.shop.features = ""; await app.close(); });
 
@@ -110,7 +110,7 @@ describe("job materials (technician records, Admin confirms → stock out)", () 
   let job: string;
   it("pending list → confirm from the job's vehicle → out at average cost; materials locked; twice refused; technicians cannot confirm", async () => {
     await inv(admin, "/in", { item_id: gas, location_id: van, qty: 10, unit_cost: 700, pay: "cash_usd" });
-    job = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "បំពេញហ្គាស", zone: "inside", scheduled_at: when(), service_item_id: svc })).json.id;
+    job = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "បំពេញហ្គាស", zone: "inside", ...span(when()), service_item_id: svc })).json.id;
     await gm.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [], vehicle_id: (await sql`select id from vehicles where code = '01' and company_id = ${s.a}`)[0]!.id });
     for (const st of ["on_site", "working"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     expect((await kim.req("PUT", `/api/bookings/${job}/materials`, { items: [{ catalog_item_id: gas, qty: 2 }] })).status).toBe(200);

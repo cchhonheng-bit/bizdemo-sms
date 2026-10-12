@@ -2,7 +2,7 @@
 // Times are relative to "now" in Asia/Phnom_Penh (UTC+7, no DST) so the suite never goes stale.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { endOf, loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { consumeLinkCode } from "../src/services/telegram.js";
 
@@ -17,7 +17,10 @@ function at(d: number, hh: number, mm = 0): string {
   return new Date(t).toISOString();
 }
 const mk = async (c: Client, extra: Record<string, unknown> = {}) =>
-  c.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...extra });
+  c.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside",
+    // D-137: the staff write the end themselves — 2 h here unless the test gives one (noEnd: none at all)
+    ...(typeof extra.scheduled_at === "string" && !("ends_at" in extra) && !extra.noEnd ? { ends_at: endOf(extra.scheduled_at) } : {}),
+    ...Object.fromEntries(Object.entries(extra).filter(([k]) => k !== "noEnd")) });
 const assign = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/assign`, { assistants: [], ...body });
 /** D2: the only way to move the appointment */
 const resched = (c: Client, id: string, body: Record<string, unknown>) => c.req("POST", `/api/bookings/${id}/reschedule`, { requested_by: "customer", reason: "ភ្ញៀវសុំ", ...body });
@@ -25,7 +28,7 @@ const resched = (c: Client, id: string, body: Record<string, unknown>) => c.req(
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
   const vs = (await ceo.req("GET", "/api/settings/vehicles")).json;
   v1 = vs[0].id; v2 = vs[1].id;
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100777" });
@@ -35,10 +38,11 @@ beforeAll(async () => {
 afterAll(async () => { await app.close(); });
 
 describe("R3 schedule control", () => {
-  it("create: start in the past is rejected (API, not only the UI); end defaults to start + 2 h; end before start rejected", async () => {
+  it("create: start in the past is rejected (API, not only the UI); the end must be written (D-137); end before start rejected", async () => {
     expect((await mk(ceo, { scheduled_at: at(-1, 21) })).json.error).toBe("START_IN_PAST");
     expect((await mk(ceo, { scheduled_at: new Date(Date.now() - 60_000).toISOString() })).json.error).toBe("START_IN_PAST");
-    const r = await mk(ceo, { scheduled_at: at(2, 9) });
+    expect((await mk(ceo, { scheduled_at: at(2, 9), noEnd: true })).json.error).toBe("END_REQUIRED"); // D-137: no default end for the staff
+    const r = await mk(ceo, { scheduled_at: at(2, 9), ends_at: at(2, 11) });
     expect(r.status).toBe(200);
     const b = (await ceo.req("GET", `/api/bookings/${r.json.id}`)).json;
     expect(new Date(b.ends_at).toISOString()).toBe(at(2, 11));
@@ -48,13 +52,14 @@ describe("R3 schedule control", () => {
     expect((await mk(ceo, {})).json.error).toBe("SCHEDULE_REQUIRED"); // D2: the agreed time is required
   });
 
-  it("duration comes from the catalog service (placeholder 120 min, configurable); an explicit end wins", async () => {
+  it("duration of a catalog service (placeholder 120 min, configurable) — the staff still write the end (D-137); the end they write is kept", async () => {
     const item = (await ceo.req("POST", "/api/catalog", { name_km: "ដំឡើងកាមេរ៉ា", kind: "service", category: "camera", sell_price: 25000, duration_min: 180 })).json.id;
     expect((await ceo.req("GET", "/api/catalog")).json.find((i: any) => i.id === item).duration_min).toBe(180);
     const plain = (await ceo.req("POST", "/api/catalog", { name_km: "សេវាថ្មី", kind: "service", category: "mep", sell_price: 1000 })).json.id;
     expect((await ceo.req("GET", "/api/catalog")).json.find((i: any) => i.id === plain).duration_min).toBe(120);
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "service", category: "mep", sell_price: 1, duration_min: 5 })).json.error).toBe("DURATION_RANGE");
-    const r = await mk(ceo, { category: "camera", service_item_id: item, scheduled_at: at(3, 8) });
+    expect((await mk(ceo, { category: "camera", service_item_id: item, scheduled_at: at(3, 8), noEnd: true })).json.error).toBe("END_REQUIRED");
+    const r = await mk(ceo, { category: "camera", service_item_id: item, scheduled_at: at(3, 8), ends_at: at(3, 11) });
     expect(new Date((await ceo.req("GET", `/api/bookings/${r.json.id}`)).json.ends_at).toISOString()).toBe(at(3, 11));
     const r2 = await mk(ceo, { category: "camera", service_item_id: item, scheduled_at: at(3, 8), ends_at: at(3, 8, 45) });
     expect(new Date((await ceo.req("GET", `/api/bookings/${r2.json.id}`)).json.ends_at).toISOString()).toBe(at(3, 8, 45));

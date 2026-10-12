@@ -1,18 +1,27 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { customerSchema, ZONES, type CustomerInput } from "@sms/shared";
-import { History, MapPin, Pencil, Plus, Power } from "lucide-react";
+import { addressComplete, customerSchema, formatKhPhone, GEO_DEFAULT, matchesSearch, normalizeKhPhone, ZONES, type CustomerInput } from "@sms/shared";
+import { History, Home, MapPin, Pencil, Plus, Power, X } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PhoneInput, RowAction, Select, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
 import CustomerHistoryDialog from "./CustomerHistoryDialog";
+import { AddressFields, EMPTY_ADDRESS, type AddressValue } from "./AddressFields";
+
+/** D-137: a website / Telegram customer may come without province, khan or sangkat — the staff complete it */
+export function AddressBadge({ c }: { c: Pick<Customer, "address_complete"> }) {
+  const { t } = useTranslation();
+  return c.address_complete === false ? <Badge tone="warning" data-testid="address-incomplete">{t("customers.address_incomplete")}</Badge> : null;
+}
 
 export default function CustomersPage() {
   const { t } = useTranslation();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const [editing, setEditing] = useState<Customer | "new" | null>(null);
   const [toggle, setToggle] = useState<Customer | null>(null);
@@ -21,10 +30,8 @@ export default function CustomersPage() {
   const [showInactive, setShowInactive] = useState(false);
 
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (customers.data ?? []).filter((c) => (showInactive || c.is_active) && (!s || c.name.toLowerCase().includes(s) || c.phones.some((p) => p.includes(s)) || (c.address ?? "").toLowerCase().includes(s)));
-  }, [customers.data, q, showInactive]);
+  // D-137: Khmer or Latin keyboard — names, addresses, borey; phones in any form (Khmer digits, spaces, +855)
+  const filtered = useMemo(() => (customers.data ?? []).filter((c) => (showInactive || c.is_active) && matchesSearch(q, [c.name, c.address, c.borey_name], c.phones)), [customers.data, q, showInactive]);
 
   const act = useMutation({
     mutationFn: (c: Customer) => api.setCustomerActive(c.id, !c.is_active),
@@ -34,30 +41,33 @@ export default function CustomersPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4 gap-3">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
         <h1>{t("customers.title")}</h1>
-        <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("customers.new")}</Button>
+        <div className="flex flex-wrap gap-2">
+          <Button onClick={() => nav("/customers/boreys")} data-testid="boreys-link"><Home size={16} /> {t("customers.boreys")}</Button>
+          <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("customers.new")}</Button>
+        </div>
       </div>
       <Card>
         <div className="flex flex-wrap gap-3 items-center mb-3">
-          <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" />
+          <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" name="customer_filter" />
           <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> {t("customers.show_inactive")}</label>
         </div>
         {customers.isLoading ? <Skeleton /> : customers.isError ? <ErrorState text={t("app.error")} onRetry={() => void customers.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
           <div className="overflow-x-auto -mx-4 px-4">
-            <table className="table table-stack">
+            <table className="table table-stack" data-testid="customer-table">
               <thead><tr><th>{t("customers.name")}</th><th>{t("customers.phones")}</th><th>{t("customers.address")}</th><th>{t("customers.zone")}</th><th>{t("customers.location")}</th><th className="text-right">{t("app.actions")}</th></tr></thead>
               <tbody>
                 {filtered.map((c) => (
-                  <tr key={c.id} className={c.is_active ? "" : "opacity-60"}>
+                  <tr key={c.id} className={c.is_active ? "" : "opacity-60"} data-testid="customer-row">
                     <td className="font-semibold">{c.name}{!c.is_active && <Badge tone="danger">{t("app.inactive")}</Badge>}</td>
-                    <td className="tabular whitespace-nowrap">{c.phones.join(", ") || "—"}</td>
-                    <td className="md:max-w-[320px] md:truncate" title={c.address ?? ""}>{c.address ?? "—"}</td>
+                    <td className="tabular whitespace-nowrap">{c.phones.map(formatKhPhone).join(", ") || "—"}</td>
+                    <td className="md:max-w-[320px]"><span className="md:block md:truncate" title={c.address ?? ""}>{c.address ?? "—"}</span><AddressBadge c={c} /></td>
                     <td><Badge tone={c.zone === "inside" ? "green" : "grey"}>{t(`zone.${c.zone}`)}</Badge></td>
                     <td>{c.lat != null ? <Badge tone="blue"><MapPin size={12} /> {t("customers.has_location")}</Badge> : <span className="text-muted">—</span>}</td>
                     <td className="text-right whitespace-nowrap cell-actions">
                       <RowAction icon={<History size={16} />} label={t("customers.history")} onClick={() => setHistory(c)} data-testid="customer-history" />
-                      <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(c)} />
+                      <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(c)} data-testid="customer-edit" />
                       <RowAction icon={<Power size={16} />} label={c.is_active ? t("app.deactivate") : t("app.activate")} onClick={() => setToggle(c)} />
                     </td>
                   </tr>
@@ -75,27 +85,41 @@ export default function CustomersPage() {
   );
 }
 
-export function CustomerDialog({ customer, onClose, onSaved }: { customer: Customer | null; onClose: () => void; onSaved?: (id: string) => void }) {
+const addressOf = (c: Customer | null): AddressValue => c
+  ? { house_no: c.house_no ?? "", street: c.street ?? "", borey_id: c.borey_id ?? "", province_code: c.province_code ?? "", district_code: c.district_code ?? "", commune_code: c.commune_code ?? "", village_code: c.village_code ?? "" }
+  : { ...EMPTY_ADDRESS, province_code: GEO_DEFAULT.province, district_code: GEO_DEFAULT.district }; // D-137: Phnom Penh → Chbar Ampov
+
+export function CustomerDialog({ customer, onClose, onSaved, initialPhone }: { customer: Customer | null; onClose: () => void; onSaved?: (id: string) => void; initialPhone?: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [loc, setLoc] = useState<LatLngValue>({ lat: customer?.lat ?? null, lng: customer?.lng ?? null });
+  const [addr, setAddr] = useState<AddressValue>(() => addressOf(customer));
+  const [tried, setTried] = useState(false);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CustomerInput>({
-    resolver: zodResolver(customerSchema),
-    defaultValues: customer
-      ? { name: customer.name, phones: customer.phones, address: customer.address ?? "", zone: customer.zone, notes: customer.notes ?? "" }
-      : { name: "", phones: [], address: "", zone: "inside", notes: "" },
+    resolver: zodResolver(customerSchema.omit({ phones: true })) as never,
+    defaultValues: customer ? { name: customer.name, zone: customer.zone, notes: customer.notes ?? "" } : { name: "", zone: "inside", notes: "" },
   });
-  const [phones, setPhones] = useState<string>(customer?.phones.join(", ") ?? "");
+  const [phones, setPhones] = useState<string[]>(() => {
+    const list = (customer?.phones ?? []).map(formatKhPhone);
+    return list.length ? list : [initialPhone ? formatKhPhone(normalizeKhPhone(initialPhone) ?? "") : ""];
+  });
+  // the staff's own customers need province + khan + sangkat; a website / Telegram customer may be saved as it is (badge)
+  const required = !customer || (customer.origin ?? "staff") === "staff";
   const all = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
   const dupes = useMemo(() => {
-    const list = phones.split(/[,s]+/).map((p) => p.trim()).filter((p) => /^0[0-9]{8,9}$/.test(p));
-    return (all.data ?? []).filter((c) => c.id !== customer?.id && c.phones.some((p) => list.includes(p)));
+    const list = phones.map((p) => normalizeKhPhone(p)).filter((p): p is string => !!p);
+    return (all.data ?? []).filter((c) => c.id !== customer?.id && c.phones.some((p) => list.includes(normalizeKhPhone(p) ?? p)));
   }, [all.data, phones, customer?.id]);
   const submit = handleSubmit(async (v) => {
-    const list = phones.split(/[,\s]+/).map((p) => p.trim()).filter(Boolean);
-    if (list.some((p) => !/^0[0-9]{8,9}$/.test(p))) return toast.error(t("users.err.INVALID_PHONE"));
+    setTried(true);
+    const typed = phones.map((p) => p.trim()).filter(Boolean);
+    const list = typed.map((p) => normalizeKhPhone(p));
+    if (list.some((p) => !p)) return toast.error(t("booking.err.INVALID_PHONE"));
+    if (required && !addressComplete(addr)) return toast.error(t("booking.err.ADDRESS_INCOMPLETE"));
     try {
-      const id = await api.upsertCustomer({ id: customer?.id, name: v.name, phones: list, address: v.address || null, zone: v.zone, lat: loc.lat, lng: loc.lng, notes: v.notes || null });
+      const id = await api.upsertCustomer({ id: customer?.id, name: v.name, phones: list as string[], zone: v.zone, lat: loc.lat, lng: loc.lng, notes: v.notes || null,
+        house_no: addr.house_no || null, street: addr.street || null, borey_id: addr.borey_id || null, province_code: addr.province_code || null,
+        district_code: addr.district_code || null, commune_code: addr.commune_code || null, village_code: addr.village_code || null });
       void qc.invalidateQueries({ queryKey: ["customers"] });
       toast.success(t("app.saved"));
       onSaved?.(id);
@@ -103,20 +127,30 @@ export function CustomerDialog({ customer, onClose, onSaved }: { customer: Custo
     } catch (e) {
       toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") }));
     }
-  });
+  }, () => setTried(true));
+  const written = customer && !customer.address_complete && customer.address ? customer.address : null;
   return (
     <Dialog open onClose={onClose} title={customer ? t("app.edit") : t("customers.new")} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
-      <Button variant="primary" onClick={() => void submit()} loading={isSubmitting}>{t("app.save")}</Button>
+      <Button variant="primary" onClick={() => void submit()} loading={isSubmitting} data-testid="customer-save">{t("app.save")}</Button>
     </>}>
       <form onSubmit={submit} noValidate>
         <Field label={t("customers.name")} required error={errors.name && t("app.required")}><Input invalid={!!errors.name} {...register("name")} autoFocus /></Field>
-        <Field label={t("customers.phones")} hint={t("customers.phones_hint")}><Input inputMode="tel" name="phones" value={phones} onChange={(e) => setPhones(e.target.value)} /></Field>
+        <Field label={t("customers.phones")}>
+          <div className="space-y-2">
+            {phones.map((p, i) => (
+              <div key={i} className="flex gap-2">
+                <PhoneInput name={i === 0 ? "phones" : `phone_${i}`} value={p} onChange={(e) => setPhones((x) => x.map((y, j) => (j === i ? e.target.value : y)))} />
+                {phones.length > 1 && <Button type="button" aria-label={t("customers.phone_remove")} onClick={() => setPhones((x) => x.filter((_, j) => j !== i))}><X size={16} /></Button>}
+              </div>
+            ))}
+            {phones.length < 3 && <button type="button" className="text-sm text-blue underline min-h-[44px]" onClick={() => setPhones((x) => [...x, ""])}>+ {t("customers.phone_add")}</button>}
+          </div>
+        </Field>
         {dupes.length > 0 && <p className="text-sm text-warning -mt-2 mb-3" data-testid="phone-dupe">⚠ {t("customers.phone_used", { names: dupes.map((c) => c.name).join(", ") })}</p>}
-        <div className="grid grid-cols-[1fr_140px] gap-3">
-          <Field label={t("customers.address")}><Input {...register("address")} /></Field>
-          <Field label={t("customers.zone")}><Select {...register("zone")}>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select></Field>
-        </div>
+        {written && <p className="text-sm rounded-md bg-warning-50 text-warning p-3 mb-3" data-testid="address-written">{t("customers.address_written")}: {written}</p>}
+        <AddressFields value={addr} onChange={setAddr} required={required} showErrors={tried} />
+        <Field label={t("customers.zone")}><Select {...register("zone")}>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select></Field>
         <Field label={t("customers.location")}><LocationPicker value={loc} onChange={setLoc} /></Field>
         <Field label={t("booking.notes")}><Input {...register("notes")} /></Field>
       </form>

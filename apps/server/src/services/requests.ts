@@ -5,7 +5,7 @@
 //   reschedule a customer asks to move a booking: approve (the normal reschedule runs, requested_by = customer) or reject
 // Admin / GM are told in the app and on Telegram and handle them in the app («Customer requests») or in the bot.
 // D-119: an alert made 20:00–08:00 shop time arrives without sound. D-120: a request from a test phone reaches the CEO only.
-import { isNight } from "@sms/shared";
+import { formatKhPhone, isNight } from "@sms/shared";
 import { appUrl } from "../lib/app-url.js";
 import { clock } from "../lib/clock.js";
 import { config } from "../config.js";
@@ -55,7 +55,7 @@ export async function createRequest(v: { companyId: string; source: RequestSourc
     new: { source: v.source, customer_id: v.customerId ?? null } });
   const who = v.name ?? "";
   const title = v.source === "website" ? { km: `🌐 សំណើពីគេហទំព័រ · ${who}`, en: `🌐 Website request · ${who}` } : { km: `🛠 សំណើសេវាកម្ម · ${who}`, en: `🛠 Service request · ${who}` };
-  await notifyRequestStaff(sql, v.companyId, ["admin", "gm"], title, `${v.phone ? `📞 ${v.phone}\n` : ""}${v.text}`, id, { test });
+  await notifyRequestStaff(sql, v.companyId, ["admin", "gm"], title, `${v.phone ? `📞 ${formatKhPhone(v.phone)}\n` : ""}${v.text}`, id, { test });
   return id;
 }
 

@@ -7,7 +7,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { AUDIT_ACTION, AUDIT_ACTION_EXTRA, AUDIT_FIELD, AUDIT_GROUPS, AUDIT_VALUE } from "@sms/shared";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 
 let app: FastifyInstance; let s: Seed; let ceo: Client; let gm: Client; let admin: Client; let kim: Client;
@@ -34,8 +34,8 @@ describe("audit log in plain words", () => {
   });
 
   it("rows say what they are about; filter by type and by person; the person list; CEO / CFO only", async () => {
-    const cust = (await admin.req("POST", "/api/customers", { name: "ភ្ញៀវ សាកល្បង", phones: ["012777000"], address: "ផ្ទះ 1", zone: "inside" })).json.id;
-    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", scheduled_at: tomorrow10() })).json;
+    const cust = (await admin.req("POST", "/api/customers", { ...PLACE, name: "ភ្ញៀវ សាកល្បង", phones: ["012777000"], address: "ផ្ទះ 1", zone: "inside" })).json.id;
+    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(tomorrow10()) })).json;
     const item = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់ពិសេស", kind: "service", category: "mep", sell_price: 1800 })).json.id;
     const jobs = (await ceo.req("GET", "/api/reports/audit?type=jobs")).json as any[];
     expect(jobs.length).toBeGreaterThan(0);
@@ -71,8 +71,8 @@ describe("crew = technicians only; the HangKH support account is the platform's"
     const av = (await admin.req("GET", `/api/bookings/availability?from=${encodeURIComponent(tomorrow10())}&to=${encodeURIComponent(new Date(Date.parse(tomorrow10()) + 7_200_000).toISOString())}`)).json;
     expect(av.people.length).toBeGreaterThan(0);
     expect(av.people.every((p: any) => p.role === "tech")).toBe(true);
-    const cust = (await admin.req("POST", "/api/customers", { name: "ភ្ញៀវ ជាង", phones: ["012777001"], address: "ផ្ទះ 2", zone: "inside" })).json.id;
-    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", scheduled_at: tomorrow10() })).json.id;
+    const cust = (await admin.req("POST", "/api/customers", { ...PLACE, name: "ភ្ញៀវ ជាង", phones: ["012777001"], address: "ផ្ទះ 2", zone: "inside" })).json.id;
+    const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(tomorrow10()) })).json.id;
     for (const who of [s.users.gm01, s.users.admin, s.users.ceo]) expect((await admin.req("POST", `/api/bookings/${b}/assign`, { lead: who, assistants: [] })).json.error).toBe("TECH_NOT_FOUND");
     expect((await admin.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.dara, assistants: [] })).status).toBe(200);
   });

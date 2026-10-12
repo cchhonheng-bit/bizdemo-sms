@@ -4,12 +4,12 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { bookingSchema, DEFAULT_DURATION_MIN, EDITABLE_STATUSES, SERVICE_CATEGORIES, ZONES, type BookingInput } from "@sms/shared";
+import { bookingSchema, DEFAULT_DURATION_MIN, EDITABLE_STATUSES, formatKhPhone, matchesSearch, normalizeKhPhone, SERVICE_CATEGORIES, ZONES, type BookingInput } from "@sms/shared";
 import { Plus, Search } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
 import { ActionBar, Button, Card, Field, Input, Select, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "./parts";
-import { CustomerDialog } from "@/features/customers/CustomersPage";
+import { AddressBadge, CustomerDialog } from "@/features/customers/CustomersPage";
 import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, todayLocal } from "./time";
@@ -33,12 +33,10 @@ export default function BookingFormPage() {
   const remindersOn = useFeature("reminders");
   const [unitIds, setUnitIds] = useState<string[]>(() => (sp.get("unit") ? [sp.get("unit")!] : []));
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
-  const vehicles = useQuery({ queryKey: ["vehicles"], queryFn: api.vehicles });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
   const [loc, setLoc] = useState<LatLngValue>({ lat: null, lng: null });
   const [custQ, setCustQ] = useState(() => sp.get("q") ?? ""); // from a customer request: search prefilled with its phone
   const [newCust, setNewCust] = useState(false);
-  const [endTouched, setEndTouched] = useState(false);
 
   const { register, handleSubmit, watch, setValue, reset, formState: { errors, isSubmitting } } = useForm<FormValues>({
     resolver: zodResolver(bookingSchema.passthrough()) as never,
@@ -53,7 +51,6 @@ export default function BookingFormPage() {
     const s = splitLocal(b.scheduled_at), e = splitLocal(b.ends_at);
     reset({ customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, service_item_id: b.service_item_id ?? "", scheduled_at: "", ends_at: "",
       address: b.address ?? "", zone: b.zone, vehicle_id: b.vehicle_id ?? "", notes: b.notes ?? "", date: s.date, start: s.time, end: e.time });
-    setEndTouched(!!b.ends_at);
     setLoc({ lat: b.lat, lng: b.lng });
   }, [existing.data, reset]);
 
@@ -80,17 +77,13 @@ export default function BookingFormPage() {
   const services = useMemo(() => (catalog.data ?? []).filter((i) => i.kind === "service" && i.is_active && i.category === category), [catalog.data, category]);
   const item = services.find((i) => i.id === itemId) ?? null;
   const duration = item?.duration_min ?? DEFAULT_DURATION_MIN;
-  // end follows start + duration until the user changes it
-  useEffect(() => {
-    if (!endTouched && date && start) setValue("end", addMinutesLocal(date, start, duration));
-  }, [date, start, duration, endTouched, setValue]);
+  // D-137 (CEO): the end stays empty until the Admin / GM writes it (the overlap check needs it); the standard length is a hint
+  const suggestedEnd = date && start ? addMinutesLocal(date, start, duration) : null;
+  const lengthText = duration % 60 === 0 ? t("booking.len_h", { n: duration / 60 }) : t("booking.len_min", { n: duration });
 
   const selected = useMemo(() => customers.data?.find((c) => c.id === customerId) ?? null, [customers.data, customerId]);
-  const matches = useMemo(() => {
-    const s = custQ.trim().toLowerCase();
-    if (!s) return [];
-    return (customers.data ?? []).filter((c) => c.is_active && (c.name.toLowerCase().includes(s) || c.phones.some((p) => p.includes(s)))).slice(0, 8);
-  }, [customers.data, custQ]);
+  // D-137: Khmer or Latin keyboard — names, addresses, borey; phones in any form
+  const matches = useMemo(() => (!custQ.trim() ? [] : (customers.data ?? []).filter((c) => c.is_active && matchesSearch(custQ, [c.name, c.address, c.borey_name], c.phones)).slice(0, 8)), [customers.data, custQ]);
 
   const pick = (c: Customer) => {
     setValue("customer_id", c.id, { shouldValidate: true });
@@ -105,16 +98,18 @@ export default function BookingFormPage() {
   const timeError = editing ? null : !date ? t("booking.err.DATE_REQUIRED")
     : date && !start ? t("booking.err.START_REQUIRED")
       : startIso && isPastLocal(startIso) && (!editing || startIso !== existing.data?.scheduled_at) ? t("booking.err.START_IN_PAST")
-        : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START") : null;
+        : !end ? t("booking.err.END_REQUIRED")
+          : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START") : null;
 
   const submit = handleSubmit(async (v) => {
     if (timeError) return toast.error(timeError);
+    // D-137: the vehicle is chosen with the crew (assign / confirm), not here
     const base = { category: v.category, service_text: v.service_text, service_item_id: v.service_item_id || null, scheduled_at: startIso, ends_at: startIso ? endIso : null,
-      address: v.address || null, lat: loc.lat, lng: loc.lng, zone: v.zone, vehicle_id: v.vehicle_id || null, notes: v.notes || null };
+      address: v.address || null, lat: loc.lat, lng: loc.lng, zone: v.zone, notes: v.notes || null };
     try {
       if (editing) {
         await api.updateBooking(id!, { service_text: base.service_text, category: base.category, service_item_id: base.service_item_id ?? "", address: base.address ?? "", lat: base.lat, lng: base.lng,
-          zone: base.zone, vehicle_id: base.vehicle_id ?? "", notes: base.notes ?? "", ...(remindersOn ? { unit_ids: unitIds } : {}) });
+          zone: base.zone, notes: base.notes ?? "", ...(remindersOn ? { unit_ids: unitIds } : {}) });
         void qc.invalidateQueries({ queryKey: ["booking", id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
         toast.success(t("app.saved"));
         nav(`/bookings/${id}`);
@@ -142,7 +137,7 @@ export default function BookingFormPage() {
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="font-semibold break-words">{selected.name}</div>
-                <div className="text-sm text-muted tabular break-words">{selected.phones.join(", ") || "—"} · {selected.address ?? "—"}</div>
+                <div className="text-sm text-muted tabular break-words">{selected.phones.map(formatKhPhone).join(", ") || "—"} · {selected.address ?? "—"} <AddressBadge c={selected} /></div>
               </div>
               {!editing && <Button type="button" onClick={() => setValue("customer_id", "", { shouldValidate: false })}>{t("booking.change_customer")}</Button>}
             </div>
@@ -159,7 +154,7 @@ export default function BookingFormPage() {
                 <ul className="absolute z-10 mt-1 w-full card divide-y divide-grey-line max-h-72 overflow-auto overscroll-contain" role="listbox">
                   {matches.map((c) => (
                     <li key={c.id}><button type="button" className="w-full text-left px-3 py-3 min-h-[44px] hover:bg-grey-bg" onClick={() => pick(c)}>
-                      <span className="font-semibold">{c.name}</span> <span className="text-sm text-muted tabular">{c.phones[0] ?? ""}</span>
+                      <span className="font-semibold">{c.name}</span> <span className="text-sm text-muted tabular">{formatKhPhone(c.phones[0])}</span>
                       <div className="text-xs text-muted truncate">{c.address ?? ""}</div>
                     </button></li>
                   ))}
@@ -184,7 +179,7 @@ export default function BookingFormPage() {
           </div>
           <Field label={t("booking.service_item")} hint={t("booking.service_item_hint", { minutes: duration })}>
             <Select {...register("service_item_id")} onChange={(e) => {
-              setValue("service_item_id", e.target.value); setEndTouched(false);
+              setValue("service_item_id", e.target.value);
               const it = services.find((i) => i.id === e.target.value);
               if (it && !watch("service_text")) setValue("service_text", it.name_km);
             }}>
@@ -211,15 +206,20 @@ export default function BookingFormPage() {
               <Field label={t("booking.date")} required={!editing} hint={editing ? t("booking.time_readonly_hint") : t("booking.scheduled_hint")}><Input type="date" min={editing ? undefined : todayLocal()} {...register("date")} disabled={editing} /></Field>
             </div>
             <Field label={t("booking.start")} required={!editing}><Input type="time" step={300} {...register("start")} disabled={editing || !date} /></Field>
-            <Field label={t("booking.end")}><Input type="time" step={300} {...register("end")} disabled={editing || !date || !start} onInput={() => setEndTouched(true)} /></Field>
+            <Field label={t("booking.end")} required={!editing}><Input type="time" step={300} {...register("end")} disabled={editing || !date || !start} /></Field>
           </div>
+          {!editing && suggestedEnd && (
+            <p className="text-sm text-muted -mt-1 mb-3 flex flex-wrap items-center gap-x-2" data-testid="end-hint">
+              <span>{t("booking.end_hint", { len: lengthText, time: suggestedEnd })}</span>
+              {end !== suggestedEnd && <button type="button" className="text-blue underline min-h-[44px]" onClick={() => setValue("end", suggestedEnd, { shouldValidate: true })} data-testid="end-use">{t("booking.end_use")}</button>}
+            </p>
+          )}
           {timeError && <p className="field-error -mt-1 mb-3" role="alert">{timeError}</p>}
-          <Field label={t("booking.vehicle")} hint={t("booking.vehicle_hint")}>
-            <Select {...register("vehicle_id")}><option value="">—</option>{(vehicles.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.code}{v.plate ? ` · ${v.plate}` : ""}</option>)}</Select>
-          </Field>
+          <p className="text-xs text-muted mb-1">{t("booking.vehicle_in_assign")}</p>
         </Card>
 
         <Card title={t("booking.location")} className="mb-4">
+          <p className="text-xs text-muted mb-2">{t("booking.location_from_customer")}</p>
           <div className="grid sm:grid-cols-[1fr_160px] gap-x-3">
             <Field label={t("customers.address")}><Input {...register("address")} autoComplete="street-address" /></Field>
             <Field label={t("customers.zone")}><Select {...register("zone")}>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select></Field>
@@ -236,7 +236,7 @@ export default function BookingFormPage() {
           <Button type="submit" variant="primary" className="flex-1 sm:flex-none" loading={isSubmitting} disabled={!!locked}>{editing ? t("app.save") : t("booking.create")}</Button>
         </ActionBar>
       </form>
-      {newCust && <CustomerDialog customer={null} onClose={() => setNewCust(false)} onSaved={(cid) => { void customers.refetch().then((r) => { const c = r.data?.find((x) => x.id === cid); if (c) pick(c); }); }} />}
+      {newCust && <CustomerDialog customer={null} initialPhone={normalizeKhPhone(custQ) ? custQ : undefined} onClose={() => setNewCust(false)} onSaved={(cid) => { void customers.refetch().then((r) => { const c = r.data?.find((x) => x.id === cid); if (c) pick(c); }); }} />}
     </div>
   );
 }

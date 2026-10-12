@@ -30,6 +30,14 @@
     var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } }); }, { rootMargin: "300px 0px" });
     gal.forEach(function (img) { io.observe(img); });
   })();
+  // D-137: phone fields take Khmer digits too — shown as Latin digits at once, nothing but digits, spaces and «+» (the server
+  // stores +855…)
+  $$('input[type="tel"]').forEach(function (i) {
+    i.addEventListener("input", function () {
+      var v = i.value.replace(/[០-៩]/g, function (d) { return String(d.charCodeAt(0) - 0x17E0); }).replace(/[^0-9+ ]/g, "");
+      if (v !== i.value) i.value = v;
+    });
+  });
   // D-136: the eye button of each password field shows / hides what was typed (hidden at first); its label says what a tap does
   $$("[data-eye]").forEach(function (b) {
     var input = document.getElementById(b.dataset.eye);

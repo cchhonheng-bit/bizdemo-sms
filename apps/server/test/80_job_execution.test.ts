@@ -1,7 +1,7 @@
 // Flow 1+2: checkpoints (M6, BR-07, AC-08, FR-601…606, FR-1001) + job report & GM review (M7, BR-08/09, AC-09, OQ-08) — tests first.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { sql } from "../src/db.js";
 import { consumeLinkCode } from "../src/services/telegram.js";
 import { lateAlerts } from "../src/services/jobs.js";
@@ -23,7 +23,7 @@ const job = async (c: Client, id: string) => (await c.req("GET", `/api/bookings/
 /** a booking assigned to kim (lead) + dara; each one gets its own 3-hour slot (the same crew never overlaps) */
 let slot = 0;
 async function assigned(start = new Date(Date.now() + (1 + 3 * slot++) * 3600_000).toISOString()): Promise<string> {
-  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", scheduled_at: start })).json.id;
+  const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(start) })).json.id;
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [s.users.dara] })).status).toBe(200);
   return id;
 }
@@ -31,7 +31,7 @@ async function assigned(start = new Date(Date.now() + (1 + 3 * slot++) * 3600_00
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); dara = await loginAs(app, "dara");
-  cust = (await ceo.req("POST", "/api/customers", { name: "លោក សុខា", phones: ["012345678"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
   product = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោ PVC", kind: "product", category: "mep", unit: "m", sell_price: 250, cost_price: 120 })).json.id;
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100999" });
   const code = (await kim.req("POST", "/api/telegram/link-code")).json.code;
@@ -93,7 +93,7 @@ describe("checkpoints (M6)", () => {
   });
 
   it("cancelled or not-yet-assigned jobs take no checkpoint", async () => {
-    const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", scheduled_at: at(2, 9) })).json.id;
+    const id = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x x", zone: "inside", ...span(at(2, 9)) })).json.id;
     expect((await cp(gm, id, "depart")).json.error).toBe("BOOKING_NOT_ASSIGNED");
     const c = await assigned();
     await ceo.req("POST", `/api/bookings/${c}/cancel`, { reason: "customer cancelled" });
