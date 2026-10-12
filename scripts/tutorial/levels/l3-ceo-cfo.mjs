@@ -53,7 +53,10 @@ export default {
     const techs = [await user("jang1", "ជាង សាកល្បង ១", "tech", "012000101"), await user("jang2", "ជាង សាកល្បង ២", "tech", "012000102"), await user("jang3", "ជាង សាកល្បង ៣", "tech", "012000103")];
     await user("jang_old", "ជាង ចាស់ សាកល្បង", "tech", "012000104");                 // has left — clip 04 turns the account off
     boss.p = await v.loginStaff(boss.username, boss.p);                                 // the browser = the CEO
-    const customer = async (name, phone, zone) => (await v.api("POST", "/api/customers", { name, phones: [phone], address: ADDR, zone, ...AT })).id;
+    // D-137: customers in the city live in a borey of Khan Chbar Ampov, those outside in Ta Khmau (Kandal) → revenue by khan / borey
+    const borey = (await v.api("POST", "/api/boreys", { name: "បុរីប៉េងហួត", province_code: "12", district_code: "1212", commune_code: "121201" })).id;
+    const place = (zone) => (zone === "outside" ? { province_code: "08", district_code: "0811", commune_code: "081104" } : { province_code: "12", district_code: "1212", commune_code: "121201", borey_id: borey });
+    const customer = async (name, phone, zone) => (await v.api("POST", "/api/customers", { ...place(zone), name, phones: [phone], house_no: "12", zone, ...AT })).id;
     const gmS = await v.session(gm.username, gm.p), admS = await v.session(adm.username, adm.p);
     // three jobs done today: steps with real times, photos, report, GM approval → invoice issued → paid (cash $ · ABA in part · cash ៛ in part)
     const now = Date.now(), H = 3_600_000, ago = (h) => new Date(now - h * H).toISOString();
@@ -63,7 +66,7 @@ export default {
       { name: "អតិថិជន គ", zone: "outside", svc: "ជួសជុលទុយោទឹក", from: 5, price: 3500, pay: { amount: 82000, currency: "khr", method: "cash_khr" } },
     ];
     for (const [i, p] of plan.entries()) {
-      const b = await v.api("POST", "/api/bookings", { customer_id: await customer(p.name, `01200001${i}`, p.zone), type: "A", category: "mep", service_text: p.svc, scheduled_at: new Date(now + (i + 1) * H).toISOString(), zone: p.zone, ...AT });
+      const b = await v.api("POST", "/api/bookings", { customer_id: await customer(p.name, `01200001${i}`, p.zone), type: "A", category: "mep", service_text: p.svc, scheduled_at: new Date(now + (i + 1) * H).toISOString(), ends_at: new Date(new Date(new Date(now + (i + 1) * H).toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: p.zone, ...AT });
       await v.api("POST", `/api/bookings/${b.id}/assign`, { lead: techs[i].id, assistants: [] });
       const t = await v.session(techs[i].username, techs[i].p);
       const step = (s, h) => t.call("POST", `/api/bookings/${b.id}/checkpoint`, { step: s, at: ago(h), ...AT, accuracy: 10, no_gps: false, offline: false });
@@ -78,7 +81,7 @@ export default {
       await admS.call("POST", `/api/invoices/${inv.id}/issue`);
       await admS.call("POST", `/api/invoices/${inv.id}/payments`, p.pay);
     }
-    const c = await v.api("POST", "/api/bookings", { customer_id: await customer("អតិថិជន ឃ", "012000013", "outside"), type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", scheduled_at: new Date(now + 5 * H).toISOString(), zone: "outside", ...AT });
+    const c = await v.api("POST", "/api/bookings", { customer_id: await customer("អតិថិជន ឃ", "012000013", "outside"), type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", scheduled_at: new Date(now + 5 * H).toISOString(), ends_at: new Date(new Date(new Date(now + 5 * H).toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: "outside", ...AT });
     await v.api("POST", `/api/bookings/${c.id}/cancel`, { reason: "អតិថិជនលែងត្រូវការ" });
     // the Admin counted today's cash (2,000 riel short) — the CEO / CFO check it in clip 01
     await admS.call("POST", "/api/reports/cash-close", { day: ymd(new Date()), counted_usd: 4500, counted_khr: 80000, note: "ខ្វះ ២ ០០០ រៀល" });
@@ -108,6 +111,8 @@ export default {
     clip("L3-01_reports_v1", async (v, d, { A, nav, T, tab, preset, card }) => {
       await v.caption("ចុច «របាយការណ៍»"); await v.tap(nav("reports")); await v.idle();
       await v.caption("ជ្រើស «ខែនេះ»\nឬរើសថ្ងៃ ពី–ដល់"); await v.tap(preset("ខែនេះ")); await v.idle();
+      await v.caption("ចំណូលតាមខណ្ឌ/ស្រុក\nពីអាសយដ្ឋានអតិថិជន"); const khan = T("rev-by-khan"); await v.scrollTo(khan); await v.look(khan, { zoom: 1.3, after: 1400 });
+      await v.caption("ចំណូលតាមបុរី"); await v.look(T("rev-by-borey"), { zoom: 1.3, after: 1400 });
       await v.caption("ប្រាក់ទទួល តាមវិធីបង់\nសាច់ប្រាក់ ABA ACLEDA"); await v.look(card("ACLEDA"), { zoom: 1.3, after: 1600 });
       await v.caption("ប្រាក់ជំពាក់ — អតិថិជនមិនទាន់បង់គ្រប់"); await v.look(card("ជំពាក់សរុបឥឡូវ"), { zoom: 1.3, after: 1600 });
       await v.caption("ចុច «ការងារ» ក្នុង «ទាញយក Excel»\nបើកបានក្នុង Excel"); const x = T("export-jobs"); await v.scrollTo(x); await v.download(x); await v.hold(800);

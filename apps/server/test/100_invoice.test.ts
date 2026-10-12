@@ -332,7 +332,7 @@ describe("debts by customer and age (FR-807) + print data (FR-803)", () => {
     const id = (await direct(admin, [line(1000)])).json.id;
     const d = (await admin.req("GET", `/api/invoices/${id}`)).json;
     expect(d.company).toMatchObject({ has_logo: true, has_qr: true });
-    expect(d.customer_phones).toEqual(["012999000"]);
+    expect(d.customer_phones).toEqual(["+85512999000"]);
   });
 
   it("list filters: draft / unpaid (incl. partial) / paid / void; newest first", async () => {

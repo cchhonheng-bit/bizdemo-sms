@@ -35,12 +35,13 @@ const clip = (name, play) => ({
   },
 });
 async function openJob(v, { link, job, next }, name) { await v.tap(link("ការងារ")); await v.idle(); await v.scrollTo(job(name)); await v.tap(job(name), null, next); await v.idle(); }
-async function pickService(v, { A, next }, d, time) {
+async function pickService(v, { A, next }, d, time, end = true) {
   await A.locator('select[name="category"]').selectOption("mep");
   const sel = A.locator('select[name="service_item_id"]'), date = A.locator('input[name="date"]'), start = A.locator('input[name="start"]');
   await v.tap(sel, () => sel.selectOption(d.ac.id), { before: 1200 });
   await v.tap(date, () => date.fill(d.phoneDay), next);
   await v.tap(start, () => start.fill(time), next);
+  if (end) await v.tap(A.locator('[data-testid="end-use"]'), null, next); // D-137: the end is written (the standard length)
 }
 async function create(v, { A }) { const save = A.locator('button[type="submit"]'); await v.scrollTo(save); await v.tap(save); await v.idle(); await v.hold(700); }
 /** an Excel look-alike of the downloaded template: the two prices change while the viewer watches */
@@ -77,9 +78,9 @@ export default {
     const gm = await user("gm_demo", "អ្នកគ្រប់គ្រង សាកល្បង", "gm", "012000100");
     const techs = [await user("jang1", "ជាង សាកល្បង ១", "tech", "012000101"), await user("jang2", "ជាង សាកល្បង ២", "tech", "012000102"), await user("jang3", "ជាង សាកល្បង ៣", "tech", "012000103")];
     await v.loginStaff(gm.username, gm.p); // the browser = the manager
-    const customer = async (name, phone) => (await v.api("POST", "/api/customers", { name, phones: [phone], address: ADDR, zone: "outside", ...AT })).id;
+    const customer = async (name, phone) => (await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name, phones: [phone], address: ADDR, zone: "outside", ...AT })).id;
     const book = async (name, phone, when, svc, tech) => {
-      const b = await v.api("POST", "/api/bookings", { customer_id: await customer(name, phone), type: "A", category: "mep", service_text: svc, scheduled_at: when.toISOString(), zone: "outside", ...AT });
+      const b = await v.api("POST", "/api/bookings", { customer_id: await customer(name, phone), type: "A", category: "mep", service_text: svc, scheduled_at: when.toISOString(), ends_at: new Date(new Date(when.toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: "outside", ...AT });
       if (tech) await v.api("POST", `/api/bookings/${b.id}/assign`, { lead: tech.id, assistants: [] });
       return b;
     };
@@ -165,6 +166,8 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("ជាងរវល់ ពណ៌ប្រផេះ\nបង្ហាញម៉ោងដែលគាត់រវល់"); await v.look(dlg().locator('[data-testid="crew-busy"]').first(), { zoom: 1.5 });
       await v.caption("ធីកជាងទំនេរ\nហើយចុច «មេជាង» (ស្រេចចិត្ត)"); await v.tap(freeRows.nth(0).locator("label"));
       await v.tap(freeRows.nth(0).getByRole("button", { name: "មេជាង" }), null, { before: 1000 });
+      const veh = dlg().locator('[data-testid="req-vehicle"]'); // D-137: the vehicle is chosen here, with the crew
+      if (await veh.count()) { await v.caption("ជ្រើសឡាន (ស្រេចចិត្ត)\nឡានរវល់ មិនបង្ហាញ"); await v.scrollTo(veh); await v.tap(veh, () => veh.selectOption({ index: 1 }), { before: 1000 }); }
       await v.caption("ចុច «បញ្ជាក់ និងចាត់ជាង»\nជាងទទួលការងារតាម Telegram"); await v.tap(T("req-confirm-go")); await v.idle(); await v.hold(1400);
     }),
     clip("L2-03_booking-by-phone_v1", async (v, d, u) => {
@@ -175,9 +178,11 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("រកមិនឃើញ? ចុច «អតិថិជនថ្មី»"); await v.tap(A.getByRole("button", { name: "អតិថិជនថ្មី" }));
       await v.caption("វាយឈ្មោះ និងលេខទូរស័ព្ទ\nហើយចុច «រក្សាទុក»"); await v.type(dlg().locator('input[name="name"]'), "អតិថិជនសាកល្បង ឆ", { before: 1200 });
       await v.type(dlg().locator('input[name="phones"]'), "012000222", { ...next, clear: true });
+      const sk = dlg().locator('select[name="commune_code"]');
+      await v.caption("ខេត្ត និងខណ្ឌ ជ្រើសរួចហើយ\nជ្រើស «សង្កាត់» (ភូមិ មិនចាំបាច់)"); await v.scrollTo(sk); await v.tap(sk, () => sk.selectOption({ index: 1 }), { before: 1200 });
       await v.tap(dlg().getByRole("button", { name: "រក្សាទុក" }), null, next); await v.idle();
-      await v.caption("ជ្រើសសេវា ថ្ងៃ និងម៉ោងចាប់ផ្ដើម"); await pickService(v, u, d, "14:00");
-      await v.caption("ម៉ោងបញ្ចប់ គិតឯង\nតាមរយៈពេលសេវា"); await v.look(A.locator('input[name="end"]'));
+      await v.caption("ជ្រើសសេវា ថ្ងៃ និងម៉ោងចាប់ផ្ដើម"); await pickService(v, u, d, "14:00", false);
+      await v.caption("ម៉ោងបញ្ចប់ ត្រូវតែដាក់\nចុច «ប្រើម៉ោងនេះ» ឬវាយម៉ោងផ្សេង"); await v.tap(A.locator('[data-testid="end-use"]'), null, { before: 1200 }); await v.look(A.locator('input[name="end"]'));
       await v.caption("ចុច «បង្កើតការងារ»"); await create(v, u);
       await v.caption("រួចរាល់ — បន្ទាប់មក ចាត់ជាងទំនេរ"); await v.hold(2000);
     }),

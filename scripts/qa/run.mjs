@@ -477,8 +477,8 @@ const gmDev = await device({ desktop: true });
   S.adminApi = adminApi;
   const nextHour = () => { const d = new Date(); d.setMinutes(0, 0, 0); return new Date(d.getTime() + 2 * 3_600_000); };
   await step(A, "today's job for «QA ជាង ១» (Admin, by phone)", null, async () => {
-    const c = await adminApi.call("POST", "/api/customers", { name: "QA អតិថិជន ឃ", phones: ["012000704"], address: "ផ្ទះលេខ 24 ផ្លូវសាកល្បង", zone: "inside", lat: 11.5231, lng: 104.9512 });
-    const b = await adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_item_id: AC.id, service_text: "លាងម៉ាស៊ីនត្រជាក់", scheduled_at: nextHour().toISOString(), address: "ផ្ទះលេខ 24 ផ្លូវសាកល្បង", zone: "inside", lat: 11.5231, lng: 104.9512 });
+    const c = await adminApi.call("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name: "QA អតិថិជន ឃ", phones: ["012000704"], address: "ផ្ទះលេខ 24 ផ្លូវសាកល្បង", zone: "inside", lat: 11.5231, lng: 104.9512 });
+    const b = await adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_item_id: AC.id, service_text: "លាងម៉ាស៊ីនត្រជាក់", scheduled_at: nextHour().toISOString(), ends_at: new Date(new Date(nextHour().toISOString()).getTime() + 2 * 3600_000).toISOString(), address: "ផ្ទះលេខ 24 ផ្លូវសាកល្បង", zone: "inside", lat: 11.5231, lng: 104.9512 });
     await adminApi.call("POST", `/api/bookings/${b.id}/assign`, { lead: S.u.jang1.id, assistants: [] });
     S.techJob = b;
   });
@@ -613,9 +613,9 @@ const gmDev = await device({ desktop: true });
     const b = await S.adminApi.call("GET", `/api/bookings/${S.phoneJob}`); must((b.status ?? b.booking?.status) === "cancelled", `status ${b.status ?? b.booking?.status}`);
   });
   await step(A, "board «ថ្ងៃនេះ»: a technician's step moves the card within ~15 s", page, async () => {
-    const c = await S.adminApi.call("POST", "/api/customers", { name: "QA អតិថិជន ច", phones: ["012000706"], address: "ផ្ទះលេខ 26", zone: "outside", lat: 11.55, lng: 104.92 });
+    const c = await S.adminApi.call("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name: "QA អតិថិជន ច", phones: ["012000706"], address: "ផ្ទះលេខ 26", zone: "outside", lat: 11.55, lng: 104.92 });
     const at = new Date(Date.now() + 3 * 3_600_000); at.setMinutes(0, 0, 0);
-    const b = await S.adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: "ជួសជុលភ្លើង", scheduled_at: at.toISOString(), zone: "outside", lat: 11.55, lng: 104.92 });
+    const b = await S.adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: "ជួសជុលភ្លើង", scheduled_at: at.toISOString(), ends_at: new Date(new Date(at.toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: "outside", lat: 11.55, lng: 104.92 });
     await S.adminApi.call("POST", `/api/bookings/${b.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
     await page.goto(`${BASE}/app/bookings`); await page.locator('[data-testid="filters-toggle"]').click();
     await page.locator('[data-testid="filters"] select').first().selectOption("today"); await idle(page);

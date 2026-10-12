@@ -52,13 +52,13 @@ async function seedYear(v, d) {
   await tx(early(3), "expense", "6050", 85, "cash_usd", "ទឹក ភ្លើង");
   await tx(lastMonth(28), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
   // a job of last month, invoiced with its own date (more than 3 days back: a reason)
-  const c0 = await v.api("POST", "/api/customers", { name: "អតិថិជន គ", phones: ["012000113"], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone: "inside" });
+  const c0 = await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name: "អតិថិជន គ", phones: ["012000113"], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone: "inside" });
   const i0 = await v.api("POST", "/api/invoices", { customer_id: c0.id, lines: [{ description: "ជួសជុល និងថែទាំ", kind: "service", qty: 1, unit: "unit", unit_price: 18000 }] });
   await v.api("POST", `/api/invoices/${i0.id}/issue`, { date: early(2), reason: "ការងារខែមុន" });
   await tx(thisMonth(2), "expense", "6060", 25, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
   // today's work posts by itself: invoices issued (inside / outside the borey) and paid (in full / in part)
   for (const [name, zone, price, pay] of [["អតិថិជន ក", "inside", 15000, { amount: 15000, currency: "usd", method: "aba" }], ["អតិថិជន ខ", "outside", 9000, { amount: 5000, currency: "usd", method: "cash_usd" }]]) {
-    const c = await v.api("POST", "/api/customers", { name, phones: [`0120001${zone === "inside" ? "11" : "12"}`], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone });
+    const c = await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name, phones: [`0120001${zone === "inside" ? "11" : "12"}`], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone });
     const inv = await v.api("POST", "/api/invoices", { customer_id: c.id, lines: [{ description: "ជួសជុល និងថែទាំ", kind: "service", qty: 1, unit: "unit", unit_price: price }] });
     await v.api("POST", `/api/invoices/${inv.id}/issue`);
     await v.api("POST", `/api/invoices/${inv.id}/payments`, pay);

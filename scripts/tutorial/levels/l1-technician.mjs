@@ -57,8 +57,8 @@ export default {
     if (hour(6.75).toDateString() !== at.toDateString()) throw new Error("record before ~15:00 — today's four jobs (2¼ h apart, 2 h each) must fit in the day");
     // today's jobs: the overview's (and «today's jobs»), one for directions + check-in, one for the 4 steps, one ready to finish
     const job = async (name, phone, h, service) => {
-      const c = await v.api("POST", "/api/customers", { name, phones: [phone], address: ADDRESS, zone: "outside", ...LOC });
-      const b = await v.api("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: service, scheduled_at: hour(h).toISOString(), address: ADDRESS, zone: "outside", ...LOC });
+      const c = await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name, phones: [phone], address: ADDRESS, zone: "outside", ...LOC });
+      const b = await v.api("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: service, scheduled_at: hour(h).toISOString(), ends_at: new Date(new Date(hour(h).toISOString()).getTime() + 2 * 3600_000).toISOString(), address: ADDRESS, zone: "outside", ...LOC });
       await v.api("POST", `/api/bookings/${b.id}/assign`, { lead: tech.id, assistants: [] });
       return b;
     };
