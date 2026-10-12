@@ -187,6 +187,7 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
   const acctOn = useFeature("accounting") && can("accounting.view"); // D-92: the income account the item posts to
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: acctOn });
   const [incomeAcc, setIncomeAcc] = useState(item?.income_account_id ?? "");
+  const [stockAcc, setStockAcc] = useState(item?.inventory_account_id ?? "");
   const [remind, setRemind] = useState(item?.reminder_months ? String(item.reminder_months) : "");
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<CatalogItemInput>({
     resolver: zodResolver(catalogItemSchema.omit({ sell_price: true, cost_price: true, duration_min: true, code: true, web_category: true, from_price: true, show_on_website: true, quote_only: true })),
@@ -205,7 +206,7 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
     if (v.kind === "service" && (!Number.isInteger(mins) || mins < 15 || mins > 1440)) return toast.error(t("booking.err.DURATION_RANGE"));
     try {
       await api.upsertCatalogItem({ id: item?.id, name_km: v.name_km, name_en: v.name_en || null, kind: v.kind, category: v.category, unit: v.unit || null, sell_price: sellC, cost_price: costC, duration_min: v.kind === "service" ? mins : undefined,
-        reminder_months: remindersOn && v.kind === "service" ? months : undefined, income_account_id: acctOn ? incomeAcc || null : undefined, code: code.trim().toUpperCase() || null,
+        reminder_months: remindersOn && v.kind === "service" ? months : undefined, income_account_id: acctOn ? incomeAcc || null : undefined, inventory_account_id: acctOn && v.kind === "product" ? stockAcc || null : undefined, code: code.trim().toUpperCase() || null,
         ...(websiteOn && v.kind === "service" ? { web_category: (webCategory || null) as WebCategory | null, from_price: fromC, show_on_website: shown, quote_only: quoteOnly } : {}) });
       void qc.invalidateQueries({ queryKey: ["catalog"] });
       toast.success(t("app.saved"));
@@ -257,7 +258,15 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
           <Field label={t("catalog.income_account")}>
             <Select value={incomeAcc} onChange={(e) => setIncomeAcc(e.target.value)} data-testid="income-account">
               <option value="">{t("catalog.income_account_default")}</option>
-              {(accounts.data ?? []).filter((a) => a.type === "income" && a.is_active).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
+              {(accounts.data ?? []).filter((a) => a.type === "income" && a.is_active && !a.is_group).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
+            </Select>
+          </Field>
+        )}
+        {acctOn && !service && (
+          <Field label={t("catalog.stock_account")} hint={t("catalog.stock_account_hint")}>
+            <Select value={stockAcc} onChange={(e) => setStockAcc(e.target.value)} data-testid="stock-account">
+              <option value="">{t("catalog.stock_account_default")}</option>
+              {(accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
             </Select>
           </Field>
         )}

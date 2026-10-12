@@ -329,7 +329,8 @@
       "working": "Working",
       "leave": "Leave"
     },
-    "uninvoiced": "Done, not invoiced"
+    "uninvoiced": "Done, not invoiced",
+    "materials_pending": "Materials to confirm ({{n}})"
   },
   "zone": {
     "inside": "Inside Borey",
@@ -476,7 +477,10 @@
       "CODE_TAKEN": "This code is already used",
       "CODE_FORMAT": "Code: capitals, digits, . - _ (up to 20)",
       "FORBIDDEN": "You may not edit the catalog"
-    }
+    },
+    "stock_account": "Stock account",
+    "stock_account_hint": "Which account holds this stock (e.g. 14000 copper pipe)",
+    "stock_account_default": "18000 technicians' materials (default)"
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -581,7 +585,9 @@
       "FINISH_TIME": "Invalid finish time (not in the future, not before a step already pressed)",
       "IN_PROGRESS_CONFIRM": "The job is under way · tick the confirmation before changing the time, crew or vehicle",
       "FINISHED_NOTE_ONLY": "The job is finished · only the note can change",
-      "CUSTOMER_LOCKED": "The job has started · the customer cannot change"
+      "CUSTOMER_LOCKED": "The job has started · the customer cannot change",
+      "MATERIALS_ANSWER_REQUIRED": "Please answer: were the materials used?",
+      "NOT_STOCK_ACCOUNT": "Choose a stock account"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -675,7 +681,11 @@
     "edit_time_changed": "New time — choose who asked and write why",
     "edit_notify_hint": "Required · the technicians, the Telegram group and the customer get the new time",
     "requester_shop": "Our company",
-    "crew_and_vehicle": "Technicians and vehicle"
+    "crew_and_vehicle": "Technicians and vehicle",
+    "materials_used_q": "Were the materials used?",
+    "materials_used_hint": "Recorded: {{items}}",
+    "materials_used_yes": "Used — a job cost (never invoiced)",
+    "materials_used_no": "Not used — no stock change"
   },
   "tech": {
     "hello": "Hello {{name}}",
@@ -1005,8 +1015,11 @@
       "ALREADY_VOID": "Already void",
       "NOT_VOIDABLE": "This line cannot be voided",
       "DEPOSIT_PAYMENT": "Comes from a deposit — correct the deposit",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
-    }
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "EXTRAS_PENDING": "Review the work added by the technician first (the job page)"
+    },
+    "extra_materials": "Materials outside the quote",
+    "extra_materials_hint": "Recorded on the job but not in the quote · tick to add to the invoice"
   },
   "attendance": {
     "title": "Attendance",
@@ -1291,7 +1304,8 @@
       "LOCATION_NOT_FOUND": "Location not found",
       "FORBIDDEN": "Not allowed",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
-    }
+    },
+    "cancelled_cost": "Cancelled · job cost"
   },
   "acct": {
     "title": "Accounting",
@@ -1339,7 +1353,7 @@
       "none": "No zone"
     },
     "gl_code": "Account code",
-    "gl_hint": "Type the code (e.g. 1010) to see every transaction with the running balance",
+    "gl_hint": "Type the code (e.g. 11001) to see every transaction with the running balance",
     "fy": "Fiscal year starts",
     "fy_fixed": "Fixed — a year has been closed",
     "close_title": "Year-end closing",
@@ -1385,7 +1399,7 @@
     "edit_account": "Edit account",
     "system": "system",
     "code": "Code",
-    "code_hint": "4–6 digits (1 assets · 2 liabilities · 3 equity · 4 income · 5-6 expenses)",
+    "code_hint": "5 digits (1 assets · 2 liabilities · 3 equity · 4 income · 5 expenses)",
     "acc_type": "Type",
     "name_km": "Name (Khmer)",
     "name_en": "Name (English)",
@@ -1544,9 +1558,11 @@
       "BAD_IMAGE": "Invalid image",
       "IMAGE_TOO_LARGE": "Image too large",
       "BAD_RANGE": "Invalid date range",
-      "RANGE_TOO_LONG": "Date range too long"
+      "RANGE_TOO_LONG": "Date range too long",
+      "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it"
     },
-    "rate_label": "Exchange rate"
+    "rate_label": "Exchange rate",
+    "added_by_system": "Added by the system"
   },
   "print": {
     "invoice": "INVOICE",
@@ -1603,5 +1619,43 @@
     "on": "Turn on",
     "off_badge": "Off",
     "off_confirm": "Turn this borey off? Customers who have it keep it"
+  },
+  "extras": {
+    "title": "Added work",
+    "hint": "The customer asked for more on site? Add it here · Admin / GM review it and set the price",
+    "mode_service": "A catalog service",
+    "mode_other": "Other work",
+    "other_text": "What work",
+    "other_hint": "Write it short · a photo helps · technicians set no price",
+    "photo": "Take a photo (optional)",
+    "photo_ok": "Photo ready ✓",
+    "add": "Add",
+    "added": "Added",
+    "added_by": "Added by technician · {{name}} · {{at}}",
+    "min": "min",
+    "confirmed": "Confirmed",
+    "take_back": "Take back",
+    "overlap": "This runs into the next job {{number}} at {{time}} · Admin / GM have been told",
+    "review_title": "Work added by the technician",
+    "waiting": "{{n}} waiting for review · the invoice waits",
+    "flag": "Added by technician",
+    "see_photo": "See the photo",
+    "removed": "Removed · {{reason}}",
+    "confirmed_by": "Confirmed by {{name}} · {{price}}",
+    "price": "Price",
+    "confirm": "Confirm",
+    "remove": "Remove",
+    "err": {
+      "REPORT_LOCKED": "The report is sent · nothing more can be added",
+      "NOT_ON_SITE": "Press «Arrived» first",
+      "DESCRIPTION_REQUIRED": "Please write the work",
+      "SERVICE_NOT_FOUND": "Service not found",
+      "PRICE_REQUIRED": "Please set the price",
+      "REASON_REQUIRED": "Please give a reason",
+      "INVOICE_EXISTS": "The invoice exists · change prices on the invoice",
+      "EXTRA_LOCKED": "This line is already reviewed",
+      "FORBIDDEN": "Not allowed",
+      "BAD_IMAGE": "The photo is not valid"
+    }
   }
 }

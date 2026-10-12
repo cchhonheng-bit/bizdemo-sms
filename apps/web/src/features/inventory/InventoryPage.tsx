@@ -2,7 +2,7 @@
 // stock in / adjust (reason) / transfer / opening; job materials waiting for Admin confirmation; locations. Cards on phones.
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, toCents } from "@sms/shared";
 import { ArrowLeftRight, Check, PackagePlus, Plus, SlidersHorizontal } from "lucide-react";
@@ -23,8 +23,9 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const [tab, setTab] = useState<Tab>("stock");
   const tabs: Tab[] = manage ? ["stock", "jobs", "locations"] : ["stock"];
+  const [sp] = useSearchParams(); // D-140 E1: the dashboard's «សម្ភារៈរង់ចាំបញ្ជាក់» opens the jobs tab
+  const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("inventory.title")}</h1>
@@ -205,7 +206,7 @@ function Jobs() {
         const loc = chosen[j.booking_id] ?? j.suggested_location_id;
         return (
           <Card key={j.booking_id}>
-            <div className="flex justify-between gap-2"><Link to={`/bookings/${j.booking_id}`} className="font-semibold text-blue underline min-w-0 break-words">{j.number} · {j.customer_name}</Link><Badge>{t(`status.${j.status}`)}</Badge></div>
+            <div className="flex justify-between gap-2"><Link to={`/bookings/${j.booking_id}`} className="font-semibold text-blue underline min-w-0 break-words">{j.number} · {j.customer_name}</Link>{j.cancelled ? <Badge tone="danger">{t("inventory.cancelled_cost")}</Badge> : <Badge>{t(`status.${j.status}`)}</Badge>}</div>
             <ul className="text-sm mt-1">{j.materials.map((m) => <li key={m.item_id}>• {m.name}: {qtyFmt(m.qty)} {m.unit}</li>)}</ul>
             <div className="flex gap-2 mt-2 items-end">
               <div className="flex-1"><Field label={t("inventory.from")}><Select value={loc} onChange={(e) => setChosen({ ...chosen, [j.booking_id]: e.target.value })}>{(locs.data ?? []).filter((l) => l.is_active).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field></div>

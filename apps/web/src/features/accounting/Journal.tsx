@@ -116,7 +116,7 @@ function NewEntryDialog({ onClose }: { onClose: () => void }) {
   const onErr = useAcctErr();
   const name = useAccName();
   const accs = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts });
-  const active = useMemo(() => (accs.data ?? []).filter((a: Account) => a.is_active), [accs.data]);
+  const active = useMemo(() => (accs.data ?? []).filter((a: Account) => a.is_active && !a.is_group), [accs.data]);
   const [date, setDate] = useState(todayLocal());
   const [memo, setMemo] = useState(""); const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);

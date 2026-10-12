@@ -1,7 +1,7 @@
 // Invoice editor (Flow 4 · FR-801/802): /invoices/new?booking=<id> (lines prefilled from the reviewed job or the accepted quote),
 // /invoices/new (direct sale: pick a customer) and /invoices/:id/edit (draft only). Prices by Admin / CEO (BR-10); no discount here (AC-05).
 import { useEffect, useMemo, useState } from "react";
-import { formatKhPhone, matchesSearch } from "@sms/shared";
+import { formatKhPhone, formatUsd, matchesSearch } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -30,6 +30,18 @@ export default function InvoiceEditorPage() {
   const [cust, setCust] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [saving, setSaving] = useState(false);
+  // D-140 E3: materials recorded on a quoted job but not in the quote — offered apart, unticked; a tick adds the line
+  const [extraOn, setExtraOn] = useState<Record<string, boolean>>({});
+  const toggleExtra = (i: number, on: boolean) => {
+    const l = pre.data?.extra_materials?.[i];
+    if (!l) return;
+    setExtraOn((x) => ({ ...x, [i]: on }));
+    setRows((rs) => {
+      if (on) return [...rs, toRow(l)];
+      const at = rs.map((x) => x.catalog_item_id === l.catalog_item_id && x.description === l.description).lastIndexOf(true);
+      return at < 0 ? rs : rs.filter((_, j) => j !== at);
+    });
+  };
   useEffect(() => { if (existing.data) { setRows(existing.data.lines.map(toRow)); setNotes(existing.data.notes ?? ""); } }, [existing.data]);
   useEffect(() => { if (pre.data) setRows(pre.data.lines.map(toRow)); }, [pre.data]);
   const matches = useMemo(() => {
@@ -86,6 +98,20 @@ export default function InvoiceEditorPage() {
         </Card>
       )}
       <Card title={t("quote.lines")}><LinesEditor rows={rows} setRows={setRows} catalog={catalog.data ?? []} fx={fx} testId="invoice-subtotal" /></Card>
+      {!!pre.data?.extra_materials?.length && (
+        <Card title={t("invoice.extra_materials")}>
+          <p className="text-xs text-muted mb-2">{t("invoice.extra_materials_hint")}</p>
+          <ul className="space-y-1" data-testid="extra-materials">
+            {pre.data.extra_materials.map((l, i) => (
+              <li key={i}><label className="flex items-center gap-3 !mb-0 !text-ink text-sm min-h-[44px] cursor-pointer">
+                <input type="checkbox" className="h-6 w-6 accent-navy" checked={!!extraOn[i]} onChange={(e) => toggleExtra(i, e.target.checked)} />
+                <span className="flex-1 min-w-0 break-words">{l.description} × {l.qty} {l.unit}</span>
+                <span className="tabular text-muted">{formatUsd(Math.round(l.qty * l.unit_price))}</span>
+              </label></li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card><Field label={t("invoice.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field></Card>
       <ActionBar>
         <Button type="button" onClick={() => nav(-1)}>{t("app.cancel")}</Button>

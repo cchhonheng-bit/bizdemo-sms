@@ -118,7 +118,7 @@ function Opening({ today, draft }: { today: string; draft: OpeningValues | null 
   const [confirm, setConfirm] = useState(false);
   const c = (v: string) => (v.trim() === "" ? 0 : cents(v));
   const riels = riel.trim() === "" ? 0 : /^\d+$/.test(riel.replace(/[,\s]/g, "")) ? Number(riel.replace(/[,\s]/g, "")) : NaN;
-  const otherAssets = (accounts.data ?? []).filter((a) => a.type === "asset" && !a.role && a.is_active);
+  const otherAssets = (accounts.data ?? []).filter((a) => a.type === "asset" && !a.role && a.is_active && !a.is_group && a.code.startsWith("11"));
   const nums = [c(usd), c(aba), c(acleda), c(stock), c(retained), riels, ...banks.map((b) => c(b.amount)), ...recv.map((r) => c(r.amount)), ...pays.map((p) => c(p.amount))];
   const valid = nums.every((n) => Number.isFinite(n) && n >= 0) && banks.every((b) => b.code && c(b.amount) > 0) && recv.every((r) => r.customer_id && c(r.amount) > 0) && pays.every((p) => p.supplier.trim() && c(p.amount) > 0);
   const body = (): OpeningValues => ({ date, cash_usd: c(usd), cash_khr: riels, banks: { aba: c(aba), acleda: c(acleda), ...Object.fromEntries(banks.map((b) => [b.code, c(b.amount)])) },

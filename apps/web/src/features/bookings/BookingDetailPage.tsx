@@ -10,6 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge, TypeBadge } from "./parts";
 import JobReview from "./JobReview";
+import { ExtrasReview, MaterialsEditor } from "./JobExtras";
 import SurveyQuoteCards from "@/features/quotes/SurveyQuoteCards";
 import BookingInvoiceCard from "@/features/invoices/BookingInvoiceCard";
 import JobExecution from "@/features/tech/JobExecution";
@@ -103,6 +104,8 @@ export default function BookingDetailPage() {
           {bk.technicians?.some((x) => x.user_id === me?.id) && <JobExecution booking={bk} />}
           <SurveyQuoteCards booking={bk} />
           <JobReview booking={bk} />
+          {can("booking.assign") && <ExtrasReview booking={bk} />}
+          {(me?.role === "admin" || me?.role === "gm") && !bk.technicians?.some((x) => x.user_id === me?.id) && <MaterialsEditor booking={bk} />}
           <BookingInvoiceCard booking={bk} />
         </div>
         <div className="space-y-4 min-w-0">
@@ -304,8 +307,12 @@ function CancelDialog({ booking, onClose }: { booking: Booking; onClose: () => v
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [reason, setReason] = useState("");
+  // D-140 E2: materials already recorded → «សម្ភារៈបានប្រើរួចឬទេ?» (yes = a job cost to confirm, never invoiced; no = unused)
+  const job = useQuery({ queryKey: ["job", booking.id], queryFn: () => api.job.info(booking.id) });
+  const hasMaterials = (job.data?.materials.length ?? 0) > 0;
+  const [used, setUsed] = useState<boolean | null>(null);
   const m = useMutation({
-    mutationFn: () => api.cancelBooking(booking.id, reason.trim()),
+    mutationFn: () => api.cancelBooking(booking.id, reason.trim(), hasMaterials ? used ?? undefined : undefined),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking-log", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
       api.flushTelegram();
@@ -317,12 +324,24 @@ function CancelDialog({ booking, onClose }: { booking: Booking; onClose: () => v
   return (
     <Dialog open onClose={onClose} title={`${t("booking.cancel")} · ${booking.number}`} footer={<>
       <Button onClick={onClose}>{t("app.back")}</Button>
-      <Button variant="danger" className="flex-1 sm:flex-none" loading={m.isPending} disabled={reason.trim().length < 3} onClick={() => m.mutate()} data-testid="cancel-submit">{t("booking.cancel_confirm")}</Button>
+      <Button variant="danger" className="flex-1 sm:flex-none" loading={m.isPending} disabled={reason.trim().length < 3 || (hasMaterials && used === null)} onClick={() => m.mutate()} data-testid="cancel-submit">{t("booking.cancel_confirm")}</Button>
     </>}>
       <p className="text-sm mb-3">{t("booking.cancel_warning")}</p>
       <Field label={t("booking.cancel_reason")} required hint={t("booking.cancel_reason_hint")}>
         <textarea className="input h-24 py-2" name="cancel_reason" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} autoFocus />
       </Field>
+      {hasMaterials && (
+        <Field label={t("booking.materials_used_q")} required hint={t("booking.materials_used_hint", { items: job.data!.materials.map((x) => `${x.name_km} ×${x.qty}`).join(", ") })}>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" data-testid="materials-used">
+            {([true, false] as const).map((v) => (
+              <button key={String(v)} type="button" role="radio" aria-checked={used === v} onClick={() => setUsed(v)} data-testid={`materials-used-${v ? "yes" : "no"}`}
+                className={`min-h-[48px] rounded-md border px-3 text-sm text-left ${used === v ? "border-navy bg-[#E6EDFD] font-bold text-navy" : "border-grey-line bg-white"}`}>
+                {t(v ? "booking.materials_used_yes" : "booking.materials_used_no")}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
     </Dialog>
   );
 }

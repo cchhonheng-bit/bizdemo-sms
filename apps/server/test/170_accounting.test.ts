@@ -373,7 +373,7 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
     expect(a.find((x) => x.code === "11001").statement).toBe("BS"); expect(a.find((x) => x.code === "30003").statement).toBe("BS");
     expect(a.find((x) => x.code === "40005").statement).toBe("PL"); expect(a.find((x) => x.code === "50010").statement).toBe("PL");
     const byId = (await acc(cfo, `/ledger?account=${(await code("11001")).id}&from=${start}&to=${today}`)).json;
-    const byCode = (await acc(cfo, `/ledger?code=1010&from=${start}&to=${today}`)).json;
+    const byCode = (await acc(cfo, `/ledger?code=11001&from=${start}&to=${today}`)).json;
     expect(byCode.closing).toBe(byId.closing); expect(byCode.rows.length).toBe(byId.rows.length); expect(byCode.account.code).toBe("11001");
     expect((await acc(cfo, `/ledger?code=9999&from=${start}&to=${today}`)).status).toBe(404);
     expect((await acc(cfo, `/ledger?from=${start}&to=${today}`)).status).toBe(400);

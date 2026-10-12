@@ -95,7 +95,7 @@ function BsRows({ rows, fx, onPick }: { rows: BsRow[]; fx: number; onPick: (r: A
   );
 }
 function BS({ to, onPick }: { to: string; onPick: (r: AcctRow) => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const q = useQuery({ queryKey: ["acct-bs", to], queryFn: () => api.accounting.bs(to) });
   if (q.isLoading || !q.data) return <Skeleton />;
   const b = q.data;
@@ -109,7 +109,7 @@ function BS({ to, onPick }: { to: string; onPick: (r: AcctRow) => void }) {
       <Card title={t("acct.type.liability")}><BsRows rows={b.liabilities} fx={b.fx_rate_khr} onPick={onPick} />
         <Total label={t("acct.liabilities_total")} cents={b.liabilities_total} khr={b.liabilities_total_khr} sub={prev(b.liabilities_total, b.previous.liabilities_total)} /></Card>
       <Card title={t("acct.type.equity")}><BsRows rows={b.equity} fx={b.fx_rate_khr} onPick={onPick} />
-        <div className="flex justify-between gap-3 py-2 text-sm"><span>{t("acct.current_earnings")}</span><Amount cents={b.current_earnings} fx={b.fx_rate_khr} /></div>
+        <div className="flex justify-between gap-3 py-2 text-sm"><span>{b.current_earnings_account ? `${b.current_earnings_account.code} · ${(i18n.language === "en" && b.current_earnings_account.name_en) || b.current_earnings_account.name_km}` : t("acct.current_earnings")}</span><Amount cents={b.current_earnings} fx={b.fx_rate_khr} /></div>
         <Total label={t("acct.le_total")} cents={le} khr={b.liabilities_total_khr + b.equity_total_khr + b.current_earnings_khr} sub={prev(le, lePrev)} /></Card>
       <p className={`flex items-center gap-2 text-sm ${ok ? "text-success" : "text-danger"}`}>{ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />} {ok ? t("acct.bs_ok") : t("acct.bs_bad")}</p>
       <Csv href={api.accounting.csvUrl("balance-sheet", null, to)} />

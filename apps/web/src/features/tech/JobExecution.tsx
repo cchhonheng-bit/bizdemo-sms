@@ -8,6 +8,8 @@ import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api
 import { compressPhoto, queued, readGps, sendCheckpoint } from "@/lib/offline";
 import { ActionBar, Button, Card, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth";
+import { ExtrasCard } from "@/features/bookings/JobExtras";
 
 export const STEPS = ["depart", "arrive", "start", "finish", "return"] as const;
 type Step = (typeof STEPS)[number];
@@ -65,6 +67,7 @@ export default function JobExecution({ booking }: { booking: Booking }) {
   const info = useQuery({ queryKey: ["job", booking.id], queryFn: () => api.job.info(booking.id), enabled: EXEC.includes(booking.status) });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["job", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); };
   const [busy, setBusy] = useState(false);
+  const { me } = useAuth(); // D-140 F: own added lines can be taken back
   if (!EXEC.includes(booking.status)) return null;
   if (info.isLoading || !info.data) return <Skeleton rows={4} />;
   const d = info.data;
@@ -100,6 +103,7 @@ export default function JobExecution({ booking }: { booking: Booking }) {
       {d.report?.status === "revision" && <div className="card border-warning bg-warning-50 p-3 text-sm break-words" role="alert">✏️ {t("job.revision_note")}: {d.report.review_note}</div>}
       {booking.status === "pending_review" && <div className="card bg-blue-50 p-3 text-sm" role="status">🔎 {t("job.waiting_review")}</div>}
       {booking.status === "reviewed" && <div className="card bg-success-50 p-3 text-sm" role="status">✅ {t("job.reviewed_ok")}</div>}
+      {reportOpen && <ExtrasCard booking={booking} info={d} meId={me?.id} onDone={refresh} />}
       {reportOpen && <ReportForm booking={booking} info={d} onDone={refresh} />}
     </>
   );

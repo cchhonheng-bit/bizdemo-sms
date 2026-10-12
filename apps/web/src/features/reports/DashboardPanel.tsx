@@ -39,6 +39,7 @@ export default function DashboardPanel() {
         {tile(t("status.pending_review"), d.pending_review, "/bookings", d.pending_review ? "text-warning" : "")}
         {tile(t("dashboard.approvals"), waiting, "/invoices", waiting ? "text-warning" : "")}
         {tile(t("dashboard.leave_waiting"), d.approvals.leave, "/leave", d.approvals.leave ? "text-warning" : "")}
+        {d.materials_pending !== undefined && tile(t("dashboard.materials_pending", { n: d.materials_pending }), d.materials_pending, "/inventory?tab=jobs", d.materials_pending ? "text-warning" : "")}
         {d.unverified !== undefined ? tile(t("dashboard.unverified"), d.unverified, "/reports", d.unverified ? "text-warning" : "") : tile(t("dashboard.jobs_today"), `${d.today.done}/${d.today.jobs}`, "/bookings")}
       </div>
       <Card title={t("dashboard.techs")}>

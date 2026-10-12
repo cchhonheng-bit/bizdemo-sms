@@ -1,6 +1,6 @@
 // C4 other transactions in plain words: expense · purchase (asset or expense, cash / bank / on credit) · pay a supplier ·
 // other income · owner puts money in / takes it out · move money between cash and banks. $ or ៛ (today's rate), receipt photo.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, khrToCents } from "@sms/shared";
@@ -58,10 +58,13 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   const name = useAccName();
   const info = useQuery({ queryKey: ["books"], queryFn: api.accounting.info });
   const accs = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: !!ACCOUNT_TYPES[type] });
-  const choices = useMemo(() => (accs.data ?? []).filter((a) => a.is_active && ACCOUNT_TYPES[type]?.includes(a.type) && a.role !== "inventory"), [accs.data, type]);
+  const choices = useMemo(() => (accs.data ?? []).filter((a) => a.is_active && !a.is_group && ACCOUNT_TYPES[type]?.includes(a.type) && a.role !== "inventory"), [accs.data, type]);
   const [date, setDate] = useState(todayLocal());
   const [amount, setAmount] = useState(""); const [khr, setKhr] = useState(false);
-  const [code, setCode] = useState(type === "other_income" ? "4090" : "");
+  // D-141: other income defaults to the client's 40006 (the account that carries the role)
+  const [code, setCode] = useState("");
+  const otherIncome = (accs.data ?? []).find((a) => a.role === "rev_other")?.code ?? "";
+  useEffect(() => { if (type === "other_income" && !code && otherIncome) setCode(otherIncome); }, [type, code, otherIncome]);
   const [pay, setPay] = useState("cash_usd"); const [from, setFrom] = useState("cash_usd"); const [to, setTo] = useState("aba");
   const [supplier, setSupplier] = useState(""); const [memo, setMemo] = useState(""); const [photo, setPhoto] = useState<string | null>(null);
   const fx = info.data?.fx_rate_khr ?? 4100;
