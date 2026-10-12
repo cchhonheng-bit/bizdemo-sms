@@ -53,16 +53,16 @@ describe("opening balances: a draft until «បញ្ជាក់សមតុល
 
 describe("income statement: previous month + variance", () => {
   it("every line and total also for the same period one month earlier; a full month compares with the full month before", async () => {
-    await acc(cfo, "/transactions", { date: prevFirst, type: "other_income", account_code: "4090", amount: 10000, pay: "aba" });
-    await acc(cfo, "/transactions", { date: today, type: "other_income", account_code: "4090", amount: 25000, pay: "aba" });
+    await acc(cfo, "/transactions", { date: prevFirst, type: "other_income", account_code: "40006", amount: 10000, pay: "aba" });
+    await acc(cfo, "/transactions", { date: today, type: "other_income", account_code: "40006", amount: 25000, pay: "aba" });
     const thisFirst = await day("date_trunc('month', (now() at time zone 'Asia/Phnom_Penh')::date)");
     const is = (await acc(cfo, `/income-statement?from=${thisFirst}&to=${today}`)).json;
-    expect(is.income.find((r: any) => r.code === "4090")).toMatchObject({ amount: 25000, previous: 10000, variance: 15000 });
+    expect(is.income.find((r: any) => r.code === "40006")).toMatchObject({ amount: 25000, previous: 10000, variance: 15000 });
     expect(is.previous).toMatchObject({ from: prevFirst, income_total: 10000, net: 10000 });
     expect(is.previous.to.slice(0, 7)).toBe(prevFirst.slice(0, 7)); // the same days of the previous month
     const prevLast = await day("date_trunc('month', (now() at time zone 'Asia/Phnom_Penh')::date) - interval '1 day'");
     const full = (await acc(cfo, `/income-statement?from=${prevFirst}&to=${prevLast}`)).json;
-    expect(full.income.find((r: any) => r.code === "4090")).toMatchObject({ amount: 10000, previous: 0, variance: 10000 });
+    expect(full.income.find((r: any) => r.code === "40006")).toMatchObject({ amount: 10000, previous: 0, variance: 10000 });
     expect(full.previous.to).toBe(lockDay); // the last day of the month before (a month end stays a month end)
   });
 });

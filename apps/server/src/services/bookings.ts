@@ -512,7 +512,8 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
     if (notesChanged) { note("notes", b.notes, e.notes?.trim() || null); await t`update bookings set notes = ${e.notes?.trim() || null} where id = ${id}`; }
     if (unitsChanged) { note("unit_ids", sorted(units), sorted(e.unit_ids!)); await setUnits(t, user.companyId, id, customerId, e.unit_ids!); }
 
-    // time (reschedule rules)
+    // time + crew + vehicle: every check first, then the writes in an order the overlap rules of the database accept (old crew out
+    // before the new time, the new vehicle before the new time, the new crew last)
     let w = { start: b.scheduled_at, end: b.ends_at };
     if (timeChanged) {
       if (!e.requested_by) throw new AppError("REQUESTER_REQUIRED", 400);
@@ -522,6 +523,22 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       if (start!.getTime() !== b.scheduled_at?.getTime()) assertFuture(nw.start!);
       w = nw;
       note("scheduled_at", b.scheduled_at, w.start); note("ends_at", b.ends_at, w.end);
+    }
+    const oldTeam = crew.map((x) => x.user_id);
+    if (teamChanged) {
+      note("lead", oldLead, lead); note("assistants", oldHelp, help);
+      if (EDITABLE.includes(b.status) && !ASSIGNABLE.includes(b.status)) throw new AppError("BOOKING_LOCKED", 400); // a survey is assigned after its quote
+      await t`delete from booking_technicians where booking_id = ${id}`;
+    } else if (timeChanged && oldTeam.length && w.start && w.end) {
+      for (const o of e.team?.overrides ?? []) if (oldTeam.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start, w.end, o);
+      await assertTeamFree(t, user.companyId, oldTeam, w.start, w.end, id);
+    }
+    if (vehicleChanged || timeChanged) {
+      if (vehicleChanged && vehicle) await assertVehicle(t, user.companyId, vehicle);
+      if (vehicle && w.start && w.end) await assertVehicleFree(t, user.companyId, vehicle, w.start, w.end, id);
+      if (vehicleChanged) { note("vehicle_id", b.vehicle_id, vehicle); await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`; }
+    }
+    if (timeChanged) {
       await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
       await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
       await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
@@ -529,45 +546,24 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,
         old: { scheduled_at: b.scheduled_at, ends_at: b.ends_at }, new: { scheduled_at: w.start, ends_at: w.end, requested_by: e.requested_by, reason: e.reason!.trim() }, ip });
     }
-
-    // crew + vehicle (assign rules) — checked against the (new) time
     let account: { subscriber: number; password: string } | null = null;
-    if (teamChanged) {
-      note("lead", oldLead, lead); note("assistants", oldHelp, help);
-      if (vehicleChanged) note("vehicle_id", b.vehicle_id, vehicle);
-      if (EDITABLE.includes(b.status)) {
-        account = (await assignWithin(t, user, ip, id, { lead, assistants: help, vehicle_id: vehicle, scheduled_at: null, ends_at: null, overrides: e.team!.overrides })).account;
-      } else { // in progress (confirmed): the new crew takes over, the status stays
-        if (lead && help.includes(lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
-        const team = [...(lead ? [lead] : []), ...help];
-        if (!team.length) throw new AppError("TEAM_REQUIRED", 400);
-        if ((await t`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role = 'tech'`).length !== team.length) throw new AppError("TECH_NOT_FOUND", 404);
-        for (const o of e.team!.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start!, w.end!, o);
-        await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
-        if (vehicleChanged && vehicle) { await assertVehicle(t, user.companyId, vehicle); await assertVehicleFree(t, user.companyId, vehicle, w.start!, w.end!, id); }
-        await t`delete from booking_technicians where booking_id = ${id}`;
-        if (lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${lead}, 'lead')`;
-        for (const x of help) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
-        if (vehicleChanged) await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`;
-        await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reassign", table: "bookings", rowId: id, old: { status: b.status },
-          new: { lead, assistants: help, vehicle_id: vehicle, scheduled_at: w.start, ends_at: w.end }, ip });
-        await enqueueBookingConfirmed(t, id, `reassigned:${Math.floor(Date.now() / 1000)}`);
-      }
-    } else {
-      const team = crew.map((x) => x.user_id);
-      if (timeChanged && team.length && w.start && w.end) {
-        for (const o of e.team?.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start, w.end, o);
-        await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
-      }
-      if (vehicleChanged) {
-        note("vehicle_id", b.vehicle_id, vehicle);
-        if (vehicle) await assertVehicle(t, user.companyId, vehicle);
-        await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`;
-      }
-      if ((vehicleChanged || timeChanged) && vehicle && w.start && w.end) await assertVehicleFree(t, user.companyId, vehicle, w.start, w.end, id);
-      if (timeChanged && team.length) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
+    if (teamChanged && EDITABLE.includes(b.status)) {
+      account = (await assignWithin(t, user, ip, id, { lead, assistants: help, vehicle_id: vehicle, scheduled_at: null, ends_at: null, overrides: e.team!.overrides })).account;
+    } else if (teamChanged) { // in progress (confirmed): the new crew takes over, the status stays
+      if (lead && help.includes(lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
+      const team = [...(lead ? [lead] : []), ...help];
+      if (!team.length) throw new AppError("TEAM_REQUIRED", 400);
+      if ((await t`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role = 'tech'`).length !== team.length) throw new AppError("TECH_NOT_FOUND", 404);
+      for (const o of e.team!.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start!, w.end!, o);
+      await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
+      if (lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${lead}, 'lead')`;
+      for (const x of help) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
+      await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reassign", table: "bookings", rowId: id, old: { status: b.status },
+        new: { lead, assistants: help, vehicle_id: vehicle, scheduled_at: w.start, ends_at: w.end }, ip });
+      await enqueueBookingConfirmed(t, id, `reassigned:${Math.floor(Date.now() / 1000)}`);
     }
-    if (timeChanged && teamChanged && !EDITABLE.includes(b.status)) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
+    // the technicians hear the new time (a new crew already got the job with its time)
+    if (timeChanged && (!teamChanged ? oldTeam.length > 0 : !EDITABLE.includes(b.status))) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
 
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.update", table: "bookings", rowId: id, old: oldV, new: newV, ip });
     return { id, changed: Object.keys(newV), rescheduled: timeChanged, account };

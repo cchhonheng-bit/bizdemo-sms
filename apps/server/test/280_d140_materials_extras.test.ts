@@ -27,7 +27,9 @@ async function onSite(o: { h?: number; minutes?: number } = {}): Promise<string>
   expect((await admin.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   return id;
 }
-const checkIn = async (id: string, startMs = Date.now() - H, minutes = 120) => {
+/** each job gets its own past window (4 h apart) so the same technician is never booked twice at once */
+let slotN = 0;
+const checkIn = async (id: string, startMs = Date.now() - (++slotN * 4 + 2) * H, minutes = 120) => {
   await sql`update bookings set scheduled_at = ${new Date(startMs)}, ends_at = ${new Date(startMs + minutes * 60_000)} where id = ${id}`;
   for (const step of ["depart", "arrive"]) expect((await kim.req("POST", `/api/bookings/${id}/checkpoint`, { step, no_gps: true })).status).toBe(200);
 };
@@ -72,7 +74,7 @@ describe("D-140 E materials", () => {
     expect((await admin.req("POST", `/api/bookings/${used}/cancel`, { reason: "អតិថិជនបោះបង់" })).json.error).toBe("MATERIALS_ANSWER_REQUIRED");
     expect((await admin.req("POST", `/api/bookings/${used}/cancel`, { reason: "អតិថិជនបោះបង់", materials_used: true })).status).toBe(200);
     const unused = await onSite({ h: 540 });
-    await checkIn(unused, Date.now() - H / 2);
+    await checkIn(unused);
     expect((await kim.req("PUT", `/api/bookings/${unused}/materials`, { items: [{ catalog_item_id: pipe, qty: 2 }] })).status).toBe(200);
     expect((await admin.req("POST", `/api/bookings/${unused}/cancel`, { reason: "ខុសអាសយដ្ឋាន", materials_used: false })).status).toBe(200);
     // a job without materials needs no answer
@@ -92,7 +94,7 @@ describe("D-140 E materials", () => {
     const job = await onSite({ h: 580 });
     await checkIn(job);
     expect((await kim.req("PUT", `/api/bookings/${job}/materials`, { items: [{ catalog_item_id: pipe, qty: 4 }] })).status).toBe(200);
-    await sql`update bookings set status = 'work_done', finished_at = now() - interval '25 hours' where id = ${job}`;
+    await sql`update bookings set status = 'work_done', finished_at = now() - interval '25 hours' where id = ${job}`; // arrive → on_site → work_done
     const dash = (await admin.req("GET", "/api/reports/dashboard")).json;
     expect(dash.materials_pending).toBeGreaterThanOrEqual(1);
     const day = (hh: number) => { const pp = new Date(Date.now() + 7 * H); return new Date(Date.UTC(pp.getUTCFullYear(), pp.getUTCMonth(), pp.getUTCDate(), hh - 7, 5)); };
@@ -100,7 +102,7 @@ describe("D-140 E materials", () => {
     expect(await materialsReminders(day(10))).toBe(1);
     expect(await materialsReminders(day(14))).toBe(0); // once a day
     const told = await sql<{ user_id: string; title: string }[]>`select user_id, title from notifications where kind = 'materials.waiting'`;
-    expect(told.map((x) => x.user_id).sort()).toEqual([s.users.admin, s.users.gm].sort());
+    expect(told.map((x) => x.user_id).sort()).toEqual([s.users.admin, s.users.gm01].sort());
     expect(told[0]!.title).toMatch(/សម្ភារៈរង់ចាំបញ្ជាក់ \(\d+\)|Materials to confirm \(\d+\)/);
   });
 
@@ -110,7 +112,7 @@ describe("D-140 E materials", () => {
     expect((await kim.req("PUT", `/api/bookings/${job}/materials`, { items: [{ catalog_item_id: gas, qty: 2 }, { catalog_item_id: pipe, qty: 5 }] })).status).toBe(200);
     const q = (await sql<{ id: string }[]>`insert into quotes (company_id, booking_id, number, status, fx_rate_khr) values (${s.a}, ${job}, 'QT-T1', 'accepted', 4100) returning id`)[0]!.id;
     await sql`insert into quote_lines (quote_id, sort, catalog_item_id, description, kind, qty, unit, unit_price) values (${q}, 0, ${svc}, 'លាង', 'service', 1, 'job', 9000), (${q}, 1, ${gas}, 'ហ្គាស', 'product', 2, 'kg', 1200)`;
-    await sql`update bookings set status = 'reviewed' where id = ${job}`;
+    for (const st of ["work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines.map((l: any) => [l.catalog_item_id, l.unit_price])).toEqual([[svc, 9000], [gas, 1200]]);
     expect(p.extra_materials).toEqual([expect.objectContaining({ catalog_item_id: pipe, qty: 5, unit_price: 300 })]);
@@ -121,7 +123,7 @@ describe("D-140 F work added on site", () => {
   let job: string;
   it("the technician adds a catalog service (+qty, catalog price) and «ការងារផ្សេងៗ» (text + photo, no price); the job gets longer", async () => {
     job = await onSite({ h: 700 });
-    await checkIn(job, Date.now() - H, 120);
+    await checkIn(job);
     const before = new Date((await booking(job)).ends_at).getTime();
     const a = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: svc, qty: 2 });
     expect(a.status).toBe(200);
@@ -144,7 +146,7 @@ describe("D-140 F work added on site", () => {
     const x3 = (await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "លាងបំពង់ទឹក" })).json.id;
     expect((await kim.req("DELETE", `/api/bookings/${job}/extras/${x3}`)).status).toBe(200); // own pending line: taken back
     const x4 = (await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "ជួសជុលបន្ថែម" })).json.id;
-    await sql`update bookings set status = 'reviewed' where id = ${job}`;
+    for (const st of ["work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     expect((await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json.error).toBe("EXTRAS_PENDING");
     expect((await kim.req("POST", `/api/bookings/${job}/extras/${x1}/review`, { action: "confirm" })).status).toBe(403);
     expect((await gm.req("POST", `/api/bookings/${job}/extras/${x2}/review`, { action: "confirm" })).json.error).toBe("PRICE_REQUIRED");
@@ -183,7 +185,7 @@ describe("D-140 F work added on site", () => {
     expect(r.json.overlap).toMatchObject({ number: (await booking(next)).number });
     expect(new Date((await booking(now)).ends_at).getTime()).toBe(start + 90 * 60_000); // up to the next job's start
     const told = await sql<{ user_id: string }[]>`select user_id from notifications where kind = 'job.extra_clash'`;
-    expect(told.map((x) => x.user_id)).toEqual(expect.arrayContaining([s.users.admin, s.users.gm, s.users.kim]));
+    expect(told.map((x) => x.user_id)).toEqual(expect.arrayContaining([s.users.admin, s.users.gm01, s.users.kim]));
     // before arrive / after the report: no adding
     const later2 = await onSite({ h: 900 });
     expect((await kim.req("POST", `/api/bookings/${later2}/extras`, { kind: "service", item_id: svc, qty: 1 })).json.error).toBe("NOT_ON_SITE");

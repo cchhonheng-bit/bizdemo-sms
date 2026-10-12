@@ -99,6 +99,8 @@ export const catalogItemSchema = z.object({
   reminder_months: z.number().int().min(1).max(60).nullable().optional(),
   /** D-92: the income account this item posts to (accounting); null = the default by kind (service / goods) */
   income_account_id: z.string().uuid().nullable().optional(),
+  /** D-141: a stock item's own stock account (13001 …, 14000 copper pipe …); null = 18000 technicians' materials */
+  inventory_account_id: z.string().uuid().nullable().optional(),
   /** D-106 website catalog: code (the Excel key), website category, «from» price in cents (empty = the price is told on contact),
    *  shown on the website, quote only (never booked online) */
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9._-]{0,19}$/, "CODE_FORMAT").optional().or(z.literal("")).nullable(),

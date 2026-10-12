@@ -16,65 +16,17 @@ import { audit } from "./audit.js";
 import { saveImage } from "./jobs.js";
 import { registerLedger, type LedgerEvent } from "./ledger-hooks.js";
 import { cell } from "./reports-extra.js";
+import { insertChart, parentOf, type AccType, type Role } from "./chart.js";
 
-export type AccType = "asset" | "liability" | "equity" | "income" | "expense";
-type Role = "cash_usd" | "cash_khr" | "bank_aba" | "bank_acleda" | "ar" | "inventory" | "ap" | "deposits" | "payroll" | "capital" | "drawings" | "retained"
-  | "opening" | "rev_service" | "rev_sales" | "rev_other" | "discount" | "cogs" | "stock_adjust" | "salaries" | "bonus" | "cash_diff";
+export type { AccType } from "./chart.js";
 export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing";
-
-/** Cambodian SME template (USD books). Accounts with a role are used by automatic postings: they can be renamed, never removed. */
-const CHART: [string, string, string, AccType, Role?][] = [
-  ["1010", "សាច់ប្រាក់ក្នុងដៃ (ដុល្លារ)", "Cash on hand (USD)", "asset", "cash_usd"],
-  ["1011", "សាច់ប្រាក់ក្នុងដៃ (រៀល)", "Cash on hand (KHR)", "asset", "cash_khr"],
-  ["1020", "ធនាគារ ABA", "Bank – ABA", "asset", "bank_aba"],
-  ["1021", "ធនាគារ ACLEDA", "Bank – ACLEDA", "asset", "bank_acleda"],
-  ["1100", "គណនីត្រូវទទួល (អតិថិជន)", "Accounts receivable", "asset", "ar"],
-  ["1150", "បុរេប្រទានបុគ្គលិក", "Staff advances", "asset"],
-  ["1200", "ស្តុកទំនិញ និងសម្ភារៈ", "Inventory", "asset", "inventory"],
-  ["1300", "ចំណាយបង់មុន", "Prepaid expenses", "asset"],
-  ["1310", "អាករលើតម្លៃបន្ថែម (ធាតុចូល)", "VAT input", "asset"],
-  ["1500", "ឧបករណ៍ និងគ្រឿងម៉ាស៊ីន", "Equipment & tools", "asset"],
-  ["1510", "យានយន្ត", "Vehicles", "asset"],
-  ["1590", "រំលស់បូកយោង", "Accumulated depreciation", "asset"],
-  ["2010", "គណនីត្រូវសង (អ្នកផ្គត់ផ្គង់)", "Accounts payable", "liability", "ap"],
-  ["2020", "ប្រាក់កក់ពីអតិថិជន", "Customer deposits", "liability", "deposits"],
-  ["2100", "ប្រាក់ខែត្រូវបើក", "Salaries payable", "liability", "payroll"],
-  ["2200", "អាករលើតម្លៃបន្ថែម (ធាតុចេញ)", "VAT output", "liability"],
-  ["2210", "ពន្ធត្រូវបង់", "Taxes payable", "liability"],
-  ["2300", "ប្រាក់កម្ចី", "Loans", "liability"],
-  ["3010", "ដើមទុនម្ចាស់", "Owner's capital", "equity", "capital"],
-  ["3020", "ការដកប្រើផ្ទាល់ខ្លួនរបស់ម្ចាស់", "Owner's drawings", "equity", "drawings"],
-  ["3100", "ប្រាក់ចំណេញរក្សាទុក", "Retained earnings", "equity", "retained"],
-  ["3900", "មូលធនសមតុល្យដើម", "Opening balance equity", "equity", "opening"],
-  ["4010", "ចំណូលសេវាកម្ម", "Service revenue", "income", "rev_service"],
-  ["4020", "ចំណូលលក់ទំនិញ", "Sales of goods", "income", "rev_sales"],
-  ["4090", "ចំណូលផ្សេងៗ", "Other income", "income", "rev_other"],
-  ["4900", "បញ្ចុះតម្លៃលក់", "Sales discounts", "income", "discount"],
-  ["5010", "ថ្លៃដើមទំនិញ និងសម្ភារៈ", "Cost of goods & materials", "expense", "cogs"],
-  ["5020", "ខាត/ចំណេញ កែតម្រូវស្តុក", "Inventory adjustments", "expense", "stock_adjust"],
-  ["6010", "ប្រាក់ខែ", "Salaries", "expense", "salaries"],
-  ["6020", "ប្រាក់រង្វាន់", "Bonuses", "expense", "bonus"],
-  ["6030", "សាំង និងការធ្វើដំណើរ", "Fuel & transport", "expense"],
-  ["6040", "ថ្លៃឈ្នួល", "Rent", "expense"],
-  ["6050", "ទឹក ភ្លើង", "Electricity & water", "expense"],
-  ["6060", "ទូរស័ព្ទ និងអ៊ីនធឺណិត", "Phone & internet", "expense"],
-  ["6070", "ជួសជុល និងថែទាំ", "Repairs & maintenance", "expense"],
-  ["6080", "សម្ភារៈការិយាល័យ", "Office supplies", "expense"],
-  ["6090", "កម្រៃធនាគារ", "Bank charges", "expense"],
-  ["6100", "ផ្សព្វផ្សាយ", "Marketing", "expense"],
-  ["6110", "ពន្ធ និងអាជ្ញាប័ណ្ណ", "Taxes & licences", "expense"],
-  ["6120", "រំលស់", "Depreciation", "expense"],
-  ["6900", "ចំណាយផ្សេងៗ", "Other expenses", "expense"],
-  ["6950", "ខ្វះ/លើស សាច់ប្រាក់", "Cash over / short", "expense", "cash_diff"],
-];
 export const METHODS = ["cash_usd", "cash_khr", "aba", "acleda"] as const;
 const METHOD_ROLE: Record<string, Role> = { cash_usd: "cash_usd", cash_khr: "cash_khr", aba: "bank_aba", acleda: "bank_acleda", credit: "ap" };
 const REVERSIBLE: Source[] = ["manual", "other"];
 
 export async function ensureChart(db: Db, companyId: string): Promise<void> {
   if ((await db`select 1 from accounts where company_id = ${companyId} limit 1`).length) return;
-  for (const [code, km, en, type, role] of CHART)
-    await db`insert into accounts (company_id, code, name_km, name_en, type, role) values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role ?? null}) on conflict do nothing`;
+  await insertChart(db, companyId); // D-141: One Team's chart (chart.ts)
 }
 export async function roleIds(db: Db, companyId: string): Promise<Record<Role, string>> {
   await ensureChart(db, companyId);
@@ -150,7 +102,7 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
       const total = k.reduce((s, x) => s + Number(x.amt), 0);
       await post(t, u, { date: e.date ?? b.today, memo: i.number, source: "invoice", source_id: e.invoice_id, fx: Number(i.fx), lines: [
         { account: R.ar, amount: total - i.discount, customer_id: i.customer_id, zone }, { account: R.discount, amount: i.discount, zone },
-        ...k.map((x) => ({ account: x.account ?? (x.kind === "service" ? R.rev_service : R.rev_sales), amount: -Number(x.amt), zone }))] });
+        ...k.map((x) => ({ account: x.account ?? revenueAccount(R, x.kind, zone), amount: -Number(x.amt), zone }))] });
       return;
     }
     case "payment": {
@@ -189,9 +141,9 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
     }
     case "stock": {
       const ms = await t<{ id: string; kind: string; value: string; pay: string | null; supplier: string | null; date: string; fx: string; ref_type: string | null; ref_id: string | null;
-          name: string; okind: string | null; opay: string | null; osupplier: string | null }[]>`
+          name: string; inv: string | null; okind: string | null; opay: string | null; osupplier: string | null }[]>`
         select m.id::text, m.kind::text, m.value_cents::text as value, m.pay, m.supplier, m.move_date::text as date, m.fx_rate_khr::text as fx, m.ref_type, m.ref_id,
-          i.name_km as name, o.kind::text as okind, o.pay as opay, o.supplier as osupplier
+          i.name_km as name, i.inventory_account_id::text as inv, o.kind::text as okind, o.pay as opay, o.supplier as osupplier
         from stock_moves m join catalog_items i on i.id = m.item_id left join stock_moves o on o.id = m.reversal_of
         where m.company_id = ${u.companyId} and m.id = any(${t.array(e.move_ids.map(String))}::bigint[]) order by m.id`;
       const lines: Line[] = [];
@@ -199,8 +151,8 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         const v = Number(m.value);
         const kind = m.kind === "reverse" ? m.okind ?? "adjust" : m.kind;
         const pay = m.kind === "reverse" ? m.opay : m.pay, supplier = m.kind === "reverse" ? m.osupplier : m.supplier;
-        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out_job" || kind === "out_sale" ? R.cogs : R.stock_adjust;
-        lines.push({ account: R.inventory, amount: v, memo: m.name }, { account: counter, amount: -v, memo: m.name, supplier: kind === "in" && pay === "credit" ? supplier : null });
+        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out_job" ? R.materials : kind === "out_sale" ? R.cogs : R.stock_adjust;
+        lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name }, { account: counter, amount: -v, memo: m.name, supplier: kind === "in" && pay === "credit" ? supplier : null });
       }
       const m0 = ms[0];
       if (!m0) return;
@@ -221,13 +173,20 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
 }
 registerLedger(onEvent, () => featureOn("accounting"));
 
+/** D-141 (CEO): a customer inside a borey → 40004 sales / 40005 service; everybody else → 40001 / 40002 */
+export function revenueAccount(R: Record<Role, string>, kind: string, zone: "inside" | "outside" | null): string {
+  const service = kind === "service";
+  return zone === "inside" ? (service ? R.rev_service_inside : R.rev_sales_inside) : (service ? R.rev_service : R.rev_sales);
+}
+
 // ---------- C1 chart of accounts ----------
 /** every account belongs to one statement: BS (asset / liability / equity) or PL (income / expense) — D-92 */
 export const statementOf = (t: AccType): "BS" | "PL" => (t === "income" || t === "expense" ? "PL" : "BS");
 export async function listAccounts(user: SessionUser) {
   await ensureChart(sql, user.companyId);
-  return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; role: string | null; is_active: boolean; used: boolean; balance: string }[]>`
-    select a.id, a.code, a.name_km, a.name_en, a.type::text as type, a.role, a.is_active,
+  return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; role: string | null; is_active: boolean; used: boolean; balance: string;
+      is_group: boolean; parent_code: string | null; added_by_system: boolean }[]>`
+    select a.id, a.code, a.name_km, a.name_en, a.type::text as type, a.role, a.is_active, a.is_group, a.parent_code, a.added_by_system,
       exists (select 1 from journal_lines l where l.account_id = a.id) as used,
       coalesce((select sum(l.debit_cents - l.credit_cents) from journal_lines l where l.account_id = a.id), 0)::text as balance
     from accounts a where a.company_id = ${user.companyId} order by a.code`).map((a) => ({ ...a, balance: Number(a.balance), statement: statementOf(a.type) }));
@@ -240,31 +199,36 @@ export async function saveAccount(user: SessionUser, ip: string | null, v: { id?
     if (taken && taken.id !== v.id) throw new AppError("CODE_EXISTS", 409);
     let id = v.id, old: unknown = null;
     if (id) {
-      const a = (await t<{ code: string; type: string; role: string | null; name_km: string; is_active: boolean }[]>`select code, type::text, role, name_km, is_active from accounts
+      const a = (await t<{ code: string; type: string; role: string | null; name_km: string; is_active: boolean; is_group: boolean }[]>`select code, type::text, role, name_km, is_active, is_group from accounts
         where id = ${id} and company_id = ${user.companyId} for update`)[0];
       if (!a) throw notFound();
+      if (a.is_group && (a.code !== v.code || a.type !== v.type || v.is_active === false)) throw new AppError("SYSTEM_ACCOUNT", 400); // D-141: the groups hold the chart together
       const used = (await t`select 1 from journal_lines where account_id = ${id} limit 1`).length > 0;
       if ((a.code !== v.code || a.type !== v.type) && (used || a.role)) throw new AppError(a.role ? "SYSTEM_ACCOUNT" : "ACCOUNT_USED", 400);
       if (v.is_active === false && a.role) throw new AppError("SYSTEM_ACCOUNT", 400);
       old = a;
       await t`update accounts set code = ${v.code}, name_km = ${v.name_km.trim()}, name_en = ${v.name_en?.trim() || null}, type = ${v.type}::account_type,
-        is_active = coalesce(${v.is_active ?? null}, is_active) where id = ${id}`;
+        is_active = coalesce(${v.is_active ?? null}, is_active), parent_code = ${a.is_group ? parentOf(v.code) : await parentIn(t, user.companyId, v.code)} where id = ${id}`;
     } else {
-      id = (await t<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type) values (${user.companyId}, ${v.code}, ${v.name_km.trim()}, ${v.name_en?.trim() || null},
-        ${v.type}::account_type) returning id`)[0]!.id;
+      id = (await t<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type, parent_code) values (${user.companyId}, ${v.code}, ${v.name_km.trim()}, ${v.name_en?.trim() || null},
+        ${v.type}::account_type, ${await parentIn(t, user.companyId, v.code)}) returning id`)[0]!.id;
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.account", table: "accounts", rowId: id, old, new: v, ip });
     return { id };
   });
 }
 
+/** the group of a new / changed account in this company's chart (D-141) */
+async function parentIn(t: Db, companyId: string, code: string): Promise<string | null> {
+  return parentOf(code, (await t<{ code: string }[]>`select code from accounts where company_id = ${companyId} and is_group`).map((g) => g.code));
+}
 /** only an account that was never used and is not a system account */
 export async function deleteAccount(user: SessionUser, ip: string | null, id: string) {
   return tx(user.id, async (t) => {
-    const a = (await t<{ code: string; role: string | null }[]>`select code, role from accounts where id = ${id} and company_id = ${user.companyId} for update`)[0];
+    const a = (await t<{ code: string; role: string | null; is_group: boolean }[]>`select code, role, is_group from accounts where id = ${id} and company_id = ${user.companyId} for update`)[0];
     if (!a) throw notFound();
     if ((await t`select 1 from journal_lines where account_id = ${id} limit 1`).length) throw new AppError("ACCOUNT_USED", 400);
-    if (a.role) throw new AppError("SYSTEM_ACCOUNT", 400);
+    if (a.role || a.is_group) throw new AppError("SYSTEM_ACCOUNT", 400);
     await t`delete from accounts where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.account_delete", table: "accounts", rowId: id, old: a, ip });
     return { ok: true };
@@ -295,9 +259,10 @@ export async function createJournal(user: SessionUser, ip: string | null, v: { d
   return tx(user.id, async (t) => {
     await started(t, user.companyId, v.date);
     const ids = [...new Set(v.lines.map((l) => l.account_id))];
-    const acc = await t<{ id: string; active: boolean }[]>`select id, is_active as active from accounts where company_id = ${user.companyId} and id = any(${t.array(ids)}::uuid[])`;
+    const acc = await t<{ id: string; active: boolean; group: boolean }[]>`select id, is_active as active, is_group as group from accounts where company_id = ${user.companyId} and id = any(${t.array(ids)}::uuid[])`;
     if (acc.length !== ids.length) throw notFound();
     if (acc.some((a) => !a.active)) throw new AppError("ACCOUNT_INACTIVE", 400);
+    if (acc.some((a) => a.group)) throw new AppError("ACCOUNT_IS_GROUP", 400); // D-141
     const lines = v.lines.map((l) => ({ account: l.account_id, amount: (l.debit ?? 0) - (l.credit ?? 0), memo: l.memo?.trim() || null }));
     if (lines.reduce((s, l) => s + l.amount, 0) !== 0) throw new AppError("NOT_BALANCED", 400);
     const attachment = v.attachment ? await attach(t, user, v.attachment) : null;
@@ -423,12 +388,16 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
     for (const [k, amt] of Object.entries(v.banks ?? {})) { // aba / acleda, or the code of any other asset account the CFO added (D-92: each bank)
       if (!amt) continue;
       const acc = k === "aba" ? R.bank_aba : k === "acleda" ? R.bank_acleda
-        : (await t<{ id: string }[]>`select id from accounts where company_id = ${user.companyId} and code = ${k} and type = 'asset' and is_active`)[0]?.id;
+        : (await t<{ id: string }[]>`select id from accounts where company_id = ${user.companyId} and code = ${k} and type = 'asset' and is_active and not is_group`)[0]?.id;
       if (!acc) throw new AppError("NOT_ASSET_ACCOUNT", 400, { code: k });
       add({ account: acc, amount: amt });
     }
-    const appStock = Number((await t<{ v: string }[]>`select coalesce(sum(value_cents), 0)::text as v from stock_items where company_id = ${user.companyId}`)[0]!.v);
-    add({ account: R.inventory, amount: appStock || (v.stock ?? 0), memo: null }); // the inventory module's value when it holds one, else the figure entered
+    // the inventory module's value when it holds one — on each item's own stock account (D-141) — else the figure entered
+    const byAccount = await t<{ account: string | null; v: string }[]>`select ci.inventory_account_id::text as account, coalesce(sum(si.value_cents), 0)::text as v
+      from stock_items si join catalog_items ci on ci.id = si.item_id where si.company_id = ${user.companyId} group by ci.inventory_account_id`;
+    const appStock = byAccount.reduce((x, a) => x + Number(a.v), 0);
+    if (appStock) for (const a of byAccount) add({ account: a.account ?? R.inventory, amount: Number(a.v), memo: null });
+    else add({ account: R.inventory, amount: v.stock ?? 0, memo: null });
     add({ account: R.retained, amount: -(v.retained_earnings ?? 0) }); // D-92: retained earnings of the years before the books
     for (const d of await t<{ usd: number; customer_id: string; number: string }[]>`select d.usd_cents as usd, b.customer_id, b.number from deposits d join bookings b on b.id = d.booking_id
         where d.company_id = ${user.companyId} and d.status = 'active' order by d.created_at`)
@@ -479,8 +448,9 @@ export async function otherTransaction(user: SessionUser, ip: string | null, v: 
     const cents = v.currency === "khr" ? khrToCents(v.amount, Number(b.fx)) : v.amount;
     if (cents <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
     const account = async (code: string | undefined, types: AccType[]) => {
-      const a = (await t<{ id: string; type: AccType; active: boolean }[]>`select id, type::text as type, is_active as active from accounts where company_id = ${user.companyId} and code = ${code ?? ""}`)[0];
+      const a = (await t<{ id: string; type: AccType; active: boolean; group: boolean }[]>`select id, type::text as type, is_active as active, is_group as group from accounts where company_id = ${user.companyId} and code = ${code ?? ""}`)[0];
       if (!a) throw new AppError("ACCOUNT_NOT_FOUND", 404);
+      if (a.group) throw new AppError("ACCOUNT_IS_GROUP", 400); // D-141
       if (!types.includes(a.type)) throw new AppError("WRONG_ACCOUNT_TYPE", 400);
       if (!a.active) throw new AppError("ACCOUNT_INACTIVE", 400);
       return a.id;
@@ -490,7 +460,7 @@ export async function otherTransaction(user: SessionUser, ip: string | null, v: 
       if (!p) throw new AppError("PAY_REQUIRED", 400);
       if (p === "credit") { if (!credit) throw new AppError("BAD_METHOD", 400); return R.ap; }
       if (METHOD_ROLE[p]) return R[METHOD_ROLE[p]!];
-      const a = (await t<{ id: string }[]>`select id from accounts where id = ${p} and company_id = ${user.companyId} and type = 'asset' and is_active`)[0];
+      const a = (await t<{ id: string }[]>`select id from accounts where id = ${p} and company_id = ${user.companyId} and type = 'asset' and is_active and not is_group`)[0];
       if (!a) throw new AppError("ACCOUNT_NOT_FOUND", 404);
       return a.id;
     };
@@ -503,7 +473,7 @@ export async function otherTransaction(user: SessionUser, ip: string | null, v: 
         break;
       }
       case "supplier_payment": lines = [{ account: R.ap, amount: cents, supplier }, { account: await payAcc(v.pay), amount: -cents }]; break;
-      case "other_income": lines = [{ account: await payAcc(v.pay), amount: cents }, { account: await account(v.account_code ?? "4090", ["income"]), amount: -cents }]; break;
+      case "other_income": lines = [{ account: await payAcc(v.pay), amount: cents }, { account: v.account_code ? await account(v.account_code, ["income"]) : R.rev_other, amount: -cents }]; break; // D-141: 40006
       case "owner_contribution": lines = [{ account: await payAcc(v.pay), amount: cents }, { account: R.capital, amount: -cents }]; break;
       case "owner_withdrawal": lines = [{ account: R.drawings, amount: cents }, { account: await payAcc(v.pay), amount: -cents }]; break;
       case "transfer": {
@@ -542,7 +512,7 @@ async function sums(companyId: string, to: string, from?: string, noClosingFrom?
       where e.company_id = ${companyId} and e.entry_date <= ${to}::date ${from ? sql`and e.entry_date >= ${from}::date` : sql``}
         ${noClosingFrom ? sql`and not (e.source = 'closing' and e.entry_date >= ${noClosingFrom}::date)` : sql``} group by l.account_id)
     select a.id, a.code, a.name_km, a.name_en, a.type::text as type, coalesce(m.d, 0)::text as d, coalesce(m.c, 0)::text as c
-    from accounts a left join m on m.account_id = a.id where a.company_id = ${companyId} order by a.code`).map((r) => ({ ...r, d: Number(r.d), c: Number(r.c) }));
+    from accounts a left join m on m.account_id = a.id where a.company_id = ${companyId} and not a.is_group order by a.code`).map((r) => ({ ...r, d: Number(r.d), c: Number(r.c) }));
 }
 const row = (s: Sum, amount: number) => ({ account_id: s.id, code: s.code, name_km: s.name_km, name_en: s.name_en, type: s.type, amount });
 
@@ -608,7 +578,9 @@ export async function balanceSheet(user: SessionUser, to: string) {
   const earnings = (xs: Sum[]) => xs.filter((x) => x.type === "income" || x.type === "expense").reduce((a, x) => a + x.c - x.d, 0);
   const current_earnings = earnings(cur);
   const assets_total = tot(assets), liabilities_total = tot(liabilities), equity_total = tot(equity);
-  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, assets_total, liabilities_total, equity_total,
+  // D-141: the year's profit not closed yet is shown on the client's account 30002 «ចំណេញ/ខាត (-) ក្នុងឆ្នាំ»
+  const current_earnings_account = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select code, name_km, name_en from accounts where company_id = ${user.companyId} and role = 'current_profit'`)[0] ?? null;
+  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, current_earnings_account, assets_total, liabilities_total, equity_total,
     previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: earnings(prev) },
     assets_total_khr: usdToKhr(assets_total, fx), liabilities_total_khr: usdToKhr(liabilities_total, fx), equity_total_khr: usdToKhr(equity_total, fx), current_earnings_khr: usdToKhr(current_earnings, fx) };
 }
@@ -736,7 +708,7 @@ export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?
     const sec = (name: string, rows: { code: string; name_km: string; amount: number }[]) => rows.map((r) => [name, r.code, r.name_km, money(r.amount), usdToKhr(r.amount, b.fx_rate_khr)]);
     return csv([["section", "code", "account", "usd", "khr"], ...sec("asset", b.assets), ["asset", "", "TOTAL", money(b.assets_total), b.assets_total_khr],
       ...sec("liability", b.liabilities), ["liability", "", "TOTAL", money(b.liabilities_total), b.liabilities_total_khr], ...sec("equity", b.equity),
-      ["equity", "", "PROFIT NOT YET CLOSED", money(b.current_earnings), b.current_earnings_khr], ["equity", "", "TOTAL", money(b.equity_total + b.current_earnings), usdToKhr(b.equity_total + b.current_earnings, b.fx_rate_khr)],
+      ["equity", b.current_earnings_account?.code ?? "", b.current_earnings_account?.name_km ?? "PROFIT NOT YET CLOSED", money(b.current_earnings), b.current_earnings_khr], ["equity", "", "TOTAL", money(b.equity_total + b.current_earnings), usdToKhr(b.equity_total + b.current_earnings, b.fx_rate_khr)],
       [], ["rate_khr", b.fx_rate_khr]]);
   }
   if (kind === "ledger") {

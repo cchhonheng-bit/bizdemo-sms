@@ -27,6 +27,9 @@ const mk = async (h: number, extra: Record<string, unknown> = {}) => {
 };
 const edit = (c: Client, id: string, body: Record<string, unknown>) => c.req("PUT", `/api/bookings/${id}`, body);
 const get = async (id: string) => (await admin.req("GET", `/api/bookings/${id}`)).json;
+/** the job steps along the allowed status path (the database refuses jumps) */
+const PATH = ["on_site", "work_done", "pending_review", "reviewed", "invoiced"];
+const walk = async (id: string, from: string, to: string) => { for (const st of PATH.slice(PATH.indexOf(from) + 1, PATH.indexOf(to) + 1)) await sql`update bookings set status = ${st}::booking_status where id = ${id}`; };
 const lastAudit = async (id: string, action: string) => (await sql<{ old_data: any; new_data: any }[]>`select old_data, new_data from audit_log where action = ${action} and row_id = ${id} order by id desc limit 1`)[0];
 
 beforeAll(async () => {
@@ -103,7 +106,9 @@ describe("D-140 C one «កែ» screen", () => {
     const b = await get(job);
     expect(b.service_item_id).toBe(svcA);
     expect(b.web_lines.map((l: any) => [l.id, l.qty, l.minutes])).toEqual([[svcA, 2, 60], [svcB, 1, 90]]);
-    await sql`update bookings set status = 'reviewed' where id = ${job}`;
+    expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
+    await sql`update bookings set status = 'on_site' where id = ${job}`;
+    await walk(job, "on_site", "reviewed");
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines.map((l: any) => [l.catalog_item_id, l.qty, l.unit_price])).toEqual([[svcA, 2, 1500], [svcB, 1, 2500]]);
     // the invoices list carries the customer's phones (smart search in the list)
@@ -196,7 +201,7 @@ describe("D-140 C one «កែ» screen", () => {
     expect((await edit(admin, job, { notes: "ចប់ហើយ" })).status).toBe(200);
     expect((await edit(admin, job, { lines: [{ item_id: svcA, qty: 1 }] })).json.error).toBe("FINISHED_NOTE_ONLY");
     expect((await edit(admin, job, { ...span(later(300)), requested_by: "customer", reason: "ម្ដងទៀត" })).json.error).toBe("FINISHED_NOTE_ONLY");
-    await sql`update bookings set status = 'invoiced' where id = ${job}`;
+    await walk(job, "work_done", "invoiced");
     expect((await edit(admin, job, { address: "ផ្សេង" })).json.error).toBe("FINISHED_NOTE_ONLY");
     // cancelled: nothing
     const gone = await mk(220);

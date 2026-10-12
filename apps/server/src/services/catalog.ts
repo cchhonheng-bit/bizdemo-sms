@@ -14,8 +14,8 @@ export const assertCatalogEditor = (u: { role: string }) => { if (!CATALOG_EDIT_
 
 type Item = { id: string; code: string | null; name_km: string; name_en: string | null; kind: "service" | "product"; category: string; web_category: WebCategory | null; unit: string;
   sell_price: number; cost_price: number | null; duration_min: number; is_active: boolean; show_on_website: boolean; quote_only: boolean; is_sample: boolean; from_price: number | null;
-  reminder_months: number | null; income_account_id: string | null };
-const COLS = (db: Db) => db`id, code, name_km, name_en, kind, category::text as category, web_category, unit, sell_price, cost_price, duration_min, is_active, show_on_website, quote_only, is_sample, from_price, reminder_months, income_account_id`;
+  reminder_months: number | null; income_account_id: string | null; inventory_account_id: string | null };
+const COLS = (db: Db) => db`id, code, name_km, name_en, kind, category::text as category, web_category, unit, sell_price, cost_price, duration_min, is_active, show_on_website, quote_only, is_sample, from_price, reminder_months, income_account_id, inventory_account_id`;
 
 export async function listCatalog(user: SessionUser, perms: string[]) {
   const isTech = user.role === "tech", withCost = perms.includes("cost.read");
@@ -31,7 +31,7 @@ export async function catalogMeta(user: SessionUser) {
   return { last: r ? { name: r.name ?? "—", at: r.at } : null, can_edit: CATALOG_EDIT_ROLES.includes(user.role) };
 }
 
-const FIELDS = ["code", "name_km", "name_en", "kind", "category", "web_category", "unit", "sell_price", "cost_price", "duration_min", "reminder_months", "income_account_id", "from_price", "show_on_website", "quote_only", "is_active"] as const;
+const FIELDS = ["code", "name_km", "name_en", "kind", "category", "web_category", "unit", "sell_price", "cost_price", "duration_min", "reminder_months", "income_account_id", "inventory_account_id", "from_price", "show_on_website", "quote_only", "is_active"] as const;
 /** old → new of the fields that changed (the audit log keeps exactly this) */
 function diff(old: Partial<Item> | null, next: Partial<Item>): { old: Record<string, unknown>; new: Record<string, unknown> } | null {
   const o: Record<string, unknown> = {}, n: Record<string, unknown> = {};
@@ -51,7 +51,9 @@ async function codeFree(db: Db, companyId: string, code: string | null, exceptId
 export async function upsertItem(user: SessionUser, ip: string | null, b: CatalogItemInput & { id?: string | null }, withCost: boolean) {
   assertCatalogEditor(user);
   if (b.cost_price != null && !withCost) throw new AppError("FORBIDDEN_COST", 403);
-  if (b.income_account_id && !(await sql`select 1 from accounts where id = ${b.income_account_id} and company_id = ${user.companyId} and type = 'income'`).length) throw new AppError("NOT_INCOME_ACCOUNT", 400);
+  if (b.income_account_id && !(await sql`select 1 from accounts where id = ${b.income_account_id} and company_id = ${user.companyId} and type = 'income' and not is_group`).length) throw new AppError("NOT_INCOME_ACCOUNT", 400);
+  // D-141: a stock item's own stock account — an asset posting account (13001 …, 14000 copper pipe …)
+  if (b.inventory_account_id && (b.kind !== "product" || !(await sql`select 1 from accounts where id = ${b.inventory_account_id} and company_id = ${user.companyId} and type = 'asset' and not is_group`).length)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
   const code = b.code ? b.code : null;
   return tx(user.id, async (t) => {
     const old = b.id ? (await t<Item[]>`select ${COLS(t)} from catalog_items where id = ${b.id} and company_id = ${user.companyId} for update`)[0] ?? null : null;
@@ -63,6 +65,7 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
       duration_min: b.duration_min ?? old?.duration_min ?? 120,
       ...(b.reminder_months !== undefined ? { reminder_months: b.reminder_months ?? null } : {}),
       ...(b.income_account_id !== undefined ? { income_account_id: b.income_account_id ?? null } : {}),
+      ...(b.inventory_account_id !== undefined ? { inventory_account_id: service ? null : b.inventory_account_id ?? null } : {}),
       ...(withCost && b.cost_price !== undefined ? { cost_price: b.cost_price ?? null } : {}),
       ...(b.web_category !== undefined ? { web_category: service ? b.web_category ?? null : null } : {}),
       ...(b.from_price !== undefined ? { from_price: service ? b.from_price ?? null : null } : {}),
@@ -71,16 +74,16 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
     };
     let id: string;
     if (!old) {
-      id = (await t<{ id: string }[]>`insert into catalog_items (company_id, code, name_km, name_en, kind, category, web_category, unit, sell_price, cost_price, duration_min, reminder_months, income_account_id,
+      id = (await t<{ id: string }[]>`insert into catalog_items (company_id, code, name_km, name_en, kind, category, web_category, unit, sell_price, cost_price, duration_min, reminder_months, income_account_id, inventory_account_id,
           from_price, show_on_website, quote_only, created_by, updated_by)
         values (${user.companyId}, ${next.code ?? null}, ${b.name_km}, ${next.name_en ?? null}, ${b.kind}::item_kind, ${b.category}::service_category, ${next.web_category ?? null}, ${next.unit!}, ${b.sell_price},
-          ${next.cost_price ?? null}, ${next.duration_min!}, ${next.reminder_months ?? null}, ${next.income_account_id ?? null}, ${next.from_price ?? null}, ${next.show_on_website ?? true}, ${next.quote_only ?? false},
+          ${next.cost_price ?? null}, ${next.duration_min!}, ${next.reminder_months ?? null}, ${next.income_account_id ?? null}, ${next.inventory_account_id ?? null}, ${next.from_price ?? null}, ${next.show_on_website ?? true}, ${next.quote_only ?? false},
           ${user.id}, ${user.id}) returning id`)[0]!.id;
     } else {
       id = old.id;
       const m = { ...old, ...next } as Item;
       await t`update catalog_items set code = ${m.code}, name_km = ${m.name_km}, name_en = ${m.name_en}, kind = ${m.kind}::item_kind, category = ${m.category}::service_category, web_category = ${m.web_category},
-          unit = ${m.unit}, sell_price = ${m.sell_price}, cost_price = ${m.cost_price}, duration_min = ${m.duration_min}, reminder_months = ${m.reminder_months}, income_account_id = ${m.income_account_id},
+          unit = ${m.unit}, sell_price = ${m.sell_price}, cost_price = ${m.cost_price}, duration_min = ${m.duration_min}, reminder_months = ${m.reminder_months}, income_account_id = ${m.income_account_id}, inventory_account_id = ${m.inventory_account_id ?? null},
           from_price = ${m.from_price}, show_on_website = ${m.show_on_website}, quote_only = ${m.quote_only}, is_sample = ${old.is_sample && !diff(old, next)}, updated_by = ${user.id}
         where id = ${id}`;
     }

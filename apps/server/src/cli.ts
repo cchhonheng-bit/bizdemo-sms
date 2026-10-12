@@ -4,6 +4,7 @@
 //   node dist/cli.mjs seed-demo [oneteam]                                  → demo users gm01/admin/kim/dara + 3 customers, 4 services, BK-0001/0002 (idempotent)
 //   node dist/cli.mjs list-companies
 //   node dist/cli.mjs seed-web-catalog [oneteam] [--prices]               → the sample items of the website catalog (D-106; --prices = demo / test only)
+//   node dist/cli.mjs chart-replace <slug> [--apply]                        → the chart of accounts becomes One Team's (D-141; books must be empty)
 //   node dist/cli.mjs shop-setup <slug> [--apply] < setup.json             → a shop's start material (website, logo, QR, photos, catalog) as its HangKH Support
 //                                                                            account, through the app's own functions (D-131); a dry run without --apply;
 //                                                                            also staff accounts: on / off, password rules, test passwords + new test accounts (D-136)
@@ -26,6 +27,7 @@ import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
 import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
 import { seedWebCatalog } from "./services/catalog.js";
 import { shopSetup } from "./services/shop-setup.js";
+import { chartReplaceCli } from "./services/chart-replace.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -219,13 +221,18 @@ async function main() {
       for (const line of await shopSetup(a[0], input, a.includes("--apply"))) console.log(line);
       break;
     }
+    case "chart-replace": { // D-141: the shop's chart of accounts → One Team's chart (only while the books are empty); --apply writes
+      if (!a[0] || a[0].startsWith("--")) throw new Error("usage: chart-replace <slug> [--apply]");
+      for (const line of await chartReplaceCli(a[0], a.includes("--apply"))) console.log(line);
+      break;
+    }
     case "list-companies": {
       const rows = await sql`select c.slug, c.name, c.is_active, (select count(*) from users u where u.company_id = c.id) as users, (select count(*) from bookings b where b.company_id = c.id) as bookings from companies c order by c.created_at`;
       console.table(rows.map((r) => ({ ...r })));
       break;
     }
     default:
-      console.log("commands: create-company, reset-password, seed-demo, seed-web-catalog, shop-setup, list-companies");
+      console.log("commands: create-company, reset-password, seed-demo, seed-web-catalog, shop-setup, chart-replace, list-companies");
   }
   await sql.end({ timeout: 3 });
 }

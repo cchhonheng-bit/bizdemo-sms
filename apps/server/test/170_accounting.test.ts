@@ -41,25 +41,25 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("C1 chart of accounts", () => {
   it("Cambodian SME template; permitted staff add / edit; unused non-system account can be deleted; GM / technician have no access", async () => {
     const list = (await acc(cfo, "/accounts")).json as any[];
-    for (const c of ["1010", "1011", "1020", "1021", "1100", "1200", "2010", "2020", "2100", "3010", "3020", "3900", "4010", "4020", "4090", "4900", "5010", "5020", "6010", "6020", "6030", "6950"])
+    for (const c of ["11001", "11002", "11003", "11004", "12001", "12002", "18000", "20003", "20004", "20005", "21002", "30001", "30002", "30003", "30004", "30005", "40001", "40002", "40004", "40005", "40006", "40007", "50001", "50002", "50003", "50005", "50010", "50012", "50013"])
       expect(list.map((a) => a.code)).toContain(c);
-    expect((await acc(admin, "/accounts", { code: "6150", name_km: "ថ្លៃសម្អាត", name_en: "Cleaning", type: "expense" })).status).toBe(200);
-    expect((await acc(admin, "/accounts", { code: "6150", name_km: "x", type: "expense" })).json.error).toBe("CODE_EXISTS");
+    expect((await acc(admin, "/accounts", { code: "50020", name_km: "ថ្លៃសម្អាត", name_en: "Cleaning", type: "expense" })).status).toBe(200);
+    expect((await acc(admin, "/accounts", { code: "50020", name_km: "x", type: "expense" })).json.error).toBe("CODE_EXISTS");
     expect((await acc(admin, "/accounts", { code: "7abc", name_km: "x", type: "expense" })).status).toBe(400);
-    const c6150 = await code("6150");
-    expect((await acc(admin, "/accounts", { id: c6150.id, code: "6150", name_km: "ថ្លៃសម្អាតការិយាល័យ", type: "expense" })).status).toBe(200);
-    expect((await code("6150")).name_km).toBe("ថ្លៃសម្អាតការិយាល័យ");
-    const cash = await code("1010");
-    expect((await acc(admin, "/accounts", { id: cash.id, code: "1010", name_km: "x", type: "asset", is_active: false })).json.error).toBe("SYSTEM_ACCOUNT");
+    const c6150 = await code("50020");
+    expect((await acc(admin, "/accounts", { id: c6150.id, code: "50020", name_km: "ថ្លៃសម្អាតការិយាល័យ", type: "expense" })).status).toBe(200);
+    expect((await code("50020")).name_km).toBe("ថ្លៃសម្អាតការិយាល័យ");
+    const cash = await code("11001");
+    expect((await acc(admin, "/accounts", { id: cash.id, code: "11001", name_km: "x", type: "asset", is_active: false })).json.error).toBe("SYSTEM_ACCOUNT");
     expect((await admin.req("DELETE", `/api/accounting/accounts/${cash.id}`)).json.error).toBe("SYSTEM_ACCOUNT");
     expect((await admin.req("DELETE", `/api/accounting/accounts/${c6150.id}`)).status).toBe(200);
     expect((await acc(gm, "/accounts")).status).toBe(403);
     expect((await acc(kim, "/accounts")).status).toBe(403);
-    expect((await kim.req("POST", "/api/accounting/accounts", { code: "6160", name_km: "x", type: "expense" })).status).toBe(403);
+    expect((await kim.req("POST", "/api/accounting/accounts", { code: "50021", name_km: "x", type: "expense" })).status).toBe(403);
   });
 
   it("before the opening balances nothing posts: journal → OPENING_REQUIRED; invoices / stock stay out of the books", async () => {
-    const [a, b] = [(await code("6030")).id, (await code("1010")).id];
+    const [a, b] = [(await code("50010")).id, (await code("11001")).id];
     expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 100 }, { account_id: b, credit: 100 }] })).json.error).toBe("OPENING_REQUIRED");
     // before go-live: an issued invoice with a part payment, stock of another product
     const i = await invoice([{ kind: "service", qty: 1, unit_price: 5000 }]);
@@ -82,8 +82,8 @@ describe("opening balances (go-live)", () => {
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ open_invoices: 1, opening_invoices: ["OB-0001"] });
     expect(r.json.opening_equity).toBe(20000 + 10000 + 150000 + 50000 + 12000 + 4000 + 1500 - 8000);
-    expect(await bal("1010")).toBe(20000); expect(await bal("1011")).toBe(10000); expect(await bal("1020")).toBe(150000); expect(await bal("1021")).toBe(50000);
-    expect(await bal("1100")).toBe(16000); expect(await bal("1200")).toBe(1500); expect(await bal("2010")).toBe(-8000); expect(await bal("3900")).toBe(-r.json.opening_equity);
+    expect(await bal("11001")).toBe(20000); expect(await bal("11004")).toBe(10000); expect(await bal("11003")).toBe(150000); expect(await bal("11002")).toBe(50000);
+    expect(await bal("12002")).toBe(16000); expect(await bal("18000")).toBe(1500); expect(await bal("20003")).toBe(-8000); expect(await bal("30004")).toBe(-r.json.opening_equity);
     const debt = ((await admin.req("GET", "/api/invoices/debts")).json as any[]).find((d) => d.customer_id === cust);
     expect(debt.total).toBe(16000); // the old paper debt is collectable like any invoice
     const dash = (await ceo.req("GET", "/api/reports/dashboard")).json;
@@ -98,7 +98,7 @@ describe("opening balances (go-live)", () => {
 
 describe("C2 journal: balance, immutability, reversal, period lock", () => {
   it("an entry must balance with ≥ 2 one-sided lines in integer cents; the KHR rate is stored; posted lines cannot be changed or deleted", async () => {
-    const [a, b] = [(await code("6030")).id, (await code("1010")).id];
+    const [a, b] = [(await code("50010")).id, (await code("11001")).id];
     expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 100 }, { account_id: b, credit: 99 }] })).json.error).toBe("NOT_BALANCED");
     expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 100 }] })).status).toBe(400);
     expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 1.5 }, { account_id: b, credit: 1.5 }] })).status).toBe(400);
@@ -108,7 +108,7 @@ describe("C2 journal: balance, immutability, reversal, period lock", () => {
     expect(r.status).toBe(200);
     const e = (await acc(cfo, `/journal/${r.json.id}`)).json;
     expect(e).toMatchObject({ status: "posted", fx_rate_khr: 4000, source: "manual", reversible: true, number: expect.stringMatching(/^JE-\d{4}-\d{4}$/) });
-    expect(e.lines.map((l: any) => [l.code, l.debit, l.credit])).toEqual([["6030", 2500, 0], ["1010", 0, 2500]]);
+    expect(e.lines.map((l: any) => [l.code, l.debit, l.credit])).toEqual([["50010", 2500, 0], ["11001", 0, 2500]]);
     await expect(sql`update journal_lines set debit_cents = 1 where entry_id = ${r.json.id}`).rejects.toThrow(/immutable/);
     await expect(sql`delete from journal_lines where entry_id = ${r.json.id}`).rejects.toThrow(/immutable/);
     await expect(sql`delete from journal_entries where id = ${r.json.id}`).rejects.toThrow(/immutable/);
@@ -121,14 +121,14 @@ describe("C2 journal: balance, immutability, reversal, period lock", () => {
   });
 
   it("a posted entry is corrected by a reversal (reason), never edited; twice is refused; automatic entries are corrected at their source", async () => {
-    const [a, b] = [(await code("6030")).id, (await code("1010")).id];
-    const before = await bal("6030");
+    const [a, b] = [(await code("50010")).id, (await code("11001")).id];
+    const before = await bal("50010");
     const id = (await acc(admin, "/journal", { date: today, memo: "វាយខុស", lines: [{ account_id: a, debit: 900 }, { account_id: b, credit: 900 }] })).json.id;
-    expect(await bal("6030")).toBe(before + 900);
+    expect(await bal("50010")).toBe(before + 900);
     expect((await acc(admin, `/journal/${id}/reverse`, { reason: "" })).json.error).toBe("REASON_REQUIRED");
     const rev = await acc(admin, `/journal/${id}/reverse`, { reason: "ចំនួនខុស" });
     expect(rev.status).toBe(200);
-    expect(await bal("6030")).toBe(before);
+    expect(await bal("50010")).toBe(before);
     expect((await acc(admin, `/journal/${id}/reverse`, { reason: "ម្ដងទៀត" })).json.error).toBe("ALREADY_REVERSED");
     expect((await acc(admin, `/journal/${rev.json.id}/reverse`, { reason: "ម្ដងទៀត" })).json.error).toBe("NOT_REVERSIBLE");
     expect((await acc(cfo, `/journal/${id}`)).json).toMatchObject({ status: "reversed", reversible: false, reversed_by: { number: rev.json.number } });
@@ -138,7 +138,7 @@ describe("C2 journal: balance, immutability, reversal, period lock", () => {
   });
 
   it("CFO locks the books up to a date: nothing on or before it (manual or automatic); a reversal is dated today; re-opening needs a reason", async () => {
-    const [a, b] = [(await code("6030")).id, (await code("1010")).id];
+    const [a, b] = [(await code("50010")).id, (await code("11001")).id];
     const early = (await acc(admin, "/journal", { date: yesterday, memo: "ម្សិលមិញ", lines: [{ account_id: a, debit: 300 }, { account_id: b, credit: 300 }] })).json.id;
     expect((await acc(admin, "/lock", { lock_date: yesterday })).status).toBe(403);
     expect((await acc(cfo, "/lock", { lock_date: today })).json.error).toBe("BAD_DATE");
@@ -161,29 +161,29 @@ describe("C2 journal: balance, immutability, reversal, period lock", () => {
 
 describe("C3 automatic postings from the app", () => {
   it("invoice issue: Dr receivable / Cr service + product revenue, discount as contra-revenue; payment: Dr cash-bank / Cr receivable at its own rate; void reverses", async () => {
-    const [ar, svc, sales, disc, cashUsd, aba] = await Promise.all(["1100", "4010", "4020", "4900", "1010", "1020"].map(bal));
+    const [ar, svc, sales, disc, cashUsd, aba] = await Promise.all(["12002", "40005", "40004", "40007", "11001", "11003"].map(bal));
     const id = await invoice([{ kind: "service", qty: 1, unit_price: 10000 }, { kind: "product", qty: 2, unit_price: 2500 }]);
     await ceo.req("POST", `/api/invoices/${id}/discount`, { amount: 1000 });
     await admin.req("POST", `/api/invoices/${id}/issue`);
-    expect(await bal("1100")).toBe(ar + 14000);
-    expect(await bal("4010")).toBe(svc - 10000);
-    expect(await bal("4020")).toBe(sales - 5000);
-    expect(await bal("4900")).toBe(disc + 1000);
+    expect(await bal("12002")).toBe(ar + 14000);
+    expect(await bal("40005")).toBe(svc - 10000);
+    expect(await bal("40004")).toBe(sales - 5000);
+    expect(await bal("40007")).toBe(disc + 1000);
     await admin.req("POST", `/api/invoices/${id}/payments`, { amount: 4000, currency: "usd", method: "cash_usd" });
     await admin.req("POST", `/api/invoices/${id}/payments`, { amount: 40000, currency: "khr", method: "aba" }); // $10.00 at 4000
-    expect(await bal("1010")).toBe(cashUsd + 4000);
-    expect(await bal("1020")).toBe(aba + 1000);
-    expect(await bal("1100")).toBe(ar + 14000 - 5000);
+    expect(await bal("11001")).toBe(cashUsd + 4000);
+    expect(await bal("11003")).toBe(aba + 1000);
+    expect(await bal("12002")).toBe(ar + 14000 - 5000);
     const p = (await admin.req("GET", `/api/invoices/${id}`)).json.payments[0].id;
     await ceo.req("POST", `/api/payments/${p}/void`, { reason: "វាយខុស" });
-    expect(await bal("1010")).toBe(cashUsd);
-    expect(await bal("1100")).toBe(ar + 14000 - 1000);
+    expect(await bal("11001")).toBe(cashUsd);
+    expect(await bal("12002")).toBe(ar + 14000 - 1000);
     // a voided invoice (no payments) reverses its revenue
     const v = await invoice([{ kind: "service", qty: 1, unit_price: 700 }]);
     await admin.req("POST", `/api/invoices/${v}/issue`);
-    const svc2 = await bal("4010");
+    const svc2 = await bal("40005");
     await ceo.req("POST", `/api/invoices/${v}/void`, { reason: "វាយខុសអតិថិជន" });
-    expect(await bal("4010")).toBe(svc2 + 700);
+    expect(await bal("40005")).toBe(svc2 + 700);
     await tbOk();
   });
 
@@ -203,22 +203,22 @@ describe("C3 automatic postings from the app", () => {
   it("stock in on credit: Dr inventory / Cr payable; loss adjustment at average cost; job use: Dr cost of sales / Cr inventory; inventory account = stock value", async () => {
     const wh = ((await admin.req("GET", "/api/inventory/locations")).json as any[]).find((l) => l.kind === "warehouse").id;
     await admin.req("POST", `/api/inventory/items/${prod}/track`, { track: true });
-    const [inv0, ap0, adj0, cogs0] = await Promise.all(["1200", "2010", "5020", "5010"].map(bal));
+    const [inv0, ap0, adj0, cogs0] = await Promise.all(["18000", "20003", "50012", "50005"].map(bal));
     await admin.req("POST", "/api/inventory/in", { item_id: prod, location_id: wh, qty: 10, unit_cost: 150, pay: "credit", supplier: "ហាងអគ្គិសនី" });
-    expect(await bal("1200")).toBe(inv0 + 1500);
-    expect(await bal("2010")).toBe(ap0 - 1500);
+    expect(await bal("18000")).toBe(inv0 + 1500);
+    expect(await bal("20003")).toBe(ap0 - 1500);
     await admin.req("POST", "/api/inventory/adjust", { item_id: prod, location_id: wh, qty: -2, reason: "ខូច" });
-    expect(await bal("1200")).toBe(inv0 + 1200);
-    expect(await bal("5020")).toBe(adj0 + 300);
+    expect(await bal("18000")).toBe(inv0 + 1200);
+    expect(await bal("50012")).toBe(adj0 + 300);
     // a job uses 3 m (Admin confirms)
     const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ភ្លើង", zone: "inside", ...span(when()) })).json.id;
     await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${b}, ${prod}, 3)`;
     await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.kim, assistants: [] });
     for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${b}`;
     expect((await admin.req("POST", `/api/inventory/jobs/${b}/confirm`, { location_id: wh })).status).toBe(200);
-    expect(await bal("5010")).toBe(cogs0 + 450);
+    expect(await bal("50005")).toBe(cogs0 + 450);
     const items = (await admin.req("GET", "/api/inventory/items")).json as any[];
-    expect(await bal("1200")).toBe(items.reduce((x, i) => x + i.value, 0)); // books = stock value
+    expect(await bal("18000")).toBe(items.reduce((x, i) => x + i.value, 0)); // books = stock value
     await tbOk();
   });
 
@@ -226,24 +226,24 @@ describe("C3 automatic postings from the app", () => {
     const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "ជញ្ជាំង", zone: "inside", ...span(when()) })).json.id;
     const q = (await gm.req("POST", "/api/quotes", { booking_id: b, lines: [{ description: "ជញ្ជាំង", kind: "service", qty: 1, unit: "job", unit_price: 30000 }] })).json.id;
     await gm.req("POST", `/api/quotes/${q}/accept`);
-    const [dep0, cash0] = await Promise.all(["2020", "1010"].map(bal));
+    const [dep0, cash0] = await Promise.all(["20004", "11001"].map(bal));
     await admin.req("POST", `/api/bookings/${b}/deposits`, { amount: 10000, currency: "usd", method: "cash_usd" });
-    expect(await bal("2020")).toBe(dep0 - 10000);
-    expect(await bal("1010")).toBe(cash0 + 10000);
+    expect(await bal("20004")).toBe(dep0 - 10000);
+    expect(await bal("11001")).toBe(cash0 + 10000);
     await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.kim, assistants: [] });
     for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${b}`;
     const i = (await admin.req("POST", "/api/invoices", { booking_id: b, lines: [{ description: "ជញ្ជាំង", kind: "service", qty: 1, unit: "job", unit_price: 30000 }] })).json.id;
     await admin.req("POST", `/api/invoices/${i}/issue`);
-    expect(await bal("2020")).toBe(dep0);          // the deposit moved to the invoice
-    expect(await bal("1010")).toBe(cash0 + 10000); // no second cash
-    const cs0 = await bal("6950"), c0 = await bal("1010");
+    expect(await bal("20004")).toBe(dep0);          // the deposit moved to the invoice
+    expect(await bal("11001")).toBe(cash0 + 10000); // no second cash
+    const cs0 = await bal("50013"), c0 = await bal("11001");
     const cc = (await admin.req("GET", `/api/reports/cash-close?from=${today}&to=${today}`)).json[0];
     expect(cc.expected_usd).toBeGreaterThanOrEqual(10000); // the cash deposit is in today's expected cash
     await admin.req("POST", "/api/reports/cash-close", { day: today, counted_usd: cc.expected_usd - 200, counted_khr: cc.expected_khr });
-    expect(await bal("6950")).toBe(cs0 + 200);     // $2 short → expense
+    expect(await bal("50013")).toBe(cs0 + 200);     // $2 short → expense
     await admin.req("POST", "/api/reports/cash-close", { day: today, counted_usd: cc.expected_usd - 500, counted_khr: cc.expected_khr });
-    expect(await bal("6950")).toBe(cs0 + 500);     // re-count replaces, never adds
-    expect(await bal("1010")).toBe(c0 - 500);
+    expect(await bal("50013")).toBe(cs0 + 500);     // re-count replaces, never adds
+    expect(await bal("11001")).toBe(c0 - 500);
     await tbOk();
   });
 });
@@ -251,34 +251,34 @@ describe("C3 automatic postings from the app", () => {
 describe("C4 other transactions", () => {
   it("expense (USD / riel, receipt photo), purchase on credit + supplier payment, other income, owner in / out, cash → bank; each balanced and audited", async () => {
     const t = (v: Record<string, unknown>, who = admin) => who.req("POST", "/api/accounting/transactions", { date: today, ...v });
-    const [fuel, cash, cashKhr, bank, cap, draw, oth, ap, equip] = await Promise.all(["6030", "1010", "1011", "1020", "3010", "3020", "4090", "2010", "1500"].map(bal));
+    const [fuel, cash, cashKhr, bank, cap, draw, oth, ap, equip] = await Promise.all(["50010", "11001", "11004", "11003", "30001", "30005", "40006", "20003", "13001"].map(bal));
     const png = Buffer.concat([Buffer.from("89504e470d0a1a0a0000000d49484452", "hex"), Buffer.alloc(40, 1)]).toString("base64");
-    const e1 = await t({ type: "expense", account_code: "6030", amount: 1500, pay: "cash_usd", memo: "សាំង", attachment: png });
+    const e1 = await t({ type: "expense", account_code: "50010", amount: 1500, pay: "cash_usd", memo: "សាំង", attachment: png });
     expect(e1.status).toBe(200);
     const withPhoto = (await acc(cfo, `/journal/${e1.json.id}`)).json;
     expect(withPhoto.attachment_id).toBeTruthy();
     expect((await app.inject({ method: "GET", url: `/api/accounting/files/${withPhoto.attachment_id}`, headers: { cookie: cfo.cookie! } })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: `/api/files/${withPhoto.attachment_id}`, headers: { cookie: gm.cookie! } })).statusCode).toBe(404); // receipts: accounting only
-    expect((await t({ type: "expense", account_code: "6030", amount: 50000, currency: "khr", pay: "cash_khr", memo: "សាំង" })).status).toBe(200); // 50,000៛ = $12.50
-    expect((await t({ type: "purchase", account_code: "1500", amount: 20000, pay: "credit", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
+    expect((await t({ type: "expense", account_code: "50010", amount: 50000, currency: "khr", pay: "cash_khr", memo: "សាំង" })).status).toBe(200); // 50,000៛ = $12.50
+    expect((await t({ type: "purchase", account_code: "13001", amount: 20000, pay: "credit", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
     expect((await t({ type: "supplier_payment", amount: 5000, pay: "aba", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
     expect((await t({ type: "other_income", amount: 700, pay: "aba", memo: "លក់ក្រដាសចាស់" })).status).toBe(200);
     expect((await t({ type: "owner_contribution", amount: 50000, pay: "aba", memo: "ដាក់ដើមទុន" })).status).toBe(200);
     expect((await t({ type: "owner_withdrawal", amount: 2000, pay: "cash_usd", memo: "ដកប្រើផ្ទាល់ខ្លួន" })).status).toBe(200);
     expect((await t({ type: "transfer", amount: 3000, from: "cash_usd", to: "aba", memo: "ដាក់ធនាគារ" })).status).toBe(200);
-    expect((await t({ type: "expense", account_code: "4010", amount: 1, pay: "cash_usd" })).json.error).toBe("WRONG_ACCOUNT_TYPE");
+    expect((await t({ type: "expense", account_code: "40005", amount: 1, pay: "cash_usd" })).json.error).toBe("WRONG_ACCOUNT_TYPE");
     expect((await t({ type: "other_income", amount: 1, pay: "credit" })).json.error).toBe("BAD_METHOD");
     expect((await t({ type: "transfer", amount: 1, from: "aba", to: "aba" })).json.error).toBe("SAME_ACCOUNT");
-    expect((await t({ type: "expense", account_code: "6030", amount: 1, pay: "cash_usd" }, gm)).status).toBe(403);
-    expect(await bal("6030")).toBe(fuel + 1500 + 1250);
-    expect(await bal("1010")).toBe(cash - 1500 - 2000 - 3000);
-    expect(await bal("1011")).toBe(cashKhr - 1250);
-    expect(await bal("1020")).toBe(bank - 5000 + 700 + 50000 + 3000);
-    expect(await bal("1500")).toBe(equip + 20000);
-    expect(await bal("2010")).toBe(ap - 20000 + 5000);
-    expect(await bal("3010")).toBe(cap - 50000);
-    expect(await bal("3020")).toBe(draw + 2000);
-    expect(await bal("4090")).toBe(oth - 700);
+    expect((await t({ type: "expense", account_code: "50010", amount: 1, pay: "cash_usd" }, gm)).status).toBe(403);
+    expect(await bal("50010")).toBe(fuel + 1500 + 1250);
+    expect(await bal("11001")).toBe(cash - 1500 - 2000 - 3000);
+    expect(await bal("11004")).toBe(cashKhr - 1250);
+    expect(await bal("11003")).toBe(bank - 5000 + 700 + 50000 + 3000);
+    expect(await bal("13001")).toBe(equip + 20000);
+    expect(await bal("20003")).toBe(ap - 20000 + 5000);
+    expect(await bal("30001")).toBe(cap - 50000);
+    expect(await bal("30005")).toBe(draw + 2000);
+    expect(await bal("40006")).toBe(oth - 700);
     expect((await sql`select 1 from audit_log where action = 'acct.transaction' and company_id = ${s.a}`).length).toBe(8);
     await tbOk();
   });
@@ -301,15 +301,15 @@ describe("C6 payroll with adjustments (CEO approval)", () => {
     expect(r).toMatchObject({ status: "draft", gross: 60000, deductions: 2000, net: 58000 });
     expect((await acc(admin, `/payroll/${run.id}/approve`, {})).status).toBe(403);
     expect((await acc(cfo, `/payroll/${run.id}/approve`, {})).status).toBe(403);
-    const [sal, bon, pay, bank] = await Promise.all(["6010", "6020", "2100", "1020"].map(bal));
+    const [sal, bon, pay, bank] = await Promise.all(["50002", "50003", "21002", "11003"].map(bal));
     expect((await acc(ceo, `/payroll/${run.id}/approve`, {})).status).toBe(200);
-    expect(await bal("6010")).toBe(sal + 55000 - 2000);
-    expect(await bal("6020")).toBe(bon + 5000);
-    expect(await bal("2100")).toBe(pay - 58000);
+    expect(await bal("50002")).toBe(sal + 55000 - 2000);
+    expect(await bal("50003")).toBe(bon + 5000);
+    expect(await bal("21002")).toBe(pay - 58000);
     expect((await acc(admin, `/payroll/${run.id}/adjust`, { user_id: s.users.kim, kind: "bonus", amount: 1, reason: "late" })).json.error).toBe("PAYROLL_LOCKED");
     expect((await acc(admin, `/payroll/${run.id}/pay`, { pay: "aba" })).status).toBe(200);
-    expect(await bal("2100")).toBe(pay);
-    expect(await bal("1020")).toBe(bank - 58000);
+    expect(await bal("21002")).toBe(pay);
+    expect(await bal("11003")).toBe(bank - 58000);
     expect((await acc(ceo, `/payroll/${run.id}/void`, { reason: "ចង់កែ" })).json.error).toBe("PAYROLL_PAID");
     expect((await acc(kim, `/payroll/${run.id}`)).status).toBe(403);
     expect((await acc(gm, "/payroll")).status).toBe(403);
@@ -325,16 +325,16 @@ describe("C5 reports + isolation", () => {
     expect(tb.rows.length).toBeGreaterThan(10);
     const pl = (await acc(cfo, `/pl?from=${start}&to=${today}`)).json;
     expect(pl.net).toBe(pl.income_total - pl.expense_total);
-    expect(pl.income.find((r: any) => r.code === "4010").amount).toBeGreaterThan(0);
+    expect(pl.income.find((r: any) => r.code === "40005").amount).toBeGreaterThan(0);
     const bs = (await acc(cfo, `/balance-sheet?to=${today}`)).json;
     expect(bs.assets_total).toBe(bs.liabilities_total + bs.equity_total + bs.current_earnings);
     expect(bs.current_earnings).toBe(pl.net); // nothing before the go-live date
     expect(bs.fx_rate_khr).toBe(4000); expect(bs.assets_total_khr).toBe(Math.round(bs.assets_total / 100 * 4000 / 100) * 100);
-    const cash = await code("1010");
+    const cash = await code("11001");
     const gl = (await acc(cfo, `/ledger?account=${cash.id}&from=${start}&to=${today}`)).json;
     expect(gl.opening).toBe(0);
     expect(gl.rows.at(-1).balance).toBe(gl.closing);
-    expect(gl.closing).toBe(await bal("1010"));
+    expect(gl.closing).toBe(await bal("11001"));
     for (const k of ["trial-balance", "pl", "balance-sheet", "journal"]) {
       const csv = await app.inject({ method: "GET", url: `/api/accounting/${k}.csv?from=${start}&to=${today}`, headers: { cookie: cfo.cookie! } });
       expect(csv.statusCode).toBe(200);
@@ -345,9 +345,9 @@ describe("C5 reports + isolation", () => {
   });
 
   it("tenant isolation: another company's accounts and entries do not exist here, and theirs stay empty", async () => {
-    const theirs = await code("6030", ceoB);
-    const mine = await code("1010");
-    expect(theirs.id).not.toBe((await code("6030")).id);
+    const theirs = await code("50010", ceoB);
+    const mine = await code("11001");
+    expect(theirs.id).not.toBe((await code("50010")).id);
     expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: theirs.id, debit: 1 }, { account_id: mine.id, credit: 1 }] })).status).toBe(404);
     const anyEntry = ((await acc(cfo, `/journal?from=${start}&to=${today}`)).json as any[])[0];
     expect((await acc(ceoB, `/journal/${anyEntry.id}`)).status).toBe(404);
@@ -370,11 +370,11 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
   const accB = (path: string, body?: unknown) => ceoB.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
   it("every account carries its statement (BS / PL); the general ledger is found by account code; income statement = the former P&L, income split by zone", async () => {
     const a = (await acc(cfo, "/accounts")).json as any[];
-    expect(a.find((x) => x.code === "1010").statement).toBe("BS"); expect(a.find((x) => x.code === "3100").statement).toBe("BS");
-    expect(a.find((x) => x.code === "4010").statement).toBe("PL"); expect(a.find((x) => x.code === "6030").statement).toBe("PL");
-    const byId = (await acc(cfo, `/ledger?account=${(await code("1010")).id}&from=${start}&to=${today}`)).json;
+    expect(a.find((x) => x.code === "11001").statement).toBe("BS"); expect(a.find((x) => x.code === "30003").statement).toBe("BS");
+    expect(a.find((x) => x.code === "40005").statement).toBe("PL"); expect(a.find((x) => x.code === "50010").statement).toBe("PL");
+    const byId = (await acc(cfo, `/ledger?account=${(await code("11001")).id}&from=${start}&to=${today}`)).json;
     const byCode = (await acc(cfo, `/ledger?code=1010&from=${start}&to=${today}`)).json;
-    expect(byCode.closing).toBe(byId.closing); expect(byCode.rows.length).toBe(byId.rows.length); expect(byCode.account.code).toBe("1010");
+    expect(byCode.closing).toBe(byId.closing); expect(byCode.rows.length).toBe(byId.rows.length); expect(byCode.account.code).toBe("11001");
     expect((await acc(cfo, `/ledger?code=9999&from=${start}&to=${today}`)).status).toBe(404);
     expect((await acc(cfo, `/ledger?from=${start}&to=${today}`)).status).toBe(400);
     const is = (await acc(cfo, `/income-statement?from=${start}&to=${today}`)).json, pl = (await acc(cfo, `/pl?from=${start}&to=${today}`)).json;
@@ -386,14 +386,14 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
   });
 
   it("a catalog item posts to its own income account (set by the CFO), the others by kind; a non-income account is refused", async () => {
-    const r = await acc(cfo, "/accounts", { code: "4030", name_km: "ចំណូលជួសជុល", name_en: "Repair revenue", type: "income" });
+    const r = await acc(cfo, "/accounts", { code: "40010", name_km: "ចំណូលជួសជុល", name_en: "Repair revenue", type: "income" });
     expect(r.status).toBe(200);
     const svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុលម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 5000, income_account_id: r.json.id })).json.id;
-    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "service", category: "mep", unit: "unit", sell_price: 1, income_account_id: (await code("1010")).id })).json.error).toBe("NOT_INCOME_ACCOUNT");
-    const [rev4030, rev4010] = await Promise.all([bal("4030"), bal("4010")]);
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "service", category: "mep", unit: "unit", sell_price: 1, income_account_id: (await code("11001")).id })).json.error).toBe("NOT_INCOME_ACCOUNT");
+    const [rev4030, rev4010] = await Promise.all([bal("40010"), bal("40005")]);
     const inv = await invoice([{ kind: "service", qty: 1, unit_price: 5000, catalog_item_id: svc }, { kind: "service", qty: 1, unit_price: 300 }]);
     await admin.req("POST", `/api/invoices/${inv}/issue`);
-    expect(await bal("4030")).toBe(rev4030 - 5000); expect(await bal("4010")).toBe(rev4010 - 300);
+    expect(await bal("40010")).toBe(rev4030 - 5000); expect(await bal("40005")).toBe(rev4010 - 300);
     expect(((await ceo.req("GET", "/api/catalog")).json as any[]).find((i) => i.id === svc).income_account_id).toBe(r.json.id);
     await tbOk();
   });
@@ -402,9 +402,9 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
     const tb = (await acc(cfo, `/trial-balance?month=${today.slice(0, 7)}`)).json;
     expect(tb.balanced).toBe(true);
     for (const k of ["period", "ytd_prev", "ytd"]) expect(tb.totals[k].debit).toBe(tb.totals[k].credit);
-    const cash = tb.rows.find((r: any) => r.code === "1010");
-    expect(cash.statement).toBe("BS"); expect(cash.ytd.debit - cash.ytd.credit).toBe(await bal("1010"));
-    expect(tb.rows.find((r: any) => r.code === "4010").statement).toBe("PL");
+    const cash = tb.rows.find((r: any) => r.code === "11001");
+    expect(cash.statement).toBe("BS"); expect(cash.ytd.debit - cash.ytd.credit).toBe(await bal("11001"));
+    expect(tb.rows.find((r: any) => r.code === "40005").statement).toBe("PL");
     expect(tb.fiscal_year_start.endsWith("-01-01")).toBe(true);
     expect((await acc(cfo, "/trial-balance")).json.error).toBe("BAD_RANGE");
     const csv = await app.inject({ method: "GET", url: `/api/accounting/trial-balance.csv?to=${today}&month=${today.slice(0, 7)}`, headers: { cookie: cfo.cookie! } });
@@ -419,21 +419,21 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
   it("balance sheet shows this date, the previous month end and the variance per account", async () => {
     const bs = (await acc(cfo, `/balance-sheet?to=${today}`)).json;
     expect(bs.previous_to < today.slice(0, 8) + "01").toBe(true);
-    const cash = bs.assets.find((r: any) => r.code === "1010");
+    const cash = bs.assets.find((r: any) => r.code === "11001");
     expect(cash.variance).toBe(cash.amount - cash.previous);
     expect(bs.previous.assets_total).toBe(bs.previous.liabilities_total + bs.previous.equity_total + bs.previous.current_earnings);
     expect(bs.assets_total).toBe(bs.liabilities_total + bs.equity_total + bs.current_earnings);
   });
 
   it("year-end closing (company B): opening with retained earnings, another bank and a stock value → 2025 entries → close 2025: P&L reset, profit into retained earnings, BS carries, locked; wrong / repeated / unfinished years refused", async () => {
-    const bank = (await accB("/accounts", { code: "1022", name_km: "ធនាគារ Wing", name_en: "Bank – Wing", type: "asset" })).json.id;
+    const bank = (await accB("/accounts", { code: "11005", name_km: "ធនាគារ Wing", name_en: "Bank – Wing", type: "asset" })).json.id;
     expect(bank).toBeTruthy();
-    expect((await accB("/opening", { date: "2025-01-15", banks: { "6030": 100 } })).json.error).toBe("NOT_ASSET_ACCOUNT");
-    const op = await accB("/opening", { date: "2025-01-15", cash_usd: 100000, banks: { aba: 50000, "1022": 30000 }, stock: 20000, retained_earnings: 70000 });
+    expect((await accB("/opening", { date: "2025-01-15", banks: { "50010": 100 } })).json.error).toBe("NOT_ASSET_ACCOUNT");
+    const op = await accB("/opening", { date: "2025-01-15", cash_usd: 100000, banks: { aba: 50000, "11005": 30000 }, stock: 20000, retained_earnings: 70000 });
     expect(op.status).toBe(200); expect(op.json.retained_earnings).toBe(70000);
     const b = async (c: string) => ((await accB("/trial-balance?to=2026-12-31")).json.rows as any[]).find((r) => r.code === c)?.balance ?? 0;
-    expect(await b("1022")).toBe(30000); expect(await b("1200")).toBe(20000); expect(await b("3100")).toBe(-70000); expect(await b("3900")).toBe(-(100000 + 50000 + 30000 + 20000 - 70000));
-    const cash = (await code("1010", ceoB)).id, rev = (await code("4010", ceoB)).id, fuel = (await code("6030", ceoB)).id;
+    expect(await b("11005")).toBe(30000); expect(await b("18000")).toBe(20000); expect(await b("30003")).toBe(-70000); expect(await b("30004")).toBe(-(100000 + 50000 + 30000 + 20000 - 70000));
+    const cash = (await code("11001", ceoB)).id, rev = (await code("40005", ceoB)).id, fuel = (await code("50010", ceoB)).id;
     expect((await accB("/journal", { date: "2025-06-30", memo: "ចំណូល", lines: [{ account_id: cash, debit: 100000 }, { account_id: rev, credit: 100000 }] })).status).toBe(200);
     expect((await accB("/journal", { date: "2025-07-31", memo: "សាំង", lines: [{ account_id: fuel, debit: 30000 }, { account_id: cash, credit: 30000 }] })).status).toBe(200);
     expect((await accB("/close-year", { year_end: "2026-12-31" })).json.error).toBe("BAD_YEAR_END"); // 2025 comes first
@@ -445,15 +445,15 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
     const is25 = (await accB("/income-statement?from=2025-01-01&to=2025-12-31")).json;
     expect(is25).toMatchObject({ income_total: 100000, expense_total: 30000, net: 70000 });
     const tbDec = (await accB("/trial-balance?month=2025-12")).json;
-    expect(tbDec.balanced).toBe(true); expect(tbDec.rows.find((r: any) => r.code === "4010").ytd.credit).toBe(100000);
+    expect(tbDec.balanced).toBe(true); expect(tbDec.rows.find((r: any) => r.code === "40005").ytd.credit).toBe(100000);
     // 2026 starts clean: income and expense accounts carry nothing, retained earnings holds opening + profit, the balance sheet balances
     const tbJan = (await accB("/trial-balance?month=2026-01")).json;
-    expect(tbJan.balanced).toBe(true); expect(tbJan.rows.find((r: any) => r.code === "4010")).toBeUndefined();
-    expect(tbJan.rows.find((r: any) => r.code === "3100").ytd.credit).toBe(70000 + 70000);
+    expect(tbJan.balanced).toBe(true); expect(tbJan.rows.find((r: any) => r.code === "40005")).toBeUndefined();
+    expect(tbJan.rows.find((r: any) => r.code === "30003").ytd.credit).toBe(70000 + 70000);
     const bs = (await accB("/balance-sheet?to=2026-01-31")).json;
-    expect(bs.current_earnings).toBe(0); expect(bs.equity.find((r: any) => r.code === "3100").amount).toBe(140000);
+    expect(bs.current_earnings).toBe(0); expect(bs.equity.find((r: any) => r.code === "30003").amount).toBe(140000);
     expect(bs.assets_total).toBe(bs.liabilities_total + bs.equity_total + bs.current_earnings);
-    expect(bs.assets.find((r: any) => r.code === "1010").variance).toBe(0); // nothing moved in January
+    expect(bs.assets.find((r: any) => r.code === "11001").variance).toBe(0); // nothing moved in January
     const info = (await accB("/lock")).json;
     expect(info).toMatchObject({ books_closed_through: "2025-12-31", next_year_end: "2026-12-31", can_close: false });
     expect(info.lock_date >= "2025-12-31").toBe(true);
