@@ -3,11 +3,11 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatKhPhone, formatUsd } from "@sms/shared";
+import { formatKhPhone, formatUsd, matchesSearch } from "@sms/shared";
 import { Plus } from "lucide-react";
 import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Empty, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, Empty, Input, Skeleton } from "@/components/ui";
 import { InvoiceBadge } from "./shared";
 import UninvoicedList from "./UninvoicedList";
 
@@ -40,11 +40,14 @@ export default function InvoicesPage() {
 function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["invoices", status], queryFn: () => api.invoices.list(status) });
+  const [s, setS] = useState(""); // D-140: number, customer, phone in any form
+  const rows = (q.data ?? []).filter((r) => matchesSearch(s, [r.number, r.booking_number, r.customer_name], r.customer_phones ?? []));
   return (
     <Card>
-      {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("invoice.none")} /> : (
+      <Input type="search" autoComplete="off" placeholder={t("app.search")} value={s} onChange={(e) => setS(e.target.value)} className="mb-3 w-full sm:max-w-xs" name="invoice_filter" />
+      {q.isLoading ? <Skeleton /> : !rows.length ? <Empty text={t("invoice.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2">
-          {q.data.map((r) => (
+          {rows.map((r) => (
             <li key={r.id}>
               <Link to={`/invoices/${r.id}`} className="flex items-center gap-3 py-3 min-h-[56px]">
                 <div className="flex-1 min-w-0">

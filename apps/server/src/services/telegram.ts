@@ -76,7 +76,7 @@ export async function bookingConfirmedText(db: Db, bookingId: string, lang: Lang
     number: string; service_text: string; scheduled_at: Date | null; ends_at: Date | null; address: string | null; zone: string; notes: string | null; lat: number | null; lng: number | null;
     cname: string; phones: string[]; vcode: string | null; timezone: string; company_id: string;
   } & CustomerAddress)[]>`select bk.number, bk.service_text, bk.scheduled_at, bk.ends_at, bk.address, bk.zone, bk.notes, bk.lat, bk.lng, bk.company_id,
-              c.name as cname, c.phones, v.code as vcode, co.timezone, c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.province_code, c.district_code, c.commune_code, c.village_code
+              c.name as cname, c.phones, v.code as vcode, co.timezone, c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.borey_zone, c.province_code, c.district_code, c.commune_code, c.village_code
        from bookings bk join customers c on c.id = bk.customer_id left join boreys bo on bo.id = c.borey_id left join vehicles v on v.id = bk.vehicle_id join companies co on co.id = bk.company_id
        where bk.id = ${bookingId}`)[0]!;
   const techs = await db<{ full_name: string; role: string }[]>`select u.full_name, t.role from booking_technicians t join users u on u.id = t.user_id

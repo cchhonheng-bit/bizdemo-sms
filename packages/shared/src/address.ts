@@ -24,16 +24,17 @@ export function geoLabel(u: GeoUnit, lang: "km" | "en"): string {
   return u.km.startsWith(t.km) ? u.km : `${t.km}${u.km}`;
 }
 
-export type AddressParts = { house_no?: string | null; street?: string | null; borey?: string | null; units: GeoUnit[] };
+export type AddressParts = { house_no?: string | null; street?: string | null; borey?: string | null; zone?: string | null; units: GeoUnit[] };
 /** one line for lists, job messages and prints: house, street, borey, village → province — stored in Khmer (the way an address
  *  is written here); the English line is for English-mode staff messages (D-89: one language per text; a borey name stays as typed) */
 export function composeAddress(p: AddressParts, lang: "km" | "en" = "km"): string {
-  const house = p.house_no?.trim(), street = p.street?.trim(), borey = p.borey?.trim();
+  const house = p.house_no?.trim(), street = p.street?.trim(), borey = p.borey?.trim(), zone = p.zone?.trim();
   const en = lang === "en";
   return [
     house ? (en ? `No. ${house}` : house.startsWith("ផ្ទះ") ? house : `ផ្ទះលេខ ${house}`) : null,
     street ? (en ? `St. ${street}` : street.startsWith("ផ្លូវ") ? street : `ផ្លូវលេខ ${street}`) : null,
     borey || null,
+    zone || null, // D-140: the zone inside the borey («Zone B»), as typed
     ...[...p.units].sort((a, b) => b.code.length - a.code.length).map((u) => geoLabel(u, lang)),
   ].filter(Boolean).join(", ");
 }

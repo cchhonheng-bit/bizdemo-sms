@@ -2,8 +2,8 @@
 // is CrewPicker.tsx; the server checks every rule again on save.
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Availability } from "@/lib/api";
-import { isPastLocal } from "./time";
+import { api, type Availability, type Conflict } from "@/lib/api";
+import { isPastLocal, timeRange } from "./time";
 
 export type Person = Availability["people"][number];
 
@@ -14,8 +14,9 @@ export function setOverride(o: Record<string, string>, id: string, reason: strin
   const next = { ...o }; if (reason) next[id] = reason; else delete next[id]; return next;
 }
 
-export function useCrewAvailability(from: string | null, to: string | null, exclude?: string) {
-  const ok = !!from && !!to && !isPastLocal(from);
+/** `pastOk`: a job already under way (D-140 edit) is checked for its real window, even though it started */
+export function useCrewAvailability(from: string | null, to: string | null, exclude?: string, pastOk = false) {
+  const ok = !!from && !!to && (pastOk || !isPastLocal(from));
   // while the job length is being typed the last answer stays on screen (no empty list flashing)
   const q = useQuery({ queryKey: ["availability", from, to, exclude ?? null], queryFn: () => api.availability(from!, to!, exclude), enabled: ok, placeholderData: (prev) => prev });
   const people = useMemo(() => q.data?.people ?? [], [q.data]);
@@ -27,3 +28,6 @@ export function crewOf(free: Person[], team: string[], lead: string, overrides: 
   const crew = team.filter((u) => free.some((p) => p.user_id === u) || !!overrides[u]);
   return { crew, lead: lead && crew.includes(lead) ? lead : "" };
 }
+
+/** the busy people / vehicle the server named in a refusal */
+export const conflictText = (c: Conflict[] | undefined) => (c ?? []).map((x) => `${x.full_name ?? x.code ?? ""} · ${x.number} ${timeRange(x.scheduled_at, x.ends_at)}`).join(", ");

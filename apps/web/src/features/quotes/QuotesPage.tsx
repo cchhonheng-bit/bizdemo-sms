@@ -3,9 +3,9 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatUsd } from "@sms/shared";
+import { formatUsd, matchesSearch } from "@sms/shared";
 import { api } from "@/lib/api";
-import { Badge, Card, Empty, Skeleton } from "@/components/ui";
+import { Badge, Card, Empty, Input, Skeleton } from "@/components/ui";
 
 const TONE = { sent: "warning", accepted: "green", rejected: "danger" } as const;
 
@@ -13,6 +13,8 @@ export default function QuotesPage() {
   const { t } = useTranslation();
   const [status, setStatus] = useState<"sent" | "accepted" | "rejected">("sent");
   const q = useQuery({ queryKey: ["quotes", status], queryFn: () => api.quotes.list(status) });
+  const [s, setS] = useState(""); // D-140: number, job, customer, phone in any form
+  const rows = (q.data ?? []).filter((r) => matchesSearch(s, [r.number, r.booking_number, r.customer_name], r.customer_phones ?? []));
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("quote.title")}</h1>
@@ -22,9 +24,10 @@ export default function QuotesPage() {
         ))}
       </div>
       <Card>
-        {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("quote.none")} /> : (
+        <Input type="search" autoComplete="off" placeholder={t("app.search")} value={s} onChange={(e) => setS(e.target.value)} className="mb-3 w-full sm:max-w-xs" name="quote_filter" />
+        {q.isLoading ? <Skeleton /> : !rows.length ? <Empty text={t("quote.none")} /> : (
           <ul className="divide-y divide-grey-line -my-2">
-            {q.data.map((r) => (
+            {rows.map((r) => (
               <li key={r.id}>
                 <Link to={`/bookings/${r.booking_id}`} className="flex items-center gap-3 py-3 min-h-[56px]">
                   <div className="flex-1 min-w-0">

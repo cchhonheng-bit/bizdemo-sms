@@ -3,7 +3,7 @@
 // may see — the same permissions as the app, technicians only their own jobs, never prices for technicians (AC-01).
 // A screen = { text, buttons (inline), keyboard (reply keyboard), ask_location, remove_keyboard, lang }. Labels are Khmer with
 // icons (English for English-mode staff); a label is dispatched by its text. Location sending happens only in private chats.
-import { CUSTOMER_MENU, customerText, formatKhPhone, formatUsd, latinDigits } from "@sms/shared";
+import { CUSTOMER_MENU, customerText, formatKhPhone, formatUsd, searchParts } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { APP_BASE } from "../lib/app-url.js";
@@ -212,7 +212,7 @@ async function staffJob(u: Staff, id: string, back: string): Promise<Menu> {
   const b = (await sql<({ id: string; number: string; scheduled_at: Date; ends_at: Date | null; service_text: string; address: string | null; zone: string; notes: string | null;
     lat: number | null; lng: number | null; cname: string; phones: string[]; status: string; vcode: string | null } & CustomerAddress)[]>`
     select b.id, b.number, b.scheduled_at, b.ends_at, b.service_text, b.address, b.zone, b.notes, b.lat, b.lng, b.status, c.name as cname, c.phones, v.code as vcode,
-      c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.province_code, c.district_code, c.commune_code, c.village_code
+      c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.borey_zone, c.province_code, c.district_code, c.commune_code, c.village_code
     from bookings b join customers c on c.id = b.customer_id left join boreys bo on bo.id = c.borey_id left join vehicles v on v.id = b.vehicle_id
     where b.id = ${id} and b.company_id = ${u.company_id} ${own}`)[0];
   const backBtn: MenuButton = { text: L("⬅️ ត្រឡប់", "⬅️ Back"), view: /^[a-z_]{2,20}$/.test(back) ? back : "next" };
@@ -306,17 +306,21 @@ async function dueCleaning(u: Staff): Promise<Menu> {
   const lines = rows.map((r) => `• ${r.customer_name}${r.unit_label ? ` · ${r.unit_label}` : ""} · ${r.service_name} · ${r.due_on}${r.phones?.[0] ? ` · 📞 ${formatKhPhone(r.phones[0])}` : ""}`);
   return { text: `${L("🔔 ដល់ពេលលាង (14 ថ្ងៃ)", "🔔 Due for cleaning (14 days)")} (${rows.length})\n${lines.join("\n") || "✅"}`, buttons: [[appBtn(L("📱 រំលឹកថែទាំ", "📱 Reminders"), "/reminders")], backHome(u)] };
 }
+/** D-140 smart search: every word in the name / address, every number group (3+ digits) in a phone — the indexed digits column
+ *  (any form: Khmer digits, spaces, +855) — or in the address; «Dara 485» = the name and a phone. Test customers never. */
+export async function customerSearch(companyId: string, tz: string, q: string) {
+  const esc = (s: string) => `%${s.replace(/[%_\\]/g, "")}%`;
+  const { words, numbers } = searchParts(q);
+  const conds = [...words.map((w) => sql`(c.name ilike ${esc(w)} or c.address ilike ${esc(w)})`),
+    ...numbers.map((n) => (n.digits.length >= 3 ? sql`(c.phone_digits like ${esc(n.digits)} or c.address ilike ${esc(n.raw)})` : sql`(c.address ilike ${esc(n.raw)} or c.name ilike ${esc(n.raw)})`))];
+  if (!conds.length) return [];
+  return sql<{ id: string; name: string; phones: string[]; address: string | null; last: string | null }[]>`select c.id, c.name, c.phones, c.address,
+      (select b.number || ' · ' || to_char(b.scheduled_at at time zone ${tz}, 'DD-MM-YYYY') from bookings b where b.customer_id = c.id order by b.scheduled_at desc limit 1) as last
+    from customers c where c.company_id = ${companyId} and not c.is_test and ${conds.reduce((a, b) => sql`${a} and ${b}`)} order by c.name limit 8`;
+}
 async function findCustomer(u: Staff, q: string): Promise<Menu> {
   const L = T(u);
-  const like = `%${q.trim().replace(/[%_]/g, "")}%`;
-  // D-137: a number typed in any form (Khmer digits, spaces, +855) finds the stored +855… phone by its local digits
-  let digits = latinDigits(q).replace(/\D/g, "");
-  if (digits.startsWith("855") && digits.length > 3) digits = `0${digits.slice(3)}`;
-  const phoneLike = digits.length >= 3 ? `%${digits}%` : null;
-  const rows = await sql<{ name: string; phones: string[]; address: string | null; last: string | null }[]>`select c.name, c.phones, c.address,
-      (select b.number || ' · ' || to_char(b.scheduled_at at time zone ${u.timezone}, 'DD-MM-YYYY') from bookings b where b.customer_id = c.id order by b.scheduled_at desc limit 1) as last
-    from customers c where c.company_id = ${u.company_id} and not c.is_test and (c.name ilike ${like} or c.address ilike ${like}
-      or (${phoneLike}::text is not null and exists (select 1 from unnest(c.phones) p where regexp_replace(regexp_replace(p, '[^0-9]', '', 'g'), '^855', '0') like ${phoneLike}))) order by c.name limit 8`;
+  const rows = await customerSearch(u.company_id, u.timezone, q);
   const lines = rows.map((r) => `• ${r.name} · 📞 ${r.phones.map(formatKhPhone).join(", ")}${r.address ? `\n   📍 ${r.address}` : ""}${r.last ? `\n   🔧 ${r.last}` : ""}`);
   return { text: rows.length ? `${L("🔍 លទ្ធផល", "🔍 Results")} (${rows.length})\n${lines.join("\n")}` : L("🔍 រកមិនឃើញ", "🔍 No match"), buttons: [[appBtn(L("📱 អតិថិជន", "📱 Customers"), "/customers")], backHome(u)] };
 }

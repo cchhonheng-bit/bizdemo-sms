@@ -16,7 +16,7 @@ import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
 import { CrewList } from "./CrewPicker";
-import { crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
+import { conflictText, crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
 
 export default function BookingDetailPage() {
   const { t } = useTranslation();
@@ -37,7 +37,8 @@ export default function BookingDetailPage() {
   if (b.isError || !b.data) return <ErrorState text={t("booking.err.NOT_FOUND")} onRetry={() => void b.refetch()} />;
   const bk = b.data;
   const canAssign = can("booking.assign") && ASSIGNABLE_STATUSES.includes(bk.status) && !(bk.type === "B" && me?.role === "admin");
-  const canEdit = can("booking.create") && EDITABLE_STATUSES.includes(bk.status);
+  // D-140: one «កែ» screen for every job that is not cancelled (a finished one takes the note only — the screen says so)
+  const canEdit = (can("booking.create") || can("booking.assign")) && bk.status !== "cancelled";
   const canCancel = can("cancel.request") && CANCELLABLE_STATUSES.includes(bk.status);
   const canResched = (can("booking.create") || can("booking.assign")) && EDITABLE_STATUSES.includes(bk.status);
   // D-139: Admin / GM record the actual finish when the technician did not press «បញ្ចប់» → he is free at once
@@ -150,7 +151,6 @@ export default function BookingDetailPage() {
   );
 }
 
-const conflictText = (c: Conflict[] | undefined) => (c ?? []).map((x) => `${x.full_name ?? x.code ?? ""} · ${x.number} ${timeRange(x.scheduled_at, x.ends_at)}`).join(", ");
 
 /** R1/R2/R5 — pick a crew among the technicians FREE for the window (busy ones are shown greyed, with their time); lead optional;
  *  at least one technician */

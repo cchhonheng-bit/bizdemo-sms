@@ -1,15 +1,19 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { assignSchema, bookingSchema, cancelSchema, rescheduleSchema, BOOKING_STATUSES } from "@sms/shared";
+import { assignSchema, bookingEditSchema, bookingSchema, cancelSchema, customerText, rescheduleSchema, BOOKING_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
 import { sql } from "../db.js";
-import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
+import { assignBooking, availability, cancelBooking, createBooking, editBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
+import { btn, row } from "../services/customer-bot.js";
+import { tellCustomer } from "../services/customer-notify.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
 import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
 const iso = z.string().datetime({ offset: true });
+/** D-140: the customer hears the new time of a moved job (their linked chat, service messages on — the hub decides) */
+const tellRescheduled = (id: string) => tellCustomer(id, (b) => ({ text: customerText.rescheduled(b.number, b.day, b.time), buttons: row(btn.track()) }));
 
 export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireAuth);
@@ -44,7 +48,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
       customer_id: b.customer_id, type: b.type, category: b.category, service_text: b.service_text, service_item_id: b.service_item_id || null,
       scheduled_at: b.scheduled_at || null, ends_at: b.ends_at || null,
       address: b.address || null, lat: b.lat ?? null, lng: b.lng ?? null, zone: b.zone, vehicle_id: b.vehicle_id || null, notes: b.notes || null,
-      warranty_of: b.warranty_of || null, unit_ids: b.unit_ids,
+      warranty_of: b.warranty_of || null, unit_ids: b.unit_ids, lines: b.lines,
     });
   });
 
@@ -53,6 +57,20 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     const patch = bookingSchema.omit({ customer_id: true, type: true }).partial().strict().parse(req.body ?? {});
     await updateBooking(req.user!, req.ip, idParam.parse(req.params).id, patch);
     return { ok: true };
+  });
+
+  // D-140: the one «កែ» screen — everything in one save (Admin / GM / CEO); a new time = reschedule rules, a new crew = assign rules
+  app.put("/:id", async (req) => {
+    if (!req.perms.includes("booking.create") && !req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
+    const e = bookingEditSchema.parse(req.body ?? {});
+    const id = idParam.parse(req.params).id;
+    const out = await editBooking(req.user!, req.ip, id, {
+      ...e, team: e.team ? { lead: e.team.lead || null, assistants: [...new Set(e.team.assistants)], overrides: e.team.overrides } : undefined,
+      vehicle_id: e.vehicle_id === undefined ? undefined : e.vehicle_id || null,
+    }, req.perms.includes("booking.assign"));
+    void flushOutbox().catch((err) => req.log.warn(err, "outbox flush"));
+    if (out.rescheduled) await tellRescheduled(id);
+    return out;
   });
 
   // D-139: Admin / GM record the actual finish for the technician → he is free from that time
@@ -80,6 +98,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     const r = rescheduleSchema.parse(req.body ?? {});
     const out = await rescheduleBooking(req.user!, req.ip, idParam.parse(req.params).id, { scheduled_at: r.scheduled_at, ends_at: r.ends_at || null, requested_by: r.requested_by, reason: r.reason });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    await tellRescheduled(out.id);
     return out;
   });
 

@@ -105,7 +105,7 @@ export async function getQuote(user: SessionUser, id: string) {
 }
 
 export async function listQuotes(user: SessionUser, status?: string, bookingId?: string) {
-  return sql`select q.id, q.number, q.status, q.created_at, q.booking_id, b.number as booking_number, c.name as customer_name,
+  return sql`select q.id, q.number, q.status, q.created_at, q.booking_id, b.number as booking_number, c.name as customer_name, c.phones as customer_phones,
       (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from quote_lines l where l.quote_id = q.id) as total,
       greatest(0, (current_date - q.created_at::date))::int as days_waiting
     from quotes q join bookings b on b.id = q.booking_id join customers c on c.id = b.customer_id

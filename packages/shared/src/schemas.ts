@@ -66,6 +66,8 @@ export const customerSchema = z.object({
   house_no: z.string().trim().max(40).optional().or(z.literal("")).nullable(),
   street: z.string().trim().max(80).optional().or(z.literal("")).nullable(),
   borey_id: z.string().uuid().nullable().optional().or(z.literal("")),
+  /** D-140: the zone inside the borey («Zone B») — only for a customer in a borey */
+  borey_zone: z.string().trim().max(40).optional().or(z.literal("")).nullable(),
   province_code: geo(GEO_LEN.province), district_code: geo(GEO_LEN.district), commune_code: geo(GEO_LEN.commune), village_code: geo(GEO_LEN.village),
   zone: z.enum(ZONES),
   lat: z.number().min(-90).max(90).nullable().optional(),
@@ -107,6 +109,9 @@ export const catalogItemSchema = z.object({
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 
+/** D-140: service lines of a job — a catalog service and how many */
+export const bookingLinesSchema = z.array(z.object({ item_id: z.string().uuid(), qty: z.number().int().min(1).max(99) }).strict()).max(20).optional();
+
 export const bookingSchema = z.object({
   customer_id: z.string().uuid("REQUIRED"),
   type: z.enum(BOOKING_TYPES),
@@ -127,6 +132,8 @@ export const bookingSchema = z.object({
   warranty_of: z.string().uuid().optional().or(z.literal("")).nullable(),
   /** A2: the customer's units this job serves (e.g. AC units) — reminders per unit */
   unit_ids: z.array(z.string().uuid()).max(20).optional(),
+  /** D-140: the service lines (catalog services + quantity); the job length is the sum of their lengths */
+  lines: bookingLinesSchema,
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 
@@ -161,6 +168,30 @@ export const rescheduleSchema = z.object({
   requested_by: z.enum(RESCHEDULE_REQUESTERS, { errorMap: () => ({ message: "REQUESTER_REQUIRED" }) }).optional(),
   reason: z.string().trim().max(500, "TOO_LONG").optional().default(""),
 }).strict();
+
+/** D-140: the one «កែ» screen — everything in one save. Only what is sent changes; a new date / time needs who asked + why (the
+ *  reschedule rules run in the same save); `team` sets the crew (+ lead, + «finished early» overrides); a job in progress needs
+ *  confirm_in_progress for a time / crew / vehicle change; a finished job takes a note only. */
+export const bookingEditSchema = z.object({
+  customer_id: z.string().uuid().optional(),
+  category: z.enum(SERVICE_CATEGORIES).optional(),
+  service_text: z.string().trim().max(1000, "TOO_LONG").optional(),
+  lines: bookingLinesSchema,
+  scheduled_at: z.string().optional(),
+  ends_at: z.string().optional(),
+  requested_by: z.enum(RESCHEDULE_REQUESTERS, { errorMap: () => ({ message: "REQUESTER_REQUIRED" }) }).optional(),
+  reason: z.string().trim().max(500, "TOO_LONG").optional(),
+  address: z.string().trim().max(300).optional().or(z.literal("")).nullable(),
+  lat: z.number().min(-90).max(90).nullable().optional(),
+  lng: z.number().min(-180).max(180).nullable().optional(),
+  zone: z.enum(ZONES).optional(),
+  team: z.object({ lead: z.string().uuid().nullable().optional().or(z.literal("")), assistants: z.array(z.string().uuid()).max(10), overrides: overridesSchema }).strict().optional(),
+  vehicle_id: z.string().uuid().nullable().optional().or(z.literal("")),
+  notes: z.string().trim().max(500, "TOO_LONG").optional().or(z.literal("")).nullable(),
+  unit_ids: z.array(z.string().uuid()).max(20).optional(),
+  confirm_in_progress: z.boolean().optional(),
+}).strict();
+export type BookingEditInput = z.infer<typeof bookingEditSchema>;
 
 /** D3 / FR-903: leave request (own) or absence (marked by an approver) — whole day(s) or half a day */
 export const LEAVE_PARTS = ["full", "am", "pm"] as const;

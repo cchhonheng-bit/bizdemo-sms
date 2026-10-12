@@ -33,14 +33,14 @@ export const geoChildren = (code: string): GeoUnit[] => load().children.get(code
 export const geoName = (code: string | null | undefined, lang: "km" | "en"): string | null => { const u = geoUnit(code); return u ? geoLabel(u, lang) : null; };
 
 /** the customer columns a job message selects for the address in the reader's language (c.address as caddress, …, bo.name as borey_name) */
-export type CustomerAddress = { caddress: string | null; house_no: string | null; street: string | null; borey_name: string | null;
+export type CustomerAddress = { caddress: string | null; house_no: string | null; street: string | null; borey_name: string | null; borey_zone?: string | null;
   province_code: string | null; district_code: string | null; commune_code: string | null; village_code: string | null };
 /** D-89 / D-137: a job at the customer's own address, read by English-mode staff → the same address in English from the gazetteer;
  *  any other address (another site, Khmer readers) stays as written */
 export function jobAddress(bookingAddress: string | null, c: CustomerAddress, lang: "km" | "en"): string | null {
   if (lang !== "en" || !c.province_code || bookingAddress !== c.caddress) return bookingAddress;
   const units = [c.province_code, c.district_code, c.commune_code, c.village_code].map((x) => geoUnit(x)).filter((u): u is GeoUnit => !!u);
-  return composeAddress({ house_no: c.house_no, street: c.street, borey: c.borey_name, units }, "en");
+  return composeAddress({ house_no: c.house_no, street: c.street, borey: c.borey_name, zone: c.borey_zone, units }, "en");
 }
 
 export type Place = { province_code: string | null; district_code: string | null; commune_code: string | null; village_code: string | null };

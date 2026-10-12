@@ -4,10 +4,10 @@ import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { addressComplete, customerSchema, formatKhPhone, GEO_DEFAULT, matchesSearch, normalizeKhPhone, ZONES, type CustomerInput } from "@sms/shared";
+import { addressComplete, customerSchema, formatKhPhone, GEO_DEFAULT, matchesSearch, normalizeKhPhone, type CustomerInput } from "@sms/shared";
 import { History, Home, MapPin, Pencil, Plus, Power, X } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
-import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PhoneInput, RowAction, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PhoneInput, RowAction, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
 import CustomerHistoryDialog from "./CustomerHistoryDialog";
@@ -86,10 +86,14 @@ export default function CustomersPage() {
   );
 }
 
+
 const addressOf = (c: Customer | null): AddressValue => c
-  ? { house_no: c.house_no ?? "", street: c.street ?? "", borey_id: c.borey_id ?? "", province_code: c.province_code ?? "", district_code: c.district_code ?? "", commune_code: c.commune_code ?? "", village_code: c.village_code ?? "" }
+  ? { in_borey: c.zone === "inside", borey_id: c.borey_id ?? "", borey_zone: c.borey_zone ?? "", house_no: c.house_no ?? "", street: c.street ?? "", province_code: c.province_code ?? "",
+      district_code: c.district_code ?? "", commune_code: c.commune_code ?? "", village_code: c.village_code ?? "" }
   : { ...EMPTY_ADDRESS, province_code: GEO_DEFAULT.province, district_code: GEO_DEFAULT.district }; // D-137: Phnom Penh → Chbar Ampov
 
+/** D-140 customer form: name · phone(s) · Google Map (GPS or a Maps link) on one side; «ក្នុងបុរី» (borey + zone), house, street,
+ *  province → khan → sangkat → village and the read-only full address on the other — one column on a phone, two on a desktop */
 export function CustomerDialog({ customer, onClose, onSaved, initialPhone }: { customer: Customer | null; onClose: () => void; onSaved?: (id: string) => void; initialPhone?: string }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -97,8 +101,8 @@ export function CustomerDialog({ customer, onClose, onSaved, initialPhone }: { c
   const [addr, setAddr] = useState<AddressValue>(() => addressOf(customer));
   const [tried, setTried] = useState(false);
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<CustomerInput>({
-    resolver: zodResolver(customerSchema.omit({ phones: true })) as never,
-    defaultValues: customer ? { name: customer.name, zone: customer.zone, notes: customer.notes ?? "" } : { name: "", zone: "inside", notes: "" },
+    resolver: zodResolver(customerSchema.omit({ phones: true, zone: true })) as never,
+    defaultValues: customer ? { name: customer.name, notes: customer.notes ?? "" } : { name: "", notes: "" },
   });
   const [phones, setPhones] = useState<string[]>(() => {
     const list = (customer?.phones ?? []).map(formatKhPhone);
@@ -118,9 +122,9 @@ export function CustomerDialog({ customer, onClose, onSaved, initialPhone }: { c
     if (list.some((p) => !p)) return toast.error(t("booking.err.INVALID_PHONE"));
     if (required && !addressComplete(addr)) return toast.error(t("booking.err.ADDRESS_INCOMPLETE"));
     try {
-      const id = await api.upsertCustomer({ id: customer?.id, name: v.name, phones: list as string[], zone: v.zone, lat: loc.lat, lng: loc.lng, notes: v.notes || null,
-        house_no: addr.house_no || null, street: addr.street || null, borey_id: addr.borey_id || null, province_code: addr.province_code || null,
-        district_code: addr.district_code || null, commune_code: addr.commune_code || null, village_code: addr.village_code || null });
+      const id = await api.upsertCustomer({ id: customer?.id, name: v.name, phones: list as string[], zone: addr.in_borey ? "inside" : "outside", lat: loc.lat, lng: loc.lng, notes: v.notes || null,
+        house_no: addr.house_no || null, street: addr.street || null, borey_id: addr.in_borey ? addr.borey_id || null : null, borey_zone: addr.in_borey ? addr.borey_zone || null : null,
+        province_code: addr.province_code || null, district_code: addr.district_code || null, commune_code: addr.commune_code || null, village_code: addr.village_code || null });
       void qc.invalidateQueries({ queryKey: ["customers"] });
       toast.success(t("app.saved"));
       onSaved?.(id);
@@ -129,31 +133,34 @@ export function CustomerDialog({ customer, onClose, onSaved, initialPhone }: { c
       toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") }));
     }
   }, () => setTried(true));
-  const written = customer && !customer.address_complete && customer.address ? customer.address : null;
+  const old = customer && !customer.address_complete && customer.address ? customer.address : null;
   return (
-    <Dialog open onClose={onClose} title={customer ? t("app.edit") : t("customers.new")} footer={<>
+    <Dialog open wide onClose={onClose} title={customer ? t("app.edit") : t("customers.new")} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" onClick={() => void submit()} loading={isSubmitting} data-testid="customer-save">{t("app.save")}</Button>
     </>}>
-      <form onSubmit={submit} noValidate>
-        <Field label={t("customers.name")} required error={errors.name && t("app.required")}><Input invalid={!!errors.name} {...register("name")} autoFocus /></Field>
-        <Field label={t("customers.phones")}>
-          <div className="space-y-2">
-            {phones.map((p, i) => (
-              <div key={i} className="flex gap-2">
-                <PhoneInput name={i === 0 ? "phones" : `phone_${i}`} value={p} onChange={(e) => setPhones((x) => x.map((y, j) => (j === i ? e.target.value : y)))} />
-                {phones.length > 1 && <Button type="button" aria-label={t("customers.phone_remove")} onClick={() => setPhones((x) => x.filter((_, j) => j !== i))}><X size={16} /></Button>}
-              </div>
-            ))}
-            {phones.length < 3 && <button type="button" className="text-sm text-blue underline min-h-[44px]" onClick={() => setPhones((x) => [...x, ""])}>+ {t("customers.phone_add")}</button>}
-          </div>
-        </Field>
-        {dupes.length > 0 && <p className="text-sm text-warning -mt-2 mb-3" data-testid="phone-dupe">⚠ {t("customers.phone_used", { names: dupes.map((c) => c.name).join(", ") })}</p>}
-        {written && <p className="text-sm rounded-md bg-warning-50 text-warning p-3 mb-3" data-testid="address-written">{t("customers.address_written")}: {written}</p>}
-        <AddressFields value={addr} onChange={setAddr} required={required} showErrors={tried} />
-        <Field label={t("customers.zone")}><Select {...register("zone")}>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select></Field>
-        <Field label={t("customers.location")}><LocationPicker value={loc} onChange={setLoc} /></Field>
-        <Field label={t("booking.notes")}><Input {...register("notes")} /></Field>
+      <form onSubmit={submit} noValidate className="grid md:grid-cols-2 md:gap-x-6">
+        <div>
+          <Field label={t("customers.name")} required error={errors.name && t("app.required")}><Input invalid={!!errors.name} {...register("name")} autoFocus /></Field>
+          <Field label={t("customers.phones")}>
+            <div className="space-y-2">
+              {phones.map((p, i) => (
+                <div key={i} className="flex gap-2">
+                  <PhoneInput name={i === 0 ? "phones" : `phone_${i}`} value={p} onChange={(e) => setPhones((x) => x.map((y, j) => (j === i ? e.target.value : y)))} />
+                  {phones.length > 1 && <Button type="button" aria-label={t("customers.phone_remove")} onClick={() => setPhones((x) => x.filter((_, j) => j !== i))}><X size={16} /></Button>}
+                </div>
+              ))}
+              {phones.length < 3 && <button type="button" className="text-sm text-blue underline min-h-[44px]" onClick={() => setPhones((x) => [...x, ""])}>+ {t("customers.phone_add")}</button>}
+            </div>
+          </Field>
+          {dupes.length > 0 && <p className="text-sm text-warning -mt-2 mb-3" data-testid="phone-dupe">⚠ {t("customers.phone_used", { names: dupes.map((c) => c.name).join(", ") })}</p>}
+          <Field label={t("customers.map")} hint={t("customers.map_hint")}><LocationPicker value={loc} onChange={setLoc} /></Field>
+          <Field label={t("booking.notes")}><Input {...register("notes")} /></Field>
+        </div>
+        <div>
+          {old && <p className="text-sm rounded-md bg-warning-50 text-warning p-3 mb-3" data-testid="address-written">{t("customers.address_old")}: {old}</p>}
+          <AddressFields value={addr} onChange={setAddr} required={required} showErrors={tried} />
+        </div>
       </form>
     </Dialog>
   );

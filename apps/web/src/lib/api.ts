@@ -6,11 +6,11 @@ export type Customer = {
   id: string; company_id: string; name: string; phones: string[]; address: string | null; zone: Zone;
   lat: number | null; lng: number | null; notes: string | null; is_active: boolean; created_at: string; updated_at: string;
   /** D-137 structured address (gazetteer codes) + borey; address_complete = province + khan + sangkat set */
-  origin?: "staff" | "website" | "telegram"; house_no?: string | null; street?: string | null; borey_id?: string | null; borey_name?: string | null;
+  origin?: "staff" | "website" | "telegram"; house_no?: string | null; street?: string | null; borey_id?: string | null; borey_name?: string | null; borey_zone?: string | null;
   province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null; address_complete?: boolean;
 };
 export type CustomerSave = { id?: string | null; name: string; phones: string[]; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null;
-  house_no?: string | null; street?: string | null; borey_id?: string | null; province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null };
+  house_no?: string | null; street?: string | null; borey_id?: string | null; borey_zone?: string | null; province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null };
 export type GeoUnitRow = { code: string; km: string; en: string; type: GeoType };
 export type Borey = { id: string; name: string; province_code: string; district_code: string; commune_code: string | null; is_active: boolean; customers: number; area_km: string; area_en: string };
 export type CatalogItem = {
@@ -35,6 +35,8 @@ export type Booking = {
   origin?: "staff" | "website"; web_status?: "pending" | "confirmed" | "declined" | null;
   /** D-120: from one of the CEO's test phones (listed for the CEO only) */
   is_test?: boolean;
+  /** D-140: the service lines (catalog service + quantity), also of a website booking */
+  web_lines?: { id: string; name_km: string; name_en: string | null; qty: number; minutes: number }[] | null;
 };
 export type StatusLog = { id: number; booking_id: string; from_status: BookingStatus | null; to_status: BookingStatus; by: string | null; at: string; note: string | null };
 export type UserBasic = { id: string; full_name: string; role: string; is_active: boolean };
@@ -80,7 +82,7 @@ export type QuoteLine = { id?: number; catalog_item_id: string | null; descripti
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
   reject_reason: string | null; booking_id: string; booking_number: string; address: string | null; service_text: string; customer_name: string; customer_phones: string[]; created_by_name: string | null;
   lines: QuoteLine[]; subtotal: number; total: number; total_khr: number; company: { name: string; company_info: Record<string, string> } };
-export type QuoteRow = { id: string; number: string; status: Quote["status"]; created_at: string; booking_id: string; booking_number: string; customer_name: string; total: number; days_waiting: number };
+export type QuoteRow = { id: string; number: string; status: Quote["status"]; created_at: string; booking_id: string; booking_number: string; customer_name: string; customer_phones?: string[]; total: number; days_waiting: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
 export type Payment = { id: string; amount: number; currency: "usd" | "khr"; method: PayMethod; fx_rate_khr: number; usd_cents: number; paid_on: string; note: string | null; created_at: string; received_by_name: string | null;
   from_deposit?: boolean; reversal_of?: string | null; voided_at?: string | null; void_reason?: string | null; void_request?: { reason: string; requester_role: string; requested_by_name: string } | null };
@@ -90,7 +92,7 @@ export type Reminder = { customer_id: string; customer_name: string; phones: str
   last_on: string; due_on: string; status: "overdue" | "due"; days_overdue: number; days_left: number; last_action: string | null; last_note: string | null; last_action_at: string | null; telegram: boolean };
 export type CustomerUnit = { id: string; label: string; kind: string; brand: string | null; model: string | null; location_note: string | null; installed_on: string | null; is_active: boolean };
 export type Invoice = {
-  id: string; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
+  id: string; customer_phones?: string[]; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
   discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
   created_at: string; issued_at: string | null; voided_at: string | null; void_reason: string | null; voided_by_name: string | null; created_by_name: string | null; issued_by_name: string | null;
   booking_number: string | null; service_text: string | null; address: string | null; customer_name: string; customer_phones: string[];
@@ -242,9 +244,11 @@ export const api = {
     get<Booking[]>(`/api/bookings${q({ status: opts.statuses?.join(","), from: opts.from, to: opts.to })}`),
   booking: (id: string) => get<Booking>(`/api/bookings/${id}`),
   statusLog: (id: string) => get<StatusLog[]>(`/api/bookings/${id}/log`),
-  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id?: string | null; notes: string | null; warranty_of?: string | null; unit_ids?: string[] }) =>
+  createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id?: string | null; notes: string | null; warranty_of?: string | null; unit_ids?: string[]; lines?: { item_id: string; qty: number }[] }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
+  /** D-140: the one «កែ» screen — everything in one save */
+  editBooking: (id: string, v: Record<string, unknown>) => put<{ id: string; changed: string[]; rescheduled: boolean }>(`/api/bookings/${id}`, v),
   assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null; overrides?: Override[] }) =>
     post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", ...(v.overrides?.length ? { overrides: v.overrides } : {}) }),
   /** D-139: Admin / GM record the actual finish for the technician */

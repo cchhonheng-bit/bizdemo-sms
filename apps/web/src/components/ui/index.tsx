@@ -97,7 +97,7 @@ export function ActionBar({ children }: { children: ReactNode }) {
 }
 
 // ---------- Dialog: bottom sheet on phones (fits the visible screen, body scrolls, header + footer stay) ----------
-export function Dialog({ open, onClose, title, children, footer }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode }) {
+export function Dialog({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: string; children: ReactNode; footer?: ReactNode; /** two columns on a desktop (D-140) */ wide?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -109,7 +109,7 @@ export function Dialog({ open, onClose, title, children, footer }: { open: boole
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-0 sm:p-4" onClick={onClose} role="presentation">
-      <div className="card w-full sm:max-w-lg max-h-[92dvh] flex flex-col rounded-b-none sm:rounded-md" role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+      <div className={`card w-full sm:max-w-lg ${wide ? "md:max-w-3xl" : ""} max-h-[92dvh] flex flex-col rounded-b-none sm:rounded-md`} role="dialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
         <header className="flex items-center justify-between gap-2 pl-4 pr-1 py-1 border-b border-grey-line shrink-0">
           <h2 className="text-base min-w-0 break-words py-2">{title}</h2>
           <button className="tap-target rounded hover:bg-grey-bg" onClick={onClose} aria-label="close"><X size={20} /></button>

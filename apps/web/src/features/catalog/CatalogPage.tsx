@@ -7,7 +7,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { catalogItemSchema, formatUsd, fromCents, SERVICE_CATEGORIES, toCents, WEB_CATEGORIES, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
+import { catalogItemSchema, formatUsd, fromCents, matchesSearch, SERVICE_CATEGORIES, toCents, WEB_CATEGORIES, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
 import { Download, Pencil, Plus, Power, Upload } from "lucide-react";
 import { api, errCode, type CatalogItem, type CatalogPreview } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -34,8 +34,7 @@ export default function CatalogPage() {
   const meta = useQuery({ queryKey: ["catalog", "meta"], queryFn: api.catalogMeta });
   const edit = meta.data?.can_edit === true;
   const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (items.data ?? []).filter((i) => (!cat || i.category === cat) && (!s || i.name_km.toLowerCase().includes(s) || (i.name_en ?? "").toLowerCase().includes(s) || (i.code ?? "").toLowerCase().includes(s)));
+    return (items.data ?? []).filter((i) => (!cat || i.category === cat) && matchesSearch(q, [i.name_km, i.name_en, i.code])); // D-140: Khmer keyboard
   }, [items.data, q, cat]);
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["catalog"] }); };
   const act = useMutation({

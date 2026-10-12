@@ -75,8 +75,8 @@ async function openInvoice(db: Db, bookingId: string) {
 
 /** lines suggested for a reviewed job: the accepted quote (type B), else the booked service + the materials of the report, at catalog prices */
 export async function prefill(user: SessionUser, bookingId: string) {
-  const b = (await sql<{ id: string; number: string; status: string; service_text: string; service_item_id: string | null; customer_id: string; customer_name: string; warranty_of_number: string | null }[]>`
-    select b.id, b.number, b.status, b.service_text, b.service_item_id, b.customer_id, c.name as customer_name, pb.number as warranty_of_number
+  const b = (await sql<{ id: string; number: string; status: string; service_text: string; service_item_id: string | null; web_lines: { id: string; qty: number }[] | null; customer_id: string; customer_name: string; warranty_of_number: string | null }[]>`
+    select b.id, b.number, b.status, b.service_text, b.service_item_id, b.web_lines, b.customer_id, c.name as customer_name, pb.number as warranty_of_number
     from bookings b join customers c on c.id = b.customer_id left join bookings pb on pb.id = b.parent_booking_id
     where b.id = ${bookingId} and b.company_id = ${user.companyId}`)[0];
   if (!b) throw notFound();
@@ -86,9 +86,15 @@ export async function prefill(user: SessionUser, bookingId: string) {
     from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = ${b.id} and q.status = 'accepted' order by l.sort, l.id`;
   let lines: InvoiceLineInput[] = [...quote];
   if (!lines.length) {
-    const svc = b.service_item_id ? (await sql<InvoiceLineInput[]>`select id as catalog_item_id, name_km as description, kind::text as kind, 1::float as qty, unit, coalesce(sell_price, 0)::int as unit_price
-      from catalog_items where id = ${b.service_item_id}`)[0] : undefined;
-    lines.push(svc ?? { catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "unit", unit_price: 0 });
+    // D-140: a job with service lines suggests one invoice line per service (catalog price × quantity), else the one booked service
+    const booked = b.web_lines?.length ? b.web_lines : b.service_item_id ? [{ id: b.service_item_id, qty: 1 }] : [];
+    const items = booked.length ? new Map((await sql<(InvoiceLineInput & { id: string })[]>`select id, id as catalog_item_id, name_km as description, kind::text as kind, unit, coalesce(sell_price, 0)::int as unit_price
+      from catalog_items where company_id = ${user.companyId} and id = any(${sql.array(booked.map((l) => l.id))}::uuid[])`).map((i) => [i.id, i])) : new Map<string, InvoiceLineInput & { id: string }>();
+    for (const l of booked) {
+      const i = items.get(l.id);
+      if (i) lines.push({ catalog_item_id: i.catalog_item_id, description: i.description, kind: i.kind, qty: l.qty, unit: i.unit, unit_price: i.unit_price });
+    }
+    if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "unit", unit_price: 0 });
     lines.push(...await sql<InvoiceLineInput[]>`select m.catalog_item_id, i.name_km as description, i.kind::text as kind, m.qty::float as qty, i.unit, coalesce(i.sell_price, 0)::int as unit_price
       from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = ${b.id} order by i.name_km`);
   }
@@ -335,7 +341,7 @@ export async function getInvoice(user: SessionUser, perms: string[], id: string)
 }
 
 const LIST = (companyId: string) => sql`
-  select i.id, i.number, i.status, i.created_at, i.issued_at, i.booking_id, i.customer_id, i.discount_status, c.name as customer_name, b.number as booking_number,
+  select i.id, i.number, i.status, i.created_at, i.issued_at, i.booking_id, i.customer_id, i.discount_status, c.name as customer_name, c.phones as customer_phones, b.number as booking_number,
     (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = i.id) - i.discount as total,
     (select coalesce(sum(p.usd_cents), 0)::int from payments p where p.invoice_id = i.id) as paid,
     exists (select 1 from invoice_void_requests r where r.invoice_id = i.id and r.status = 'pending') as void_pending
@@ -380,7 +386,7 @@ export async function uninvoiced(companyId: string) {
         coalesce((select max(k.at) from booking_checkpoints k where k.booking_id = b.id and k.step = 'finish'), b.updated_at) as finished_at,
         case when b.parent_booking_id is not null then 0 else coalesce(
           (select sum(round(l.qty * l.unit_price))::int from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = b.id and q.status = 'accepted'),
-          coalesce((select sell_price from catalog_items where id = b.service_item_id), 0)
+          coalesce((select sum(coalesce(i.sell_price, 0) * (l->>'qty')::int)::int from jsonb_array_elements(b.web_lines) l join catalog_items i on i.id = (l->>'id')::uuid), (select sell_price from catalog_items where id = b.service_item_id), 0)
             + coalesce((select sum(round(m.qty * coalesce(i.sell_price, 0)))::int from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id), 0)
         ) end as estimate
       from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id

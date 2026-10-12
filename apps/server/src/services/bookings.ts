@@ -23,7 +23,7 @@ export type BookingRow = Record<string, unknown> & {
 function baseSelect(db: Db) {
   return db`select b.id, b.company_id, b.number, b.customer_id, c.name as customer_name, c.phones as customer_phones,
          b.type, b.category, b.status, b.service_text, b.service_item_id, b.scheduled_at, b.ends_at, b.address, b.lat, b.lng, b.zone,
-         b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at, b.origin, b.web_status, b.is_test,
+         b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at, b.origin, b.web_status, b.is_test, b.web_lines,
          b.created_by, b.created_at, b.updated_at, b.parent_booking_id as warranty_of, pb.number as warranty_of_number,
          ${warrantyJson(db)} as warranty,
          (select json_agg(json_build_object('id', cu.id, 'label', cu.label) order by cu.label) from booking_units bu join customer_units cu on cu.id = bu.unit_id where bu.booking_id = b.id) as units,
@@ -203,7 +203,24 @@ export type CreateInput = {
   address: string | null; lat: number | null; lng: number | null; zone: string | null; vehicle_id: string | null; notes: string | null;
   warranty_of?: string | null;
   unit_ids?: string[];
+  /** D-140: the service lines (catalog service + quantity) */
+  lines?: { item_id: string; qty: number }[];
 };
+
+/** D-140: a job's service lines — stored like a website booking's (web_lines): name, quantity, length; the job length = their sum */
+export type JobLine = { id: string; code: string | null; name_km: string; name_en: string | null; qty: number; minutes: number; from_price: number | null; quote_only: boolean };
+export async function resolveJobLines(t: Db, companyId: string, lines: { item_id: string; qty: number }[]): Promise<(JobLine & { category: string })[]> {
+  const ids = [...new Set(lines.map((l) => l.item_id))];
+  const items = new Map((await t<(Omit<JobLine, "qty" | "minutes"> & { duration_min: number; category: string })[]>`select id, code, name_km, name_en, duration_min, from_price, quote_only, category::text as category
+    from catalog_items where company_id = ${companyId} and kind = 'service' and is_active and id = any(${t.array(ids)}::uuid[])`).map((i) => [i.id, i]));
+  return lines.map((l) => {
+    const i = items.get(l.item_id);
+    if (!i) throw new AppError("SERVICE_NOT_FOUND", 404);
+    return { id: i.id, code: i.code, name_km: i.name_km, name_en: i.name_en, qty: l.qty, minutes: i.duration_min, from_price: i.from_price, quote_only: i.quote_only, category: i.category };
+  });
+}
+export const jobLinesText = (lines: Pick<JobLine, "name_km" | "qty">[]) => lines.map((l) => (l.qty > 1 ? `${l.name_km} ×${l.qty}` : l.name_km)).join(" · ");
+const storedLines = (lines: (JobLine & { category?: string })[]) => lines.map(({ category: _c, ...l }) => l);
 
 /** A2: the customer's units this job serves (reminders per unit) — only units of the same customer */
 async function setUnits(t: Db, companyId: string, bookingId: string, customerId: string, unitIds: string[]): Promise<void> {
@@ -225,8 +242,10 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     const c = (await t<{ id: string; name: string; address: string | null; lat: number | null; lng: number | null; zone: string }[]>`
       select id, name, address, lat, lng, zone from customers where id = ${b.customer_id} and company_id = ${user.companyId} and is_active`)[0];
     if (!c) throw new AppError("CUSTOMER_NOT_FOUND", 404);
-    const service = b.service_text.trim();
+    const lines = b.lines?.length ? await resolveJobLines(t, user.companyId, b.lines) : null; // D-140
+    const service = b.service_text.trim() || (lines ? jobLinesText(lines) : "");
     if (!service) throw new AppError("SERVICE_REQUIRED", 400);
+    const serviceItemId = lines ? lines[0]!.id : b.service_item_id;
     if (b.warranty_of) { // FR-1201: only for a closed job of the same customer, while the warranty runs
       const o = (await t<{ customer_id: string; status: string; warranty: { active: boolean } | null }[]>`select b.customer_id, b.status, ${warrantyJson(t)} as warranty
         from bookings b join companies co on co.id = b.company_id where b.id = ${b.warranty_of} and b.company_id = ${user.companyId}`)[0];
@@ -235,7 +254,7 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
       if (o.customer_id !== c.id) throw new AppError("WARRANTY_OTHER_CUSTOMER", 400);
       if (!o.warranty?.active) throw new AppError("WARRANTY_EXPIRED", 400);
     }
-    const minutes = await durationOf(t, user.companyId, b.service_item_id);
+    const minutes = lines ? lines.reduce((s, l) => s + l.minutes, 0) : await durationOf(t, user.companyId, b.service_item_id);
     const w = window(parseTime(b.scheduled_at, "INVALID_VALUE"), parseTime(b.ends_at, "INVALID_VALUE"), minutes);
     if (!w.start) throw new AppError("SCHEDULE_REQUIRED", 400); // D2: every booking has the agreed appointment time
     assertFuture(w.start);
@@ -246,9 +265,10 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     const number = await nextBookingNumber(t, user.companyId);
     const status: BookingStatus = b.type === "B" ? "survey" : "new";
     const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, zone, vehicle_id, notes, created_by, parent_booking_id)
-      values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${b.service_item_id}, ${w.start}, ${w.end},
+      values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${serviceItemId}, ${w.start}, ${w.end},
               ${b.address?.trim() || c.address}, ${b.lat ?? c.lat}, ${b.lng ?? c.lng}, ${(b.zone ?? c.zone)}::zone, ${b.vehicle_id}, ${b.notes?.trim() || null}, ${user.id}, ${b.warranty_of ?? null}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${id}, null, ${status}::booking_status, ${user.id})`;
+    if (lines) await t`update bookings set web_lines = ${t.json(storedLines(lines) as never)} where id = ${id}`;
     if (b.unit_ids?.length) await setUnits(t, user.companyId, id, c.id, b.unit_ids);
     if (c.lat == null && b.lat != null) await t`update customers set lat = ${b.lat}, lng = ${b.lng} where id = ${c.id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.create", table: "bookings", rowId: id, new: { number, type: b.type, customer_id: c.id, scheduled_at: w.start, ends_at: w.end }, ip });
@@ -384,6 +404,160 @@ export async function rescheduleBooking(user: SessionUser, ip: string | null, id
     if (team.length) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: r.requested_by, reason: r.reason.trim() });
     return { id, scheduled_at: w.start, ends_at: w.end };
   });
+}
+
+// ---------- edit everything in one save (D-140) --------------------------------------------------------------
+export type EditInput = {
+  customer_id?: string; category?: string; service_text?: string; lines?: { item_id: string; qty: number }[];
+  scheduled_at?: string; ends_at?: string; requested_by?: RescheduleRequester; reason?: string;
+  address?: string | null; lat?: number | null; lng?: number | null; zone?: string;
+  team?: { lead: string | null; assistants: string[]; overrides?: { user_id: string; reason: string }[] };
+  vehicle_id?: string | null; notes?: string | null; unit_ids?: string[]; confirm_in_progress?: boolean;
+};
+const IN_PROGRESS: BookingStatus[] = ["en_route", "on_site", "working"];
+const FINISHED: BookingStatus[] = ["work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
+
+/** D-140: the «កែ» screen saves customer, service lines, time, place, crew + lead, vehicle, units and note at once. Only the fields
+ *  that really changed count. A new time follows the reschedule rules in the same save (who asked + reason, future start, crew +
+ *  vehicle free, history, technicians + customer told); a new crew follows the assign rules (busy refused, «finished early»
+ *  overrides). Locks: cancelled = nothing · finished = the note only (prices then go through the invoice) · in progress = time /
+ *  crew / vehicle only with confirm_in_progress · the customer only before the job starts. Every changed field is audited old → new. */
+export async function editBooking(user: SessionUser, ip: string | null, id: string, e: EditInput, canAssign: boolean) {
+  const out = await tx(user.id, async (t) => {
+    const b = (await t<(BookingRow & { customer_id: string; category: string; service_text: string; address: string | null; lat: number | null; lng: number | null; zone: string; notes: string | null;
+      web_lines: (JobLine & { id: string })[] | null })[]>`select * from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
+    if (!b) throw notFound();
+    if (b.status === "cancelled") throw new AppError("BOOKING_LOCKED", 400);
+    const crew = await t<{ user_id: string; role: string }[]>`select user_id, role::text as role from booking_technicians where booking_id = ${id}`;
+    const units = (await t<{ unit_id: string }[]>`select unit_id from booking_units where booking_id = ${id}`).map((x) => x.unit_id);
+    const same = (a: unknown, c: unknown) => JSON.stringify(a ?? null) === JSON.stringify(c ?? null);
+    const sorted = (x: string[]) => [...new Set(x)].sort();
+    const oldLead = crew.find((x) => x.role === "lead")?.user_id ?? null, oldHelp = sorted(crew.filter((x) => x.role !== "lead").map((x) => x.user_id));
+    const oldLines = (b.web_lines ?? (b.service_item_id ? [{ id: b.service_item_id, qty: 1 }] : [])).map((l) => ({ id: l.id, qty: l.qty }));
+
+    // what changed
+    const start = e.scheduled_at !== undefined ? parseTime(e.scheduled_at, "INVALID_VALUE") : b.scheduled_at;
+    if (e.scheduled_at !== undefined && !start) throw new AppError("SCHEDULE_REQUIRED", 400);
+    const endIn = e.ends_at !== undefined ? parseTime(e.ends_at, "INVALID_VALUE") : null;
+    const timeChanged = (e.scheduled_at !== undefined && start!.getTime() !== b.scheduled_at?.getTime()) || (endIn != null && endIn.getTime() !== b.ends_at?.getTime());
+    const lead = e.team ? e.team.lead || null : oldLead, help = e.team ? sorted(e.team.assistants) : oldHelp;
+    const teamChanged = !!e.team && (lead !== oldLead || !same(help, oldHelp));
+    const vehicle = e.vehicle_id !== undefined ? e.vehicle_id || null : b.vehicle_id;
+    const vehicleChanged = vehicle !== b.vehicle_id;
+    const customerChanged = !!e.customer_id && e.customer_id !== b.customer_id;
+    const linesChanged = !!e.lines?.length && !same(e.lines.map((l) => ({ id: l.item_id, qty: l.qty })), oldLines);
+    const text = e.service_text?.trim();
+    const textChanged = text !== undefined && text !== "" && text !== b.service_text;
+    const categoryChanged = !!e.category && e.category !== b.category;
+    const addressChanged = e.address !== undefined && (e.address?.trim() || null) !== b.address;
+    const latChanged = (e.lat !== undefined && (e.lat ?? null) !== b.lat) || (e.lng !== undefined && (e.lng ?? null) !== b.lng);
+    const zoneChanged = !!e.zone && e.zone !== b.zone;
+    const notesChanged = e.notes !== undefined && (e.notes?.trim() || null) !== b.notes;
+    const unitsChanged = !!e.unit_ids && !same(sorted(e.unit_ids), sorted(units));
+    const any = timeChanged || teamChanged || vehicleChanged || customerChanged || linesChanged || textChanged || categoryChanged || addressChanged || latChanged || zoneChanged || unitsChanged;
+
+    // locks
+    if (FINISHED.includes(b.status) && any) throw new AppError("FINISHED_NOTE_ONLY", 400);
+    if (IN_PROGRESS.includes(b.status) && (timeChanged || teamChanged || vehicleChanged) && !e.confirm_in_progress) throw new AppError("IN_PROGRESS_CONFIRM", 409);
+    if (customerChanged && !EDITABLE.includes(b.status)) throw new AppError("CUSTOMER_LOCKED", 400);
+    if (teamChanged && !canAssign) throw new AppError("FORBIDDEN", 403);
+    if (!any && !notesChanged) return { id, changed: [] as string[], rescheduled: false, account: null };
+
+    const oldV: Record<string, unknown> = {}, newV: Record<string, unknown> = {};
+    const note = (k: string, o: unknown, n: unknown) => { oldV[k] = o ?? null; newV[k] = n ?? null; };
+
+    // customer (+ its place when the screen kept the old one)
+    let customerId = b.customer_id;
+    if (customerChanged) {
+      const c = (await t<{ id: string; address: string | null; lat: number | null; lng: number | null; zone: string }[]>`select id, address, lat, lng, zone::text as zone from customers
+        where id = ${e.customer_id!} and company_id = ${user.companyId} and is_active`)[0];
+      if (!c) throw new AppError("CUSTOMER_NOT_FOUND", 404);
+      note("customer_id", b.customer_id, c.id);
+      customerId = c.id;
+      await t`update bookings set customer_id = ${c.id} where id = ${id}`;
+      if (e.address === undefined) await t`update bookings set address = ${c.address}, lat = ${c.lat}, lng = ${c.lng}, zone = ${c.zone}::zone where id = ${id}`;
+      if (!e.unit_ids) await t`delete from booking_units where booking_id = ${id}`; // the old customer's units never follow
+    }
+
+    // service lines → length hint, first item, text, category
+    if (linesChanged) {
+      const lines = await resolveJobLines(t, user.companyId, e.lines!);
+      note("lines", oldLines, lines.map((l) => ({ id: l.id, qty: l.qty })));
+      await t`update bookings set web_lines = ${t.json(storedLines(lines) as never)}, service_item_id = ${lines[0]!.id},
+        service_text = ${textChanged ? text! : jobLinesText(lines)}, category = ${(e.category ?? lines[0]!.category)}::service_category where id = ${id}`;
+      if (!textChanged) note("service_text", b.service_text, jobLinesText(lines));
+      if (!categoryChanged && lines[0]!.category !== b.category) note("category", b.category, lines[0]!.category);
+    }
+    if (textChanged) { note("service_text", b.service_text, text); await t`update bookings set service_text = ${text!} where id = ${id}`; }
+    if (categoryChanged) { note("category", b.category, e.category); await t`update bookings set category = ${e.category!}::service_category where id = ${id}`; }
+    if (addressChanged) { note("address", b.address, e.address?.trim() || null); await t`update bookings set address = ${e.address?.trim() || null} where id = ${id}`; }
+    if (latChanged) { note("lat", b.lat, e.lat ?? null); note("lng", b.lng, e.lng ?? null); await t`update bookings set lat = ${e.lat ?? null}, lng = ${e.lng ?? null} where id = ${id}`; }
+    if (zoneChanged) { note("zone", b.zone, e.zone); await t`update bookings set zone = ${e.zone!}::zone where id = ${id}`; }
+    if (notesChanged) { note("notes", b.notes, e.notes?.trim() || null); await t`update bookings set notes = ${e.notes?.trim() || null} where id = ${id}`; }
+    if (unitsChanged) { note("unit_ids", sorted(units), sorted(e.unit_ids!)); await setUnits(t, user.companyId, id, customerId, e.unit_ids!); }
+
+    // time (reschedule rules)
+    let w = { start: b.scheduled_at, end: b.ends_at };
+    if (timeChanged) {
+      if (!e.requested_by) throw new AppError("REQUESTER_REQUIRED", 400);
+      if ((e.reason ?? "").trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
+      const keep = b.scheduled_at && b.ends_at ? (b.ends_at.getTime() - b.scheduled_at.getTime()) / 60_000 : await durationOf(t, user.companyId, b.service_item_id);
+      const nw = window(start, endIn ?? (e.scheduled_at === undefined ? b.ends_at : null), keep);
+      if (start!.getTime() !== b.scheduled_at?.getTime()) assertFuture(nw.start!);
+      w = nw;
+      note("scheduled_at", b.scheduled_at, w.start); note("ends_at", b.ends_at, w.end);
+      await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
+      await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
+      await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
+        values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${e.requested_by}::reschedule_requester, ${e.reason!.trim()}, ${user.id})`;
+      await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,
+        old: { scheduled_at: b.scheduled_at, ends_at: b.ends_at }, new: { scheduled_at: w.start, ends_at: w.end, requested_by: e.requested_by, reason: e.reason!.trim() }, ip });
+    }
+
+    // crew + vehicle (assign rules) — checked against the (new) time
+    let account: { subscriber: number; password: string } | null = null;
+    if (teamChanged) {
+      note("lead", oldLead, lead); note("assistants", oldHelp, help);
+      if (vehicleChanged) note("vehicle_id", b.vehicle_id, vehicle);
+      if (EDITABLE.includes(b.status)) {
+        account = (await assignWithin(t, user, ip, id, { lead, assistants: help, vehicle_id: vehicle, scheduled_at: null, ends_at: null, overrides: e.team!.overrides })).account;
+      } else { // in progress (confirmed): the new crew takes over, the status stays
+        if (lead && help.includes(lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
+        const team = [...(lead ? [lead] : []), ...help];
+        if (!team.length) throw new AppError("TEAM_REQUIRED", 400);
+        if ((await t`select id from users where id = any(${t.array(team)}::uuid[]) and company_id = ${user.companyId} and is_active and role = 'tech'`).length !== team.length) throw new AppError("TECH_NOT_FOUND", 404);
+        for (const o of e.team!.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start!, w.end!, o);
+        await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
+        if (vehicleChanged && vehicle) { await assertVehicle(t, user.companyId, vehicle); await assertVehicleFree(t, user.companyId, vehicle, w.start!, w.end!, id); }
+        await t`delete from booking_technicians where booking_id = ${id}`;
+        if (lead) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${lead}, 'lead')`;
+        for (const x of help) await t`insert into booking_technicians (booking_id, user_id, role) values (${id}, ${x}, 'assistant')`;
+        if (vehicleChanged) await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`;
+        await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reassign", table: "bookings", rowId: id, old: { status: b.status },
+          new: { lead, assistants: help, vehicle_id: vehicle, scheduled_at: w.start, ends_at: w.end }, ip });
+        await enqueueBookingConfirmed(t, id, `reassigned:${Math.floor(Date.now() / 1000)}`);
+      }
+    } else {
+      const team = crew.map((x) => x.user_id);
+      if (timeChanged && team.length && w.start && w.end) {
+        for (const o of e.team?.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start, w.end, o);
+        await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
+      }
+      if (vehicleChanged) {
+        note("vehicle_id", b.vehicle_id, vehicle);
+        if (vehicle) await assertVehicle(t, user.companyId, vehicle);
+        await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`;
+      }
+      if ((vehicleChanged || timeChanged) && vehicle && w.start && w.end) await assertVehicleFree(t, user.companyId, vehicle, w.start, w.end, id);
+      if (timeChanged && team.length) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
+    }
+    if (timeChanged && teamChanged && !EDITABLE.includes(b.status)) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
+
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.update", table: "bookings", rowId: id, old: oldV, new: newV, ip });
+    return { id, changed: Object.keys(newV), rescheduled: timeChanged, account };
+  });
+  if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) });
+  return { id: out.id, changed: out.changed, rescheduled: out.rescheduled };
 }
 
 export async function rescheduleHistory(user: SessionUser, id: string) {

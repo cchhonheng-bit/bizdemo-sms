@@ -14,7 +14,7 @@ import { unlockCustomerLogin } from "../services/customer-auth.js";
 import { customerHistory } from "../services/customers.js";
 
 export const CUSTOMER_COLS = sql`c.id, c.company_id, c.name, c.phones, c.address, c.zone, c.lat, c.lng, c.notes, c.is_active, c.created_at, c.updated_at, c.origin,
-  c.house_no, c.street, c.borey_id, bo.name as borey_name, c.province_code, c.district_code, c.commune_code, c.village_code,
+  c.house_no, c.street, c.borey_id, bo.name as borey_name, c.borey_zone, c.province_code, c.district_code, c.commune_code, c.village_code,
   (c.province_code is not null and c.district_code is not null and c.commune_code is not null) as address_complete`;
 
 export const customersRoutes: FastifyPluginAsync = async (app) => {
@@ -38,24 +38,30 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
     const cid = req.user!.companyId;
     const old = b.id ? (await sql<{ origin: string; borey_id: string | null; address: string | null }[]>`select origin, borey_id, address from customers where id = ${b.id} and company_id = ${cid}`)[0] : null;
     if (b.id && !old) throw notFound();
-    const place = { province_code: b.province_code || null, district_code: b.district_code || null, commune_code: b.commune_code || null, village_code: b.village_code || null };
+    // D-140: «ក្នុងបុរី» = zone inside; a borey (and its zone) only for a customer in a borey; choosing a borey means inside
+    const inBorey = b.zone === "inside" || !!b.borey_id;
+    const borey = inBorey ? await boreyFor(cid, b.borey_id || null, old?.borey_id ?? null) : null;
+    // the borey fills its province / khan / sangkat when none was sent (the screen fills them too, still editable)
+    const own = !!b.province_code || !borey;
+    const place = { province_code: (own ? b.province_code : borey!.province_code) || null, district_code: (own ? b.district_code : borey!.district_code) || null,
+      commune_code: (own ? b.commune_code : borey!.commune_code) || null, village_code: (own ? b.village_code : null) || null };
     const units = checkPlace(place);
-    const borey = await boreyFor(cid, b.borey_id || null, old?.borey_id ?? null);
+    const zone = inBorey ? "inside" : "outside", boreyZone = inBorey ? b.borey_zone?.trim() || null : null;
     // D-137: the staff's own customers need province + khan + sangkat; website / Telegram ones may stay incomplete (a badge)
     if ((!old || old.origin === "staff") && !addressComplete(place)) throw new AppError("ADDRESS_INCOMPLETE", 400);
     const house = b.house_no?.trim() || null, street = b.street?.trim() || null;
-    const address = place.province_code ? composeAddress({ house_no: house, street, borey: borey?.name, units }) : (b.address || old?.address || null);
+    const address = place.province_code ? composeAddress({ house_no: house, street, borey: borey?.name, zone: boreyZone, units }) : (b.address || old?.address || null);
     const id = await tx(req.user!.id, async (t) => {
       if (!b.id) {
         const r = await t<{ id: string }[]>`insert into customers (company_id, name, phones, address, zone, lat, lng, notes, created_by,
-            house_no, street, borey_id, province_code, district_code, commune_code, village_code)
-          values (${cid}, ${b.name}, ${t.array(b.phones)}, ${address}, ${b.zone}::zone, ${b.lat ?? null}, ${b.lng ?? null}, ${b.notes || null}, ${req.user!.id},
-            ${house}, ${street}, ${borey?.id ?? null}, ${place.province_code}, ${place.district_code}, ${place.commune_code}, ${place.village_code}) returning id`;
+            house_no, street, borey_id, borey_zone, province_code, district_code, commune_code, village_code)
+          values (${cid}, ${b.name}, ${t.array(b.phones)}, ${address}, ${zone}::zone, ${b.lat ?? null}, ${b.lng ?? null}, ${b.notes || null}, ${req.user!.id},
+            ${house}, ${street}, ${borey?.id ?? null}, ${boreyZone}, ${place.province_code}, ${place.district_code}, ${place.commune_code}, ${place.village_code}) returning id`;
         await audit(t, { companyId: cid, userId: req.user!.id, action: "customer.create", table: "customers", rowId: r[0]!.id, new: { name: b.name, address }, ip: req.ip });
         return r[0]!.id;
       }
-      const r = await t<{ id: string }[]>`update customers set name = ${b.name}, phones = ${t.array(b.phones)}, address = ${address}, zone = ${b.zone}::zone,
-          lat = ${b.lat ?? null}, lng = ${b.lng ?? null}, notes = ${b.notes || null}, house_no = ${house}, street = ${street}, borey_id = ${borey?.id ?? null},
+      const r = await t<{ id: string }[]>`update customers set name = ${b.name}, phones = ${t.array(b.phones)}, address = ${address}, zone = ${zone}::zone,
+          lat = ${b.lat ?? null}, lng = ${b.lng ?? null}, notes = ${b.notes || null}, house_no = ${house}, street = ${street}, borey_id = ${borey?.id ?? null}, borey_zone = ${boreyZone},
           province_code = ${place.province_code}, district_code = ${place.district_code}, commune_code = ${place.commune_code}, village_code = ${place.village_code}
         where id = ${b.id} and company_id = ${cid} returning id`;
       if (!r[0]) throw notFound();

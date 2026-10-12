@@ -400,7 +400,15 @@
     "phone_add": "Add a number",
     "phone_remove": "Remove this number",
     "boreys": "Borey projects",
-    "area": "Area"
+    "area": "Area",
+    "in_borey": "In a borey",
+    "borey_pick": "— Choose the borey project —",
+    "borey_zone": "Zone in the borey",
+    "address_full": "Full address",
+    "address_full_hint": "Built from the fields above · used on jobs, invoices and the technician's page",
+    "map": "Google Maps location",
+    "map_hint": "Tap «Use current location» or paste a Google Maps link",
+    "address_old": "Old address"
   },
   "catalog": {
     "title": "Products & Services",
@@ -570,7 +578,10 @@
       "END_REQUIRED": "Please set the end time",
       "INVALID_PHONE": "Invalid phone number (9 or 10 digits)",
       "TECH_IN_PROGRESS": "The technician is on another job right now — finish that job first",
-      "FINISH_TIME": "Invalid finish time (not in the future, not before a step already pressed)"
+      "FINISH_TIME": "Invalid finish time (not in the future, not before a step already pressed)",
+      "IN_PROGRESS_CONFIRM": "The job is under way · tick the confirmation before changing the time, crew or vehicle",
+      "FINISHED_NOTE_ONLY": "The job is finished · only the note can change",
+      "CUSTOMER_LOCKED": "The job has started · the customer cannot change"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -648,7 +659,23 @@
     "finish_for_hint": "Did {{names}} finish without pressing «Finish»? Enter the real finish time — they are free for other jobs at once and can still send the report",
     "finish_at": "Actual finish time",
     "finish_note": "Note (optional)",
-    "finished_ok": "Finish recorded — the technician is free"
+    "finished_ok": "Finish recorded — the technician is free",
+    "lines": "Services and quantity",
+    "lines_hint": "Job length {{len}} (sum of the services)",
+    "lines_none_hint": "Choose services from the catalog · add as many as needed",
+    "line_pick": "— Choose a service —",
+    "line_qty": "Quantity",
+    "line_remove": "Remove this service",
+    "line_add": "Add a service",
+    "time_edit_hint": "A new date or time needs who asked and why",
+    "edit_note_only": "The job is finished — only the note can change · prices change on the invoice",
+    "edit_cancelled": "This job is cancelled · it cannot be edited",
+    "edit_running": "The job is under way — a new time, crew or vehicle must be confirmed",
+    "edit_running_confirm": "I know the job is under way and want to change the time, crew or vehicle",
+    "edit_time_changed": "New time — choose who asked and write why",
+    "edit_notify_hint": "Required · the technicians, the Telegram group and the customer get the new time",
+    "requester_shop": "Our company",
+    "crew_and_vehicle": "Technicians and vehicle"
   },
   "tech": {
     "hello": "Hello {{name}}",

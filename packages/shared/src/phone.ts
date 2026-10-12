@@ -54,13 +54,44 @@ export function searchKey(s: string | null | undefined): string {
     .replace(/ំុ/g, "ុំ").replace(/ំា/g, "ាំ")
     .toLowerCase().replace(/\s+/g, " ").trim();
 }
-/** does the query match one of the texts, or (when it has 3 digits or more) one of the phone numbers in any form? */
+/** a phone number's digits as they are searched: the local form «016545485» ("+855 16…", "85516…", "16…" → the same) */
+export function phoneSearchDigits(p: string): string {
+  const d = latinDigits(p).replace(/\D/g, "");
+  return localForm(d) ?? d;
+}
+/** digits typed in a search box → what a phone must contain: «855»-prefixed → «0…» */
+function queryDigits(g: string): string {
+  const d = g.replace(/\D/g, "");
+  return d.startsWith("855") && d.length > 3 ? `0${d.slice(3)}` : d;
+}
+
+/** D-140 smart search — the query is split into number groups (digits with spaces, «-», «.», «(», «)», «+» between them:
+ *  «016 54 54 85», «16-545-485», «+855 16…») and words. Every part must match: a word in a text (name, address — Khmer or
+ *  Latin); a number group of 3 digits or more in a phone (any part: «545485», «485»), otherwise in a text («ផ្ទះ 12»).
+ *  «Dara 485» = the name has «dara» and a phone has «485». */
 export function matchesSearch(query: string, texts: readonly (string | null | undefined)[], phones: readonly string[] = []): boolean {
   const q = searchKey(query);
   if (!q) return true;
-  if (texts.some((t) => searchKey(t).includes(q))) return true;
-  let digits = q.replace(/\D/g, "");
-  if (digits.length < 3 || digits.length < q.replace(/[\s+\-().]/g, "").length) return false; // not a phone query
-  if (digits.startsWith("855") && digits.length > 3) digits = `0${digits.slice(3)}`;
-  return phones.some((p) => khPhoneLocal(p).replace(/\D/g, "").includes(digits));
+  const hay = texts.map((t) => searchKey(t)).filter(Boolean);
+  if (hay.some((t) => t.includes(q))) return true;
+  const all = hay.join(" | "), squeezed = all.replace(/\s+/g, "");
+  const tels = phones.map(phoneSearchDigits);
+  const { words, numbers } = searchParts(q);
+  if (!numbers.length && !words.length) return true;
+  for (const w of words) if (!all.includes(w)) return false;
+  for (const n of numbers) {
+    const tel = n.digits.length >= 3 && tels.some((t) => t.includes(n.digits));
+    if (!tel && !all.includes(n.raw) && !squeezed.includes(n.raw.replace(/\s+/g, ""))) return false;
+  }
+  return true;
+}
+/** the parts of a search: words (Khmer / Latin, as searchKey writes them) and number groups (raw + the digits a phone must
+ *  contain) — the same split for the staff app's lists and the server's searches (the bot) */
+export function searchParts(query: string): { words: string[]; numbers: { raw: string; digits: string }[] } {
+  const q = searchKey(query);
+  const groups = [...q.matchAll(/\+?\(?\d[\d\s\-.()]*\d|\d/g)].map((m) => m[0]);
+  let rest = q;
+  for (const g of groups) rest = rest.replace(g, " ");
+  const words = rest.split(/[\s,;/+]+/).map((w) => w.replace(/^[-.()]+|[-.()]+$/g, "")).filter(Boolean);
+  return { words, numbers: groups.map((g) => ({ raw: g.trim(), digits: queryDigits(g) })) };
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { addressComplete, composeAddress, geoLabel, type GeoUnit } from "./address";
-import { formatKhPhone, khPhoneLocal, latinDigits, matchesSearch, normalizeKhPhone, phoneTyping, searchKey } from "./phone";
+import { formatKhPhone, khPhoneLocal, latinDigits, matchesSearch, normalizeKhPhone, phoneSearchDigits, phoneTyping, searchKey } from "./phone";
 import { customerSchema, phoneSchema } from "./schemas";
 
 describe("phone numbers (D-137)", () => {
@@ -50,6 +50,27 @@ describe("search with a Khmer or Latin keyboard (D-137)", () => {
     expect(matchesSearch("345 678", [], phones)).toBe(true);
     expect(matchesSearch("999", [], phones)).toBe(false);
     expect(matchesSearch("ផ្ទះ 12", [], phones)).toBe(false); // words with a number are not a phone search
+  });
+});
+
+describe("smart phone search (D-140)", () => {
+  const phones = ["+85516545485"];
+  it("every way of typing 016 545 485 finds it — Khmer digits, spaces, dashes, dots, brackets, +855 / 855 / 0 / none, a part of 3+ digits", () => {
+    for (const q of ["016545485", "016 545485", "016 54 54 85", "16-545-485", "545485", "485", "+855 16 545 485", "85516545485", "16545485",
+      "០១៦ ៥៤៥ ៤៨៥", "(016) 545.485", "+855-16-545-485", "855 16 545485"]) expect(matchesSearch(q, ["Sok Dara"], phones), q).toBe(true);
+    for (const q of ["016545486", "48", "777"]) expect(matchesSearch(q, ["Sok Dara"], phones), q).toBe(false);
+  });
+  it("mixed «Dara 485»: the words match the name / address (Khmer or Latin), the digits a phone", () => {
+    expect(matchesSearch("Dara 485", ["Sok Dara"], phones)).toBe(true);
+    expect(matchesSearch("ដារ៉ា 485", ["សុខ ដារ៉ា"], phones)).toBe(true);
+    expect(matchesSearch("Dara 999", ["Sok Dara"], phones)).toBe(false);
+    expect(matchesSearch("Vanna 485", ["Sok Dara"], phones)).toBe(false);
+    expect(matchesSearch("ផ្ទះ 12 ច្បារអំពៅ", ["ផ្ទះលេខ 12, ខណ្ឌច្បារអំពៅ"], [])).toBe(true); // short numbers match the address
+    expect(matchesSearch("ផ្លូវ 371", ["ផ្លូវលេខ 371"], phones)).toBe(true); // a 3-digit number not in a phone may be in the address
+  });
+  it("the digits a stored phone is searched by", () => {
+    expect(phoneSearchDigits("+85516545485")).toBe("016545485");
+    expect(phoneSearchDigits("016 545 485")).toBe("016545485");
   });
 });
 
