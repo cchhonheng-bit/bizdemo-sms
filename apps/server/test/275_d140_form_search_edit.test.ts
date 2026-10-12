@@ -155,7 +155,7 @@ describe("D-140 C one «កែ» screen", () => {
     // a time move with the same crew tells the technician
     const moved = await edit(admin, job, { ...span(later(130)), requested_by: "creator", reason: "ក្រុមហ៊ុនប្ដូរ" });
     expect(moved.status).toBe(200);
-    expect((await sql`select 1 from notifications where user_id = ${s.users.dara} and kind = 'booking.rescheduled' and link = ${"/tech/job/" + job}`).length).toBeGreaterThan(0);
+    expect((await sql`select 1 from notifications where user_id = ${s.users.dara!} and kind = 'booking.rescheduled' and link = ${"/tech/job/" + job}`).length).toBeGreaterThan(0);
     // the «ប្ដូរម៉ោង» shortcut stays and tells the customer as well
     hubCalls.length = 0;
     expect((await admin.req("POST", `/api/bookings/${job}/reschedule`, { ...span(later(140)), requested_by: "customer", reason: "ម្ដងទៀត" })).status).toBe(200);
@@ -214,6 +214,6 @@ describe("D-140 C one «កែ» screen", () => {
     expect((await edit(admin, job, { ...body, team: { lead: s.users.kim, assistants: [] } })).json.error).toBe("TECH_UNAVAILABLE");
     const r = await edit(admin, job, { ...body, team: { lead: s.users.kim, assistants: [], overrides: [{ user_id: s.users.kim, reason: "បានបញ្ចប់មុន" }] } });
     expect(r.status).toBe(200);
-    expect((await sql`select released_at from booking_technicians where booking_id = ${early} and user_id = ${s.users.kim}`)[0]!.released_at).not.toBeNull();
+    expect((await sql`select released_at from booking_technicians where booking_id = ${early} and user_id = ${s.users.kim!}`)[0]!.released_at).not.toBeNull();
   });
 });
