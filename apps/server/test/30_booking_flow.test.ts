@@ -18,7 +18,7 @@ const ddmmyyyy = (iso: string) => { const d = new Date(new Date(iso).getTime() +
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); dara = await loginAs(app, "dara");
-  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], address: "ផ្ទះ 12 ផ្លូវ 3", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
+  cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "លោក សុខា", phones: ["012345678"], house_no: "12", street: "3", zone: "inside", lat: 11.55, lng: 104.93 })).json.id;
   vehicle = (await ceo.req("GET", "/api/settings/vehicles")).json[0].id;
   await ceo.req("PATCH", "/api/settings/company", { telegram_group_chat_id: "-100123" });
   // kim linked to Telegram (chat 900002)
@@ -35,7 +35,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     expect(r.status).toBe(200); expect(r.json.number).toBe("BK-0001"); expect(r.json.status).toBe("new");
     bk1 = r.json.id;
     const b = (await ceo.req("GET", `/api/bookings/${bk1}`)).json;
-    expect(b.address).toBe("ផ្ទះ 12 ផ្លូវ 3"); expect(b.lat).toBe(11.55); expect(b.customer_name).toBe("លោក សុខា"); expect(b.customer_phones).toEqual(["012345678"]); expect(b.vehicle_code).toBe("01");
+    expect(b.address).toBe("ផ្ទះលេខ 12, ផ្លូវលេខ 3, សង្កាត់ច្បារអំពៅទី ១, ខណ្ឌច្បារអំពៅ, រាជធានីភ្នំពេញ"); expect(b.lat).toBe(11.55); expect(b.customer_name).toBe("លោក សុខា"); expect(b.customer_phones).toEqual(["+85512345678"]); expect(b.vehicle_code).toBe("01");
     expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "", zone: "inside" })).json.error).toBe("REQUIRED");
     expect((await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", ...span(at(4, 9)), vehicle_id: "00000000-0000-0000-0000-000000000099" })).json.error).toBe("VEHICLE_NOT_FOUND");
     const r2 = await admin.req("POST", "/api/bookings", { customer_id: cust, type: "B", category: "construction", service_text: "សាងសង់របង 20m", zone: "outside", ...span(at(3, 9)) });
@@ -65,7 +65,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
     expect(out.map((o) => o.chat_id).sort()).toEqual(["-100123", "900002"]);
     expect(out[0]!.text.startsWith(`✅ បញ្ជាក់ការងារ (BK-0001)
 📅 ${ddmmyyyy(T9)} · 09:00–11:00
-👤 អតិថិជន: លោក សុខា · 📞 012345678`)).toBe(true);
+👤 អតិថិជន: លោក សុខា · 📞 012 345 678`)).toBe(true);
     expect(out[0]!.text).toContain("1. Kim (មេជាង)  2. Dara"); expect(out[0]!.text).toContain("🚐 01");
     expect(out[0]!.reply_markup.inline_keyboard[0][0].url).toContain("destination=11.55,104.93");
     expect((await kim.req("GET", "/api/notifications")).json[0].kind).toBe("booking.assigned");
@@ -89,7 +89,7 @@ describe("booking flow M2 (create → assign → Telegram → technician)", () =
 
   it("technician visibility: kim/dara see BK-0001 only (+ its customer via booking), status log limited, cannot edit", async () => {
     expect((await kim.req("GET", "/api/bookings")).json.map((b: any) => b.number)).toEqual(["BK-0001"]);
-    expect((await dara.req("GET", `/api/bookings/${bk1}`)).json.customer_phones).toEqual(["012345678"]);
+    expect((await dara.req("GET", `/api/bookings/${bk1}`)).json.customer_phones).toEqual(["+85512345678"]);
     expect((await kim.req("GET", `/api/bookings/${bk2}`)).status).toBe(404);
     expect((await kim.req("GET", `/api/bookings/${bk2}/log`)).status).toBe(404);
     expect((await kim.req("PATCH", `/api/bookings/${bk1}`, { notes: "x" })).status).toBe(403);

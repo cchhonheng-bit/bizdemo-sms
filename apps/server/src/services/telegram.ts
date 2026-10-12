@@ -5,6 +5,7 @@ import { deepLink, formatKhPhone, GROUP_CODE_LEN, STAFF_CODE_LEN, TEST_MARK } fr
 import { config } from "../config.js";
 import { sql, type Db } from "../db.js";
 import { randomCode } from "../lib/secure.js";
+import { jobAddress, type CustomerAddress } from "../lib/gazetteer.js";
 import { appUrl } from "../lib/app-url.js";
 import { asLang, LEAD, pick, tx, ZONE, type Lang, type Tx } from "../lib/i18n.js";
 import { audit } from "./audit.js";
@@ -71,12 +72,12 @@ function withApp(markup: unknown, bookingId: string, forTech: boolean, lang: Lan
 
 // ---------- Booking Confirmed text -----------------------------------------------------
 export async function bookingConfirmedText(db: Db, bookingId: string, lang: Lang = "km"): Promise<{ text: string; markup: unknown | null; companyId: string; number: string }> {
-  const b = (await db<{
+  const b = (await db<({
     number: string; service_text: string; scheduled_at: Date | null; ends_at: Date | null; address: string | null; zone: string; notes: string | null; lat: number | null; lng: number | null;
     cname: string; phones: string[]; vcode: string | null; timezone: string; company_id: string;
-  }[]>`select bk.number, bk.service_text, bk.scheduled_at, bk.ends_at, bk.address, bk.zone, bk.notes, bk.lat, bk.lng, bk.company_id,
-              c.name as cname, c.phones, v.code as vcode, co.timezone
-       from bookings bk join customers c on c.id = bk.customer_id left join vehicles v on v.id = bk.vehicle_id join companies co on co.id = bk.company_id
+  } & CustomerAddress)[]>`select bk.number, bk.service_text, bk.scheduled_at, bk.ends_at, bk.address, bk.zone, bk.notes, bk.lat, bk.lng, bk.company_id,
+              c.name as cname, c.phones, v.code as vcode, co.timezone, c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.province_code, c.district_code, c.commune_code, c.village_code
+       from bookings bk join customers c on c.id = bk.customer_id left join boreys bo on bo.id = c.borey_id left join vehicles v on v.id = bk.vehicle_id join companies co on co.id = bk.company_id
        where bk.id = ${bookingId}`)[0]!;
   const techs = await db<{ full_name: string; role: string }[]>`select u.full_name, t.role from booking_technicians t join users u on u.id = t.user_id
        where t.booking_id = ${bookingId} order by t.role, u.full_name`;
@@ -88,7 +89,7 @@ export async function bookingConfirmedText(db: Db, bookingId: string, lang: Lang
     L(`✅ បញ្ជាក់ការងារ (${b.number})`, `✅ Booking confirmed (${b.number})`),
     `📅 ${dt}`,
     `👤 ${L("អតិថិជន", "Customer")}: ${b.cname}${b.phones?.[0] ? ` · 📞 ${formatKhPhone(b.phones[0])}` : ""}`,
-    `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`,
+    `📍 ${jobAddress(b.address, b, lang) ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`,
     `🔧 ${L("សេវាកម្ម", "Service")}: ${b.service_text}`,
     `👷 ${L("ជាង", "Technicians")}: ${techLine}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`,
     `📝 ${L("ចំណាំ", "Notes")}: ${b.notes ?? "—"}`,

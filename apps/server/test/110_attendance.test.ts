@@ -17,7 +17,7 @@ const local = (date: string, hhmm: string) => new Date(`${date}T${hhmm}:00+07:00
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   const hash = await hashPassword(PW);
-  for (const [u, role, phone, tracks] of [["cfo", "cfo", "012000008", false], ["sok", "tech", "012000010", true], ["noatt", "tech", "012000011", false]] as const)
+  for (const [u, role, phone, tracks] of [["cfo", "cfo", "+85512000008", false], ["sok", "tech", "+85512000010", true], ["noatt", "tech", "+85512000011", false]] as const)
     s.users[u] = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
       values (${s.a}, ${u}, ${u.toUpperCase()}, ${role}::user_role, ${phone}, ${hash}, false, ${tracks}) returning id`)[0]!.id;
   ceo = await loginAs(app, "ceo"); gm = await loginAs(app, "gm01"); admin = await loginAs(app, "admin"); kim = await loginAs(app, "kim"); dara = await loginAs(app, "dara");

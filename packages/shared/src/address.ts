@@ -25,14 +25,16 @@ export function geoLabel(u: GeoUnit, lang: "km" | "en"): string {
 }
 
 export type AddressParts = { house_no?: string | null; street?: string | null; borey?: string | null; units: GeoUnit[] };
-/** one line for lists, job messages and prints (Khmer, the way an address is written): house, street, borey, village → province */
-export function composeAddress(p: AddressParts): string {
+/** one line for lists, job messages and prints: house, street, borey, village → province — stored in Khmer (the way an address
+ *  is written here); the English line is for English-mode staff messages (D-89: one language per text; a borey name stays as typed) */
+export function composeAddress(p: AddressParts, lang: "km" | "en" = "km"): string {
   const house = p.house_no?.trim(), street = p.street?.trim(), borey = p.borey?.trim();
+  const en = lang === "en";
   return [
-    house ? (house.startsWith("ផ្ទះ") ? house : `ផ្ទះលេខ ${house}`) : null,
-    street ? (street.startsWith("ផ្លូវ") ? street : `ផ្លូវលេខ ${street}`) : null,
+    house ? (en ? `No. ${house}` : house.startsWith("ផ្ទះ") ? house : `ផ្ទះលេខ ${house}`) : null,
+    street ? (en ? `St. ${street}` : street.startsWith("ផ្លូវ") ? street : `ផ្លូវលេខ ${street}`) : null,
     borey || null,
-    ...[...p.units].sort((a, b) => b.code.length - a.code.length).map((u) => geoLabel(u, "km")),
+    ...[...p.units].sort((a, b) => b.code.length - a.code.length).map((u) => geoLabel(u, lang)),
   ].filter(Boolean).join(", ");
 }
 /** the address is complete enough for the staff: province, khan / district and sangkat / commune are set */

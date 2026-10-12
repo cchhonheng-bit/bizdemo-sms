@@ -36,7 +36,7 @@ const notes = async (user: string, kind: string) => (await sql<{ n: number }[]>`
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   const hash = await hashPassword(PW);
-  for (const [u, role, phone] of [["cfo", "cfo", "012000008"], ["gm02", "gm", "012000009"]] as const)
+  for (const [u, role, phone] of [["cfo", "cfo", "+85512000008"], ["gm02", "gm", "+85512000009"]] as const)
     s.users[u] = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, telegram_chat_id)
       values (${s.a}, ${u}, ${u.toUpperCase()}, ${role}::user_role, ${phone}, ${hash}, false, ${u === "cfo" ? 940001 : null}) returning id`)[0]!.id;
   await sql`update users set telegram_chat_id = 940002 where id = ${s.users.ceo!}`;

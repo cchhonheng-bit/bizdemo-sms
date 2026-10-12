@@ -134,7 +134,7 @@ describe("lead technician, managers, CEO, CFO", () => {
     const ask = await say(CHAT.admin, "🔍 រកអតិថិជន");
     expect(ask.text).toMatch(/ឈ្មោះ|លេខ/);
     const found = await say(CHAT.admin, "0127778");
-    expect(found.text).toContain("អតិថិជន Bot"); expect(found.text).toContain("012777888");
+    expect(found.text).toContain("អតិថិជន Bot"); expect(found.text).toContain("012 777 888");
     expect((await say(CHAT.gm, "✅ រង់ចាំអនុម័ត")).text).toMatch(/\d/);
     expect((await say(CHAT.gm, "📍 ជាងនៅណា")).text).toContain("Kim");
     const sum = await say(CHAT.gm, "📊 សង្ខេបថ្ងៃនេះ");

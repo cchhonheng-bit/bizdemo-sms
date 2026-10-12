@@ -14,7 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, customerText, NIGHT_CONFIRM, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
+import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, customerText, NIGHT_CONFIRM, normalizeKhPhone, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
 import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
@@ -380,7 +380,7 @@ describe("online booking: one tap = save + hold + consent + the bot link", () =>
     const b = await bookingOf(j.ref);
     ref1 = j.ref; bk1 = b.id; n1 = j.number;
     expect(b).toMatchObject({ status: "new", origin: "website", web_status: "pending", service_item_id: ID["AC-CLEAN"], service_text: "លាងម៉ាស៊ីនត្រជាក់ ×2 · ជួសជុលភ្លើង",
-      lat: 11.5564, lng: 104.9282, loc_accuracy: 12, cname: "សុខ ដារ៉ា", phones: ["012345678"], corigin: "website", csub: null, consent_version: SITE_CONSENT_VERSION, consent_source: "web" });
+      lat: 11.5564, lng: 104.9282, loc_accuracy: 12, cname: "សុខ ដារ៉ា", phones: ["+85512345678"], corigin: "website", csub: null, consent_version: SITE_CONSENT_VERSION, consent_source: "web" });
     expect(b.web_lines.map((l: any) => [l.code, l.qty, l.minutes])).toEqual([["AC-CLEAN", 2, 120], ["EL-REPAIR", 1, 120]]);
     expect(new Date(b.ends_at).getTime() - new Date(b.scheduled_at).getTime()).toBe(240 * 60_000);
     const rq = await requestOf(b.id);
@@ -463,7 +463,7 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
   it("a signed-in customer: name and phone filled in, the booking linked at once, the bot says it arrived (no new password)", async () => {
     const A = await signIn("12 345 678", pwA);
     const html = (await page(`/book?items=${ac()}`, { cookie: A.cookie! })).body;
-    expect(html).toContain('value="សុខ ដារ៉ា"'); expect(html).toContain('value="012345678"');
+    expect(html).toContain('value="សុខ ដារ៉ា"'); expect(html).toContain('value="012 345 678"');
     hubCalls.length = 0;
     const r = await A.req("POST", "/api/public/bookings", { items: ac(), at: (await slotOf(5, "10:00")).at, address: "ផ្ទះ 12", name: "សុខ ដារ៉ា", phone: "012345678", consent: true, ts: oldToken() });
     expect(r.json).toMatchObject({ linked: true, link: null });
@@ -584,13 +584,13 @@ describe("quote request: the same tiles + items, photos (metadata stripped), the
 describe("customer login: phone + password from the bot; a new password only from the bot (CEO)", () => {
   const PHONE_B = "012666555";
   let pwB = "";
-  const guard = async (phone: string) => (await sql<{ failed: number; locked_until: Date | null; permanent: boolean }[]>`select failed, locked_until, permanent from customer_login_guards where phone = ${phone}`)[0] ?? null;
+  const guard = async (phone: string) => (await sql<{ failed: number; locked_until: Date | null; permanent: boolean }[]>`select failed, locked_until, permanent from customer_login_guards where phone = ${normalizeKhPhone(phone)}`)[0] ?? null;
   const wrong = async (phone: string, n: number) => {
     const out: unknown[][] = [];
     for (let i = 0; i < n; i++) { resetRateLimits(); const r = await tryLogin(phone, "9z9z"); out.push([r.statusCode, r.json().error, r.json().details?.minutes]); }
     return out;
   };
-  const lockOver = (phone: string) => sql`update customer_login_guards set locked_until = now() - interval '1 second' where phone = ${phone}`;
+  const lockOver = (phone: string) => sql`update customer_login_guards set locked_until = now() - interval '1 second' where phone = ${normalizeKhPhone(phone)}`;
   const newPwInBot = async () => {
     const m = (await internal("tg-text", { chat_id: 930002, tg_user: 930002, text: CUSTOMER_MENU.password, subscriber_id: SUB.b })).json();
     expect(m.text).toMatch(/^🔑 ពាក្យសម្ងាត់ថ្មី៖ \d{4}$/); expect(m.after).toBe(customerText.hint);
@@ -811,7 +811,7 @@ describe("the customer bot: the keyboard grid — each button; share my phone; a
   it("share my phone (Telegram vouches for it): a new number makes the customer, a known number links its record; both get the first password; a foreign number is refused", async () => {
     const x = (await internal("tg-contact", { subscriber_id: 91, tg_user: 9101, phone: "+855 97 555 1111", first_name: "Vanna" })).json();
     expect(x.ok).toBe(true); expect(x.text).toMatch(/^✅ ភ្ជាប់រួចរាល់\n🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/); expect(x.hint).toBe(customerText.hint);
-    expect((await sql`select name, phones, origin, consent_source, tg_subscriber_id::text as sub from customers where tg_subscriber_id = 91`)[0]).toMatchObject({ name: "Vanna", phones: ["0975551111"], origin: "telegram", consent_source: "bot", sub: "91" });
+    expect((await sql`select name, phones, origin, consent_source, tg_subscriber_id::text as sub from customers where tg_subscriber_id = 91`)[0]).toMatchObject({ name: "Vanna", phones: ["+855975551111"], origin: "telegram", consent_source: "bot", sub: "91" });
     const t = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ហាង", phones: ["012454545"], zone: "inside" })).json.id;
     const y = (await internal("tg-contact", { subscriber_id: 92, tg_user: 9201, phone: "85512454545", first_name: "X" })).json();
     expect(pwIn(y.text)).toMatch(/^\d{4}$/);
@@ -976,7 +976,7 @@ describe("D-119 night rule: made 20:00–08:00 → «we confirm at 8 am» and a 
 });
 
 describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, holds nobody, stays out of reports and lists, ends after 24 h", () => {
-  const TEST_PHONE = "017888999", CEO_CHAT = 920001;
+  const TEST_PHONE = "017888999", TEST_E164 = "+85517888999", CEO_CHAT = 920001; // D-137: stored +855…
   const testRefs: string[] = [];
   let realT = "", tb: Record<string, any> = {}, quoteId = "";
   beforeAll(async () => { await sql`update users set telegram_chat_id = ${CEO_CHAT}, telegram_user_id = ${CEO_CHAT} where id = ${s.users.ceo!}`; });
@@ -990,9 +990,9 @@ describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, h
     expect((await ceo.req("GET", "/api/settings/test-phones")).json).toEqual({ phones: [], max: 10 });
     expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: ["12 34"] })).json.error).toBe("INVALID_PHONE");
     expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: Array.from({ length: 11 }, (_, i) => `0119000${String(i).padStart(2, "0")}`) })).json.error).toBe("TOO_MANY_PHONES");
-    expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: ["+855 17 888 999", "017888999", " "] })).json).toEqual({ ok: true, phones: [TEST_PHONE] });
-    expect((await ceo.req("GET", "/api/settings/test-phones")).json.phones).toEqual([TEST_PHONE]);
-    expect((await sql`select new_data from audit_log where action = 'settings.test_phones' order by at desc limit 1`)[0]!.new_data).toEqual({ phones: [TEST_PHONE] });
+    expect((await ceo.req("PUT", "/api/settings/test-phones", { phones: ["+855 17 888 999", "017888999", " "] })).json).toEqual({ ok: true, phones: [TEST_E164] });
+    expect((await ceo.req("GET", "/api/settings/test-phones")).json.phones).toEqual([TEST_E164]);
+    expect((await sql`select new_data from audit_log where action = 'settings.test_phones' order by at desc limit 1`)[0]!.new_data).toEqual({ phones: [TEST_E164] });
     expect("test_phones" in (await admin.req("GET", "/api/settings/company")).json).toBe(false);
     realT = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ម្ចាស់លេខពិត", phones: [TEST_PHONE], zone: "inside" })).json.id; // a real customer with the same number
   });
@@ -1106,7 +1106,7 @@ describe("D-121 customer pages: the bot opens exact addresses; skeleton first; i
     const tg = client(app);
     hubCalls.length = 0;
     const a = await tg.req("POST", "/api/customer/tg-auth", { init_data: "mini-a" });
-    expect(a.status).toBe(200); expect(a.json).toMatchObject({ ok: true, name: "សុខ ដារ៉ា", phone: "012345678" }); expect(tg.cookie).toBeTruthy();
+    expect(a.status).toBe(200); expect(a.json).toMatchObject({ ok: true, name: "សុខ ដារ៉ា", phone: "012 345 678" }); expect(tg.cookie).toBeTruthy();
     expect(hubCalls.filter((c) => c.path === "/internal/tg-verify").map((c) => c.body)).toEqual([{ init_data: "mini-a", max_age: 86400 }]);
     const t = (await page("/my/bookings", { cookie: tg.cookie! })).body;
     expect(t).toContain('data-page="my"'); expect(t).toContain('data-view="bookings"'); expect(t).toContain("តាមដានការកក់"); expect(t).toContain(`#${n1}`);

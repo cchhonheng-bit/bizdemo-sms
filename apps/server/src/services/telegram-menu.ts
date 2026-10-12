@@ -9,6 +9,7 @@ import { sql } from "../db.js";
 import { APP_BASE } from "../lib/app-url.js";
 import { AppError } from "../lib/errors.js";
 import { featureOn } from "../lib/features.js";
+import { jobAddress, type CustomerAddress } from "../lib/gazetteer.js";
 import { asLang, LEAD, pick, tx, ZONE, type Lang } from "../lib/i18n.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
@@ -208,16 +209,18 @@ async function canReview(u: Staff, perms?: string[]): Promise<boolean> {
 async function staffJob(u: Staff, id: string, back: string): Promise<Menu> {
   const own = u.role === "tech" ? sql`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = ${u.id})` : sql``;
   const L = T(u), lang = asLang(u.language);
-  const b = (await sql<{ id: string; number: string; scheduled_at: Date; ends_at: Date | null; service_text: string; address: string | null; zone: string; notes: string | null;
-    lat: number | null; lng: number | null; cname: string; phones: string[]; status: string; vcode: string | null }[]>`
-    select b.id, b.number, b.scheduled_at, b.ends_at, b.service_text, b.address, b.zone, b.notes, b.lat, b.lng, b.status, c.name as cname, c.phones, v.code as vcode
-    from bookings b join customers c on c.id = b.customer_id left join vehicles v on v.id = b.vehicle_id where b.id = ${id} and b.company_id = ${u.company_id} ${own}`)[0];
+  const b = (await sql<({ id: string; number: string; scheduled_at: Date; ends_at: Date | null; service_text: string; address: string | null; zone: string; notes: string | null;
+    lat: number | null; lng: number | null; cname: string; phones: string[]; status: string; vcode: string | null } & CustomerAddress)[]>`
+    select b.id, b.number, b.scheduled_at, b.ends_at, b.service_text, b.address, b.zone, b.notes, b.lat, b.lng, b.status, c.name as cname, c.phones, v.code as vcode,
+      c.address as caddress, c.house_no, c.street, bo.name as borey_name, c.province_code, c.district_code, c.commune_code, c.village_code
+    from bookings b join customers c on c.id = b.customer_id left join boreys bo on bo.id = c.borey_id left join vehicles v on v.id = b.vehicle_id
+    where b.id = ${id} and b.company_id = ${u.company_id} ${own}`)[0];
   const backBtn: MenuButton = { text: L("⬅️ ត្រឡប់", "⬅️ Back"), view: /^[a-z_]{2,20}$/.test(back) ? back : "next" };
   if (!b) return { text: L("❌ រកមិនឃើញការងារនេះ ឬអ្នកមិនមានសិទ្ធិមើល។", "❌ Job not found, or you may not see it."), buttons: [[backBtn]] };
   const crew = await sql<{ full_name: string; role: string; user_id: string }[]>`select u.full_name, t.role, t.user_id from booking_technicians t join users u on u.id = t.user_id where t.booking_id = ${b.id} order by t.role, u.full_name`;
   const tz = u.timezone;
   const text = [`🔧 ${b.number}`, `📅 ${dmy(b.scheduled_at, tz)} · ${hhmm(b.scheduled_at, tz)}${b.ends_at ? `–${hhmm(b.ends_at, tz)}` : ""}`,
-    `👤 ${b.cname}${b.phones?.[0] ? ` · 📞 ${formatKhPhone(b.phones[0])}` : ""}`, `📍 ${b.address ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`, `🛠 ${b.service_text}`,
+    `👤 ${b.cname}${b.phones?.[0] ? ` · 📞 ${formatKhPhone(b.phones[0])}` : ""}`, `📍 ${jobAddress(b.address, b, lang) ?? "—"} (${pick(ZONE[b.zone] ?? ZONE.outside!, lang)})`, `🛠 ${b.service_text}`,
     `👷 ${crew.map((c) => c.full_name + (c.role === "lead" ? ` (${pick(LEAD, lang)})` : "")).join(", ") || "—"}${b.vcode ? ` · 🚐 ${b.vcode}` : ""}`, b.notes ? `📝 ${b.notes}` : ""].filter(Boolean).join("\n");
   const rows: MenuButton[][] = [];
   const perms = await permissionsFor(sql, u.company_id, u.role);

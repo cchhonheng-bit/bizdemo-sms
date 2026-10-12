@@ -200,7 +200,7 @@ describe("A2 service reminders (flag reminders)", () => {
     const r = (await admin.req("GET", "/api/reminders?days=14")).json as any[];
     const mine = r.filter((x) => x.customer_id === cust);
     expect(mine.map((x) => x.unit_label).sort()).toEqual(["បន្ទប់គេង", "បន្ទប់ទទួលភ្ញៀវ"].sort());
-    expect(mine.every((x) => x.status === "overdue" && x.days_overdue >= 4 && x.phones[0] === "012707070")).toBe(true);
+    expect(mine.every((x) => x.status === "overdue" && x.days_overdue >= 4 && x.phones[0] === "+85512707070")).toBe(true);
     const c2 = r.find((x) => x.customer_id === cust2);
     expect(c2).toMatchObject({ unit_id: null, status: "due", service_name: "លាងម៉ាស៊ីនត្រជាក់" });
     expect((await kim.req("GET", "/api/reminders")).status).toBe(403);
