@@ -72,7 +72,7 @@ export default function CatalogPage() {
       {meta.data?.last && <p className="text-xs text-muted mb-3" data-testid="cat-last">{t("catalog.last_change", { name: meta.data.last.name, at: when(meta.data.last.at) })}</p>}
       <Card>
         <div className="flex flex-wrap gap-3 mb-3">
-          <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
+          <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
           <Select value={cat} onChange={(e) => setCat(e.target.value)} className="w-full sm:max-w-[200px]">
             <option value="">{t("catalog.all_categories")}</option>
             {SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}

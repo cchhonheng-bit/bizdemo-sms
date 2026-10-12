@@ -11,7 +11,8 @@ import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, I
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
 import CustomerHistoryDialog from "./CustomerHistoryDialog";
-import { AddressFields, EMPTY_ADDRESS, type AddressValue } from "./AddressFields";
+import { AddressFields } from "./AddressFields";
+import { EMPTY_ADDRESS, type AddressValue } from "./geo";
 
 /** D-137: a website / Telegram customer may come without province, khan or sangkat — the staff complete it */
 export function AddressBadge({ c }: { c: Pick<Customer, "address_complete"> }) {
@@ -50,7 +51,7 @@ export default function CustomersPage() {
       </div>
       <Card>
         <div className="flex flex-wrap gap-3 items-center mb-3">
-          <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" name="customer_filter" />
+          <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" name="customer_filter" />
           <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} /> {t("customers.show_inactive")}</label>
         </div>
         {customers.isLoading ? <Skeleton /> : customers.isError ? <ErrorState text={t("app.error")} onRetry={() => void customers.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (

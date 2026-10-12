@@ -55,7 +55,7 @@ export default function UsersPage() {
         <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("users.new")}</Button>
       </div>
       <Card>
-        <Input placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 w-full sm:max-w-xs" />
+        <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 w-full sm:max-w-xs" />
         {users.isLoading ? <Skeleton /> : users.isError ? <ErrorState text={t("app.error")} onRetry={() => void users.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
           <div className="overflow-x-auto -mx-4 px-4">
             <table className="table table-stack">

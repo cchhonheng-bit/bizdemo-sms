@@ -9,7 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { api, errCode, type Borey } from "@/lib/api";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
-import { useGeo } from "./AddressFields";
+import { useGeo } from "./geo";
 
 export default function BoreysPage() {
   const { t, i18n } = useTranslation();

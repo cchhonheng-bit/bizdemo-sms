@@ -53,7 +53,7 @@ export default function BookingsPage() {
         {can("booking.create") && <Button variant="primary" onClick={() => nav("/bookings/new")}><Plus size={16} /> {t("booking.new")}</Button>}
       </div>
       <div className="flex flex-wrap items-center gap-3 mb-3">
-        <Input type="search" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
+        <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} /> {t("booking.hide_closed")}</label>
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} data-testid="show-cancelled" /> {t("booking.show_cancelled")}</label>
         <Button type="button" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters} data-testid="filters-toggle"><Filter size={16} /> {t("booking.filters")}{active ? ` (${active})` : ""}</Button>

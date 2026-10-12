@@ -146,7 +146,7 @@ export default function BookingFormPage() {
               <div className="flex flex-col sm:flex-row gap-2">
                 <div className="relative flex-1">
                   <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
-                  <Input className="pl-10" type="search" inputMode="search" placeholder={t("booking.customer_search")} name="customer_search" value={custQ} onChange={(e) => setCustQ(e.target.value)} autoFocus={!editing} />
+                  <Input className="pl-10" type="search" inputMode="search" placeholder={t("booking.customer_search")} name="customer_search" autoComplete="off" value={custQ} onChange={(e) => setCustQ(e.target.value)} autoFocus={!editing} />
                 </div>
                 <Button type="button" onClick={() => setNewCust(true)}><Plus size={16} /> {t("customers.new")}</Button>
               </div>

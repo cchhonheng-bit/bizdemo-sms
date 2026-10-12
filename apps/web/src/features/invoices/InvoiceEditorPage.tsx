@@ -73,7 +73,7 @@ export default function InvoiceEditorPage() {
           ) : (
             <div className="relative">
               <Search size={18} className="absolute left-3 top-[22px] -translate-y-1/2 text-muted" />
-              <Input className="pl-10" type="search" inputMode="search" placeholder={t("booking.customer_search")} name="customer_search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
+              <Input className="pl-10" type="search" inputMode="search" placeholder={t("booking.customer_search")} name="customer_search" autoComplete="off" value={q} onChange={(e) => setQ(e.target.value)} autoFocus />
               {matches.length > 0 && (
                 <ul className="mt-1 card divide-y divide-grey-line max-h-72 overflow-auto overscroll-contain" role="listbox">
                   {matches.map((c) => <li key={c.id}><button type="button" className="w-full text-left px-3 py-3 min-h-[44px] hover:bg-grey-bg" onClick={() => { setCust(c); setQ(""); }}>

@@ -6,15 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { geoLabel } from "@sms/shared";
 import { api, type GeoUnitRow } from "@/lib/api";
+import { useGeo, type AddressValue } from "./geo";
 import { Field, Input, Select } from "@/components/ui";
-
-export type AddressValue = { house_no: string; street: string; borey_id: string; province_code: string; district_code: string; commune_code: string; village_code: string };
-export const EMPTY_ADDRESS: AddressValue = { house_no: "", street: "", borey_id: "", province_code: "", district_code: "", commune_code: "", village_code: "" };
-
-/** the units under a code ("" = provinces), cached for the session — the gazetteer does not change */
-export function useGeo(parent: string, enabled = true) {
-  return useQuery({ queryKey: ["geo", parent], queryFn: () => api.geo(parent), enabled, staleTime: Infinity, gcTime: Infinity });
-}
 
 export function AddressFields({ value, onChange, required, showErrors, boreysLink = true }: {
   value: AddressValue; onChange: (v: AddressValue) => void; required: boolean; showErrors: boolean; boreysLink?: boolean;
