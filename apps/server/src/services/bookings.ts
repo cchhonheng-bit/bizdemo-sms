@@ -542,7 +542,7 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
       await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
       await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
-        values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${e.requested_by}::reschedule_requester, ${e.reason!.trim()}, ${user.id})`;
+        values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${e.requested_by!}::reschedule_requester, ${e.reason!.trim()}, ${user.id})`;
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,
         old: { scheduled_at: b.scheduled_at, ends_at: b.ends_at }, new: { scheduled_at: w.start, ends_at: w.end, requested_by: e.requested_by, reason: e.reason!.trim() }, ip });
     }

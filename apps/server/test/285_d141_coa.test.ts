@@ -27,7 +27,7 @@ beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   config.shop.features = "accounting,inventory";
   ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin");
-  await sql`update users set role = 'cfo' where id = ${s.users.gm01}`; // a CFO for the accounting screens (the GM user stands in)
+  await sql`update users set role = 'cfo' where id = ${s.users.gm01!}`; // a CFO for the accounting screens (the GM user stands in)
   cfo = await loginAs(app, "gm01");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី", phones: ["012 111 222"], zone: "inside" })).json.id;

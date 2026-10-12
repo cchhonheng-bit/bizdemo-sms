@@ -15,7 +15,7 @@ export type GeoUnitRow = { code: string; km: string; en: string; type: GeoType }
 export type Borey = { id: string; name: string; province_code: string; district_code: string; commune_code: string | null; is_active: boolean; customers: number; area_km: string; area_en: string };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
-  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null;
+  sell_price: number | null; cost_price: number | null; duration_min: number; is_active: boolean; reminder_months?: number | null; income_account_id?: string | null; inventory_account_id?: string | null;
   /** D-106 website catalog: «from» price (cents; null = told on contact, still bookable), code (the Excel key), website category,
    *  shown on the website, quote only, sample (seeded for a new shop until its own Excel or an edit replaces it) */
   from_price: number | null; code?: string | null; web_category?: WebCategory | null; show_on_website?: boolean; quote_only?: boolean; is_sample?: boolean;
@@ -75,9 +75,14 @@ export type Checkpoint = { step: "depart" | "arrive" | "start" | "finish" | "ret
 export type JobInfo = {
   checkpoints: Checkpoint[]; durations: { travel: number | null; wait: number | null; work: number | null; return: number | null };
   photos: { id: string; kind: "before" | "after" | "survey"; created_at: string }[];
-  materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number }[];
+  materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number; added_at?: string; added_by_name?: string | null; confirmed_at?: string | null }[];
+  /** D-140 F: work the technician added on site (prices hidden from technicians) */
+  extras?: JobExtra[];
   report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null } | null;
 };
+/** D-140 F: a line added on site — «បន្ថែមដោយជាង» (who, when), reviewed by Admin / GM before the invoice */
+export type JobExtra = { id: string; kind: "service" | "other"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null;
+  photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: string; added_by: string | null; added_by_name: string | null; reviewed_at: string | null; reviewed_by_name: string | null; review_note: string | null };
 export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
   reject_reason: string | null; booking_id: string; booking_number: string; address: string | null; service_text: string; customer_name: string; customer_phones: string[]; created_by_name: string | null;
@@ -104,7 +109,9 @@ export type Invoice = {
 export type InvoiceRow = { id: string; number: string; status: Invoice["status"]; created_at: string; issued_at: string | null; booking_id: string | null; customer_id: string; customer_name: string; customer_phones?: string[];
   booking_number: string | null; total: number; paid: number; payment_status: Invoice["payment_status"]; discount_status: Invoice["discount_status"]; void_pending: boolean };
 export type DebtRow = { customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; invoices: number; oldest: string };
-export type InvoicePrefill = { booking_id: string; booking_number: string; customer_id: string; customer_name: string; service_text: string; lines: QuoteLine[] };
+export type InvoicePrefill = { booking_id: string; booking_number: string; customer_id: string; customer_name: string; service_text: string; lines: QuoteLine[];
+  /** D-140 E3: a quoted job — materials recorded but not in the quote (offered apart, unticked) */
+  extra_materials?: QuoteLine[] };
 export type AttendanceToday = { tracks: boolean; office_set: boolean; geofence_m: number; work_start: string; work_end: string;
   record: { in_at: string; in_distance_m: number | null; in_out_of_range: boolean; in_no_gps: boolean; out_at: string | null; out_distance_m: number | null; out_out_of_range: boolean; out_no_gps: boolean } | null };
 export type AttendanceCheck = { kind: "in" | "out"; at: string; distance_m: number | null; out_of_range: boolean; no_gps: boolean; already: boolean };
@@ -127,6 +134,8 @@ export type VerifyItem = { type: "void" | "discount" | "cancel" | "payment"; id:
   currency: "usd" | "khr" | null; raw_amount: number | null; link: string; requested_by_name: string | null; approved_by_name: string | null; verified_at: string | null; verified_by_name: string | null; verify_note: string | null };
 export type Dashboard = { date: string; pending_review: number; today: { jobs: number; done: number; revenue?: number; received?: number }; month?: { revenue: number; received: number };
   debts?: { total: number; d60_plus: number }; approvals: { discounts: number; voids: number; leave: number }; unverified?: number; uninvoiced?: { count: number; estimate: number };
+  /** D-140 E1: jobs whose materials wait for «បញ្ជាក់សម្ភារៈ» */
+  materials_pending?: number;
   techs: { user_id: string; full_name: string; status: string; job_number: string | null; job_id: string | null; in_at: string | null; out_at: string | null }[] };
 export type AuditRow = { id: number; at: string; action: string; source: string; table_name: string | null; row_id: string | null; old_data: Record<string, unknown> | null; new_data: Record<string, unknown> | null; user_name: string | null; user_id: string | null; subject: string | null };
 export type LastChange = { name: string | null; source: string; at: string } | null;
@@ -141,11 +150,13 @@ export type StockLocation = { id: string; name: string; kind: "warehouse" | "veh
 export type StockItem = { item_id: string; name: string; unit: string; qty: number; value: number; avg_cost: number; reorder_level: number | null; low: boolean; by_location: { location_id: string; name: string; qty: number }[] };
 export type StockCardRow = { id: number; date: string; kind: string; qty: number; value: number | null; balance_qty: number; balance_value: number | null; ref_label: string | null; reason: string | null; supplier: string | null; location: string; by_name: string | null };
 export type StockCard = { opening: { qty: number; value: number | null }; rows: StockCardRow[]; ending: { qty: number; value: number | null } };
-export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; materials: { item_id: string; name: string; unit: string; qty: number }[] };
+export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; cancelled?: boolean; ended_at?: string; materials: { item_id: string; name: string; unit: string; qty: number }[] };
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 // ---------- accounting (D-88) ----------
 export type AcctType = "asset" | "liability" | "equity" | "income" | "expense";
-export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL" };
+export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL";
+  /** D-141: a group header (never posted to), its group, an account the system added («បន្ថែមដោយប្រព័ន្ធ») */
+  is_group?: boolean; parent_code?: string | null; added_by_system?: boolean };
 export type JournalRow = { id: string; number: string; date: string; memo: string; source: string; source_id: string | null; reversal_of: string | null; amount: number;
   status: "posted" | "reversed"; created_by_name: string | null; attachment_id: string | null };
 export type JournalLine = { id: number; account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; debit: number; credit: number; memo: string | null;
@@ -163,7 +174,9 @@ export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income
 export type BsRow = AcctRow & { previous: number; variance: number };
 export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
   equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number };
-  assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number };
+  assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number;
+  /** D-141: the client's account for the year's profit not closed yet (30002) */
+  current_earnings_account?: { code: string; name_km: string; name_en: string | null } | null };
 export type DrCr = { debit: number; credit: number };
 export type TrialBalanceMonth = { month: string; from: string; to: string; previous_to: string; fiscal_year_start: string; fx_rate_khr: number; balanced: boolean;
   rows: { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; statement: "BS" | "PL"; period: DrCr; ytd_prev: DrCr; ytd: DrCr }[];
@@ -228,10 +241,10 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
-  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null;
+  upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null; inventory_account_id?: string | null;
     code?: string | null; web_category?: WebCategory | null; from_price?: number | null; show_on_website?: boolean; quote_only?: boolean }) =>
     (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months,
-      ...(v.income_account_id !== undefined ? { income_account_id: v.income_account_id } : {}), ...(v.code !== undefined ? { code: v.code ?? "" } : {}), ...(v.web_category !== undefined ? { web_category: v.web_category } : {}),
+      ...(v.income_account_id !== undefined ? { income_account_id: v.income_account_id } : {}), ...(v.inventory_account_id !== undefined ? { inventory_account_id: v.inventory_account_id } : {}), ...(v.code !== undefined ? { code: v.code ?? "" } : {}), ...(v.web_category !== undefined ? { web_category: v.web_category } : {}),
       ...(v.from_price !== undefined ? { from_price: v.from_price } : {}), ...(v.show_on_website !== undefined ? { show_on_website: v.show_on_website } : {}), ...(v.quote_only !== undefined ? { quote_only: v.quote_only } : {}) })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
   catalogMeta: () => get<{ last: { name: string; at: string } | null; can_edit: boolean }>("/api/catalog/meta"),
@@ -271,6 +284,11 @@ export const api = {
     materials: (id: string, items: { catalog_item_id: string; qty: number }[]) => put(`/api/bookings/${id}/materials`, { items }),
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
+    /** D-140 F: work added on site */
+    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; photo?: string | null }) =>
+      post<{ id: string; ends_at: string | null; overlap: { number: string; scheduled_at: string; who: string } | null }>(`/api/bookings/${id}/extras`, v),
+    removeExtra: (id: string, xid: string) => del(`/api/bookings/${id}/extras/${xid}`),
+    reviewExtra: (id: string, xid: string, v: { action: "confirm" | "remove"; unit_price?: number | null; reason?: string | null }) => post(`/api/bookings/${id}/extras/${xid}/review`, v),
   },
   quotes: {
     list: (status?: string) => get<QuoteRow[]>(`/api/quotes${status ? `?status=${status}` : ""}`),
@@ -416,7 +434,7 @@ export const api = {
     save: (id: string, notes: string) => post(`/api/bookings/${id}/survey`, { notes }),
     photo: (id: string, data: string) => post<{ id: string }>(`/api/bookings/${id}/survey-photos`, { data }),
   },
-  cancelBooking: (id: string, reason: string) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason }),
+  cancelBooking: (id: string, reason: string, materialsUsed?: boolean) => post<{ id: string; status: BookingStatus }>(`/api/bookings/${id}/cancel`, { reason, ...(materialsUsed === undefined ? {} : { materials_used: materialsUsed }) }),
 
   usersBasic: async () => (await get<UserBasic[]>("/api/users/basic")).filter((u) => u.is_active),
   users: () => get<UserRow[]>("/api/users"),
