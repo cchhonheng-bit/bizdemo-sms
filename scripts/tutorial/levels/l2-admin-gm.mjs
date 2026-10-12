@@ -100,7 +100,7 @@ export default {
     await customer("អតិថិជនចាស់ សាកល្បង", "012000555");                     // an existing customer who phones (overview)
     // a customer whose website login is locked (wrong password 30 times) — clip 08
     await customer("អតិថិជនសាកល្បង", "012999888");
-    await v.sql("insert into customer_login_guards (company_id, phone, failed, permanent) select id, '012999888', 30, true from companies limit 1");
+    await v.sql("insert into customer_login_guards (company_id, phone, failed, permanent) select id, '+85512999888', 30, true from companies limit 1");
     // four website bookings from a visitor (consent = the button on the site), free slots at least 3 h apart
     const list = await v.api("GET", "/api/catalog"), ac = (Array.isArray(list) ? list : list.items).find((x) => x.code === "AC-CLEAN");
     const visitor = await v.session(null);
@@ -240,7 +240,7 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
     clip("L2-08_unlock-customer_v1", async (v, d, { A, link, T }) => {
       await v.caption("អតិថិជនចូលគេហទំព័រមិនបាន?\nមើលថាគណនីជាប់សោឬទេ"); await v.hold(1200);
       await v.caption("ចុច «អតិថិជន»"); await v.tap(link("អតិថិជន")); await v.idle();
-      await v.caption("ចុច «ប្រវត្តិ» របស់អតិថិជន"); const row = A.locator("tr", { hasText: "012999888" }); await v.scrollTo(row); await v.tap(row.getByRole("button", { name: "ប្រវត្តិ", exact: true })); await v.idle();
+      await v.caption("ចុច «ប្រវត្តិ» របស់អតិថិជន"); const row = A.locator("tr", { hasText: "012 999 888" }); await v.scrollTo(row); await v.tap(row.getByRole("button", { name: "ប្រវត្តិ", exact: true })); await v.idle();
       await v.caption("វាយពាក្យសម្ងាត់ខុសច្រើនដង\nគណនីជាប់សោ"); await v.look(T("login-unlock").locator("xpath=.."), { zoom: 1.5 });
       await v.caption("ទូរស័ព្ទបញ្ជាក់សិន\nថាជាម្ចាស់គណនីពិត"); await v.hold(1600);
       await v.caption("ចុច «ដោះសោ»"); await v.tap(T("login-unlock")); await v.idle(); await v.hold(500);

@@ -16,6 +16,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
+// TUTORIAL_TZ=Asia/Dubai: record in another clock (an evening run of a level that needs time left today) — this process, the
+// browser and the demo shop all use that zone, so the video agrees with itself
+const TZ = process.env.TUTORIAL_TZ || "Asia/Phnom_Penh";
+if (process.env.TUTORIAL_TZ) process.env.TZ = TZ;
 const HERE = dirname(fileURLToPath(import.meta.url)), ROOT = resolve(HERE, "../../.."), SSH = process.env.TUTORIAL_SSH || "hangkh";
 const BASE = "http://localhost:3998";
 const level = (await import(pathToFileURL(resolve(process.argv[2] ?? "levels/l1-technician.mjs")).href)).default;
@@ -52,11 +56,12 @@ try {
 
 async function run() {
   log(remote(level.prices === false ? "seed noprices" : "seed"));
+  if (process.env.TUTORIAL_TZ) log(remote(`sql ${q(`update companies set timezone = '${TZ}'`)}`), `(demo shop clock: ${TZ})`);
   if (!(await fetch(`${BASE}/healthz`).then((r) => r.ok).catch(() => false))) { tunnel = spawn("ssh", ["-N", "-L", "3998:127.0.0.1:3998", SSH], { stdio: "ignore" }); await sleep(2500); }
   const HUBKEY = remote("secret hubkey"), CEO_TEMP = remote("secret ceo");
 
   browser = await chromium.launch({ channel: "msedge", headless: true });
-  const ctx = await browser.newContext({ viewport: { width: W * S, height: H * S }, deviceScaleFactor: 1, locale: "km-KH", timezoneId: "Asia/Phnom_Penh", bypassCSP: true,
+  const ctx = await browser.newContext({ viewport: { width: W * S, height: H * S }, deviceScaleFactor: 1, locale: "km-KH", timezoneId: TZ, bypassCSP: true,
     geolocation: { latitude: 11.5566, longitude: 104.9284, accuracy: 12 }, permissions: ["geolocation"] });
   const password = () => "Dm" + randomBytes(9).toString("base64url") + "!7";
   async function staffSession(rc, user, pw) { // log in; the first login asks for a new password → the password in use now
