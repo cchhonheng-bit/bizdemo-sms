@@ -51,7 +51,8 @@ export const customerText = {
   declined: (no: string, reason: string) => lines(`❌ មិនអាចទទួល #${no}`, `មូលហេតុ៖ ${reason}`),
   reminder: (time: string, service: string, tech: string | null) => lines(`⏰ ស្អែក ម៉ោង ${time}`, `${service}${tech ? ` · ជាង ${tech}` : ""}`),
   onTheWay: (tech: string | null) => (tech ? `🚗 ជាង ${tech} កំពុងមក` : "🚗 ជាងកំពុងមក"),
-  done: (no: string, until: string | null) => lines(`✅ ការងាររួចរាល់ #${no}`, until && `ធានាដល់ ${until}`),
+  /** D-140 F: the final lines of the job (the invoice) are listed, one per line */
+  done: (no: string, until: string | null, items: string[] = []) => lines(`✅ ការងាររួចរាល់ #${no}`, ...items.map((x) => `• ${x}`), until && `ធានាដល់ ${until}`),
   rescheduled: (no: string, day: string, time: string) => lines(`🔁 បានប្ដូរម៉ោង #${no}`, `${day} ម៉ោង ${time}`),
   rescheduleKept: (no: string, day: string, time: string) => lines(`ℹ️ មិនអាចប្ដូរម៉ោង #${no}`, `ម៉ោងនៅដដែល៖ ${day} ម៉ោង ${time}`),
   newPassword: (pw: string) => `🔑 ពាក្យសម្ងាត់ថ្មី៖ ${pw}`,

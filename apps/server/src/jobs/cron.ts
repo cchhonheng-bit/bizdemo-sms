@@ -10,6 +10,7 @@ import { customerNotices } from "../services/customer-notify.js";
 import { webBookingAlerts } from "../services/web-booking.js";
 import { cancelOldTests } from "../services/test-mode.js";
 import { sendSummaries } from "../services/reports.js";
+import { materialsReminders } from "../services/inventory.js";
 
 export function startCron(log: FastifyBaseLogger): () => void {
   const outbox = setInterval(() => {
@@ -36,6 +37,9 @@ export function startCron(log: FastifyBaseLogger): () => void {
   const waiting = setInterval(() => { webBookingAlerts().then((r) => { if (r.reminded || r.escalated || r.expired) log.info(r, "web booking alerts"); }).catch((e) => log.warn(e, "web booking alerts")); }, 60_000);
   // D-120 (CEO): bookings / quotes from the test phones still open after 24 h are cancelled — no message, audit only
   const tests = setInterval(() => { cancelOldTests().then((r) => { if (r.bookings || r.requests) log.info(r, "test bookings cancelled"); }).catch((e) => log.warn(e, "test cleanup")); }, 10 * 60_000);
+  // D-140 E1: materials not confirmed 24 h after the job ended → Admin + GM, once a day in the daytime
+  const materials = setInterval(() => { materialsReminders().then((n) => { if (n) { log.info({ materials: n }, "materials reminders"); void flushOutbox(); } }).catch((e) => log.warn(e, "materials reminders")); }, 15 * 60_000);
+  materials.unref();
   outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref(); tests.unref();
-  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); clearInterval(tests); };
+  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); clearInterval(tests); clearInterval(materials); };
 }

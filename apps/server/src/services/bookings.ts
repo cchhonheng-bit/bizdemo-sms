@@ -132,6 +132,22 @@ async function assertVehicleFree(t: Db, companyId: string, vehicleId: string, st
   const b = await busyVehicles(t, companyId, start, end, exclude, vehicleId);
   if (b.length) throw new AppError("VEHICLE_UNAVAILABLE", 409, { conflicts: b.map((x) => ({ vehicle_id: x.vehicle_id, code: x.code, number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at })) });
 }
+/** D-140 F: work added on site makes the job longer — up to the next job of a crew member or of the vehicle (the overlap rules
+ *  never break); what does not fit comes back as the clash so Admin / GM move or reassign that next job */
+export async function extendJob(t: Db, companyId: string, id: string, minutes: number): Promise<{ ends_at: Date | null; wanted: Date | null; clash: { booking_id: string; number: string; scheduled_at: Date; who: string } | null }> {
+  const b = (await t<{ scheduled_at: Date | null; ends_at: Date | null; vehicle_id: string | null }[]>`select scheduled_at, ends_at, vehicle_id from bookings where id = ${id} and company_id = ${companyId} for update`)[0];
+  if (!b?.scheduled_at || !b.ends_at || minutes <= 0) return { ends_at: b?.ends_at ?? null, wanted: null, clash: null };
+  const wanted = new Date(b.ends_at.getTime() + minutes * 60_000);
+  const team = (await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`).map((x) => x.user_id);
+  const people = team.length ? await busyPeople(t, companyId, b.ends_at, wanted, id, team) : [];
+  const cars = b.vehicle_id ? await busyVehicles(t, companyId, b.ends_at, wanted, id, b.vehicle_id) : [];
+  const clash = [...people.map((p) => ({ booking_id: p.booking_id, number: p.number, scheduled_at: p.scheduled_at, who: p.full_name })),
+    ...cars.map((c) => ({ booking_id: c.booking_id, number: c.number, scheduled_at: c.scheduled_at, who: c.code }))].sort((x, y) => x.scheduled_at.getTime() - y.scheduled_at.getTime())[0] ?? null;
+  const end = clash ? new Date(Math.max(b.ends_at.getTime(), Math.min(wanted.getTime(), clash.scheduled_at.getTime()))) : wanted;
+  if (end.getTime() !== b.ends_at.getTime()) await t`update bookings set ends_at = ${end} where id = ${id}`;
+  return { ends_at: end, wanted, clash };
+}
+
 /** D3: approved leave / absence overlapping [from, to) */
 async function awayPeople(t: Db, companyId: string, from: Date, to: Date, ids?: string[]) {
   return t<{ user_id: string; full_name: string; kind: "leave" | "absent"; starts_at: Date; ends_at: Date }[]>`
@@ -220,7 +236,7 @@ export async function resolveJobLines(t: Db, companyId: string, lines: { item_id
   });
 }
 export const jobLinesText = (lines: Pick<JobLine, "name_km" | "qty">[]) => lines.map((l) => (l.qty > 1 ? `${l.name_km} ×${l.qty}` : l.name_km)).join(" · ");
-const storedLines = (lines: (JobLine & { category?: string })[]) => lines.map(({ category: _c, ...l }) => l);
+const storedLines = (lines: (JobLine & { category?: string })[]): JobLine[] => lines.map((l) => ({ id: l.id, code: l.code, name_km: l.name_km, name_en: l.name_en, qty: l.qty, minutes: l.minutes, from_price: l.from_price, quote_only: l.quote_only }));
 
 /** A2: the customer's units this job serves (reminders per unit) — only units of the same customer */
 async function setUnits(t: Db, companyId: string, bookingId: string, customerId: string, unitIds: string[]): Promise<void> {
@@ -567,8 +583,8 @@ export async function rescheduleHistory(user: SessionUser, id: string) {
 }
 
 // ---------- cancel (R4) ------------------------------------------------------------------------------------
-export async function cancelBooking(user: SessionUser, ip: string | null, id: string, reason: string) {
-  return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason));
+export async function cancelBooking(user: SessionUser, ip: string | null, id: string, reason: string, materialsUsed?: boolean) {
+  return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason, { materialsUsed, ask: true }));
 }
 
 /** a customer record that exists only because of a website booking the staff never accepted (declined, or expired unanswered)
@@ -582,10 +598,17 @@ export async function dropUnacceptedAccount(t: Db, bookingId: string): Promise<v
 
 /** who cancels: a staff member, or (D-96, customer home) the customer — then userId is null and Admin + GM are told as well */
 export type CancelActor = { companyId: string; userId: string | null; name: { km: string; en: string } };
-export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string) {
+export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string, o: { materialsUsed?: boolean; ask?: boolean } = {}) {
   const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${actor.companyId} for update`)[0];
   if (!b) throw notFound();
   if (!CANCELLABLE_STATUSES.includes(b.status)) throw new AppError("BOOKING_NOT_CANCELLABLE", 400);
+  // D-140 E2: materials already recorded on the job → «សម្ភារៈបានប្រើរួចឬទេ?» (yes = a job cost to confirm, no = unused)
+  const mats = (await t`select 1 from booking_materials where booking_id = ${id} limit 1`).length > 0;
+  if (mats && o.ask && o.materialsUsed === undefined) throw new AppError("MATERIALS_ANSWER_REQUIRED", 400);
+  if (mats && o.materialsUsed !== undefined) {
+    await t`update bookings set materials_used = ${o.materialsUsed} where id = ${id}`;
+    await audit(t, { companyId: actor.companyId, userId: actor.userId, action: "booking.materials_used", table: "bookings", rowId: id, new: { materials_used: o.materialsUsed }, ip });
+  }
   // status → cancelled (never deleted); the exclusion constraints stop counting it → technicians + vehicle are free
   await t`update bookings set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${actor.userId} where id = ${id}`;
   await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;

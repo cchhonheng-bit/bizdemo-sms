@@ -146,26 +146,57 @@ export async function transfer(user: SessionUser, ip: string | null, v: { item_i
 
 // ---------- job materials: technician records, Admin confirms ----------
 const FINISHED = ["work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
+/** D-140 E: finished jobs, and cancelled ones whose materials WERE used (a job cost — never invoiced), still waiting for «បញ្ជាក់សម្ភារៈ» */
+const WAITING = (db: Db) => db`b.materials_confirmed_at is null and (b.status = any(${db.array(FINISHED)}::booking_status[]) or (b.status = 'cancelled' and b.materials_used))
+  and exists (select 1 from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock)`;
+/** when the job ended: the actual finish (D-139), the finish step, the cancel time */
+export const ENDED_AT = (db: Db) => db`coalesce(b.finished_at, (select max(k.at) from booking_checkpoints k where k.booking_id = b.id and k.step = 'finish'), b.cancelled_at, b.updated_at)`;
 export async function pendingJobs(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
-  return sql`select b.id as booking_id, b.number, b.status, c.name as customer_name,
+  return sql`select b.id as booking_id, b.number, b.status, c.name as customer_name, b.status = 'cancelled' as cancelled, ${ENDED_AT(sql)} as ended_at,
       coalesce((select l.id from stock_locations l where l.vehicle_id = b.vehicle_id and l.is_active),
                (select l.id from stock_locations l where l.company_id = b.company_id and l.kind = 'warehouse' and l.is_active order by l.created_at limit 1)) as suggested_location_id,
       (select json_agg(json_build_object('item_id', i.id, 'name', i.name_km, 'unit', i.unit, 'qty', m.qty::float) order by i.name_km)
          from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock) as materials
     from bookings b join customers c on c.id = b.customer_id
-    where b.company_id = ${user.companyId} and b.materials_confirmed_at is null and b.status = any(${sql.array(FINISHED)}::booking_status[])
-      and exists (select 1 from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock)
+    where b.company_id = ${user.companyId} and not b.is_test and ${WAITING(sql)}
     order by b.scheduled_at`;
+}
+/** D-140 E1: how many jobs wait (the dashboard) — and those waiting more than 24 h after they ended (the daily reminder) */
+export async function waitingMaterials(db: Db, companyId: string, olderThanHours = 0): Promise<{ n: number; numbers: string[] }> {
+  const rows = await db<{ number: string }[]>`select b.number from bookings b where b.company_id = ${companyId} and not b.is_test and ${WAITING(db)}
+    and ${ENDED_AT(db)} < now() - make_interval(hours => ${olderThanHours}) order by b.scheduled_at`;
+  return { n: rows.length, numbers: rows.map((x) => x.number) };
+}
+
+/** D-140 E1: once a day in the daytime (09:00–17:00 shop time) Admin + GM hear about jobs whose materials are still not confirmed
+ *  24 h after the job ended; `now` for the tests */
+export const MATERIALS_REMINDER_HOURS = { from: 9, to: 17 } as const;
+export async function materialsReminders(now: Date = new Date()): Promise<number> {
+  if (!featureOn("inventory")) return 0;
+  let sent = 0;
+  for (const co of await sql<{ id: string; tz: string }[]>`select id, timezone as tz from companies where is_active`) {
+    const l = (await sql<{ h: number; d: string }[]>`select extract(hour from (${now}::timestamptz at time zone ${co.tz}))::int as h, ((${now}::timestamptz at time zone ${co.tz})::date)::text as d`)[0]!;
+    if (l.h < MATERIALS_REMINDER_HOURS.from || l.h >= MATERIALS_REMINDER_HOURS.to) continue;
+    const w = await waitingMaterials(sql, co.id, 24);
+    if (!w.n) continue;
+    if (!(await sql`insert into materials_alerts (company_id, day) values (${co.id}, ${l.d}) on conflict do nothing returning day`).length) continue;
+    const list = w.numbers.slice(0, 10).join(", ") + (w.n > 10 ? " …" : "");
+    for (const u of await sql<{ id: string }[]>`select id from users where company_id = ${co.id} and is_active and role in ('admin', 'gm')`)
+      await notifyUser(sql, co.id, u.id, "materials.waiting", { km: `📦 សម្ភារៈរង់ចាំបញ្ជាក់ (${w.n})`, en: `📦 Materials to confirm (${w.n})` },
+        { km: `ការងារបញ្ចប់លើស ២៤ ម៉ោង តែមិនទាន់បញ្ជាក់សម្ភារៈ៖\n${list}`, en: `Jobs that ended more than 24 h ago, materials not confirmed:\n${list}` }, "/inventory?tab=jobs", `mat-wait:${l.d}:${u.id}`);
+    sent++;
+  }
+  return sent;
 }
 
 export async function confirmJob(user: SessionUser, ip: string | null, bookingId: string, locationId?: string | null) {
   return tx(user.id, async (t) => {
-    const b = (await t<{ id: string; status: string; confirmed: Date | null; vehicle_id: string | null }[]>`select id, status::text, materials_confirmed_at as confirmed, vehicle_id
+    const b = (await t<{ id: string; status: string; confirmed: Date | null; vehicle_id: string | null; used: boolean | null }[]>`select id, status::text, materials_confirmed_at as confirmed, vehicle_id, materials_used as used
       from bookings where id = ${bookingId} and company_id = ${user.companyId} for update`)[0];
     if (!b) throw notFound();
     if (b.confirmed) throw new AppError("ALREADY_CONFIRMED", 400);
-    if (!FINISHED.includes(b.status)) throw new AppError("NOT_FINISHED", 400);
+    if (!FINISHED.includes(b.status) && !(b.status === "cancelled" && b.used)) throw new AppError("NOT_FINISHED", 400); // D-140 E2: a cancelled job's used materials too
     await ensureLocations(t, user.companyId);
     const loc = locationId ?? (await t<{ id: string }[]>`select coalesce((select id from stock_locations where vehicle_id = ${b.vehicle_id} and is_active),
         (select id from stock_locations where company_id = ${user.companyId} and kind = 'warehouse' and is_active order by created_at limit 1)) as id`)[0]!.id;

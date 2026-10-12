@@ -156,7 +156,8 @@ export const assignSchema = z.object({
 export type AssignInput = z.infer<typeof assignSchema>;
 
 /** R4: cancel with a reason (CEO / GM / Admin) */
-export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG") }).strict();
+/** R4 · D-140 E2: with materials recorded on the job, the staff answer «សម្ភារៈបានប្រើរួចឬទេ?» (true = a job cost to confirm, false = unused) */
+export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG"), materials_used: z.boolean().optional() }).strict();
 export type CancelInput = z.infer<typeof cancelSchema>;
 
 /** D2: who asked to move the appointment */

@@ -8,6 +8,7 @@ import { btn, row } from "../services/customer-bot.js";
 import { tellCustomer } from "../services/customer-notify.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
+import { addExtra, forCrew, listExtras, removeOwnExtra, reviewExtra } from "../services/extras.js";
 import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
@@ -115,7 +116,33 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // ---- Flow 1+2: job execution (checkpoints, photos, materials, report) + GM review ----
-  app.get("/:id/job", async (req) => jobInfo(req.user!, idParam.parse(req.params).id));
+  app.get("/:id/job", async (req) => {
+    const id = idParam.parse(req.params).id;
+    const info = await jobInfo(req.user!, id);
+    const extras = await listExtras(sql, id); // D-140 F: work added on site (technicians never see prices)
+    return { ...info, extras: req.user!.role === "tech" ? forCrew(extras) : extras };
+  });
+  // D-140 F: the technician (crew), GM or Admin adds work on site — a catalog service + qty, or «ការងារផ្សេងៗ» (text + photo, no price)
+  app.post("/:id/extras", { bodyLimit: 3_000_000 }, async (req) => {
+    const v = z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999) }).strict(),
+      z.object({ kind: z.literal("other"), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(), photo: z.string().max(2_900_000).nullable().optional() }).strict(),
+    ]).parse(req.body ?? {});
+    const r = await addExtra(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
+  });
+  app.delete("/:id/extras/:xid", async (req) => {
+    const p = z.object({ id: z.string().uuid(), xid: z.string().uuid() }).parse(req.params);
+    return removeOwnExtra(req.user!, req.perms, req.ip, p.id, p.xid);
+  });
+  // Admin / GM review before the invoice: confirm (price kept or edited) / remove (reason)
+  app.post("/:id/extras/:xid/review", async (req) => {
+    if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
+    const p = z.object({ id: z.string().uuid(), xid: z.string().uuid() }).parse(req.params);
+    const v = z.object({ action: z.enum(["confirm", "remove"]), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), reason: z.string().trim().max(300).nullable().optional() }).strict().parse(req.body ?? {});
+    return reviewExtra(req.user!, req.ip, p.id, p.xid, v);
+  });
   app.post("/:id/checkpoint", async (req) => {
     const v = z.object({ step: z.enum(STEPS), at: z.string().datetime({ offset: true }).optional().nullable(), lat: z.number().min(-90).max(90).nullable().optional(),
       lng: z.number().min(-180).max(180).nullable().optional(), accuracy: z.number().min(0).max(100000).nullable().optional(), no_gps: z.boolean().optional(), offline: z.boolean().optional() }).strict().parse(req.body);
@@ -153,8 +180,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   // R4: CEO / GM / Admin (permission cancel.request — all three by default), reason required
   app.post("/:id/cancel", async (req) => {
     if (!req.perms.includes("cancel.request")) throw new AppError("FORBIDDEN", 403);
-    const { reason } = cancelSchema.parse(req.body ?? {});
-    const r = await cancelBooking(req.user!, req.ip, idParam.parse(req.params).id, reason);
+    const { reason, materials_used } = cancelSchema.parse(req.body ?? {});
+    const r = await cancelBooking(req.user!, req.ip, idParam.parse(req.params).id, reason, materials_used);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
   });

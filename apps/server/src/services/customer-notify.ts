@@ -32,6 +32,13 @@ export async function tellCustomer(bookingId: string, msg: (b: BookingFacts) => 
   }
 }
 
+/** D-140 F: the job's final lines for «ការងាររួចរាល់» — the issued invoice (booked services, work added on site, materials), «name ×qty» */
+async function finalLines(bookingId: string): Promise<string[]> {
+  const rows = await sql<{ description: string; qty: number }[]>`select l.description, l.qty::float as qty from invoices i join invoice_lines l on l.invoice_id = i.id
+    where i.booking_id = ${bookingId} and i.status = 'issued' order by i.issued_at desc nulls last, l.sort limit 12`;
+  return rows.map((r) => (r.qty !== 1 ? `${r.description} ×${Number.isInteger(r.qty) ? r.qty : r.qty.toFixed(2)}` : r.description));
+}
+
 // ---------- tracking: reminder the day before · technician on the way · job done with the warranty end ----------
 // One sweep a minute finds what is due and sends each message ONCE per booking (customer_notices). Only events that are fresh
 // (a deploy never sends old news), only bookings whose chat is linked. The reminder goes out the day before between 17:00 and
@@ -64,7 +71,7 @@ export async function customerNotices(now: Date = new Date()): Promise<number> {
     const w = d.scheduled_at ? kmWhen(d.scheduled_at, d.tz || "Asia/Phnom_Penh") : { day: "—", time: "—" };
     const m: CustomerMsg = d.kind === "reminder" ? { text: customerText.reminder(w.time, d.service_text, d.technician), buttons: row(btn.track()) }
       : d.kind === "on_the_way" ? { text: customerText.onTheWay(d.technician), buttons: row(btn.track()) }
-      : { text: customerText.done(d.number, d.until ? kmDate(d.until) : null), buttons: row(btn.again()) };
+      : { text: customerText.done(d.number, d.until ? kmDate(d.until) : null, await finalLines(d.id)), buttons: row(btn.again()) };
     const r = await hubCall("POST", "/internal/notify-subscriber", { subscriber_id: Number(d.sub), text: m.text, ...(m.buttons ? { buttons: m.buttons } : {}) }).catch(() => null);
     const ok = !!r && r.status === 200 && r.json?.ok === true;
     if (!ok && !(r && r.status === 200 && r.json?.error === "NOT_SUBSCRIBED")) continue; // hub down or a passing error: next sweep
