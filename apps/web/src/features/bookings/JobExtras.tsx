@@ -68,7 +68,7 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
           <Field label={t("extras.other_text")} hint={t("extras.other_hint")}><textarea className="input h-20 py-2" name="extra_text" maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
           <label className="btn-secondary w-full cursor-pointer mb-3">
             <Camera size={18} /> {photo ? t("extras.photo_ok") : t("extras.photo")}
-            <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void compressPhoto(f).then(setPhoto); e.target.value = ""; }} />
+            <input type="file" accept="image/*" capture="environment" className="sr-only" data-testid="extra-photo" onChange={(e) => { const f = e.target.files?.[0]; if (f) void compressPhoto(f).then(setPhoto); e.target.value = ""; }} />
           </label>
         </>
       )}

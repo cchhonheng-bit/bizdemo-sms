@@ -21,7 +21,7 @@ rmSync(WORK, { recursive: true, force: true }); mkdirSync(join(WORK, "shots"), {
 const { chromium, request } = process.env.PLAYWRIGHT_CORE ? await import(pathToFileURL(process.env.PLAYWRIGHT_CORE).href) : await import("playwright-core");
 const { readXlsx, writeXlsx } = await import(pathToFileURL(join(ROOT, "Source/apps/server/src/lib/xlsx.ts")).href);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const remote = (args, input) => execFileSync("ssh", [SSH, `bash /opt/hangkh/staging-qa/staging.sh ${args}`], { input, maxBuffer: 50e6 }).toString().trim();
+const remote = (args, input) => execFileSync("ssh", [SSH, `${process.env.QA_IMAGE ? `STAGING_IMAGE=${process.env.QA_IMAGE} ` : ""}bash /opt/hangkh/staging-qa/staging.sh ${args}`], { input, maxBuffer: 50e6 }).toString().trim();
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 const sql = (stmt) => remote(`sql ${q(stmt)}`);
 const sqlhub = (stmt) => remote("sqlhub", stmt);
@@ -589,11 +589,13 @@ const gmDev = await device({ desktop: true });
     await page.getByRole("button", { name: "អតិថិជនថ្មី" }).click();
     const dlg = page.locator('[role="dialog"]').last();
     await dlg.locator('input[name="name"]').fill("QA អតិថិជន ង"); await dlg.locator('input[name="phones"]').fill("012000705");
+    await dlg.locator('select[name="commune_code"] option').nth(1).waitFor({ state: "attached", timeout: 10_000 }); // Phnom Penh → Chbar Ampov preselected
+    await dlg.locator('select[name="commune_code"]').selectOption({ index: 1 }); await dlg.locator('input[name="house_no"]').fill("27");
     await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await idle(page);
-    await page.locator('select[name="category"]').selectOption("mep");
-    await page.locator('select[name="service_item_id"]').selectOption(AC.id);
+    await page.locator('select[name="line_item_0"]').selectOption(AC.id);
     await page.locator('input[name="date"]').fill(ymdIn(2)); await page.locator('input[name="start"]').fill("10:00");
     await sleep(400);
+    if (await page.locator('[data-testid="end-use"]').count()) await page.locator('[data-testid="end-use"]').click();
     const end = await page.locator('input[name="end"]').inputValue(); must(end === "11:00", `end ${end} (AC cleaning = 60 min)`);
     await page.locator('button[type="submit"]').click(); await page.waitForURL(/\/app\/bookings\/[0-9a-f-]{36}$/, { timeout: 15_000 });
     S.phoneJob = /bookings\/([0-9a-f-]{36})/.exec(page.url())[1];
@@ -736,6 +738,12 @@ const gmDev = await device({ desktop: true });
 {
   const A = "11 Accounting", page = S.cfo.page;
   const Y = new Date().getFullYear(), lastYearJan1 = `${Y - 1}-01-01`;
+  await step(A, "D-141 chart-replace on the clone: dry run → --apply (books empty) → One Team's chart + Sheet2 stock items", null, async () => {
+    const dry = remote("cli chart-replace oneteam"); must(/DRY RUN/.test(dry), dry.split("\n")[0]);
+    const done = remote("cli chart-replace oneteam --apply"); must(/applied ✓/.test(done), done.split("\n").slice(-2).join(" "));
+    must(sql("select count(*) from accounts where is_group") === "10" && sql("select count(*) from catalog_items where code like '1500_' or code like '1400_' or code = '15010'") === "14", "chart / stock items not as expected");
+    return done.split("\n").find((l) => /added by the system/.test(l)) ?? "";
+  });
   await step(A, "opening balances: draft → corrected → «បញ្ជាក់សមតុល្យដើម»", page, async () => {
     await page.goto(`${BASE}/app/accounting`); await page.locator('[data-testid="go-setup"]').click(); await idle(page);
     await page.locator('[data-testid="op-date"]').fill(lastYearJan1);
@@ -746,19 +754,31 @@ const gmDev = await device({ desktop: true });
   });
   await step(A, "an expense → its journal entry (debit = credit)", page, async () => {
     await page.locator('[data-testid="tab-money"]').click(); await page.locator('[data-testid="tx-expense"]').click();
-    await page.locator('[data-testid="tx-amount"]').fill("45"); await page.locator('[data-testid="tx-account"]').selectOption("6030");
+    await page.locator('[data-testid="tx-amount"]').fill("45"); await page.locator('[data-testid="tx-account"]').selectOption("50010");
     await page.locator('[data-testid="tx-pay"]').getByRole("radio", { name: "សាច់ប្រាក់ $" }).click();
     await page.locator('[data-testid="tx-memo"]').fill("QA សាំងឡាន"); await page.locator('[data-testid="tx-save"]').click(); await idle(page);
     await page.locator('[data-testid="tab-journal"]').click(); await page.locator('[data-testid="je-list"]').getByText("QA សាំងឡាន").first().waitFor({ timeout: 10_000 });
   });
   await step(A, "last year's entries (for the year-end close)", null, async () => {
     const cfoApi = await staffApi("cfo1", S.u.cfo1.pw); S.cfoApi = cfoApi;
-    await cfoApi.call("POST", "/api/accounting/transactions", { date: `${Y - 1}-03-10`, type: "other_income", account_code: "4090", amount: 150000, pay: "aba", memo: "QA ចំណូលឆ្នាំមុន" });
-    await cfoApi.call("POST", "/api/accounting/transactions", { date: `${Y - 1}-06-30`, type: "expense", account_code: "6040", amount: 60000, pay: "cash_usd", memo: "QA ថ្លៃឈ្នួលឆ្នាំមុន" });
+    await cfoApi.call("POST", "/api/accounting/transactions", { date: `${Y - 1}-03-10`, type: "other_income", account_code: "40006", amount: 150000, pay: "aba", memo: "QA ចំណូលឆ្នាំមុន" });
+    await cfoApi.call("POST", "/api/accounting/transactions", { date: `${Y - 1}-06-30`, type: "expense", account_code: "50006", amount: 60000, pay: "cash_usd", memo: "QA ថ្លៃឈ្នួលឆ្នាំមុន" });
+  });
+  await step(A, "D-141 revenue by the borey: an invoice inside a borey → 40005, outside → 40002 (trial balance)", null, async () => {
+    const adminApi = await staffApi("admin1", S.u.admin1.pw);
+    const custs = await adminApi.call("GET", "/api/customers");
+    const inside = custs.find((c) => c.zone === "inside" && c.is_active), outside = custs.find((c) => c.zone === "outside" && c.is_active);
+    for (const c of [inside, outside]) {
+      const inv = await adminApi.call("POST", "/api/invoices", { customer_id: c.id, lines: [{ description: "QA សេវា", kind: "service", qty: 1, unit: "job", unit_price: 1000 }] });
+      await adminApi.call("POST", `/api/invoices/${inv.id}/issue`, {});
+    }
+    const tb = await S.cfoApi.call("GET", `/api/accounting/trial-balance?to=${ymdIn(0)}`);
+    must(tb.balanced, "trial balance not balanced");
+    for (const code of ["40005", "40002"]) must(tb.rows.some((x) => x.code === code && x.credit >= 1000), `no revenue on ${code}`);
   });
   await step(A, "trial balance balances; general ledger by code", page, async () => {
     await page.goto(`${BASE}/app/accounting`); await page.locator('[data-testid="rep-tb"]').click(); await page.locator('[data-testid="tb-balanced"]').waitFor({ timeout: 10_000 });
-    await page.locator('[data-testid="rep-gl"]').click(); await page.locator('[data-testid="gl-code"]').fill("6030"); await idle(page); await page.locator('[data-testid="gl"]').waitFor();
+    await page.locator('[data-testid="rep-gl"]').click(); await page.locator('[data-testid="gl-code"]').fill("50010"); await idle(page); await page.locator('[data-testid="gl"]').waitFor();
   });
   await step(A, "Income Statement (inside / outside the borey, last month) · Balance Sheet (assets = liabilities + equity)", page, async () => {
     await page.locator('[data-testid="rep-pl"]').click(); await page.locator('[data-testid="is-zones"]').waitFor({ timeout: 10_000 });
@@ -772,7 +792,7 @@ const gmDev = await device({ desktop: true });
     const lme = `${lastMonthEnd.getFullYear()}-${String(lastMonthEnd.getMonth() + 1).padStart(2, "0")}-${String(lastMonthEnd.getDate()).padStart(2, "0")}`;
     await page.locator('[data-testid="lock-input"]').fill(lme); await page.locator('[data-testid="lock-save"]').click(); await idle(page);
     await page.getByText(lme, { exact: true }).first().waitFor({ timeout: 10_000 }); // the lock is saved (the books card shows it) before anything else is posted
-    const r = await S.cfoApi.rc.fetch("/api/accounting/transactions", { method: "POST", data: { date: lme, type: "expense", account_code: "6030", amount: 1000, pay: "cash_usd", memo: "QA after lock" } });
+    const r = await S.cfoApi.rc.fetch("/api/accounting/transactions", { method: "POST", data: { date: lme, type: "expense", account_code: "50010", amount: 1000, pay: "cash_usd", memo: "QA after lock" } });
     must(r.status() >= 400 && /PERIOD_LOCKED/.test(await r.text()), `locked date answered ${r.status()}`);
   });
 }
@@ -832,9 +852,142 @@ const gmDev = await device({ desktop: true });
   });
 }
 
+// ================================================================ 13 · D-140 / D-141 (CEO 12-10): customer form · smart search · one «កែ» screen · materials · added work · new chart · stock guide
+{
+  const A = "13 D-140/141", page = adm.page;
+  const adminApi = await staffApi("admin1", S.u.admin1.pw), j2 = await staffApi("jang2", S.u.jang2.pw);
+  const borey = await adminApi.call("POST", "/api/boreys", { name: "QA បុរី ពេជ្រ", province_code: "12", district_code: "1212", commune_code: "121201" });
+  const at = (days, hh, mm = 0) => { const d = new Date(`${ymdIn(days)}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00`); return d; };
+  const window = (days, hh, mins) => { const s = at(days, hh); return { scheduled_at: s.toISOString(), ends_at: new Date(s.getTime() + mins * 60_000).toISOString() }; };
+  await step(A, "A customer form: two columns on a desktop · «ក្នុងបុរី» → borey fills khan / sangkat · zone · the full address is built (read-only)", page, async () => {
+    await page.goto(`${BASE}/app/customers`); await idle(page);
+    await page.getByRole("button", { name: "អតិថិជនថ្មី" }).first().click();
+    const dlg = page.locator('[role="dialog"]').last();
+    const cols = await dlg.locator("form").evaluate((f) => getComputedStyle(f).gridTemplateColumns.split(" ").length);
+    must(cols === 2, `form columns at 1280: ${cols}`);
+    await dlg.locator('input[name="name"]').fill("QA អតិថិជន បុរី"); await dlg.locator('input[name="phones"]').fill("016 545 485");
+    await dlg.locator('input[name="in_borey"]').check();
+    await dlg.locator(`select[name="borey_id"] option[value="${borey.id}"]`).waitFor({ state: "attached", timeout: 10_000 });
+    await dlg.locator('select[name="borey_id"]').selectOption(borey.id);
+    await dlg.locator('input[name="borey_zone"]').fill("Zone B"); await dlg.locator('input[name="house_no"]').fill("12"); await dlg.locator('input[name="street"]').fill("371");
+    await sleep(600);
+    must(await dlg.locator('select[name="commune_code"]').inputValue() === "121201", "the borey did not fill the sangkat");
+    const full = await dlg.locator('[data-testid="address-full"]').innerText();
+    for (const part of ["ផ្ទះលេខ 12", "ផ្លូវលេខ 371", "QA បុរី ពេជ្រ", "Zone B", "ច្បារអំពៅ"]) must(full.includes(part), `full address «${full}» lacks «${part}»`);
+    await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "customer-dialog-360");
+    const cols360 = await dlg.locator("form").evaluate((f) => getComputedStyle(f).gridTemplateColumns.split(" ").length);
+    must(cols360 === 1, `form columns at 360: ${cols360}`);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await idle(page);
+    S.boreyCust = (await adminApi.call("GET", "/api/customers")).find((c) => c.name === "QA អតិថិជន បុរី");
+    must(S.boreyCust?.address === full && S.boreyCust.zone === "inside", `saved ${JSON.stringify({ a: S.boreyCust?.address, z: S.boreyCust?.zone })}`);
+  });
+  await step(A, "B smart search: «485», «16-545-485», «+855 16 545 485», Khmer digits, «បុរី 485» all find 016 545 485", page, async () => {
+    await page.goto(`${BASE}/app/customers`); await idle(page);
+    const box = page.locator('input[type="search"]').first();
+    for (const q of ["485", "16-545-485", "+855 16 545 485", "០១៦ ៥៤៥ ៤៨៥", "បុរី 485"]) {
+      await box.fill(q); await sleep(500);
+      must(await page.getByText("QA អតិថិជន បុរី").count() > 0, `«${q}» found nothing`);
+    }
+    await box.fill("QA 999999"); await sleep(500); must(await page.getByText("QA អតិថិជន បុរី").count() === 0, "a wrong number still finds the customer");
+  });
+  await step(A, "C one «កែ» screen: service lines + qty, a new time asks who + why → saved, history, technician told", page, async () => {
+    const b = await adminApi.call("POST", "/api/bookings", { customer_id: S.boreyCust.id, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", service_item_id: AC.id, ...window(4, 9, 60) });
+    await adminApi.call("POST", `/api/bookings/${b.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+    S.editJob = b.id;
+    await page.goto(`${BASE}/app/bookings/${b.id}/edit`); await idle(page);
+    await page.locator('input[name="line_qty_0"]').fill("2");
+    await page.locator('[data-testid="line-add"]').click(); await page.locator('select[name="line_item_1"]').selectOption(EL.id);
+    await page.locator('input[name="start"]').fill("13:00"); await page.locator('input[name="end"]').fill("15:00");
+    await page.locator('[data-testid="resched-box"]').waitFor({ timeout: 5_000 });
+    await page.locator('[data-testid="who-customer"]').click(); await page.locator('input[name="resched_reason"]').fill("អតិថិជនស្នើម៉ោងរសៀល");
+    await page.locator('[data-testid="crew-list"]').waitFor({ timeout: 10_000 });
+    await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "booking-edit-360"); await page.setViewportSize({ width: 1280, height: 800 });
+    await page.locator('[data-testid="booking-save"]').click(); await page.waitForURL(new RegExp(`/app/bookings/${b.id}$`), { timeout: 15_000 });
+    const after = await adminApi.call("GET", `/api/bookings/${b.id}`);
+    must(after.web_lines?.length === 2 && after.web_lines[0].qty === 2, `lines ${JSON.stringify(after.web_lines)}`);
+    const h = await adminApi.call("GET", `/api/bookings/${b.id}/reschedules`);
+    must(h.length === 1 && h[0].reason === "អតិថិជនស្នើម៉ោងរសៀល" && h[0].requested_by === "customer", `history ${JSON.stringify(h)}`);
+    must(Number(sql(`select count(*) from notifications where kind = 'booking.rescheduled' and user_id = '${S.u.jang2.id}'`)) > 0, "the technician was not told");
+  });
+  await step(A, "C locks: a finished job's «កែ» takes the note only", page, async () => {
+    sql(`update bookings set status = 'on_site' where id = '${S.editJob}'`); sql(`update bookings set status = 'work_done' where id = '${S.editJob}'`);
+    await page.goto(`${BASE}/app/bookings/${S.editJob}/edit`); await page.locator('[data-testid="edit-lock"]').waitFor({ timeout: 10_000 });
+    must(await page.locator('input[name="start"]').isDisabled(), "the time is still editable on a finished job");
+    must(!(await page.locator('input[name="notes"]').isDisabled()), "the note is locked");
+  });
+  // a job on site now for QA ជាង ២ (materials + added work), and his next job right after it
+  const onSite = await adminApi.call("POST", "/api/bookings", { customer_id: S.boreyCust.id, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...window(6, 9, 60) });
+  await adminApi.call("POST", `/api/bookings/${onSite.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+  const now0 = new Date(Date.now() - 30 * 60_000); now0.setSeconds(0, 0);
+  sql(`update bookings set scheduled_at = '${now0.toISOString()}', ends_at = '${new Date(now0.getTime() + 60 * 60_000).toISOString()}' where id = '${onSite.id}'`);
+  for (const stepName of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: stepName, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
+  const cat2 = await ceoApi.call("GET", "/api/catalog"), pipe = (Array.isArray(cat2) ? cat2 : cat2.items).find((x) => x.code === "14001");
+  await step(A, "E4 the Admin records a job's materials too (with who recorded each line)", page, async () => {
+    must(pipe, "the stock items of the new chart (14001 …) are missing");
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-rows"]').waitFor({ timeout: 10_000 });
+    await page.locator('select[name="mat_pick"]').selectOption(pipe.id); await page.locator('button[aria-label="បន្ថែម"]').first().click();
+    await page.locator('[data-testid="mat-save"]').click(); await idle(page);
+    const m = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
+    must(m.length === 1 && m[0].added_by_name === "QA រដ្ឋបាល", `materials ${JSON.stringify(m)}`);
+  });
+  const next = await adminApi.call("POST", "/api/bookings", { customer_id: S.boreyCust.id, type: "A", category: "mep", service_text: "ការងារបន្ទាប់", zone: "inside",
+    scheduled_at: new Date(now0.getTime() + 90 * 60_000).toISOString(), ends_at: new Date(now0.getTime() + 150 * 60_000).toISOString() });
+  await adminApi.call("POST", `/api/bookings/${next.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+  const techDev = await device({ ip: 77 });
+  await step(A, "F the technician adds a catalog service (+qty) and «ការងារផ្សេងៗ» with a photo — no price; the job runs into his next one → warned", techDev.page, async () => {
+    const p = techDev.page;
+    await uiLogin(p, "jang2", j2.pw);
+    await p.goto(`${BASE}/app/tech/job/${onSite.id}`); await p.locator('[data-testid="extra-add"]').waitFor({ timeout: 15_000 });
+    await p.locator('select[name="extra_item"]').selectOption(EL.id); await p.locator('input[name="extra_qty"]').fill("1");
+    await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-overlap"]').waitFor({ timeout: 10_000 });
+    await p.locator('[data-testid="extra-mode-other"]').click(); await p.locator('textarea[name="extra_text"]').fill("ប្ដូរខ្សែភ្លើងចាស់ ២ ម៉ែត្រ");
+    await p.locator('[data-testid="extra-photo"]').setInputFiles(PHOTOS[0]); await sleep(1500);
+    await p.locator('[data-testid="extra-add"]').click(); await idle(p);
+    must(await p.locator('[data-testid="extra-flag"]').count() >= 2, "the added lines are not flagged «បន្ថែមដោយជាង»");
+    must(!(await p.locator('[data-testid="extra-list"]').innerText()).includes("$"), "the technician sees a price");
+    await fits(p, "tech-extras-360");
+    must(Number(sql(`select count(*) from notifications where kind = 'job.extra_clash' and user_id = '${S.u.admin1.id}'`)) > 0, "Admin was not told about the clash");
+  });
+  await step(A, "F Admin reviews before the invoice: the service at its catalog price, the other work priced by hand; audited", page, async () => {
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="extras-review"]').waitFor({ timeout: 10_000 });
+    await page.locator('[data-testid="extras-waiting"]').waitFor();
+    await page.locator('[data-testid="extra-confirm"]').first().click(); await idle(page); await sleep(600);
+    const row = page.locator('[data-testid="extras-review"] li').filter({ hasText: "ប្ដូរខ្សែភ្លើងចាស់" });
+    await row.locator('input[name^="extra_price_"]').fill("8"); await row.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
+    const x = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).extras;
+    must(x.length === 2 && x.every((e) => e.status === "confirmed") && x[1].unit_price === 800, `extras ${JSON.stringify(x.map((e) => [e.status, e.unit_price]))}`);
+    must(Number(sql(`select count(*) from audit_log where action = 'job.extra_review'`)) >= 2, "no review audit");
+  });
+  await step(A, "E2 cancel with recorded materials asks «សម្ភារៈបានប្រើរួចឬទេ?» → yes → the confirm list as a job cost; the dashboard counts it", page, async () => {
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="cancel-btn"]').click();
+    const dlg = page.locator('[role="dialog"]').last();
+    await dlg.locator("textarea").fill("អតិថិជនឈប់ពាក់កណ្ដាល"); await dlg.locator('[data-testid="materials-used"]').waitFor({ timeout: 10_000 });
+    must(await page.locator('[data-testid="cancel-submit"]').isDisabled(), "cancel allowed without the materials answer");
+    await dlg.locator('[data-testid="materials-used-yes"]').click(); await page.locator('[data-testid="cancel-submit"]').click(); await idle(page); await sleep(800);
+    await page.goto(`${BASE}/app/inventory?tab=jobs`); await page.getByText("បោះបង់ · ថ្លៃដើមការងារ").first().waitFor({ timeout: 10_000 });
+    await page.goto(`${BASE}/app/`); await page.getByText(/សម្ភារៈរង់ចាំបញ្ជាក់ \(\d+\)/).first().waitFor({ timeout: 10_000 });
+  });
+  await step(A, "D-141 chart: group headers, «បន្ថែមដោយប្រព័ន្ធ», the client's names · stock item → its stock account (14000)", S.cfo.page, async () => {
+    const p = S.cfo.page;
+    await p.goto(`${BASE}/app/accounting`); await p.locator('[data-testid="tab-accounts"]').click().catch(() => {}); await idle(p);
+    await p.locator('[data-testid="acc-group"]').first().waitFor({ timeout: 10_000 });
+    must(await p.locator('[data-testid="acc-group"]').count() === 10, `group rows ${await p.locator('[data-testid="acc-group"]').count()}`);
+    must(await p.getByText("បន្ថែមដោយប្រព័ន្ធ").count() === 7, `added-by-system badges ${await p.getByText("បន្ថែមដោយប្រព័ន្ធ").count()}`);
+    must(await p.getByText("សាច់ប្រាក់នៅបេលា").count() > 0, "11001 «សាច់ប្រាក់នៅបេលា» missing");
+    must(pipe.inventory_account_id && sql(`select code from accounts where id = '${pipe.inventory_account_id}'`) === "14000", "14001 is not on 14000");
+  });
+  await step(A, "stock guide: on «របៀបប្រើ» for the Admin (PDF) and in the all-guide's Admin tab (CEO)", page, async () => {
+    await page.goto(`${BASE}/app/guide`); await page.locator('[data-testid="guide-doc-stock"]').waitFor({ timeout: 10_000 });
+    const r = await adminApi.rc.fetch("/api/guide/pdf/stock"); must(r.ok() && (await r.body()).subarray(0, 4).toString() === "%PDF", `stock.pdf ${r.status()}`);
+    const tr = await j2.rc.fetch("/api/guide/pdf/stock"); must(tr.status() === 403, `technician got the stock guide: ${tr.status()}`);
+  });
+  await techDev.ctx.close();
+}
+
 // ---------------------------------------------------------------- summary
-rec("13 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
-rec("13 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));
+rec("14 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
+rec("14 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));
 const pass = results.filter((r) => r.pass).length;
 const table = results.map((r) => `${r.pass ? "PASS" : "FAIL"} | ${r.area} | ${r.name} | ${r.detail.replace(/\|/g, "/")}`).join("\n");
 writeFileSync(join(WORK, "results.txt"), `${pass}/${results.length} passed\n${table}\n`);

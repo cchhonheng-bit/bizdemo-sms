@@ -16,7 +16,7 @@ up_wait() { for _ in $(seq 1 60); do curl -sf "http://127.0.0.1:$1/healthz" > /d
 case "${1:-}" in
   up)
     umask 077; mkdir -p "$T"; chmod 700 "$T"
-    IMG=$(grep -m1 '^IMAGE_ONETEAM=' images.env | cut -d= -f2)
+    IMG=${STAGING_IMAGE:-$(grep -m1 '^IMAGE_ONETEAM=' images.env | cut -d= -f2)} # a build not live yet: STAGING_IMAGE=hangkh/app:<sha>
     NET=$(docker network ls --format '{{.Name}}' | grep -m1 'default$')
     LIVE=$(docker ps --format '{{.Names}}' | grep -m1 'app-oneteam')
     FEAT=$(docker inspect "$LIVE" --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^FEATURES=//p')
