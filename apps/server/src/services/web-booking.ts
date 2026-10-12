@@ -320,7 +320,7 @@ async function stillFree(db: Db, companyId: string, bookingId: string, start: Da
   return freeFor(await loadCapacity(db, companyId, start, end, bookingId), start.getTime(), end.getTime(), team);
 }
 /** CEO 04-10: «confirm» = confirmed + assigned + the technicians told, in one step (the dialog has the job length + the crew picker) */
-export type ConfirmInput = { minutes?: number; lead?: string | null; assistants?: string[]; vehicle_id?: string | null }; // D-137: the vehicle is chosen with the crew
+export type ConfirmInput = { minutes?: number; lead?: string | null; assistants?: string[]; vehicle_id?: string | null; overrides?: { user_id: string; reason: string }[] }; // D-137: the vehicle is chosen with the crew
 export async function decideWebBooking(user: SessionUser, ip: string | null, requestId: string, decision: "confirm" | "decline", reason = "", o: ConfirmInput = {}) {
   const minutes = o.minutes;
   const done = await tx(user.id, async (t) => {
@@ -340,7 +340,7 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
       }
       // the crew for the (new) length: every availability rule runs; assigning a waiting website booking confirms it (D-96) and
       // queues the job message for the group + each technician — all or nothing with the confirmation
-      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: o.vehicle_id ?? null, scheduled_at: null, ends_at: null })).account;
+      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: o.vehicle_id ?? null, scheduled_at: null, ends_at: null, overrides: o.overrides })).account;
     } else { // cancelled with the reason: the slot is free again; the request closes as «declined» inside
       await cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, r.booking_id, reason);
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_decline", table: "bookings", rowId: r.booking_id, new: { web_status: "declined", reason }, ip });

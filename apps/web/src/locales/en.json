@@ -144,7 +144,8 @@
       "NOT_FOUND": "This request was already handled",
       "FORBIDDEN": "You have no permission",
       "TECH_NOT_FREE": "No technician is free for that length",
-      "TEAM_REQUIRED": "Pick at least 1 technician"
+      "TEAM_REQUIRED": "Pick at least 1 technician",
+      "TECH_IN_PROGRESS": "The technician is on another job right now — finish that job first"
     },
     "waiting_hint": "Online booking — waiting for an answer. Confirm or decline it on the «Customer requests» page.",
     "minutes": "Length (minutes)",
@@ -567,7 +568,9 @@
       "BOREY_NOT_FOUND": "Borey not found",
       "BOREY_EXISTS": "A borey with this name already exists",
       "END_REQUIRED": "Please set the end time",
-      "INVALID_PHONE": "Invalid phone number (9 or 10 digits)"
+      "INVALID_PHONE": "Invalid phone number (9 or 10 digits)",
+      "TECH_IN_PROGRESS": "The technician is on another job right now — finish that job first",
+      "FINISH_TIME": "Invalid finish time (not in the future, not before a step already pressed)"
     },
     "service_item": "Service (from catalog)",
     "service_item_hint": "Sets the job length: {{minutes}} min",
@@ -633,7 +636,19 @@
     "location_from_customer": "From the customer's address · change it when the job is somewhere else",
     "vehicle_in_assign": "The vehicle is chosen when assigning the technicians",
     "len_h": "{{n}} h",
-    "len_min": "{{n}} min"
+    "len_min": "{{n}} min",
+    "busy_working": "Busy {{time}} · in progress",
+    "busy_finished": "Finished {{time}}",
+    "override": "This technician already finished the earlier job",
+    "override_ask": "Has {{name}} already finished the earlier job? Write the reason (kept in the audit log)",
+    "override_reason": "e.g. the technician phoned to say it is done",
+    "override_ok": "Confirm and pick this technician",
+    "in_progress_hint": "On that job right now — finish it first («Finish for the technician» on that job)",
+    "finish_for": "Finish for the technician",
+    "finish_for_hint": "Did {{names}} finish without pressing «Finish»? Enter the real finish time — they are free for other jobs at once and can still send the report",
+    "finish_at": "Actual finish time",
+    "finish_note": "Note (optional)",
+    "finished_ok": "Finish recorded — the technician is free"
   },
   "tech": {
     "hello": "Hello {{name}}",

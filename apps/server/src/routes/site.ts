@@ -12,7 +12,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { formatKhPhone, isAllowedMapsHost, isNight, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
+import { formatKhPhone, isAllowedMapsHost, isNight, overridesSchema, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { clock } from "../lib/clock.js";
@@ -293,7 +293,7 @@ export const requestsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/done", guard, async (req) => markRequestDone(req.user!, req.ip, id(req)));
   /** confirm = confirmed + assigned + technicians told (CEO 04-10); the job length may change here too (D-106, minutes) */
   app.post("/:id/confirm", decide, async (req) => {
-    const b = z.object({ minutes: z.number().int().min(15).max(1440).optional(), lead: uuid.nullable().optional(), assistants: z.array(uuid).max(10).optional(), vehicle_id: uuid.nullable().optional() }).strict().parse(req.body ?? {});
+    const b = z.object({ minutes: z.number().int().min(15).max(1440).optional(), lead: uuid.nullable().optional(), assistants: z.array(uuid).max(10).optional(), vehicle_id: uuid.nullable().optional(), overrides: overridesSchema }).strict().parse(req.body ?? {});
     const r = await decideWebBooking(req.user!, req.ip, id(req), "confirm", "", b); flush(req); return r;
   });
   app.post("/:id/decline", decide, async (req) => { const r = await decideWebBooking(req.user!, req.ip, id(req), "decline", reason(req, true)); flush(req); return r; });

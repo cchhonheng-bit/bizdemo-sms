@@ -57,10 +57,13 @@ export type GuideData = {
 };
 export type Vehicle = { id: string; code: string; plate: string | null; owner_user_id: string | null; is_active: boolean };
 export type Notification = { id: number; kind: string; title: string; body: string | null; link: string | null; read_at: string | null; created_at: string };
-export type Busy = { number: string; scheduled_at: string; ends_at: string };
+/** D-139: ends_at = the end of the busy window (earliest of planned end, actual finish, release); state = what staff see */
+export type Busy = { number: string; scheduled_at: string; ends_at: string; booking_id?: string; finished_at?: string | null; state?: "finished" | "in_progress" | "booked" };
+/** D-139: «ជាងនេះបញ្ចប់ការងារមុនហើយ» confirmed for a busy technician, with the reason */
+export type Override = { user_id: string; reason: string };
 /** R1: who and what is free for a time window (reason BUSY today; leave/absence with M4) */
 export type Availability = {
-  people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[]; away: { kind: "leave" | "absent"; starts_at: string; ends_at: string } | null }[];
+  people: { user_id: string; full_name: string; role: string; available: boolean; reason: string | null; busy: Busy[]; can_override?: boolean; away: { kind: "leave" | "absent"; starts_at: string; ends_at: string } | null }[];
   vehicles: { id: string; code: string; plate: string | null; available: boolean; reason: string | null; busy: Busy[] }[];
 };
 export type Reschedule = { id: number; old_start: string | null; old_end: string | null; new_start: string; new_end: string; requested_by: string; reason: string; at: string; by_name: string | null };
@@ -242,8 +245,10 @@ export const api = {
   createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id?: string | null; notes: string | null; warranty_of?: string | null; unit_ids?: string[] }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
-  assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null }) =>
-    post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "" }),
+  assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null; overrides?: Override[] }) =>
+    post<{ id: string; status: BookingStatus }>(`/api/bookings/${v.id}/assign`, { lead: v.lead ?? "", assistants: v.assistants, vehicle_id: v.vehicle_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", ...(v.overrides?.length ? { overrides: v.overrides } : {}) }),
+  /** D-139: Admin / GM record the actual finish for the technician */
+  finishForTechnician: (id: string, at: string, note?: string) => post<{ id: string; finished_at: string }>(`/api/bookings/${id}/finish`, { at, ...(note ? { note } : {}) }),
   availability: (from: string, to: string, exclude?: string) => get<Availability>(`/api/bookings/availability${q({ from, to, exclude })}`),
   rescheduleBooking: (id: string, v: { scheduled_at: string; ends_at: string | null; requested_by: string; reason: string }) => post<{ id: string }>(`/api/bookings/${id}/reschedule`, { ...v, ends_at: v.ends_at ?? "" }),
   rescheduleHistory: (id: string) => get<Reschedule[]>(`/api/bookings/${id}/reschedules`),
@@ -360,7 +365,7 @@ export const api = {
     act: (id: string, action: "done" | "decline" | "approve" | "reject", reason?: string) => post<{ ok: true }>(`/api/requests/${id}/${action}`,
       action === "decline" || action === "reject" ? { reason: reason ?? "" } : {}),
     /** CEO 04-10: confirm = confirmed + assigned + technicians told (the job length may change too) */
-    confirm: (id: string, v: { minutes?: number; lead: string | null; assistants: string[]; vehicle_id?: string | null }) => post<{ ok: true }>(`/api/requests/${id}/confirm`, v),
+    confirm: (id: string, v: { minutes?: number; lead: string | null; assistants: string[]; vehicle_id?: string | null; overrides?: Override[] }) => post<{ ok: true }>(`/api/requests/${id}/confirm`, v),
   },
   accounting: {
     info: () => get<BooksInfo>("/api/accounting/lock"),

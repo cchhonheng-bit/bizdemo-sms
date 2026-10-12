@@ -130,6 +130,9 @@ export const bookingSchema = z.object({
 });
 export type BookingInput = z.infer<typeof bookingSchema>;
 
+/** D-139: «finished the earlier job early» overrides in the crew picker (assign, request confirm) */
+export const overridesSchema = z.array(z.object({ user_id: z.string().uuid(), reason: z.string().trim().min(3, "REASON_REQUIRED").max(200, "TOO_LONG") }).strict()).max(10).optional();
+
 /** R5: lead technician (មេជាង) optional · at least ONE technician · crew 1..n */
 export const assignSchema = z.object({
   lead: z.string().uuid().optional().or(z.literal("")).nullable(),
@@ -138,6 +141,8 @@ export const assignSchema = z.object({
   /** D2: the agreed time is kept; a different time here is refused (USE_RESCHEDULE) */
   scheduled_at: z.string().optional().or(z.literal("")),
   ends_at: z.string().optional().or(z.literal("")),
+  /** D-139: busy technicians Admin / GM confirm as «ជាងនេះបញ្ចប់ការងារមុនហើយ» — a reason each (audited) */
+  overrides: overridesSchema,
 })
   .refine((v) => !v.lead || !v.assistants.includes(v.lead), { message: "LEAD_IN_ASSISTANTS", path: ["assistants"] })
   .refine((v) => !!v.lead || v.assistants.length > 0, { message: "TEAM_REQUIRED", path: ["assistants"] });

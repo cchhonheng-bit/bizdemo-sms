@@ -52,6 +52,7 @@ export async function recordCheckpoint(user: SessionUser, perms: string[], ip: s
       values (${id}, ${b.company_id}, ${v.step}::checkpoint_step, ${when}, ${noGps ? null : (v.lat ?? null)}, ${noGps ? null : (v.lng ?? null)}, ${noGps ? null : (v.accuracy ?? null)}, ${noGps}, ${v.offline === true}, ${user.id})`;
     const next = STATUS_AFTER[v.step];
     if (next && b.status !== next) await t`update bookings set status = ${next}::booking_status where id = ${id}`;
+    if (v.step === "finish") await t`update bookings set finished_at = ${when} where id = ${id}`; // D-139: free from the actual finish
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.checkpoint", table: "bookings", rowId: id, new: { step: v.step, at: when, no_gps: noGps, offline: v.offline === true }, ip });
     // FR-1001: the work group sees departed / arrived / finished
     const icon = { depart: "🚐 ចេញដំណើរ", arrive: "📍 ដល់ទីតាំង", finish: "✅ បញ្ចប់ការងារ" } as Partial<Record<Step, string>>;
@@ -60,6 +61,31 @@ export async function recordCheckpoint(user: SessionUser, perms: string[], ip: s
       if (group) await enqueue(t, b.company_id, group, `${icon[v.step]} · ${b.number}\n👷 ${user.fullName} · ${fmtLocal(when, b.timezone || "Asia/Phnom_Penh").slice(-5)}${noGps ? " · ⚠️ គ្មាន GPS" : ""}`, null, `cp:${id}:${v.step}`);
     }
     return { step: v.step, at: when, duplicate: false };
+  });
+}
+
+/** D-139 (CEO): Admin / GM record the actual finish for the technician (he did not press «បញ្ចប់») — the job becomes work_done
+ *  (the technician still sends his report), he is free from that time; audited, the work group is told like any finish */
+export async function finishForTechnician(user: SessionUser, ip: string | null, id: string, v: { at: string; note?: string | null }) {
+  return tx(user.id, async (t) => {
+    const b = (await t<Booking[]>`select b.id, b.company_id, b.number, b.status, b.scheduled_at, c.timezone from bookings b join companies c on c.id = b.company_id
+      where b.id = ${id} and b.company_id = ${user.companyId} for update of b`)[0];
+    if (!b) throw notFound();
+    const path: Record<string, string[]> = { assigned: ["on_site", "work_done"], en_route: ["working", "work_done"], on_site: ["work_done"], working: ["work_done"] };
+    if (!path[b.status]) throw new AppError("BOOKING_LOCKED", 400);
+    const when = new Date(v.at);
+    const last = (await t<{ at: Date }[]>`select max(at) as at from booking_checkpoints where booking_id = ${id}`)[0]?.at ?? null;
+    // the real time: not in the future, not older than 48 h (as an offline press), not before a step already pressed
+    if (Number.isNaN(when.getTime()) || when.getTime() > Date.now() + 60_000 || when.getTime() < Date.now() - 48 * 3600_000 || (last && when < last)) throw new AppError("FINISH_TIME", 400);
+    for (const s of path[b.status]!) await t`update bookings set status = ${s}::booking_status where id = ${id}`;
+    await t`insert into booking_checkpoints (booking_id, company_id, step, at, no_gps, offline, by_user) values (${id}, ${b.company_id}, 'finish', ${when}, true, false, ${user.id})`;
+    await t`update bookings set finished_at = ${when} where id = ${id}`;
+    await audit(t, { companyId: b.company_id, userId: user.id, action: "job.finish_for", table: "bookings", rowId: id, old: { status: b.status }, new: { finished_at: when, note: v.note?.trim() || null }, ip });
+    if (!(await isTestBooking(t, id))) {
+      const group = (await t<{ g: string | null }[]>`select telegram_group_chat_id as g from company_settings where company_id = ${b.company_id}`)[0]?.g;
+      if (group) await enqueue(t, b.company_id, group, `✅ បញ្ចប់ការងារ · ${b.number}\n👤 ${user.fullName} (ជំនួសជាង) · ${fmtLocal(when, b.timezone || "Asia/Phnom_Penh").slice(-5)}`, null, `cp:${id}:finish`);
+    }
+    return { id, status: "work_done" as const, finished_at: when };
   });
 }
 

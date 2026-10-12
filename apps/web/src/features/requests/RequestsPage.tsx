@@ -16,7 +16,7 @@ import { Badge, Button, Card, Dialog, Empty, ErrorState, Field, Input, Select, S
 import { formatKhPhone } from "@sms/shared";
 import { toast } from "@/lib/toast";
 import { CrewList } from "@/features/bookings/CrewPicker";
-import { crewOf, useCrewAvailability } from "@/features/bookings/crew";
+import { crewOf, overridesFor, setOverride, useCrewAvailability } from "@/features/bookings/crew";
 import { isPastLocal, timeRange } from "@/features/bookings/time";
 
 const when = (s: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(s));
@@ -129,10 +129,11 @@ function ConfirmBookingDialog({ r, onClose }: { r: ServiceRequest; onClose: () =
   const windowOk = !!from && !isPastLocal(from);
   const { q, people, free, vehicles } = useCrewAvailability(from, to, r.booking_id ?? undefined);
   const [vehicle, setVehicle] = useState(""); // D-137: the vehicle is chosen here, with the crew
+  const [overrides, setOverrides] = useState<Record<string, string>>({}); // D-139
   const freeVehicles = vehicles.filter((v) => v.available);
-  const { crew, lead: leadOk } = crewOf(free, team, lead);
+  const { crew, lead: leadOk } = crewOf(free, team, lead, overrides);
   const save = useMutation({
-    mutationFn: () => api.requests.confirm(r.id, { ...(minutesOk && m !== lengthOf(r) ? { minutes: m } : {}), lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null }),
+    mutationFn: () => api.requests.confirm(r.id, { ...(minutesOk && m !== lengthOf(r) ? { minutes: m } : {}), lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, ...(Object.keys(overrides).length ? { overrides: overridesFor(crew, overrides) } : {}) }),
     onSuccess: () => { toast.success(t("requests.ok.confirm")); void qc.invalidateQueries({ queryKey: ["requests"] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); onClose(); },
     onError: (e) => { toast.error(t(`requests.err.${errCode(e)}`, { defaultValue: t("app.error") })); void q.refetch(); },
   });
@@ -151,7 +152,7 @@ function ConfirmBookingDialog({ r, onClose }: { r: ServiceRequest; onClose: () =
       </Field>
       <Field label={t("booking.crew")} required hint={t("booking.crew_hint")}>
         {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p>
-          : <CrewList people={people} loading={q.isLoading && !q.data} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} />}
+          : <CrewList people={people} loading={q.isLoading && !q.data} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} overrides={overrides} onOverride={(id, r) => setOverrides((o) => setOverride(o, id, r))} />}
       </Field>
       {windowOk && vehicles.length > 0 && (
         <Field label={t("booking.vehicle")} hint={freeVehicles.length < vehicles.length ? t("booking.vehicles_busy_hidden") : undefined}>

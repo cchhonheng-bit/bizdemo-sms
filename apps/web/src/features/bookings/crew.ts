@@ -8,6 +8,12 @@ import { isPastLocal } from "./time";
 export type Person = Availability["people"][number];
 
 /** who is free for [from, to) (the booking itself excluded); off when the window is missing or already past */
+/** D-139: the overrides as the API takes them — only for people still in the crew */
+export const overridesFor = (crew: string[], o: Record<string, string>) => Object.entries(o).filter(([u]) => crew.includes(u)).map(([user_id, reason]) => ({ user_id, reason }));
+export function setOverride(o: Record<string, string>, id: string, reason: string | null): Record<string, string> {
+  const next = { ...o }; if (reason) next[id] = reason; else delete next[id]; return next;
+}
+
 export function useCrewAvailability(from: string | null, to: string | null, exclude?: string) {
   const ok = !!from && !!to && !isPastLocal(from);
   // while the job length is being typed the last answer stays on screen (no empty list flashing)
@@ -16,8 +22,8 @@ export function useCrewAvailability(from: string | null, to: string | null, excl
   return { ok, q, people, free: people.filter((p) => p.available), vehicles: q.data?.vehicles ?? [] };
 }
 
-/** the picked people still free for the window, and the lead among them */
-export function crewOf(free: Person[], team: string[], lead: string) {
-  const crew = team.filter((u) => free.some((p) => p.user_id === u));
+/** the picked people still free for the window (or confirmed «finished the earlier job early», D-139), and the lead among them */
+export function crewOf(free: Person[], team: string[], lead: string, overrides: Record<string, string> = {}) {
+  const crew = team.filter((u) => free.some((p) => p.user_id === u) || !!overrides[u]);
   return { crew, lead: lead && crew.includes(lead) ? lead : "" };
 }

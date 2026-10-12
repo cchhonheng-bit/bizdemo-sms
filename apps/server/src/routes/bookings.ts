@@ -6,7 +6,7 @@ import { sql } from "../db.js";
 import { assignBooking, availability, cancelBooking, createBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
-import { addPhoto, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
+import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
 const iso = z.string().datetime({ offset: true });
@@ -55,11 +55,20 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  // D-139: Admin / GM record the actual finish for the technician → he is free from that time
+  app.post("/:id/finish", async (req) => {
+    if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
+    const b = z.object({ at: iso, note: z.string().trim().max(200).optional().nullable() }).strict().parse(req.body ?? {});
+    const r = await finishForTechnician(req.user!, req.ip, idParam.parse(req.params).id, b);
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
+  });
+
   app.post("/:id/assign", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
     const a = assignSchema.parse(req.body);
     const r = await assignBooking(req.user!, req.ip, idParam.parse(req.params).id, {
-      lead: a.lead || null, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at || null, ends_at: a.ends_at || null,
+      lead: a.lead || null, assistants: [...new Set(a.assistants)], vehicle_id: a.vehicle_id || null, scheduled_at: a.scheduled_at || null, ends_at: a.ends_at || null, overrides: a.overrides,
     });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // deliver right away; cron is the backstop (D-15)
     return r;

@@ -95,26 +95,32 @@ function window(start: Date | null, end: Date | null, minutes: number): { start:
 }
 
 // ---------- R1/R2 availability ------------------------------------------------------------------------
-type Busy = { number: string; scheduled_at: Date; ends_at: Date };
+/** D-139: the busy window ends at the earliest of the planned end, the actual finish and a release (ends_at = that end); the state
+ *  says what staff see: finished (at finished_at), in progress (checked in, no finish — never overridden) or simply booked */
+type Busy = { booking_id: string; number: string; scheduled_at: Date; ends_at: Date; planned_end: Date; finished_at: Date | null; state: "finished" | "in_progress" | "booked" };
+const BUSY_STATE = (t: Db) => t`case when b.finished_at is not null then 'finished' when b.status in ('on_site', 'working') then 'in_progress' else 'booked' end`;
 
-/** technicians (active tech/gm) on another non-cancelled booking overlapping [from, to) */
+/** technicians (active tech/gm) on another non-cancelled booking whose busy window overlaps [from, to) */
 async function busyPeople(t: Db, companyId: string, from: Date, to: Date, exclude: string | null, ids?: string[]) {
   return t<(Busy & { user_id: string; full_name: string })[]>`
-    select bt.user_id, u.full_name, b.number, b.scheduled_at, b.ends_at from booking_technicians bt
-      join bookings b on b.id = bt.booking_id join users u on u.id = bt.user_id
-    where b.company_id = ${companyId} and b.status <> 'cancelled' and b.scheduled_at is not null
+    select bt.user_id, u.full_name, b.id as booking_id, b.number, b.scheduled_at, upper(bt.during) as ends_at, b.ends_at as planned_end, b.finished_at, ${BUSY_STATE(t)} as state
+    from booking_technicians bt join bookings b on b.id = bt.booking_id join users u on u.id = bt.user_id
+    where b.company_id = ${companyId} and bt.blocking and bt.during is not null and not isempty(bt.during)
       ${exclude ? t`and b.id <> ${exclude}` : t``}
       ${ids ? t`and bt.user_id = any(${t.array(ids)}::uuid[])` : t``}
-      and tstzrange(b.scheduled_at, b.ends_at, '[)') && tstzrange(${from}, ${to}, '[)')
+      and bt.during && tstzrange(${from}, ${to}, '[)')
     order by b.scheduled_at`;
 }
 async function busyVehicles(t: Db, companyId: string, from: Date, to: Date, exclude: string | null, vehicleId?: string) {
   return t<(Busy & { vehicle_id: string; code: string })[]>`
-    select b.vehicle_id, v.code, b.number, b.scheduled_at, b.ends_at from bookings b join vehicles v on v.id = b.vehicle_id
+    select b.vehicle_id, v.code, b.id as booking_id, b.number, b.scheduled_at, upper(booking_busy_range(b.scheduled_at, b.ends_at, b.finished_at, null)) as ends_at,
+      b.ends_at as planned_end, b.finished_at, ${BUSY_STATE(t)} as state
+    from bookings b join vehicles v on v.id = b.vehicle_id
     where b.company_id = ${companyId} and b.status <> 'cancelled' and b.scheduled_at is not null
       ${exclude ? t`and b.id <> ${exclude}` : t``}
       ${vehicleId ? t`and b.vehicle_id = ${vehicleId}` : t``}
-      and tstzrange(b.scheduled_at, b.ends_at, '[)') && tstzrange(${from}, ${to}, '[)')
+      and not isempty(booking_busy_range(b.scheduled_at, b.ends_at, b.finished_at, null))
+      and booking_busy_range(b.scheduled_at, b.ends_at, b.finished_at, null) && tstzrange(${from}, ${to}, '[)')
     order by b.scheduled_at`;
 }
 
@@ -140,8 +146,26 @@ async function assertTeamFree(t: Db, companyId: string, team: string[], start: D
   const b = await busyPeople(t, companyId, start, end, exclude, team);
   if (away.length || b.length) throw new AppError("TECH_UNAVAILABLE", 409, { conflicts: [
     ...away.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: x.kind === "leave" ? "LEAVE" : "ABSENT", number: null, scheduled_at: x.starts_at, ends_at: x.ends_at })),
-    ...b.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: "BUSY", number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at })),
+    ...b.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: "BUSY", number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at, state: x.state, finished_at: x.finished_at })),
   ] });
+}
+
+/** D-139: Admin / GM confirm «ជាងនេះបញ្ចប់ការងារមុនហើយ» (with a reason) for a technician busy on an EARLIER job → that job stops
+ *  holding him at this job's start (released_at, audited). Never for leave / absence, a later job, or a job he is on right now
+ *  (checked in, no finish: finish it first — «បញ្ចប់ជំនួសជាង»). */
+async function releaseForOverride(t: Db, user: SessionUser, ip: string | null, forBooking: { id: string; number: string }, start: Date, end: Date,
+  o: { user_id: string; reason: string }): Promise<void> {
+  if (o.reason.trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
+  if ((await awayPeople(t, user.companyId, start, end, [o.user_id])).length) throw new AppError("TECH_UNAVAILABLE", 409);
+  const busy = await busyPeople(t, user.companyId, start, end, forBooking.id, [o.user_id]);
+  const conflicts = busy.map((x) => ({ user_id: x.user_id, full_name: x.full_name, reason: "BUSY", number: x.number, scheduled_at: x.scheduled_at, ends_at: x.ends_at, state: x.state, finished_at: x.finished_at }));
+  if (busy.some((x) => x.state === "in_progress")) throw new AppError("TECH_IN_PROGRESS", 409, { conflicts });
+  if (busy.some((x) => x.scheduled_at.getTime() >= start.getTime())) throw new AppError("TECH_UNAVAILABLE", 409, { conflicts }); // only an earlier job can be «finished early»
+  for (const x of busy) {
+    await t`update booking_technicians set released_at = ${start} where booking_id = ${x.booking_id} and user_id = ${o.user_id}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.release", table: "bookings", rowId: x.booking_id,
+      old: { ends_at: x.ends_at }, new: { user_id: o.user_id, released_at: start, reason: o.reason.trim(), for_booking: forBooking.number }, ip });
+  }
 }
 
 /** R1: who/what is free for [from, to) — assigners only (F-M2-02). Inactive people are never offered. */
@@ -154,7 +178,7 @@ export async function availability(user: SessionUser, fromIso: string, toIso: st
   const bp = await busyPeople(sql, user.companyId, from, to, exclude);
   const away = await awayPeople(sql, user.companyId, from, to);
   const bv = await busyVehicles(sql, user.companyId, from, to, exclude);
-  const strip = (b: Busy) => ({ number: b.number, scheduled_at: b.scheduled_at, ends_at: b.ends_at });
+  const strip = (b: Busy) => ({ booking_id: b.booking_id, number: b.number, scheduled_at: b.scheduled_at, ends_at: b.ends_at, finished_at: b.finished_at, state: b.state });
   return {
     from, to,
     // D3: approved leave / absence first (LEAVE / ABSENT), then another job (BUSY)
@@ -162,7 +186,9 @@ export async function availability(user: SessionUser, fromIso: string, toIso: st
       const busy = bp.filter((b) => b.user_id === p.id).map(strip);
       const off = away.find((a) => a.user_id === p.id);
       const reason = off ? (off.kind === "leave" ? "LEAVE" : "ABSENT") : busy.length ? "BUSY" : null;
-      return { user_id: p.id, full_name: p.full_name, role: p.role, available: !reason, reason, busy, away: off ? { kind: off.kind, starts_at: off.starts_at, ends_at: off.ends_at } : null };
+      // D-139: Admin / GM may confirm he finished an EARLIER job early (not one he is on right now, not leave)
+      const can_override = reason === "BUSY" && busy.every((b) => b.state !== "in_progress" && b.scheduled_at.getTime() < from.getTime());
+      return { user_id: p.id, full_name: p.full_name, role: p.role, available: !reason, reason, busy, can_override, away: off ? { kind: off.kind, starts_at: off.starts_at, ends_at: off.ends_at } : null };
     }),
     vehicles: vehicles.map((v) => {
       const busy = bv.filter((b) => b.vehicle_id === v.id).map(strip);
@@ -273,7 +299,9 @@ export async function updateBooking(user: SessionUser, ip: string | null, id: st
 // ---------- assign (R1/R2/R3/R5) -------------------------------------------------------------------------
 const ASSIGNABLE: BookingStatus[] = ["new", "quoted", "assigned"];
 
-export type AssignInput = { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null };
+export type AssignInput = { lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null;
+  /** D-139: busy technicians Admin / GM confirmed as «finished the earlier job early» — with the reason */
+  overrides?: { user_id: string; reason: string }[] };
 export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: AssignInput) {
   const out = await tx(user.id, (t) => assignWithin(t, user, ip, id, a));
   if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) }); // the customer record was linked just now
@@ -299,6 +327,7 @@ export async function assignWithin(t: Db, user: SessionUser, ip: string | null, 
   const w = { start: b.scheduled_at, end: b.ends_at };
   assertFuture(w.start);
   // R2: the server decides — busy technicians / vehicle are refused, whatever the UI showed
+  for (const o of a.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start, w.end, o); // D-139
   await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
   if (a.vehicle_id) await assertVehicleFree(t, user.companyId, a.vehicle_id, w.start, w.end, id);
   // old crew out → new time → new crew in (the insert trigger copies the new range onto each row)
@@ -347,6 +376,7 @@ export async function rescheduleBooking(user: SessionUser, ip: string | null, id
     await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
     if (b.vehicle_id) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start!, w.end!, id);
     await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
+    await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
     await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
       values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${r.requested_by}::reschedule_requester, ${r.reason.trim()}, ${user.id})`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,

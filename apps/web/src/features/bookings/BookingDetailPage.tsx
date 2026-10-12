@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ASSIGNABLE_STATUSES, CANCELLABLE_STATUSES, EDITABLE_STATUSES, formatKhPhone, RESCHEDULE_REQUESTERS } from "@sms/shared";
-import { ArrowLeft, Ban, CalendarClock, Pencil, Phone, UserPlus } from "lucide-react";
+import { ArrowLeft, Ban, CalendarClock, CheckCircle2, Pencil, Phone, UserPlus } from "lucide-react";
 import { api, errCode, fmtDate, fmtDateTime, type Booking, type Conflict } from "@/lib/api";
 import { ApiError } from "@/lib/http";
 import { useAuth } from "@/lib/auth";
@@ -16,7 +16,7 @@ import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
 import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
 import { CrewList } from "./CrewPicker";
-import { crewOf, useCrewAvailability } from "./crew";
+import { crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
 
 export default function BookingDetailPage() {
   const { t } = useTranslation();
@@ -26,6 +26,7 @@ export default function BookingDetailPage() {
   const [assign, setAssign] = useState(false);
   const [cancel, setCancel] = useState(false);
   const [resched, setResched] = useState(false);
+  const [finish, setFinish] = useState(false); // D-139
   const b = useQuery({ queryKey: ["booking", id], queryFn: () => api.booking(id!) });
   const log = useQuery({ queryKey: ["booking-log", id], queryFn: () => api.statusLog(id!) });
   const history = useQuery({ queryKey: ["booking-resched", id], queryFn: () => api.rescheduleHistory(id!) });
@@ -39,6 +40,8 @@ export default function BookingDetailPage() {
   const canEdit = can("booking.create") && EDITABLE_STATUSES.includes(bk.status);
   const canCancel = can("cancel.request") && CANCELLABLE_STATUSES.includes(bk.status);
   const canResched = (can("booking.create") || can("booking.assign")) && EDITABLE_STATUSES.includes(bk.status);
+  // D-139: Admin / GM record the actual finish when the technician did not press «បញ្ចប់» → he is free at once
+  const canFinishFor = can("booking.assign") && ["assigned", "en_route", "on_site", "working"].includes(bk.status) && (bk.technicians?.length ?? 0) > 0;
   const lead = bk.technicians?.find((x) => x.role === "lead");
   const crew = bk.technicians?.filter((x) => x.role === "assistant") ?? [];
 
@@ -51,6 +54,7 @@ export default function BookingDetailPage() {
         <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap gap-2">
           {canEdit && <Button onClick={() => nav(`/bookings/${bk.id}/edit`)}><Pencil size={16} /> {t("app.edit")}</Button>}
           {canResched && <Button onClick={() => setResched(true)} data-testid="resched-btn"><CalendarClock size={16} /> {t("booking.reschedule")}</Button>}
+          {canFinishFor && <Button onClick={() => setFinish(true)} data-testid="finish-for-btn"><CheckCircle2 size={16} /> {t("booking.finish_for")}</Button>}
           {canCancel && <Button variant="danger" onClick={() => setCancel(true)} data-testid="cancel-btn"><Ban size={16} /> {t("booking.cancel")}</Button>}
           {canAssign && <Button variant="primary" className="flex-1 sm:flex-none" onClick={() => setAssign(true)} data-testid="assign-btn"><UserPlus size={16} /> {bk.status === "assigned" ? t("booking.reassign") : t("booking.assign")}</Button>}
         </div>
@@ -140,6 +144,7 @@ export default function BookingDetailPage() {
       </div>
       {assign && <AssignDialog booking={bk} onClose={() => setAssign(false)} />}
       {cancel && <CancelDialog booking={bk} onClose={() => setCancel(false)} />}
+      {finish && <FinishForDialog booking={bk} onClose={() => setFinish(false)} />}
       {resched && <RescheduleDialog booking={bk} onClose={() => setResched(false)} />}
     </div>
   );
@@ -155,13 +160,14 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
   const [team, setTeam] = useState<string[]>(booking.technicians?.map((x) => x.user_id) ?? []);
   const [lead, setLead] = useState(booking.technicians?.find((x) => x.role === "lead")?.user_id ?? "");
   const [vehicle, setVehicle] = useState(booking.vehicle_id ?? "");
+  const [overrides, setOverrides] = useState<Record<string, string>>({}); // D-139
   // D2: the crew is picked for the agreed appointment; a different time = Reschedule (who + why)
   const { ok: windowOk, q: avail, people, free, vehicles } = useCrewAvailability(booking.scheduled_at, booking.ends_at, booking.id);
   const freeVehicles = vehicles.filter((v) => v.available);
-  const { crew, lead: leadOk } = crewOf(free, team, lead); // only people still free for the window
+  const { crew, lead: leadOk } = crewOf(free, team, lead, overrides); // only people still free for the window (or confirmed free, D-139)
 
   const m = useMutation({
-    mutationFn: () => api.assignBooking({ id: booking.id, lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, scheduled_at: null, ends_at: null }),
+    mutationFn: () => api.assignBooking({ id: booking.id, lead: leadOk || null, assistants: crew.filter((u) => u !== leadOk), vehicle_id: vehicle && freeVehicles.some((v) => v.id === vehicle) ? vehicle : null, scheduled_at: null, ends_at: null, overrides: overridesFor(crew, overrides) }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking-log", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] });
       api.flushTelegram();
@@ -188,7 +194,7 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
 
       <Field label={t("booking.crew")} required hint={t("booking.crew_hint")}>
         {!windowOk ? <p className="text-sm text-muted">{t("booking.reschedule_first")}</p>
-          : <CrewList people={people} loading={avail.isLoading} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} />}
+          : <CrewList people={people} loading={avail.isLoading} team={crew} lead={leadOk} onTeam={setTeam} onLead={setLead} overrides={overrides} onOverride={(id, r) => setOverrides((o) => setOverride(o, id, r))} />}
       </Field>
       <Field label={t("booking.vehicle")} hint={windowOk && avail.data && freeVehicles.length < avail.data.vehicles.length ? t("booking.vehicles_busy_hidden") : undefined}>
         <Select name="vehicle" value={vehicle} onChange={(e) => setVehicle(e.target.value)} disabled={!windowOk}>
@@ -197,6 +203,40 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
         </Select>
       </Field>
       <p className="text-xs text-muted">{t("booking.assign_notify_hint")}</p>
+    </Dialog>
+  );
+}
+
+/** D-139 — the technician finished but did not press «បញ្ចប់»: Admin / GM write the real finish time (now by default, never in the
+ *  future); the job becomes «ធ្វើរួច», the technician still sends his report, and he is free for other jobs from that time */
+function FinishForDialog({ booking, onClose }: { booking: Booking; onClose: () => void }) {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const now = splitLocal(new Date().toISOString());
+  const [date, setDate] = useState(now.date), [time, setTime] = useState(now.time), [note, setNote] = useState("");
+  const at = date && time ? joinLocal(date, time) : null;
+  const future = !!at && new Date(at).getTime() > Date.now() + 60_000;
+  const m = useMutation({
+    mutationFn: () => api.finishForTechnician(booking.id, at!, note.trim() || undefined),
+    onSuccess: () => {
+      for (const k of [["booking", booking.id], ["booking-log", booking.id], ["bookings"], ["availability"]]) void qc.invalidateQueries({ queryKey: k });
+      api.flushTelegram();
+      toast.success(t("booking.finished_ok"));
+      onClose();
+    },
+    onError: (e) => toast.error(t(`booking.err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  return (
+    <Dialog open onClose={onClose} title={`${t("booking.finish_for")} · ${booking.number}`} footer={<>
+      <Button onClick={onClose}>{t("app.cancel")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" loading={m.isPending} disabled={!at || future} onClick={() => m.mutate()} data-testid="finish-for-submit">{t("booking.finish_for")}</Button>
+    </>}>
+      <p className="text-sm text-muted mb-3">{t("booking.finish_for_hint", { names: (booking.technicians ?? []).map((x) => x.full_name).join(", ") })}</p>
+      <div className="grid grid-cols-2 gap-x-3">
+        <Field label={t("booking.date")}><Input type="date" name="finish_date" value={date} max={now.date} onChange={(e) => setDate(e.target.value)} /></Field>
+        <Field label={t("booking.finish_at")} required error={future ? t("booking.err.FINISH_TIME") : undefined}><Input type="time" step={300} name="finish_time" value={time} onChange={(e) => setTime(e.target.value)} /></Field>
+      </div>
+      <Field label={t("booking.finish_note")}><Input name="finish_note" maxLength={200} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
     </Dialog>
   );
 }

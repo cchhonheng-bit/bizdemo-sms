@@ -36,6 +36,8 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "invoice.discount_approve": T("អនុម័តការបញ្ចុះតម្លៃ", "Discount approved"), "invoice.discount_reject": T("បដិសេធការបញ្ចុះតម្លៃ", "Discount rejected"),
   "invoice.issue": T("ចេញវិក្កយបត្រ", "Invoice issued"), "invoice.update": T("កែវិក្កយបត្រ", "Invoice edited"), "invoice.void": T("មោឃៈវិក្កយបត្រ", "Invoice voided"),
   "invoice.void_reject": T("បដិសេធការមោឃៈវិក្កយបត្រ", "Invoice void rejected"), "invoice.void_request": T("ស្នើមោឃៈវិក្កយបត្រ", "Invoice void requested"),
+  "job.finish_for": T("បញ្ចប់ការងារជំនួសជាង", "Job finished for the technician"),
+  "booking.release": T("ជាងបញ្ចប់ការងារមុន — ដោះលែង", "Technician released — finished the earlier job early"),
   "job.checkpoint": T("ជាងចុចជំហានការងារ", "Technician step"), "job.materials": T("សម្ភារៈប្រើក្នុងការងារ", "Materials used"), "job.photo": T("រូបការងារ", "Job photo"),
   "job.report": T("ផ្ញើរបាយការណ៍ការងារ", "Job report sent"), "job.review": T("ពិនិត្យការងារ", "Job reviewed"), "job.reviewed": T("ការងារបានពិនិត្យ", "Job approved"),
   "job.revision": T("ឲ្យកែការងារ", "Job sent back"), "leave.absent": T("កត់អវត្តមាន", "Absence recorded"), "leave.approve": T("អនុម័តច្បាប់", "Leave approved"),
@@ -106,6 +108,7 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   video: T("វីដេអូ", "Video"), verdict: { ...T("លទ្ធផលពិនិត្យ", "Review"), kind: "verdict" }, comment: T("មតិ", "Comment"),
   open: T("ម៉ោងបើកកក់", "Booking opens"), close: T("ម៉ោងបិទកក់", "Booking closes"), lunch_start: T("សម្រាកពី", "Lunch from"), lunch_end: T("សម្រាកដល់", "Lunch until"),
   until: { ...T("រហូតដល់", "Until"), kind: "time" },
+  finished_at: { ...T("ម៉ោងបញ្ចប់ពិត", "Actual finish"), kind: "time" }, released_at: { ...T("ដោះលែងពេល", "Released at"), kind: "time" }, for_booking: T("សម្រាប់ការងារ", "For job"),
 };
 /** never shown, not even in «លម្អិត»: anything secret (the password rules' yes / no and end time are no secret — D-136) */
 export const AUDIT_SECRET = /^(?!must_change_password$|temp_password_expires_at$).*(password|hash|token|secret|init_data)/i;
