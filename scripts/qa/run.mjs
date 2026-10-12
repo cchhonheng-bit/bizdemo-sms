@@ -619,12 +619,14 @@ const gmDev = await device({ desktop: true });
     const at = new Date(Date.now() + 3 * 3_600_000); at.setMinutes(0, 0, 0);
     const b = await S.adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: "ជួសជុលភ្លើង", scheduled_at: at.toISOString(), ends_at: new Date(new Date(at.toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: "outside", lat: 11.55, lng: 104.92 });
     await S.adminApi.call("POST", `/api/bookings/${b.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+    sql(`update bookings set scheduled_at = now() - interval '30 minutes', ends_at = now() + interval '90 minutes' where id = '${b.id}'`);
     await page.goto(`${BASE}/app/bookings`); await page.locator('[data-testid="filters-toggle"]').click();
     await page.locator('[data-testid="filters"] select').first().selectOption("today"); await idle(page);
     await page.locator('[data-testid="col-assigned"] [data-testid="booking-card"]', { hasText: "QA អតិថិជន ច" }).waitFor({ timeout: 15_000 });
     const j2 = await staffApi("jang2", S.u.jang2.pw);
     await j2.call("POST", `/api/bookings/${b.id}/checkpoint`, { step: "depart", at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
     await page.locator('[data-testid="col-in_progress"] [data-testid="booking-card"]', { hasText: "QA អតិថិជន ច" }).waitFor({ timeout: 25_000 });
+    sql(`update bookings set status = 'cancelled', cancel_reason = 'QA: board check done' where id = '${b.id}'`); // frees QA ជាង ២ for section 13
     await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "board-360"); await page.setViewportSize({ width: 1280, height: 800 });
   });
   await step(A, "catalog: AC cleaning shows 60 min · $15 price · $15 from; edit saves with «កែប្រែចុងក្រោយ»", page, async () => {
@@ -675,6 +677,14 @@ const gmDev = await device({ desktop: true });
     await p.goto(`${BASE}/app/subscribe`); await p.locator('[data-testid="bc-text"]').fill("QA ប្រូម៉ូសិន សាកល្បង — បញ្ចុះតម្លៃ 10%");
     await p.locator('[data-testid="bc-preview"]').click(); await p.locator('[data-testid="bc-shown"]').waitFor({ timeout: 10_000 });
     await p.locator('[data-testid="bc-send"]').click(); await p.locator('[role="dialog"]').last().getByRole("button", { name: "បញ្ជាក់", exact: true }).click(); await idle(p);
+    const ppHour = hourIn("Asia/Phnom_Penh");
+    if (ppHour >= 20 || ppHour < 8) {
+      const q = sqlhub("select count(*) from hub_outbox o join hub_broadcasts b on b.id = o.broadcast_id where b.kind = 'promo' and o.status = 'pending' and o.text like '%QA ប្រូម៉ូសិន%';");
+      must(Number(q) > 0, `night: no promotion waiting in the outbox (${q})`);
+      const sent = (await calls(since)).filter((c) => c.method === "sendMessage" && textOf(c).includes("QA ប្រូម៉ូសិន"));
+      must(sent.length === 0, "a promotion went out at night");
+      return `night in Cambodia (${ppHour}h): ${q} waiting for 08:00, none sent`;
+    }
     const t0 = Date.now(); let got = [];
     while (Date.now() - t0 < 120_000) { got = (await calls(since)).filter((c) => c.method === "sendMessage" && textOf(c).includes("QA ប្រូម៉ូសិន")); if (got.length) break; await sleep(2000); }
     must(got.length > 0, "no promotion delivered (fake Telegram)");
@@ -821,7 +831,8 @@ const gmDev = await device({ desktop: true });
     const days = (await v1.call("GET", `/api/public/slots?items=${AC.id}:1`)).days.filter((d) => d.slots.filter((s) => s.free).length > 0);
     const at = days.at(-1).slots.filter((s) => s.free).at(-1).at;
     // one technician free at that time (the other turned off on the clone for this test): two customers tap at the same moment
-    sql("update users set is_active = false where username = 'jang2'");
+    const others = sql("select string_agg(username, ',') from users where role = 'tech' and is_active and username <> 'jang1'").split(",").filter(Boolean);
+    sql(`update users set is_active = false where username in ('${others.join("','")}')`);
     try {
       await sleep(2600);
       const go = (v, ts, n) => v.raw("POST", "/api/public/bookings", { items: `${AC.id}:1`, at, address: "ផ្ទះលេខ 31", name: `QA ប្រណាំង ${n}`, phone: `01200071${n}`, consent: true, ts });
@@ -829,7 +840,7 @@ const gmDev = await device({ desktop: true });
       const st = r.map((x) => x.status()).sort();
       must(st[0] === 200 && st[1] >= 400, `answers ${st.join(",")}`);
       return `answers ${st.join(",")} · ${(await r.find((x) => x.status() >= 400).text()).slice(0, 80)}`;
-    } finally { sql("update users set is_active = true where username = 'jang2'"); }
+    } finally { if (others.length) sql(`update users set is_active = true where username in ('${others.join("','")}')`); }
   });
   await step(A, "slow network (3G): home and booking still work; a double tap books once", null, async () => {
     const { ctx, page } = await device();
@@ -843,7 +854,7 @@ const gmDev = await device({ desktop: true });
     await page.locator("#gps").click(); await page.locator("#loc-ok:not([hidden])").waitFor({ timeout: 20_000 });
     await page.locator("#next").click(); await page.locator("#s3:not([hidden])").waitFor();
     await page.locator("#name").fill("QA បណ្ដាញយឺត"); await page.locator("#phone").fill("12 000 720");
-    await human(); await Promise.all([page.locator("#send").click(), page.locator("#send").click({ force: true }).catch(() => {})]);
+    await human(); await page.locator("#send").click({ clickCount: 2, delay: 0 });
     await page.locator('body[data-page="done"]').waitFor({ timeout: 60_000 });
     const n = sql("select count(*) from bookings b join customers c on c.id = b.customer_id where '+85512000720' = any(c.phones)");
     must(n === "1", `bookings made: ${n}`);
@@ -878,7 +889,7 @@ const gmDev = await device({ desktop: true });
     const cols360 = await dlg.locator("form").evaluate((f) => getComputedStyle(f).gridTemplateColumns.split(" ").length);
     must(cols360 === 1, `form columns at 360: ${cols360}`);
     await page.setViewportSize({ width: 1280, height: 800 });
-    await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await idle(page);
+    await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await dlg.waitFor({ state: "detached", timeout: 15_000 });
     S.boreyCust = (await adminApi.call("GET", "/api/customers")).find((c) => c.name === "QA អតិថិជន បុរី");
     must(S.boreyCust?.address === full && S.boreyCust.zone === "inside", `saved ${JSON.stringify({ a: S.boreyCust?.address, z: S.boreyCust?.zone })}`);
   });
@@ -925,7 +936,7 @@ const gmDev = await device({ desktop: true });
   const cat2 = await ceoApi.call("GET", "/api/catalog"), pipe = (Array.isArray(cat2) ? cat2 : cat2.items).find((x) => x.code === "14001");
   await step(A, "E4 the Admin records a job's materials too (with who recorded each line)", page, async () => {
     must(pipe, "the stock items of the new chart (14001 …) are missing");
-    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-rows"]').waitFor({ timeout: 10_000 });
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('select[name="mat_pick"]').waitFor({ timeout: 10_000 }); // the list itself is empty (invisible) until a line is added
     await page.locator('select[name="mat_pick"]').selectOption(pipe.id); await page.locator('button[aria-label="បន្ថែម"]').first().click();
     await page.locator('[data-testid="mat-save"]').click(); await idle(page);
     const m = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
@@ -943,7 +954,7 @@ const gmDev = await device({ desktop: true });
     await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-overlap"]').waitFor({ timeout: 10_000 });
     await p.locator('[data-testid="extra-mode-other"]').click(); await p.locator('textarea[name="extra_text"]').fill("ប្ដូរខ្សែភ្លើងចាស់ ២ ម៉ែត្រ");
     await p.locator('[data-testid="extra-photo"]').setInputFiles(PHOTOS[0]); await sleep(1500);
-    await p.locator('[data-testid="extra-add"]').click(); await idle(p);
+    await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-flag"]').nth(1).waitFor({ timeout: 10_000 }).catch(() => {});
     must(await p.locator('[data-testid="extra-flag"]').count() >= 2, "the added lines are not flagged «បន្ថែមដោយជាង»");
     must(!(await p.locator('[data-testid="extra-list"]').innerText()).includes("$"), "the technician sees a price");
     await fits(p, "tech-extras-360");
