@@ -82,7 +82,7 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   scheduled_at: { ...T("ម៉ោងណាត់", "Appointment"), kind: "time" }, ends_at: { ...T("ម៉ោងបញ្ចប់", "Ends"), kind: "time" },
   reason: T("មូលហេតុ", "Reason"), note: T("ចំណាំ", "Note"), notes: T("ចំណាំ", "Notes"), minutes: T("រយៈពេល (នាទី)", "Length (minutes)"),
   materials_used: T("សម្ភារៈបានប្រើ", "Materials used"), lines: T("សេវាកម្ម", "Services"), lead: T("មេជាង", "Lead technician"), assistants: T("ជាងជំនួយ", "Assistants"),
-  unit_price: T("តម្លៃឯកតា", "Unit price"), description: T("ការពិពណ៌នា", "Description"), borey_zone: T("តំបន់ក្នុងបុរី", "Zone in the borey"),
+  description: T("ការពិពណ៌នា", "Description"), borey_zone: T("តំបន់ក្នុងបុរី", "Zone in the borey"),
   province_code: T("ខេត្ត/រាជធានី", "Province"), district_code: T("ខណ្ឌ/ស្រុក", "Khan / district"), commune_code: T("សង្កាត់/ឃុំ", "Sangkat / commune"),
   name: T("ឈ្មោះ", "Name"), name_km: T("ឈ្មោះ", "Name"), name_en: T("ឈ្មោះ (អង់គ្លេស)", "Name (English)"), full_name: T("ឈ្មោះពេញ", "Full name"),
   username: T("ឈ្មោះអ្នកប្រើ", "Username"), role: { ...T("តួនាទី", "Role"), kind: "role" }, phone: T("លេខទូរស័ព្ទ", "Phone"),
