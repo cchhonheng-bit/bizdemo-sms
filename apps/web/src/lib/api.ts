@@ -92,7 +92,7 @@ export type Reminder = { customer_id: string; customer_name: string; phones: str
   last_on: string; due_on: string; status: "overdue" | "due"; days_overdue: number; days_left: number; last_action: string | null; last_note: string | null; last_action_at: string | null; telegram: boolean };
 export type CustomerUnit = { id: string; label: string; kind: string; brand: string | null; model: string | null; location_note: string | null; installed_on: string | null; is_active: boolean };
 export type Invoice = {
-  id: string; customer_phones?: string[]; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
+  id: string; number: string; status: "draft" | "issued" | "void"; notes: string | null; booking_id: string | null; customer_id: string; fx_rate_khr: number;
   discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
   created_at: string; issued_at: string | null; voided_at: string | null; void_reason: string | null; voided_by_name: string | null; created_by_name: string | null; issued_by_name: string | null;
   booking_number: string | null; service_text: string | null; address: string | null; customer_name: string; customer_phones: string[];
@@ -101,7 +101,7 @@ export type Invoice = {
   company: { name: string; company_info: Record<string, string>; has_logo: boolean; has_qr: boolean; fx_now: number };
   can: { issue: boolean; discount: boolean; discount_approve: boolean; pay: boolean; void_request: boolean; void_approve: boolean };
 };
-export type InvoiceRow = { id: string; number: string; status: Invoice["status"]; created_at: string; issued_at: string | null; booking_id: string | null; customer_id: string; customer_name: string;
+export type InvoiceRow = { id: string; number: string; status: Invoice["status"]; created_at: string; issued_at: string | null; booking_id: string | null; customer_id: string; customer_name: string; customer_phones?: string[];
   booking_number: string | null; total: number; paid: number; payment_status: Invoice["payment_status"]; discount_status: Invoice["discount_status"]; void_pending: boolean };
 export type DebtRow = { customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; invoices: number; oldest: string };
 export type InvoicePrefill = { booking_id: string; booking_number: string; customer_id: string; customer_name: string; service_text: string; lines: QuoteLine[] };
