@@ -28,7 +28,8 @@ export default function InvoiceDetailPage() {
   const onErr = (e: unknown) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") }));
   // D-126: the invoice date may be earlier (inside an unlocked period; a reason when more than 3 days back)
   const [issuing, setIssuing] = useState(false);
-  const acctOn = useFeature("accounting") && useAuth((s) => s.can)("accounting.view"); // D-142: «ការកត់ត្រាគណនេយ្យ» (CFO / CEO / Admin)
+  const can = useAuth((st) => st.can), accountingOn = useFeature("accounting");
+  const acctOn = accountingOn && can("accounting.view"); // D-142: «ការកត់ត្រាគណនេយ្យ» (CFO / CEO / Admin)
   const issue = useMutation({ mutationFn: (v: { date?: string; reason?: string }) => api.invoices.issue(id!, v), onSuccess: () => { toast.success(t("invoice.issued_ok")); setIssuing(false); refresh(); }, onError: onErr });
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <ErrorState text={t("app.error")} onRetry={() => void q.refetch()} />;

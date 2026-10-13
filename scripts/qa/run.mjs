@@ -996,9 +996,105 @@ const gmDev = await device({ desktop: true });
   await techDev.ctx.close();
 }
 
+// ================================================================ 14 · D-142 (CEO 13-10): item codes · any product stocked · materials from every item + «សម្ភារៈផ្សេងៗ» · accounting view · month-end · item off
+{
+  const A = "14 D-142", page = adm.page;
+  const adminApi = await staffApi("admin1", S.u.admin1.pw), j2 = await staffApi("jang2", S.u.jang2.pw);
+  const custs = await adminApi.call("GET", "/api/customers");
+  const outsideC = custs.find((c) => c.zone === "outside" && c.is_active);
+  await step(A, "catalog «ធាតុថ្មី»: stock account 14000 → the code fills itself (14xxx, editable); 13001 → the code is the account's and locked", page, async () => {
+    await page.goto(`${BASE}/app/catalog`); await page.getByRole("button", { name: "ធាតុថ្មី" }).first().click();
+    const dlg = page.locator('[role="dialog"]').last();
+    await dlg.locator('input[name="name_km"]').fill("QA ទុយោស្ពាន់ 25mm"); await dlg.locator('select[name="kind"]').selectOption("product"); await dlg.locator('input[name="unit"]').fill("ម៉ែត្រ");
+    await dlg.locator('input[name="sell_price"]').fill("3");
+    const a14 = await dlg.locator('[data-testid="stock-account"] option', { hasText: "14000" }).getAttribute("value");
+    await dlg.locator('[data-testid="stock-account"]').selectOption(a14); await sleep(800);
+    const code = await dlg.locator('[data-testid="cat-code"]').inputValue(); must(/^14\d{3}$/.test(code), `code ${code}`);
+    S.newCode = code;
+    const a13 = await dlg.locator('[data-testid="stock-account"] option', { hasText: "13001" }).getAttribute("value");
+    await dlg.locator('[data-testid="stock-account"]').selectOption(a13); await sleep(800);
+    must(await dlg.locator('[data-testid="cat-code"]').inputValue() === "13001" && await dlg.locator('[data-testid="cat-code"]').isDisabled(), "13001 did not lock the code");
+    await dlg.locator('[data-testid="stock-account"]').selectOption(a14); await sleep(800);
+    await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await dlg.waitFor({ state: "detached", timeout: 15_000 });
+    const cat = await adminApi.call("GET", "/api/catalog");
+    S.newItem = (Array.isArray(cat) ? cat : cat.items).find((x) => x.name_km === "QA ទុយោស្ពាន់ 25mm"); must(S.newItem?.code === code, `saved code ${S.newItem?.code}`);
+  });
+  await step(A, "stock «ទិញចូល» on the new (untracked) product → in the list under its account 14000 with its code and unit cost", page, async () => {
+    await page.goto(`${BASE}/app/inventory`); await page.locator('[data-testid="op-in"]').click();
+    const dlg = page.locator('[role="dialog"]').last();
+    await dlg.locator('[data-testid="op-item"]').selectOption(S.newItem.id); await dlg.locator('[data-testid="op-qty"]').fill("12"); await dlg.locator('[data-testid="op-cost"]').fill("1.5");
+    await dlg.locator('[data-testid="op-save"]').click(); await dlg.waitFor({ state: "detached", timeout: 15_000 }); await idle(page);
+    const group = page.locator('[data-testid="stock-group"]', { hasText: "14000" });
+    await group.waitFor({ timeout: 10_000 });
+    must((await group.innerText()).includes(S.newCode) && (await group.innerText()).includes("QA ទុយោស្ពាន់ 25mm"), "the item is not under 14000");
+    await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "stock-grouped-360"); await page.setViewportSize({ width: 1280, height: 800 });
+  });
+  // a job on site for QA ជាង ២
+  const onSite = await adminApi.call("POST", "/api/bookings", { customer_id: outsideC.id, type: "A", category: "mep", service_text: "ដំឡើង", zone: "outside", scheduled_at: new Date(Date.now() + 10 * 3_600_000).toISOString(), ends_at: new Date(Date.now() + 12 * 3_600_000).toISOString() });
+  await adminApi.call("POST", `/api/bookings/${onSite.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+  const t0 = new Date(Date.now() - 20 * 60_000); t0.setSeconds(0, 0);
+  sql(`update bookings set scheduled_at = '${t0.toISOString()}', ends_at = '${new Date(t0.getTime() + 2 * 3_600_000).toISOString()}' where id = '${onSite.id}'`);
+  for (const st of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: st, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
+  const techDev = await device({ ip: 78 });
+  await step(A, "technician: materials found by code («14») and by a service's name; «សម្ភារៈផ្សេងៗ» with quantity + unit, no price", techDev.page, async () => {
+    const p = techDev.page;
+    await uiLogin(p, "jang2", j2.pw);
+    await p.goto(`${BASE}/app/tech/job/${onSite.id}`); await p.locator('[data-testid="mat-search"]').waitFor({ timeout: 15_000 });
+    await p.locator('[data-testid="mat-search"]').fill(S.newCode); await p.getByRole("listbox").getByRole("button").first().click();
+    await p.locator('[data-testid="mat-search"]').fill("លាងម៉ាស៊ីនត្រជាក់"); await p.getByRole("listbox").getByRole("button").first().click();
+    await p.getByRole("button", { name: "រក្សាទុក" }).first().click(); await idle(p);
+    const mats = (await j2.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
+    must(mats.length === 2 && mats.some((m) => m.code === S.newCode) && mats.some((m) => m.kind === "service"), `materials ${JSON.stringify(mats.map((m) => [m.kind, m.code]))}`);
+    await p.locator('[data-testid="extra-mode-material"]').click(); await p.locator('textarea[name="extra_text"]').fill("ខ្សែភ្លើង 2.5");
+    await p.locator('input[name="extra_qty"]').fill("20"); await p.locator('input[name="extra_unit"]').fill("ម៉ែត្រ");
+    await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-flag"]').first().waitFor({ timeout: 10_000 });
+    must(!(await p.locator('[data-testid="extra-list"]').innerText()).includes("$"), "the technician sees a price");
+    await fits(p, "tech-materials-360");
+  });
+  await step(A, "Admin on the job: «ទំនិញថ្មី» opens the catalog form right there; the free material is priced before the invoice", page, async () => {
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-new"]').waitFor({ timeout: 10_000 });
+    await page.locator('[data-testid="mat-new"]').click(); await page.locator('[role="dialog"]').last().locator('input[name="name_km"]').waitFor({ timeout: 5_000 });
+    await page.locator('[role="dialog"]').last().getByRole("button", { name: "បោះបង់" }).click();
+    const row = page.locator('[data-testid="extras-review"] li').filter({ hasText: "ខ្សែភ្លើង 2.5" });
+    await row.locator('input[name^="extra_price_"]').fill("1.5"); await row.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
+    const x = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).extras.find((e) => e.kind === "material");
+    must(x?.status === "confirmed" && x.unit_price === 150, `material ${JSON.stringify([x?.status, x?.unit_price])}`);
+  });
+  await step(A, "CFO: a direct invoice (stock item + service, paid by ACLEDA) shows «ការកត់ត្រាគណនេយ្យ» — 11002 · 12002 · 40001 · 40002 · 50001 ↔ 14000; the print carries the job number only", S.cfo.page, async () => {
+    const inv = await adminApi.call("POST", "/api/invoices", { customer_id: outsideC.id, lines: [
+      { catalog_item_id: S.newItem.id, description: "QA ទុយោស្ពាន់ 25mm", kind: "product", qty: 2, unit: "ម៉ែត្រ", unit_price: 300 }, { description: "QA ដំឡើង", kind: "service", qty: 1, unit: "job", unit_price: 500 }] });
+    await adminApi.call("POST", `/api/invoices/${inv.id}/issue`, {});
+    await adminApi.call("POST", `/api/invoices/${inv.id}/payments`, { amount: 600, currency: "usd", method: "acleda" });
+    const p = S.cfo.page;
+    await p.goto(`${BASE}/app/invoices/${inv.id}`); await p.locator('[data-testid="invoice-journal"]').waitFor({ timeout: 15_000 });
+    const txt = await p.locator('[data-testid="invoice-journal"]').innerText();
+    for (const code of ["11002", "12002", "40001", "40002", "50001", "14000"]) must(txt.includes(code), `journal panel lacks ${code}`);
+    must(!txt.includes("Admin") && !txt.includes("Invoice"), "English words in the Khmer panel");
+    await p.goto(`${BASE}/app/invoices/${S.invUrl.split("/").slice(-1)[0]}/print`).catch(() => {});
+    await p.goto(S.invUrl.replace(/\/?$/, "/print")); await p.locator('[data-testid="invoice-print"]').waitFor({ timeout: 15_000 });
+    const print = await p.locator('[data-testid="invoice-print"]').innerText();
+    must(/BK-\d{4}/.test(print) && !print.includes("លាងម៉ាស៊ីនត្រជាក់ ×"), "the print still shows the job's service name");
+  });
+  await step(A, "«តម្លៃស្តុកចុងខែ»: by account with the items under each; stock = books ✓", page, async () => {
+    await page.goto(`${BASE}/app/inventory?tab=monthend`); await page.locator('[data-testid="month-end"]').waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid="me-account"]', { hasText: "14000" }).click(); await page.getByText(S.newCode).first().waitFor({ timeout: 5_000 });
+    const check = await page.locator('[data-testid="me-check"]').innerText(); must(check.includes("✓"), `check line: ${check}`);
+    await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "month-end-360"); await page.setViewportSize({ width: 1280, height: 800 });
+  });
+  await step(A, "«ចង់ទិញម៉ាស៊ីនត្រជាក់» off by shop-setup (dry run, then apply) → gone from the website; «ស្នើសុំតម្លៃ» stays", null, async () => {
+    const dry = remote("cli shop-setup oneteam", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
+    must(/AC-BUY: is_active true → false/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 3).join(" | "));
+    remote("cli shop-setup oneteam --apply", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
+    const home = await (await visitor()).text("/");
+    must(!home.includes("ចង់ទិញម៉ាស៊ីនត្រជាក់"), "the website still offers «ចង់ទិញម៉ាស៊ីនត្រជាក់»");
+    must(home.includes("ស្នើសុំតម្លៃ"), "«ស្នើសុំតម្លៃ» is gone");
+  });
+  await techDev.ctx.close();
+}
+
 // ---------------------------------------------------------------- summary
-rec("14 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
-rec("14 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));
+rec("15 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
+rec("15 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));
 const pass = results.filter((r) => r.pass).length;
 const table = results.map((r) => `${r.pass ? "PASS" : "FAIL"} | ${r.area} | ${r.name} | ${r.detail.replace(/\|/g, "/")}`).join("\n");
 writeFileSync(join(WORK, "results.txt"), `${pass}/${results.length} passed\n${table}\n`);
