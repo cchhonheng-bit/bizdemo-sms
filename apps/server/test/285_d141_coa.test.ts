@@ -89,7 +89,7 @@ describe("D-141 postings on the new codes", () => {
     expect(after.map((x, i) => x - before[i]!)).toEqual([-700, -3000, -5000, -10000, -1200, 18700]);
   });
 
-  it("each stock item on its own stock account: stock in → 14000, a job's materials → 50005, a direct sale → 50001; no account → 18000", async () => {
+  it("each stock item on its own stock account: stock in → 14000; materials (14000–18000) cost 50005 on a job AND on a direct sale (D-143); no account → 18000", async () => {
     const pipeAcc = await code("14000");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
@@ -110,7 +110,7 @@ describe("D-141 postings on the new codes", () => {
     // a direct sale of 2 m of pipe
     await invoice(outside, [{ kind: "product", qty: 2, unit_price: 500, catalog_item_id: pipe }]);
     const b1 = await Promise.all(["14000", "18000", "50005", "50001", "11001"].map(bal));
-    expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 600, 400, -4500]);
+    expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 600 + 400, 0, -4500]); // D-143: copper pipe → 50005 wherever it leaves
   });
 
   it("the trial balance balances; group headers never appear in it; the balance sheet shows the year's profit on 30002", async () => {

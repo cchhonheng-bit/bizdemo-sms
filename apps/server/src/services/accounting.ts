@@ -141,17 +141,20 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
     }
     case "stock": {
       const ms = await t<{ id: string; kind: string; value: string; pay: string | null; supplier: string | null; date: string; fx: string; ref_type: string | null; ref_id: string | null;
-          name: string; inv: string | null; okind: string | null; opay: string | null; osupplier: string | null }[]>`
+          name: string; inv: string | null; inv_code: string | null; okind: string | null; opay: string | null; osupplier: string | null }[]>`
         select m.id::text, m.kind::text, m.value_cents::text as value, m.pay, m.supplier, m.move_date::text as date, m.fx_rate_khr::text as fx, m.ref_type, m.ref_id,
-          i.name_km as name, i.inventory_account_id::text as inv, o.kind::text as okind, o.pay as opay, o.supplier as osupplier
-        from stock_moves m join catalog_items i on i.id = m.item_id left join stock_moves o on o.id = m.reversal_of
+          i.name_km as name, i.inventory_account_id::text as inv, ia.code as inv_code, o.kind::text as okind, o.pay as opay, o.supplier as osupplier
+        from stock_moves m join catalog_items i on i.id = m.item_id left join accounts ia on ia.id = i.inventory_account_id left join stock_moves o on o.id = m.reversal_of
         where m.company_id = ${u.companyId} and m.id = any(${t.array(e.move_ids.map(String))}::bigint[]) order by m.id`;
       const lines: Line[] = [];
       for (const m of ms) {
         const v = Number(m.value);
         const kind = m.kind === "reverse" ? m.okind ?? "adjust" : m.kind;
         const pay = m.kind === "reverse" ? m.opay : m.pay, supplier = m.kind === "reverse" ? m.osupplier : m.supplier;
-        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out_job" ? R.materials : kind === "out_sale" ? R.cogs : R.stock_adjust;
+        // D-143 (CEO): the cost account follows the item's group, on a job or a direct sale alike — appliances 13000 / 13100 → 50001
+        // (cost of goods), materials 14000–18000 (and items without an account → 18000) → 50005 (technicians' materials)
+        const cost = m.inv_code?.startsWith("13") ? R.cogs : R.materials;
+        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
         lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name }, { account: counter, amount: -v, memo: m.name, supplier: kind === "in" && pay === "credit" ? supplier : null });
       }
       const m0 = ms[0];
