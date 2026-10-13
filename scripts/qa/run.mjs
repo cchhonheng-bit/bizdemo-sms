@@ -754,13 +754,29 @@ const gmDev = await device({ desktop: true });
     must(sql("select count(*) from accounts where is_group") === "10" && sql("select count(*) from catalog_items where code like '1500_' or code like '1400_' or code = '15010'") === "14", "chart / stock items not as expected");
     return done.split("\n").find((l) => /added by the system/.test(l)) ?? "";
   });
-  await step(A, "opening balances: draft → corrected → «បញ្ជាក់សមតុល្យដើម»", page, async () => {
+  await step(A, "D-144 E: an expense BEFORE the books start is saved («រង់ចាំ»), never refused; the CFO banner counts it", page, async () => {
+    await page.goto(`${BASE}/app/accounting?tab=money`); await page.locator('[data-testid="tx-expense"]').waitFor({ timeout: 15_000 });
+    await page.locator('[data-testid="tx-expense"]').click();
+    await page.locator('[data-testid="tx-amount"]').fill("25"); await page.locator('[data-testid="tx-account"]').selectOption("50010");
+    await page.locator('[data-testid="tx-pay"]').getByRole("radio", { name: "សាច់ប្រាក់ $" }).click();
+    await page.locator('[data-testid="tx-memo"]').fill("QA ចំណាយមុនសៀវភៅ"); await page.locator('[data-testid="tx-save"]').click(); await idle(page);
+    await page.locator('[data-testid="acct-pending"]').getByText("QA ចំណាយមុនសៀវភៅ").first().waitFor({ timeout: 10_000 });
+    must(sql("select count(*) from journal_entries") === "0", "something was posted before the books started");
+    must(sql("select status from pending_postings where memo = 'QA ចំណាយមុនសៀវភៅ'") === "pending", "the expense is not waiting");
+    await page.goto(`${BASE}/app/`); await page.locator('[data-testid="books-banner"]').waitFor({ timeout: 10_000 });
+    must(/រង់ចាំ/.test(await page.locator('[data-testid="books-banner"]').innerText()), "the banner does not count the waiting transactions");
+    await fits(page, "cfo-dashboard-banner");
+  });
+  await step(A, "opening balances: draft → corrected → «បញ្ជាក់សមតុល្យដើម» → the waiting expense is posted by itself (D-144)", page, async () => {
     await page.goto(`${BASE}/app/accounting`); await page.locator('[data-testid="go-setup"]').click(); await idle(page);
     await page.locator('[data-testid="op-date"]').fill(lastYearJan1);
     await page.locator('[data-testid="op-cash-usd"]').fill("2500"); await page.locator('[data-testid="op-aba"]').fill("12000"); await page.locator('[data-testid="op-acleda"]').fill("4000");
     await page.locator('[data-testid="op-retained"]').fill("8000"); await page.locator('[data-testid="op-draft"]').click(); await idle(page);
     await page.locator('[data-testid="op-retained"]').fill("9000"); await page.locator('[data-testid="op-draft"]').click(); await idle(page);
-    await page.locator('[data-testid="op-save"]').click(); await page.locator('[role="dialog"]').last().getByRole("button", { name: "បញ្ជាក់" }).click(); await idle(page);
+    await page.locator('[data-testid="op-save"]').click(); await page.locator('[role="dialog"]').last().getByRole("button", { name: "បញ្ជាក់" }).click(); await idle(page); await sleep(800);
+    must(sql("select status from pending_postings where memo = 'QA ចំណាយមុនសៀវភៅ'") === "posted", "the waiting expense was not posted at the start");
+    must(sql("select count(*) from journal_entries where source = 'other'") >= "1", "no posted expense");
+    must(sql("select count(*) from pending_postings where status = 'pending'") === "0", "something still waits after the start");
   });
   await step(A, "an expense → its journal entry (debit = credit)", page, async () => {
     await page.locator('[data-testid="tab-money"]').click(); await page.locator('[data-testid="tx-expense"]').click();
@@ -934,13 +950,11 @@ const gmDev = await device({ desktop: true });
   sql(`update bookings set scheduled_at = '${now0.toISOString()}', ends_at = '${new Date(now0.getTime() + 60 * 60_000).toISOString()}' where id = '${onSite.id}'`);
   for (const stepName of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: stepName, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
   const cat2 = await ceoApi.call("GET", "/api/catalog"), pipe = (Array.isArray(cat2) ? cat2 : cat2.items).find((x) => x.code === "14001");
-  await step(A, "E4 the Admin records a job's materials too (with who recorded each line)", page, async () => {
+  await step(A, "D-144: the job page has no materials editor; the technician's screen has no materials picker", page, async () => {
     must(pipe, "the stock items of the new chart (14001 …) are missing");
-    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-search"]').waitFor({ timeout: 10_000 }); // D-142: found by code
-    await page.locator('[data-testid="mat-search"]').fill(pipe.code); await page.getByRole('listbox').getByRole('button').first().click();
-    await page.locator('[data-testid="mat-save"]').click(); await idle(page);
-    const m = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
-    must(m.length === 1 && m[0].added_by_name === "QA រដ្ឋបាល", `materials ${JSON.stringify(m)}`);
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="booking-detail"], h1').first().waitFor({ timeout: 10_000 });
+    must(await page.locator('[data-testid="mat-search"]').count() === 0 && await page.locator('[data-testid="mat-new"]').count() === 0, "the materials editor is still on the job page");
+    const info = await adminApi.call("GET", `/api/bookings/${onSite.id}/job`); must(info.materials === undefined, "the job still carries materials");
   });
   const next = await adminApi.call("POST", "/api/bookings", { customer_id: S.boreyCust.id, type: "A", category: "mep", service_text: "ការងារបន្ទាប់", zone: "inside",
     scheduled_at: new Date(now0.getTime() + 90 * 60_000).toISOString(), ends_at: new Date(now0.getTime() + 150 * 60_000).toISOString() });
@@ -970,14 +984,14 @@ const gmDev = await device({ desktop: true });
     must(x.length === 2 && x.every((e) => e.status === "confirmed") && x[1].unit_price === 800, `extras ${JSON.stringify(x.map((e) => [e.status, e.unit_price]))}`);
     must(Number(sql(`select count(*) from audit_log where action = 'job.extra_review'`)) >= 2, "no review audit");
   });
-  await step(A, "E2 cancel with recorded materials asks «សម្ភារៈបានប្រើរួចឬទេ?» → yes → the confirm list as a job cost; the dashboard counts it", page, async () => {
+  await step(A, "D-144: cancel asks the reason only (the materials question is gone)", page, async () => {
     await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="cancel-btn"]').click();
     const dlg = page.locator('[role="dialog"]').last();
-    await dlg.locator("textarea").fill("អតិថិជនឈប់ពាក់កណ្ដាល"); await dlg.locator('[data-testid="materials-used"]').waitFor({ timeout: 10_000 });
-    must(await page.locator('[data-testid="cancel-submit"]').isDisabled(), "cancel allowed without the materials answer");
-    await dlg.locator('[data-testid="materials-used-yes"]').click(); await page.locator('[data-testid="cancel-submit"]').click(); await idle(page); await sleep(800);
-    await page.goto(`${BASE}/app/inventory?tab=jobs`); await page.getByText("បោះបង់ · ថ្លៃដើមការងារ").first().waitFor({ timeout: 10_000 });
-    await page.goto(`${BASE}/app/`); await page.getByText(/សម្ភារៈរង់ចាំបញ្ជាក់ \(\d+\)/).first().waitFor({ timeout: 10_000 });
+    await dlg.locator("textarea").fill("អតិថិជនឈប់ពាក់កណ្ដាល"); await sleep(400);
+    must(await dlg.locator('[data-testid="materials-used"]').count() === 0, "the materials question is still asked");
+    must(!(await page.locator('[data-testid="cancel-submit"]').isDisabled()), "cancel is blocked with a reason alone");
+    await page.locator('[data-testid="cancel-submit"]').click(); await idle(page); await sleep(800);
+    must(sql(`select status from bookings where id = '${onSite.id}'`) === "cancelled", "not cancelled");
   });
   await step(A, "D-141 chart: group headers, «បន្ថែមដោយប្រព័ន្ធ», the client's names · stock item → its stock account (14000)", S.cfo.page, async () => {
     const p = S.cfo.page;
@@ -996,37 +1010,40 @@ const gmDev = await device({ desktop: true });
   await techDev.ctx.close();
 }
 
-// ================================================================ 14 · D-142 (CEO 13-10): item codes · any product stocked · materials from every item + «សម្ភារៈផ្សេងៗ» · accounting view · month-end · item off
+// ================================================================ 14 · D-142 / D-144 (CEO 13-10): the price list ≠ the stock · stock in as a direct entry · stock out to a technician · the technician's lines → invoice · reconciliation · accounting view · month-end · item off
 {
-  const A = "14 D-142", page = adm.page;
+  const A = "14 D-142/144", page = adm.page;
   const adminApi = await staffApi("admin1", S.u.admin1.pw), j2 = await staffApi("jang2", S.u.jang2.pw);
   const custs = await adminApi.call("GET", "/api/customers");
   const outsideC = custs.find((c) => c.zone === "outside" && c.is_active);
-  await step(A, "catalog «ធាតុថ្មី»: stock account 14000 → the code fills itself (14xxx, editable); 13001 → the code is the account's and locked", page, async () => {
+  await step(A, "«សេវាកម្ម និងតម្លៃ»: a package-priced sale line «QA ទុយោស្ពាន់ (ម៉ែត្រ)» $15/m with «ភ្ជាប់កូដស្តុក» 14000 — no stock account on the form", page, async () => {
     await page.goto(`${BASE}/app/catalog`); await page.getByRole("button", { name: "ធាតុថ្មី" }).first().click();
     const dlg = page.locator('[role="dialog"]').last();
-    await dlg.locator('input[name="name_km"]').fill("QA ទុយោស្ពាន់ 25mm"); await dlg.locator('select[name="kind"]').selectOption("product"); await dlg.locator('input[name="unit"]').fill("ម៉ែត្រ");
-    await dlg.locator('input[name="sell_price"]').fill("3");
-    const a14 = await dlg.locator('[data-testid="stock-account"] option', { hasText: "14000" }).getAttribute("value");
-    await dlg.locator('[data-testid="stock-account"]').selectOption(a14); await sleep(800);
-    const code = await dlg.locator('[data-testid="cat-code"]').inputValue(); must(/^14\d{3}$/.test(code), `code ${code}`);
-    S.newCode = code;
-    const a13 = await dlg.locator('[data-testid="stock-account"] option', { hasText: "13001" }).getAttribute("value");
-    await dlg.locator('[data-testid="stock-account"]').selectOption(a13); await sleep(800);
-    must(await dlg.locator('[data-testid="cat-code"]').inputValue() === "13001" && await dlg.locator('[data-testid="cat-code"]').isDisabled(), "13001 did not lock the code");
-    await dlg.locator('[data-testid="stock-account"]').selectOption(a14); await sleep(800);
+    must(await dlg.locator('[data-testid="stock-account"]').count() === 0, "the stock account field is still on the price-list form");
+    await dlg.locator('input[name="name_km"]').fill("QA ទុយោស្ពាន់ (ម៉ែត្រ)"); await dlg.locator('select[name="kind"]').selectOption("product"); await dlg.locator('input[name="unit"]').fill("ម៉ែត្រ");
+    await dlg.locator('input[name="sell_price"]').fill("15");
+    const a14 = await dlg.locator('[data-testid="stock-link"] option', { hasText: "14000" }).getAttribute("value");
+    await dlg.locator('[data-testid="stock-link"]').selectOption(a14);
     await dlg.getByRole("button", { name: "រក្សាទុក" }).click(); await dlg.waitFor({ state: "detached", timeout: 15_000 });
     const cat = await adminApi.call("GET", "/api/catalog");
-    S.newItem = (Array.isArray(cat) ? cat : cat.items).find((x) => x.name_km === "QA ទុយោស្ពាន់ 25mm"); must(S.newItem?.code === code, `saved code ${S.newItem?.code}`);
+    S.copper = (Array.isArray(cat) ? cat : cat.items).find((x) => x.name_km === "QA ទុយោស្ពាន់ (ម៉ែត្រ)"); must(S.copper?.stock_link_account_id === a14 && S.copper.is_stock === false, `saved ${JSON.stringify([S.copper?.stock_link_account_id, S.copper?.is_stock])}`);
+    must(!(Array.isArray(cat) ? cat : cat.items).some((x) => x.is_stock || x.code === "13001"), "a stock item is on the price list");
   });
-  await step(A, "stock «ទិញចូល» on the new (untracked) product → in the list under its account 14000 with its code and unit cost", page, async () => {
+  await step(A, "stock «ទិញចូល» as a direct entry: new item «QA ទុយោស្ពាន់ 6mm» on 14000 · 12 × $1.50 → total $18.00 by itself · under 14000 with a 14xxx code · not on the price list", page, async () => {
     await page.goto(`${BASE}/app/inventory`); await page.locator('[data-testid="op-in"]').click();
     const dlg = page.locator('[role="dialog"]').last();
-    await dlg.locator('[data-testid="op-item"]').selectOption(S.newItem.id); await dlg.locator('[data-testid="op-qty"]').fill("12"); await dlg.locator('[data-testid="op-cost"]').fill("1.5");
+    await dlg.locator('[data-testid="in-mode-new"]').click();
+    await dlg.locator('[data-testid="in-name"]').fill("QA ទុយោស្ពាន់ 6mm");
+    const a14 = await dlg.locator('[data-testid="in-account"] option', { hasText: "14000" }).getAttribute("value"); await dlg.locator('[data-testid="in-account"]').selectOption(a14);
+    await dlg.locator('[data-testid="in-unit"]').fill("ម៉ែត្រ"); await dlg.locator('[data-testid="op-qty"]').fill("12"); await dlg.locator('[data-testid="op-cost"]').fill("1.5");
+    must((await dlg.locator('[data-testid="op-total-text"]').innerText()).includes("18.00"), "the total is not 18.00");
+    await dlg.locator('[data-testid="pay-cash_usd"]').click(); await dlg.locator('[data-testid="op-supplier"]').fill("QA ហាងដែក");
     await dlg.locator('[data-testid="op-save"]').click(); await dlg.waitFor({ state: "detached", timeout: 15_000 }); await idle(page);
-    const group = page.locator('[data-testid="stock-group"]', { hasText: "14000" });
-    await group.waitFor({ timeout: 10_000 });
-    must((await group.innerText()).includes(S.newCode) && (await group.innerText()).includes("QA ទុយោស្ពាន់ 25mm"), "the item is not under 14000");
+    const group = page.locator('[data-testid="stock-group"]', { hasText: "14000" }); await group.waitFor({ timeout: 10_000 });
+    const items = await adminApi.call("GET", "/api/inventory/items");
+    S.stockItem = items.find((x) => x.name === "QA ទុយោស្ពាន់ 6mm"); must(S.stockItem && /^14\d{3}$/.test(S.stockItem.code) && S.stockItem.qty === 12 && S.stockItem.value === 1800, `stock item ${JSON.stringify(S.stockItem)}`);
+    must((await group.innerText()).includes(S.stockItem.code), "the item is not under 14000");
+    must(!(await adminApi.call("GET", "/api/catalog")).some((x) => x.id === S.stockItem.item_id), "the stock item is on the price list");
     await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "stock-grouped-360"); await page.setViewportSize({ width: 1280, height: 800 });
   });
   // a job on site for QA ជាង ២
@@ -1036,54 +1053,91 @@ const gmDev = await device({ desktop: true });
   sql(`update bookings set scheduled_at = '${t0.toISOString()}', ends_at = '${new Date(t0.getTime() + 2 * 3_600_000).toISOString()}' where id = '${onSite.id}'`);
   for (const st of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: st, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
   const techDev = await device({ ip: 78 });
-  await step(A, "technician: materials found by code («14») and by a service's name; «សម្ភារៈផ្សេងៗ» with quantity + unit, no price", techDev.page, async () => {
+  await step(A, "technician: picks the copper price line ×6 (no stock item offered) and writes «ខ្សែភ្លើង 2.5» 20 ម៉ែត្រ — no price, no materials picker", techDev.page, async () => {
     const p = techDev.page;
     await uiLogin(p, "jang2", j2.pw);
-    await p.goto(`${BASE}/app/tech/job/${onSite.id}`); await p.locator('[data-testid="mat-search"]').waitFor({ timeout: 15_000 });
-    await p.locator('[data-testid="mat-search"]').fill(S.newCode); await p.getByRole("listbox").getByRole("button").first().click();
-    await p.locator('[data-testid="mat-search"]').fill("លាងម៉ាស៊ីនត្រជាក់"); await p.getByRole("listbox").getByRole("button").first().click();
-    await p.getByRole("button", { name: "រក្សាទុក" }).first().click(); await idle(p);
-    const mats = (await j2.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
-    must(mats.length === 2 && mats.some((m) => m.code === S.newCode) && mats.some((m) => m.kind === "service"), `materials ${JSON.stringify(mats.map((m) => [m.kind, m.code]))}`);
-    await p.locator('[data-testid="extra-mode-material"]').click(); await p.locator('textarea[name="extra_text"]').fill("ខ្សែភ្លើង 2.5");
-    await p.locator('input[name="extra_qty"]').fill("20"); await p.locator('input[name="extra_unit"]').fill("ម៉ែត្រ");
+    await p.goto(`${BASE}/app/tech/job/${onSite.id}`); await p.locator('[data-testid="extra-add"]').waitFor({ timeout: 15_000 });
+    must(await p.locator('[data-testid="mat-search"]').count() === 0, "the materials picker is still on the technician's screen");
+    must(await p.locator(`select[name="extra_item"] option[value="${S.stockItem.item_id}"]`).count() === 0, "a stock item is offered to the technician");
+    await p.locator('select[name="extra_item"]').selectOption(S.copper.id); await p.locator('input[name="extra_qty"]').fill("6");
     await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-flag"]').first().waitFor({ timeout: 10_000 });
+    await p.locator('[data-testid="extra-mode-other"]').click(); await p.locator('textarea[name="extra_text"]').fill("ខ្សែភ្លើង 2.5");
+    await p.locator('input[name="extra_qty"]').fill("20"); await p.locator('input[name="extra_unit"]').fill("ម៉ែត្រ");
+    await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-flag"]').nth(1).waitFor({ timeout: 10_000 });
     must(!(await p.locator('[data-testid="extra-list"]').innerText()).includes("$"), "the technician sees a price");
-    await fits(p, "tech-materials-360");
+    const x = (await j2.call("GET", `/api/bookings/${onSite.id}/job`)).extras;
+    must(x.length === 2 && x.every((e) => e.unit_price === null) && x[0].catalog_item_id === S.copper.id && x[1].unit === "ម៉ែត្រ", `extras ${JSON.stringify(x.map((e) => [e.description, e.qty, e.unit, e.unit_price]))}`);
+    await fits(p, "tech-extras-360");
   });
-  await step(A, "Admin on the job: «ទំនិញថ្មី» opens the catalog form right there; the free material is priced before the invoice", page, async () => {
-    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-new"]').waitFor({ timeout: 10_000 });
-    await page.locator('[data-testid="mat-new"]').click(); await page.locator('[role="dialog"]').last().locator('input[name="name_km"]').waitFor({ timeout: 5_000 });
-    await page.locator('[role="dialog"]').last().getByRole("button", { name: "បោះបង់" }).click();
+  await step(A, "Admin on the job: both lines flagged «បន្ថែមដោយជាង»; the copper line at its list price, the free line priced $1.50 as goods", page, async () => {
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="extras-review"]').waitFor({ timeout: 10_000 });
+    must(await page.locator('[data-testid="extras-review"] [data-testid="extra-flag"]').count() === 2, "the lines are not flagged");
+    await page.locator('[data-testid="extras-review"] li').filter({ hasText: "QA ទុយោស្ពាន់ (ម៉ែត្រ)" }).locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
     const row = page.locator('[data-testid="extras-review"] li').filter({ hasText: "ខ្សែភ្លើង 2.5" });
+    await row.locator('[data-testid="extra-kind"]').getByRole("radio", { name: "ទំនិញ" }).click();
     await row.locator('input[name^="extra_price_"]').fill("1.5"); await row.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
-    const x = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).extras.find((e) => e.kind === "material");
-    must(x?.status === "confirmed" && x.unit_price === 150, `material ${JSON.stringify([x?.status, x?.unit_price])}`);
+    const x = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).extras;
+    must(x.every((e) => e.status === "confirmed") && x[0].unit_price === 1500 && x[1].unit_price === 150 && x[1].kind === "material", `extras ${JSON.stringify(x.map((e) => [e.status, e.unit_price, e.kind]))}`);
   });
-  await step(A, "CFO: a direct invoice (stock item + service, paid by ACLEDA) shows «ការកត់ត្រាគណនេយ្យ» — 11002 · 12002 · 40001 · 40002 · 50001 ↔ 14000; the print carries the job number only", S.cfo.page, async () => {
-    const inv = await adminApi.call("POST", "/api/invoices", { customer_id: outsideC.id, lines: [
-      { catalog_item_id: S.newItem.id, description: "QA ទុយោស្ពាន់ 25mm", kind: "product", qty: 2, unit: "ម៉ែត្រ", unit_price: 300 }, { description: "QA ដំឡើង", kind: "service", qty: 1, unit: "job", unit_price: 500 }] });
+  await step(A, "Admin «ដកស្តុក»: 6 m of the stock item to QA ជាង ២ for this job → «សល់ 6 ម៉ែត្រ»; the card shows the technician and the job", page, async () => {
+    await page.goto(`${BASE}/app/inventory`); await page.locator('[data-testid="op-out"]').click();
+    const dlg = page.locator('[role="dialog"]').last();
+    await dlg.locator('[data-testid="op-item"]').selectOption(S.stockItem.item_id); await dlg.locator('[data-testid="op-qty"]').fill("6");
+    await dlg.locator('[data-testid="out-tech"]').selectOption(S.u.jang2.id); await sleep(500);
+    await dlg.locator('[data-testid="out-job"]').selectOption(onSite.id);
+    must((await dlg.locator('[data-testid="out-left"]').innerText()).includes("6"), "the balance preview is wrong");
+    await dlg.locator('[data-testid="op-save"]').click(); await dlg.waitFor({ state: "detached", timeout: 15_000 }); await idle(page);
+    const it = (await adminApi.call("GET", "/api/inventory/items")).find((x) => x.item_id === S.stockItem.item_id); must(it.qty === 6 && it.value === 900, `after out ${JSON.stringify([it.qty, it.value])}`);
+    const card = await adminApi.call("GET", `/api/inventory/card?item=${S.stockItem.item_id}&from=${ymdIn(-1)}&to=${ymdIn(0)}`);
+    must(card.rows.some((r) => r.kind === "out" && r.technician === "QA ជាង ២" && r.ref_label === onSite.number), `card rows ${JSON.stringify(card.rows.map((r) => [r.kind, r.technician, r.ref_label]))}`);
+    must(sql(`select count(*) from journal_lines l join accounts a on a.id = l.account_id where a.code = '50005' and l.debit_cents = 900`) >= "1", "the stock out did not post Dr 50005 at cost");
+  });
+  await step(A, "the job's invoice: both technician lines (copper 5 m charged, wire 20 m) · issue moves no stock · the CFO's «ការកត់ត្រាគណនេយ្យ» shows revenue + receivable, never a stock account", S.cfo.page, async () => {
+    for (const st of ["work_done", "pending_review", "reviewed"]) sql(`update bookings set status = '${st}' where id = '${onSite.id}'`);
+    const pre = await adminApi.call("GET", `/api/invoices/prefill?booking=${onSite.id}`);
+    must(pre.lines.some((l) => l.catalog_item_id === S.copper.id && l.qty === 6) && pre.lines.some((l) => l.description === "ខ្សែភ្លើង 2.5" && l.qty === 20 && l.unit_price === 150), `prefill ${JSON.stringify(pre.lines.map((l) => [l.description, l.qty, l.unit_price]))}`);
+    const moves = sql("select count(*) from stock_moves");
+    const lines = pre.lines.map((l) => (l.catalog_item_id === S.copper.id ? { ...l, qty: 5 } : l)); // 6 m left the stock, 5 m are charged — the reconciliation must show 1 m
+    const inv = await adminApi.call("POST", "/api/invoices", { booking_id: onSite.id, lines });
     await adminApi.call("POST", `/api/invoices/${inv.id}/issue`, {});
-    await adminApi.call("POST", `/api/invoices/${inv.id}/payments`, { amount: 600, currency: "usd", method: "acleda" });
+    await adminApi.call("POST", `/api/invoices/${inv.id}/payments`, { amount: 5000, currency: "usd", method: "acleda" });
+    must(sql("select count(*) from stock_moves") === moves, "the invoice moved stock");
     const p = S.cfo.page;
     await p.goto(`${BASE}/app/invoices/${inv.id}`); await p.locator('[data-testid="invoice-journal"]').waitFor({ timeout: 15_000 });
     const txt = await p.locator('[data-testid="invoice-journal"]').innerText();
-    for (const code of ["11002", "12002", "40001", "40002", "50001", "14000"]) must(txt.includes(code), `journal panel lacks ${code}`);
+    for (const code of ["11002", "12002", "40001"]) must(txt.includes(code), `journal panel lacks ${code}`);
+    must(!txt.includes("14000") && !txt.includes("50005"), "the invoice panel shows a stock entry");
     must(!txt.includes("Admin") && !txt.includes("Invoice"), "English words in the Khmer panel");
-    await p.goto(`${BASE}/app/invoices/${S.invUrl.split("/").slice(-1)[0]}/print`).catch(() => {});
-    await p.goto(S.invUrl.replace(/\/?$/, "/print")); await p.locator('[data-testid="invoice-print"]').waitFor({ timeout: 15_000 });
-    const print = await p.locator('[data-testid="invoice-print"]').innerText();
-    must(/BK-\d{4}/.test(print) && !print.includes("លាងម៉ាស៊ីនត្រជាក់ ×"), "the print still shows the job's service name");
+    S.d144Invoice = inv.id;
+  });
+  await step(A, "«ផ្ទៀងផ្ទាត់សម្ភារៈ»: the job row — 14000 · out 6 · invoiced 5 · difference +1 highlighted; filter by technician", page, async () => {
+    await page.goto(`${BASE}/app/inventory?tab=reconcile`); await page.locator('[data-testid="rec-rows"]').waitFor({ timeout: 15_000 });
+    const row = page.locator('[data-testid="rec-row"]').filter({ hasText: onSite.number }); await row.waitFor({ timeout: 10_000 });
+    const txt = await row.innerText(); must(txt.includes("14000") && /\b6\b/.test(txt) && /\b5\b/.test(txt) && txt.includes("+1"), `row: ${txt.replace(/\s+/g, " ")}`);
+    await page.locator('[data-testid="rec-tech"]').selectOption(S.u.jang2.id); await idle(page); await sleep(600);
+    await page.locator('[data-testid="rec-row"]').filter({ hasText: onSite.number }).waitFor({ timeout: 10_000 });
+    const api = await adminApi.call("GET", `/api/inventory/reconcile?from=${ymdIn(-1)}&to=${ymdIn(0)}`);
+    must(api.rows.some((r) => r.booking_id === onSite.id && r.out_qty === 6 && r.invoiced_qty === 5 && r.difference === 1), `api rows ${JSON.stringify(api.rows.map((r) => [r.booking_number, r.out_qty, r.invoiced_qty]))}`);
+    await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "reconcile-360"); await page.setViewportSize({ width: 1280, height: 800 });
   });
   await step(A, "«តម្លៃស្តុកចុងខែ»: by account with the items under each; stock = books ✓", page, async () => {
     await page.goto(`${BASE}/app/inventory?tab=monthend`); await page.locator('[data-testid="month-end"]').waitFor({ timeout: 15_000 });
-    await page.locator('[data-testid="me-account"]', { hasText: "14000" }).click(); await page.getByText(S.newCode).first().waitFor({ timeout: 5_000 });
+    await page.locator('[data-testid="me-account"]', { hasText: "14000" }).click(); await page.getByText(S.stockItem.code).first().waitFor({ timeout: 5_000 });
     const check = await page.locator('[data-testid="me-check"]').innerText(); must(check.includes("✓"), `check line: ${check}`);
     await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "month-end-360"); await page.setViewportSize({ width: 1280, height: 800 });
   });
+  await step(A, "shop-setup: a new price-list line by code with its stock link + the planned books start (dry run writes nothing)", null, async () => {
+    const input = JSON.stringify({ books_start: "2026-10-01", catalog: [{ code: "QA-CU", name_km: "QA ទុយោស្ពាន់ B", kind: "product", unit: "ម៉ែត្រ", sell_price: 1500, stock_link: "14000" }] });
+    const dry = remote("cli shop-setup oneteam", input);
+    must(/QA-CU new: .*stock link 14000/.test(dry) && /books start \(planned\): 2026-10-01/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 4).join(" | "));
+    must(sql("select count(*) from catalog_items where code = 'QA-CU'") === "0", "a dry run wrote the item");
+    remote("cli shop-setup oneteam --apply", input);
+    must(sql("select is_stock::text || ' ' || coalesce((select code from accounts where id = stock_link_account_id), '-') from catalog_items where code = 'QA-CU'") === "false 14000", "the line was not made as a price-list line on 14000");
+    must(sql("select books_planned_start::text from company_settings") === "2026-10-01", "the planned start was not saved");
+  });
   await step(A, "«ចង់ទិញម៉ាស៊ីនត្រជាក់» off by shop-setup (dry run, then apply) → gone from the website; «ស្នើសុំតម្លៃ» stays", null, async () => {
     const dry = remote("cli shop-setup oneteam", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
-    must(/AC-BUY: is_active true → false/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 3).join(" | "));
+    must(/AC-BUY: is_active true → false|AC-BUY: nothing to change/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 3).join(" | "));
     remote("cli shop-setup oneteam --apply", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
     const home = await (await visitor()).text("/");
     must(!home.includes("ចង់ទិញម៉ាស៊ីនត្រជាក់"), "the website still offers «ចង់ទិញម៉ាស៊ីនត្រជាក់»");

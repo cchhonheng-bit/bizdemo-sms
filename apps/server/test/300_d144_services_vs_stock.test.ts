@@ -42,7 +42,7 @@ async function onSite(customer = inside): Promise<string> {
   for (const step of ["depart", "arrive"]) expect((await kim.req("POST", `/api/bookings/${id}/checkpoint`, { step, no_gps: true })).status).toBe(200);
   return id;
 }
-const reviewed = async (id: string) => { for (const st of ["work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${id}`; };
+const reviewed = async (id: string) => { for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${id}`; };
 
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
