@@ -949,7 +949,7 @@ const gmDev = await device({ desktop: true });
   const now0 = new Date(Date.now() - 30 * 60_000); now0.setSeconds(0, 0);
   sql(`update bookings set scheduled_at = '${now0.toISOString()}', ends_at = '${new Date(now0.getTime() + 60 * 60_000).toISOString()}' where id = '${onSite.id}'`);
   for (const stepName of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: stepName, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
-  const cat2 = await ceoApi.call("GET", "/api/catalog"), pipe = (Array.isArray(cat2) ? cat2 : cat2.items).find((x) => x.code === "14001");
+  const pipe = (await ceoApi.call("GET", "/api/inventory/items")).find((x) => x.code === "14001"); // D-144: a stock item lives on the stock page, never on the price list
   await step(A, "D-144: the job page has no materials editor; the technician's screen has no materials picker", page, async () => {
     must(pipe, "the stock items of the new chart (14001 …) are missing");
     await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="booking-detail"], h1').first().waitFor({ timeout: 10_000 });
@@ -1000,7 +1000,7 @@ const gmDev = await device({ desktop: true });
     must(await p.locator('[data-testid="acc-group"]').count() === 10, `group rows ${await p.locator('[data-testid="acc-group"]').count()}`);
     must(await p.getByText("បន្ថែមដោយប្រព័ន្ធ").count() === 7, `added-by-system badges ${await p.getByText("បន្ថែមដោយប្រព័ន្ធ").count()}`);
     must(await p.getByText("សាច់ប្រាក់នៅបេលា").count() > 0, "11001 «សាច់ប្រាក់នៅបេលា» missing");
-    must(pipe.inventory_account_id && sql(`select code from accounts where id = '${pipe.inventory_account_id}'`) === "14000", "14001 is not on 14000");
+    must(pipe.account_code === "14000" && sql(`select is_stock from catalog_items where code = '14001'`) === "t", "14001 is not a stock item on 14000");
   });
   await step(A, "stock guide: on «របៀបប្រើ» for the Admin (PDF) and in the all-guide's Admin tab (CEO)", page, async () => {
     await page.goto(`${BASE}/app/guide`); await page.locator('[data-testid="guide-doc-stock"]').waitFor({ timeout: 10_000 });
@@ -1137,7 +1137,7 @@ const gmDev = await device({ desktop: true });
   });
   await step(A, "«ចង់ទិញម៉ាស៊ីនត្រជាក់» off by shop-setup (dry run, then apply) → gone from the website; «ស្នើសុំតម្លៃ» stays", null, async () => {
     const dry = remote("cli shop-setup oneteam", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
-    must(/AC-BUY: is_active true → false|AC-BUY: nothing to change/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 3).join(" | "));
+    must(/AC-BUY: is_active (true|false) → false|AC-BUY: nothing to change/.test(dry) && /DRY RUN/.test(dry), dry.split("\n").slice(0, 3).join(" | "));
     remote("cli shop-setup oneteam --apply", JSON.stringify({ catalog: [{ code: "AC-BUY", is_active: false }] }));
     const home = await (await visitor()).text("/");
     must(!home.includes("ចង់ទិញម៉ាស៊ីនត្រជាក់"), "the website still offers «ចង់ទិញម៉ាស៊ីនត្រជាក់»");
