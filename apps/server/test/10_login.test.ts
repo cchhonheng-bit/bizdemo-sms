@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { client, loginAs, makeApp, PW, resetDb, seed, type Seed } from "./helpers.js";
 import { sql } from "../src/db.js";
@@ -30,11 +30,15 @@ describe("login (rule 6.2/6.3)", () => {
   });
 
   it("rate limit: 6th attempt from one IP within a minute → 429", async () => {
-    resetRateLimits();
-    let last = 0;
-    for (let i = 0; i < 6; i++) last = (await client(app).req("POST", "/api/auth/login", { identifier: "kim", password: "wrong-pass" })).status;
-    expect(last).toBe(429);
-    resetRateLimits();
+    // the limiter counts in fixed clock minutes: pin the clock mid-minute so the 6 tries cannot straddle a new minute (flaky at hh:mm:00 — a deploy stopped on it 13-10)
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Math.floor(Date.now() / 60_000) * 60_000 + 30_000);
+    try {
+      resetRateLimits();
+      let last = 0;
+      for (let i = 0; i < 6; i++) last = (await client(app).req("POST", "/api/auth/login", { identifier: "kim", password: "wrong-pass" })).status;
+      expect(last).toBe(429);
+    } finally { vi.useRealTimers(); resetRateLimits(); }
   });
 
   it("D-85: behind Caddy the real client IP counts — one client hitting the limit never blocks another; a direct caller cannot spoof X-Forwarded-For", async () => {
