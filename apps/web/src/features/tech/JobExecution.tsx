@@ -1,12 +1,12 @@
 // Job execution on the technician's phone (Flow 1+2): 5 checkpoints (GPS, offline-safe), photos before/after (compressed),
 // work added on site (price-list lines, no prices · D-144: never stock), notes, customer signature → submit for GM review. Big one-hand buttons (Requirements §6).
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, Check, Eraser, MapPinOff, Send, Trash2, WifiOff } from "lucide-react";
 import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api";
 import { compressPhoto, queued, readGps, sendCheckpoint } from "@/lib/offline";
-import { ActionBar, Button, Card, Field, Input, Skeleton } from "@/components/ui";
+import { ActionBar, Button, Card, Field, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth";
 import { ExtrasCard } from "@/features/bookings/JobExtras";

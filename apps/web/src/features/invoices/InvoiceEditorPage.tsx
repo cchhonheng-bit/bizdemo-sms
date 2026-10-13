@@ -1,7 +1,7 @@
 // Invoice editor (Flow 4 · FR-801/802): /invoices/new?booking=<id> (lines prefilled from the reviewed job or the accepted quote),
 // /invoices/new (direct sale: pick a customer) and /invoices/:id/edit (draft only). Prices by Admin / CEO (BR-10); no discount here (AC-05).
 import { useEffect, useMemo, useState } from "react";
-import { formatKhPhone, formatUsd, matchesSearch } from "@sms/shared";
+import { formatKhPhone, matchesSearch } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
