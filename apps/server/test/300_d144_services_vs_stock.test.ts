@@ -212,7 +212,7 @@ describe("C · the books start later than the work: nothing is refused, everythi
   it("before the start: an expense and a journal entry are saved («រក្សាទុករួច»), the CEO / CFO banner counts what waits, nothing is in the books", async () => {
     const info = (await acc(cfo, "/lock")).json;
     expect(info).toMatchObject({ books_start: null, planned_start: yesterday });
-    expect(info.pending).toMatchObject({ transactions: 0, invoices: 2, payments: 1, stock: 5 });
+    expect(info.pending).toMatchObject({ transactions: 0, invoices: 2, payments: 1, stock: 6 }); // 4 ins + 2 outs
     const e = await acc(cfo, "/transactions", { date: today, type: "expense", account_code: "50010", amount: 2500, pay: "cash_usd", memo: "សាំង" });
     expect(e.status).toBe(200);
     expect(e.json).toMatchObject({ pending: true, number: null });
@@ -223,7 +223,7 @@ describe("C · the books start later than the work: nothing is refused, everythi
     expect((await acc(cfo, "/transactions", { date: "2099-01-01", type: "expense", account_code: "50010", amount: 1, pay: "cash_usd" })).json.error).toBe("BAD_DATE");
     const pending = (await acc(cfo, "/pending")).json as any[];
     expect(pending.map((p) => [p.kind, p.date, p.status])).toEqual([["other", d3, "pending"], ["other", today, "pending"], ["journal", today, "pending"]]);
-    expect((await acc(cfo, "/lock")).json.pending).toMatchObject({ transactions: 3, total: 11 });
+    expect((await acc(cfo, "/lock")).json.pending).toMatchObject({ transactions: 3, total: 12 });
     expect(await entries()).toBe(0);
     expect((await sql`select count(*)::int as n from audit_log where action = 'acct.pending'`)[0]).toMatchObject({ n: 3 });
   });
@@ -231,11 +231,11 @@ describe("C · the books start later than the work: nothing is refused, everythi
   it("«ចាប់ផ្តើមសៀវភៅបញ្ជី» (01-10 for One Team): the opening + every invoice, payment, stock move and saved transaction from the start day on, in date order, once; older saved lines are marked «before the start»", async () => {
     const r = await acc(cfo, "/opening", { date: yesterday, cash_usd: 100000 });
     expect(r.status).toBe(200);
-    expect(r.json.backlog).toMatchObject({ start: yesterday, posted: 10, invoices: 2, payments: 1, deposits: 0, stock: 5, transactions: 2, before_start: 1, failed: 0 });
+    expect(r.json.backlog).toMatchObject({ start: yesterday, posted: 11, invoices: 2, payments: 1, deposits: 0, stock: 6, transactions: 2, before_start: 1, failed: 0 });
     expect(r.json.open_invoices).toBe(0); // issued after the start day → posted as invoices, not as opening balances
     expect(((await acc(cfo, "/pending")).json as any[]).map((p) => p.status)).toEqual(["before_start"]);
     expect((await sql<{ st: string[] }[]>`select array_agg(status order by entry_date, created_at) as st from pending_postings where company_id = ${s.a}`)[0]!.st).toEqual(["before_start", "posted", "posted"]);
-    expect(await entries()).toBe(11);
+    expect(await entries()).toBe(12); // the opening + 11
     const tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;
     expect(tb.balanced).toBe(true);
     expect(await bal("14000")).toBe(3000 - 1200);         // 15 m in at $2 − 6 m out at cost
@@ -251,7 +251,7 @@ describe("C · the books start later than the work: nothing is refused, everythi
     // once: a second run posts nothing (every source already has its entry)
     const user = { id: s.users.cfo!, companyId: s.a, role: "cfo", username: "cfo", fullName: "CFO A", mustChangePassword: false, language: "km", sessionId: "x" } as const;
     expect(await tx(null, (t) => postBacklog(t, user, yesterday))).toMatchObject({ posted: 0 });
-    expect(await entries()).toBe(11);
+    expect(await entries()).toBe(12);
     expect((await sql`select source, source_id from journal_entries where company_id = ${s.a} and source_id is not null group by 1, 2 having count(*) > 1`).length).toBe(0);
     expect((await acc(cfo, "/opening", { date: yesterday, cash_usd: 1 })).json.error).toBe("OPENING_DONE");
     expect((await acc(cfo, "/lock")).json).toMatchObject({ books_start: yesterday, pending: null });
