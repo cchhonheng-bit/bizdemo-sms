@@ -1,11 +1,13 @@
-// Inventory (D-87 · flag "inventory"): stock per item (qty, value, average cost, per location, low stock) → stock card;
-// stock in / adjust (reason) / transfer / opening; job materials waiting for Admin confirmation; locations. Cards on phones.
+// Stock (D-87 · D-144 «stock is separate», flag "inventory"): the Admin's warehouse. Stock in = a direct entry (name · qty · unit ·
+// unit cost · stock account · supplier · date → the total; the item is made on its first entry). Stock out = what a technician
+// collects (item · qty · technician · job or place · date → the balance left). «កែតម្រូវ» = a count. Stock card per item,
+// «តម្លៃស្តុកចុងខែ» against the books, «ផ្ទៀងផ្ទាត់សម្ភារំ» = stock out vs invoiced per job and group. Cards on phones.
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, toCents } from "@sms/shared";
-import { ArrowLeftRight, Check, PackagePlus, Plus, SlidersHorizontal } from "lucide-react";
+import { PackageMinus, PackagePlus, SlidersHorizontal } from "lucide-react";
 import { api, errCode, type StockItem, type StockPay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
@@ -15,8 +17,8 @@ import RangePicker from "@/features/reports/RangePicker";
 import { todayLocal } from "@/features/invoices/util";
 import MonthEnd from "./MonthEnd";
 
-type Tab = "stock" | "jobs" | "monthend" | "locations";
-type Op = "in" | "adjust" | "transfer" | "opening";
+type Tab = "stock" | "monthend" | "reconcile";
+type Op = "in" | "out" | "adjust";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
 
@@ -24,18 +26,16 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = manage ? ["stock", "jobs", "monthend", "locations"] : ["stock", "monthend"];
-  const [sp] = useSearchParams(); // D-140 E1: the dashboard's «សម្ភារៈរង់ចាំបញ្ជាក់» opens the jobs tab
+  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile"] : ["stock", "monthend"];
+  const [sp] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("inventory.title")}</h1>
-      {tabs.length > 1 && (
-        <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
-          {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
-        </div>
-      )}
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "jobs" ? <Jobs /> : tab === "monthend" ? <MonthEnd /> : <Locations />}
+      <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
+        {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
+      </div>
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : <Reconcile />}
     </div>
   );
 }
@@ -44,18 +44,14 @@ function useErr() {
   const { t } = useTranslation();
   return (e: unknown) => toast.error(t(`inventory.err.${errCode(e)}`, { defaultValue: t("app.error") }));
 }
+const useAccName = () => { const { i18n } = useTranslation(); return (a: { code: string; name_km: string; name_en: string | null }) => `${a.code} · ${(i18n.language === "en" && a.name_en) || a.name_km}`; };
 
 function Stock({ manage }: { manage: boolean }) {
   const { t, i18n } = useTranslation();
   const q = useQuery({ queryKey: ["stock-items"], queryFn: api.inventory.items });
   const [op, setOp] = useState<Op | null>(null);
   const [cardOf, setCardOf] = useState<StockItem | null>(null);
-  const [tracking, setTracking] = useState(false);
   const total = (q.data ?? []).reduce((s, i) => s + i.value, 0);
-  // D-142: any product can be stocked in / moved — the dialogs list every active product (tracked ones with their quantity)
-  const cat = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
-  const allProducts = useMemo<StockItem[]>(() => (cat.data ?? []).filter((i) => i.kind === "product" && i.is_active).map((i) => (q.data ?? []).find((s) => s.item_id === i.id)
-    ?? { item_id: i.id, code: i.code ?? null, name: i.name_km, unit: i.unit, qty: 0, value: 0, avg_cost: 0, reorder_level: null, low: false, by_location: [] }), [cat.data, q.data]);
   // grouped by stock account (13001 …, 14000 …, 18000), each group expandable
   const groups = useMemo(() => { const g = new Map<string, { code: string; name: string; items: StockItem[] }>(); for (const i of q.data ?? []) { const k = i.account_code ?? "—";
     const x = g.get(k) ?? { code: k, name: (i18n.language === "en" && i.account_name_en) || i.account_name || "", items: [] }; x.items.push(i); g.set(k, x); } return [...g.values()]; }, [q.data, i18n.language]);
@@ -63,14 +59,14 @@ function Stock({ manage }: { manage: boolean }) {
   return (
     <>
       {manage && (
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <Button variant="primary" onClick={() => setOp("in")} data-testid="op-in"><PackagePlus size={16} /> {t("inventory.op.in")}</Button>
-          <Button onClick={() => setOp("transfer")} data-testid="op-transfer"><ArrowLeftRight size={16} /> {t("inventory.op.transfer")}</Button>
+          <Button onClick={() => setOp("out")} data-testid="op-out"><PackageMinus size={16} /> {t("inventory.op.out")}</Button>
           <Button onClick={() => setOp("adjust")} data-testid="op-adjust"><SlidersHorizontal size={16} /> {t("inventory.op.adjust")}</Button>
-          <Button onClick={() => setOp("opening")}>{t("inventory.op.opening")}</Button>
         </div>
       )}
-      <Card title={`${t("inventory.value_total")} · ${formatUsd(total)}`} actions={manage ? <Button onClick={() => setTracking(true)} data-testid="track-open"><Plus size={16} /> {t("inventory.track")}</Button> : undefined}>
+      <p className="text-xs text-muted">{t("inventory.separate_hint")}</p>
+      <Card title={`${t("inventory.value_total")} · ${formatUsd(total)}`}>
         {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("inventory.none")} /> : (
           <div className="-my-2" data-testid="stock-list">
             {groups.map((g) => (
@@ -91,7 +87,6 @@ function Stock({ manage }: { manage: boolean }) {
                           <div className="flex flex-wrap gap-1 mt-1 text-xs items-center">
                             <span className="text-muted tabular">{t("inventory.unit_cost_short")} {formatUsd(i.avg_cost)} · {formatUsd(i.value)}</span>
                             {i.low && <Badge tone="danger">{t("inventory.low", { level: i.reorder_level })}</Badge>}
-                            {i.by_location.filter((l) => l.qty !== 0).map((l) => <Badge key={l.location_id} tone="grey">{l.name}: {qtyFmt(l.qty)}</Badge>)}
                           </div>
                         </button>
                       </li>
@@ -103,71 +98,178 @@ function Stock({ manage }: { manage: boolean }) {
           </div>
         )}
       </Card>
-      {op && <OpDialog op={op} items={allProducts} onClose={() => setOp(null)} />}
-      {cardOf && <CardDialog item={cardOf} onClose={() => setCardOf(null)} />}
-      {tracking && <TrackDialog tracked={(q.data ?? []).map((i) => i.item_id)} onClose={() => setTracking(false)} />}
+      {op === "in" && <StockInDialog items={q.data ?? []} onClose={() => setOp(null)} />}
+      {op === "out" && <StockOutDialog items={q.data ?? []} onClose={() => setOp(null)} />}
+      {op === "adjust" && <AdjustDialog items={q.data ?? []} onClose={() => setOp(null)} />}
+      {cardOf && <CardDialog item={cardOf} manage={manage} onClose={() => setCardOf(null)} />}
     </>
   );
 }
 
-function OpDialog({ op, items, onClose }: { op: Op; items: StockItem[]; onClose: () => void }) {
+const ItemSelect = ({ items, value, onChange, testId, blank }: { items: StockItem[]; value: string; onChange: (v: string) => void; testId: string; blank?: string }) => (
+  <Select value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
+    {blank !== undefined && <option value="">{blank}</option>}
+    {items.map((i) => <option key={i.item_id} value={i.item_id}>{i.code ? `${i.code} · ` : ""}{i.name} ({qtyFmt(i.qty)} {i.unit})</option>)}
+  </Select>
+);
+const DateField = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
   const { t } = useTranslation();
-  const qc = useQueryClient();
+  return <Field label={t("inventory.date")}><Input type="date" value={value} max={todayLocal()} onChange={(e) => e.target.value && onChange(e.target.value)} data-testid="op-date" /></Field>;
+};
+const useRefresh = () => { const qc = useQueryClient(); return () => { void qc.invalidateQueries({ queryKey: ["stock-items"] }); void qc.invalidateQueries({ queryKey: ["catalog"] }); }; };
+
+/** D-144 stock in: an item already in stock, or a new one (name · unit · stock account → code on the client's scheme) */
+function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => void }) {
+  const { t } = useTranslation();
   const onErr = useErr();
-  const locs = useQuery({ queryKey: ["stock-locations"], queryFn: api.inventory.locations });
-  const active = (locs.data ?? []).filter((l) => l.is_active);
+  const refresh = useRefresh();
+  const accName = useAccName();
+  const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts });
+  const stockAccounts = useMemo(() => (accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)), [accounts.data]);
+  const [mode, setMode] = useState<"existing" | "new">(items.length ? "existing" : "new");
   const [item, setItem] = useState(items[0]?.item_id ?? "");
-  const [loc, setLoc] = useState(""); const [to, setTo] = useState("");
-  const [qty, setQty] = useState(""); const [cost, setCost] = useState(""); const [sign, setSign] = useState<1 | -1>(-1);
-  const [pay, setPay] = useState<StockPay>("cash_usd"); const [supplier, setSupplier] = useState(""); const [reason, setReason] = useState("");
-  const from = loc || (active.find((l) => l.kind === "warehouse") ?? active[0])?.id || ""; // D-142: stock in / opening / a transfer start at the warehouse
+  const [name, setName] = useState(""), [unit, setUnit] = useState(""), [account, setAccount] = useState("");
+  const [qty, setQty] = useState(""), [cost, setCost] = useState(""), [totalIn, setTotalIn] = useState("");
+  const [pay, setPay] = useState<StockPay>("cash_usd"), [supplier, setSupplier] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
   const n = Number(qty);
-  let c = NaN; try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
-  const valid = !!item && !!from && n > 0 && (op === "transfer" ? !!to && to !== from : op === "adjust" ? reason.trim().length >= 3 : c >= 0);
+  let c = NaN, tot = NaN;
+  try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
+  try { tot = totalIn.trim() === "" ? NaN : toCents(totalIn); } catch { /* invalid */ }
+  const total = tot >= 0 ? tot : c >= 0 && n > 0 ? Math.round(n * c) : NaN; // the total follows qty × unit cost, or is typed itself
+  const valid = n > 0 && total >= 0 && (mode === "existing" ? !!item : name.trim().length > 0 && !!account);
   const save = useMutation({
-    mutationFn: () => op === "in" ? api.inventory.stockIn({ item_id: item, location_id: from, qty: n, unit_cost: c, pay, supplier, note: "" })
-      : op === "opening" ? api.inventory.opening({ item_id: item, location_id: from, qty: n, unit_cost: c })
-      : op === "transfer" ? api.inventory.transfer({ item_id: item, from, to, qty: n })
-      : api.inventory.adjust({ item_id: item, location_id: from, qty: sign * n, reason }),
-    onSuccess: () => { toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["stock-items"] }); onClose(); }, onError: onErr,
+    mutationFn: () => api.inventory.stockIn({ ...(mode === "existing" ? { item_id: item } : { name: name.trim(), unit: unit.trim() || null, account_id: account }), qty: n,
+      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null }),
+    onSuccess: (r) => { toast.success(t("inventory.in_done", { total: formatUsd(r.total), balance: qtyFmt(r.balance) })); refresh(); onClose(); }, onError: onErr,
   });
   const pays: StockPay[] = ["cash_usd", "cash_khr", "aba", "acleda", "credit"];
   return (
-    <Dialog open onClose={onClose} title={t(`inventory.op.${op}`)} footer={<>
+    <Dialog open onClose={onClose} title={t("inventory.op.in")} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" className="flex-1 sm:flex-none" disabled={!valid} loading={save.isPending} onClick={() => save.mutate()} data-testid="op-save">{t("app.save")}</Button>
     </>}>
-      {items.length === 0 ? <p className="text-sm text-muted">{t("inventory.track_first")}</p> : (<>
-        <Field label={t("inventory.item")}><Select value={item} onChange={(e) => setItem(e.target.value)} data-testid="op-item">{items.map((i) => <option key={i.item_id} value={i.item_id}>{i.code ? `${i.code} · ` : ""}{i.name} ({qtyFmt(i.qty)} {i.unit})</option>)}</Select></Field>
-        <div className="grid grid-cols-2 gap-2">
-          <Field label={op === "transfer" ? t("inventory.from") : t("inventory.location")}><Select value={from} onChange={(e) => setLoc(e.target.value)} data-testid="op-loc">{active.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
-          {op === "transfer"
-            ? <Field label={t("inventory.to")}><Select value={to} onChange={(e) => setTo(e.target.value)} data-testid="op-to"><option value="">—</option>{active.filter((l) => l.id !== from).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
-            : <Field label={t("inventory.qty")}><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>}
+      <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup">
+        {(["existing", "new"] as const).map((m) => <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} data-testid={`in-mode-${m}`} disabled={m === "existing" && !items.length}
+          className={`min-h-[44px] rounded-md border text-sm ${mode === m ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`inventory.in_${m}`)}</button>)}
+      </div>
+      {mode === "existing" ? <Field label={t("inventory.item")}><ItemSelect items={items} value={item} onChange={setItem} testId="op-item" /></Field> : (<>
+        <Field label={t("inventory.item_name")} required hint={t("inventory.item_name_hint")}><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} data-testid="in-name" autoFocus /></Field>
+        <div className="grid grid-cols-[1fr_6rem] gap-2">
+          <Field label={t("inventory.account")} required hint={t("inventory.account_hint")}>
+            <Select value={account} onChange={(e) => setAccount(e.target.value)} data-testid="in-account"><option value="">—</option>{stockAccounts.map((a) => <option key={a.id} value={a.id}>{accName(a)}</option>)}</Select>
+          </Field>
+          <Field label={t("inventory.unit")}><Input value={unit} onChange={(e) => setUnit(e.target.value)} maxLength={20} placeholder="ម៉ែត្រ" data-testid="in-unit" /></Field>
         </div>
-        {op === "transfer" && <Field label={t("inventory.qty")}><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>}
-        {(op === "in" || op === "opening") && <Field label={t("inventory.unit_cost")}><Input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} data-testid="op-cost" /></Field>}
-        {op === "in" && <>
-          <div className="grid grid-cols-3 gap-2 mb-3">{pays.map((p) => <button key={p} type="button" role="radio" aria-checked={pay === p} onClick={() => setPay(p)} className={`min-h-[44px] rounded-md border text-xs ${pay === p ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`inventory.pay.${p}`)}</button>)}</div>
-          <Field label={t("inventory.supplier")}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} /></Field>
-          {n > 0 && c >= 0 && <p className="text-sm tabular">{t("inventory.total")} {formatUsd(Math.round(n * c))}</p>}
-        </>}
-        {op === "adjust" && <>
-          <div className="grid grid-cols-2 gap-2 mb-3">{([-1, 1] as const).map((sg) => <button key={sg} type="button" role="radio" aria-checked={sign === sg} onClick={() => setSign(sg)} className={`min-h-[44px] rounded-md border ${sign === sg ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{sg < 0 ? t("inventory.minus") : t("inventory.plus")}</button>)}</div>
-          <Field label={t("booking.cancel_reason")} required><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} data-testid="op-reason" /></Field>
-        </>}
+      </>)}
+      <div className="grid grid-cols-3 gap-2">
+        <Field label={t("inventory.qty")} required><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>
+        <Field label={t("inventory.unit_cost")}><Input inputMode="decimal" value={cost} onChange={(e) => { setCost(e.target.value); setTotalIn(""); }} data-testid="op-cost" /></Field>
+        <Field label={t("inventory.total") + " ($)"}><Input inputMode="decimal" value={totalIn || (total >= 0 ? (total / 100).toFixed(2) : "")} onChange={(e) => setTotalIn(e.target.value)} data-testid="op-total" /></Field>
+      </div>
+      <p className="text-sm mb-1">{t("inventory.paid_with")}</p>
+      <div className="grid grid-cols-3 gap-2 mb-3">{pays.map((p) => <button key={p} type="button" role="radio" aria-checked={pay === p} onClick={() => setPay(p)} data-testid={`pay-${p}`} className={`min-h-[44px] rounded-md border text-xs ${pay === p ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`inventory.pay.${p}`)}</button>)}</div>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={t("inventory.supplier")}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="op-supplier" /></Field>
+        <DateField value={date} onChange={setDate} />
+      </div>
+      <Field label={t("inventory.note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} /></Field>
+      {total >= 0 && <p className="text-sm tabular font-semibold" data-testid="op-total-text">{t("inventory.total")} {formatUsd(total)}</p>}
+    </Dialog>
+  );
+}
+
+/** D-144 stock out: the Admin records what a technician collects — for a job, or for a place (project · borey · house no.) */
+function StockOutDialog({ items, onClose }: { items: StockItem[]; onClose: () => void }) {
+  const { t } = useTranslation();
+  const onErr = useErr();
+  const refresh = useRefresh();
+  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const techs = useMemo(() => (users.data ?? []).filter((u) => u.role === "tech"), [users.data]);
+  const jobs = useQuery({ queryKey: ["bookings", "open-for-stock"], queryFn: () => api.bookings({ statuses: ["assigned", "en_route", "on_site", "working", "work_done", "pending_review", "reviewed"] as never }) });
+  const [item, setItem] = useState(items[0]?.item_id ?? "");
+  const [qty, setQty] = useState(""), [tech, setTech] = useState(""), [job, setJob] = useState(""), [place, setPlace] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
+  const [left, setLeft] = useState<number | null>(null);
+  const n = Number(qty);
+  const current = items.find((i) => i.item_id === item);
+  const techJobs = useMemo(() => (jobs.data ?? []).filter((b) => !tech || b.technicians?.some((x) => x.user_id === tech)), [jobs.data, tech]);
+  const valid = !!item && n > 0 && !!tech && (!!job || place.trim().length > 0);
+  const save = useMutation({
+    mutationFn: () => api.inventory.stockOut({ item_id: item, qty: n, technician_id: tech, booking_id: job || null, place: job ? null : place.trim(), date, note: note.trim() || null }),
+    onSuccess: (r) => { setLeft(r.balance); toast.success(t("inventory.out_done", { balance: qtyFmt(r.balance), unit: current?.unit ?? "" })); refresh(); onClose(); }, onError: onErr,
+  });
+  return (
+    <Dialog open onClose={onClose} title={t("inventory.op.out")} footer={<>
+      <Button onClick={onClose}>{t("app.cancel")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!valid} loading={save.isPending} onClick={() => save.mutate()} data-testid="op-save">{t("app.save")}</Button>
+    </>}>
+      {!items.length ? <p className="text-sm text-muted">{t("inventory.none")}</p> : (<>
+        <p className="text-xs text-muted mb-3">{t("inventory.out_hint")}</p>
+        <Field label={t("inventory.item")}><ItemSelect items={items} value={item} onChange={(v) => { setItem(v); setLeft(null); }} testId="op-item" /></Field>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={t("inventory.qty")} required hint={current ? t("inventory.in_stock", { qty: qtyFmt(current.qty), unit: current.unit }) : undefined}><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>
+          <Field label={t("inventory.technician")} required>
+            <Select value={tech} onChange={(e) => { setTech(e.target.value); setJob(""); }} data-testid="out-tech"><option value="">—</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
+          </Field>
+        </div>
+        <Field label={t("inventory.job")} hint={t("inventory.job_hint")}>
+          <Select value={job} onChange={(e) => setJob(e.target.value)} data-testid="out-job"><option value="">{t("inventory.no_job")}</option>{techJobs.map((b) => <option key={b.id} value={b.id}>{b.number} · {b.customer_name}</option>)}</Select>
+        </Field>
+        {!job && <Field label={t("inventory.place")} required><Input value={place} onChange={(e) => setPlace(e.target.value)} maxLength={120} placeholder={t("inventory.place_ph")} data-testid="out-place" /></Field>}
+        <div className="grid grid-cols-2 gap-2">
+          <DateField value={date} onChange={setDate} />
+          <Field label={t("inventory.note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} /></Field>
+        </div>
+        {current && n > 0 && <p className="text-sm tabular" data-testid="out-left">{t("inventory.left_after", { qty: qtyFmt(Math.max(0, current.qty - n)), unit: current.unit })}</p>}
+        {left != null && <p className="text-sm font-semibold">{t("inventory.left_after", { qty: qtyFmt(left), unit: current?.unit ?? "" })}</p>}
       </>)}
     </Dialog>
   );
 }
 
-function CardDialog({ item, onClose }: { item: StockItem; onClose: () => void }) {
+/** «កែតម្រូវ»: a count — more or less than the record, with a reason (a + takes the average cost, or the one typed) */
+function AdjustDialog({ items, onClose }: { items: StockItem[]; onClose: () => void }) {
   const { t } = useTranslation();
+  const onErr = useErr();
+  const refresh = useRefresh();
+  const [item, setItem] = useState(items[0]?.item_id ?? "");
+  const [qty, setQty] = useState(""), [sign, setSign] = useState<1 | -1>(-1), [reason, setReason] = useState(""), [cost, setCost] = useState(""), [date, setDate] = useState(todayLocal());
+  const n = Number(qty);
+  let c: number | null = null; try { c = cost.trim() === "" ? null : toCents(cost); } catch { c = -1; }
+  const valid = !!item && n > 0 && reason.trim().length >= 3 && (c == null || c >= 0);
+  const save = useMutation({
+    mutationFn: () => api.inventory.adjust({ item_id: item, qty: sign * n, reason: reason.trim(), unit_cost: sign > 0 ? c : null, date }),
+    onSuccess: () => { toast.success(t("app.saved")); refresh(); onClose(); }, onError: onErr,
+  });
+  return (
+    <Dialog open onClose={onClose} title={t("inventory.op.adjust")} footer={<>
+      <Button onClick={onClose}>{t("app.cancel")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!valid} loading={save.isPending} onClick={() => save.mutate()} data-testid="op-save">{t("app.save")}</Button>
+    </>}>
+      {!items.length ? <p className="text-sm text-muted">{t("inventory.none")}</p> : (<>
+        <Field label={t("inventory.item")}><ItemSelect items={items} value={item} onChange={setItem} testId="op-item" /></Field>
+        <div className="grid grid-cols-2 gap-2 mb-3">{([-1, 1] as const).map((sg) => <button key={sg} type="button" role="radio" aria-checked={sign === sg} onClick={() => setSign(sg)} data-testid={`adj-${sg > 0 ? "plus" : "minus"}`} className={`min-h-[44px] rounded-md border ${sign === sg ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{sg > 0 ? t("inventory.adjust_plus") : t("inventory.adjust_minus")}</button>)}</div>
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={t("inventory.qty")} required><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>
+          {sign > 0 ? <Field label={t("inventory.unit_cost")} hint={t("inventory.adjust_cost_hint")}><Input inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} data-testid="op-cost" /></Field> : <DateField value={date} onChange={setDate} />}
+        </div>
+        {sign > 0 && <DateField value={date} onChange={setDate} />}
+        <Field label={t("booking.cancel_reason")} required><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} data-testid="op-reason" /></Field>
+      </>)}
+    </Dialog>
+  );
+}
+
+function CardDialog({ item, manage, onClose }: { item: StockItem; manage: boolean; onClose: () => void }) {
+  const { t } = useTranslation();
+  const onErr = useErr();
+  const refresh = useRefresh();
   const [range, setRange] = useState<Range>(() => presetRange("month", todayLocal()));
   const q = useQuery({ queryKey: ["stock-card", item.item_id, ...range], queryFn: () => api.inventory.card(item.item_id, range[0], range[1]) });
+  const [level, setLevel] = useState(item.reorder_level == null ? "" : String(item.reorder_level));
+  const reorder = useMutation({ mutationFn: () => api.inventory.reorder(item.item_id, level.trim() === "" ? null : Number(level)), onSuccess: () => { toast.success(t("app.saved")); refresh(); }, onError: onErr });
   const c = q.data;
   return (
-    <Dialog open onClose={onClose} title={`${t("inventory.card")} · ${item.name}`}>
+    <Dialog open onClose={onClose} title={`${t("inventory.card")} · ${item.code ? `${item.code} · ` : ""}${item.name}`}>
       <RangePicker value={range} onChange={setRange} presets={["month", "last"]} />
       {!c ? <Skeleton /> : (
         <div className="text-sm" data-testid="stock-card">
@@ -175,94 +277,67 @@ function CardDialog({ item, onClose }: { item: StockItem; onClose: () => void })
           <ul className="divide-y divide-grey-line">
             {c.rows.map((r) => (
               <li key={r.id} className="py-2">
-                <div className="flex justify-between gap-2"><span className="min-w-0 break-words">{r.date} · {t(`inventory.kind.${r.kind}`)}{r.ref_label ? ` · ${r.ref_label}` : ""}</span>
+                <div className="flex justify-between gap-2"><span className="min-w-0 break-words">{r.date} · {t(`inventory.kind.${r.kind}`)}{r.ref_label ? ` · ${r.ref_label}` : ""}{r.place ? ` · ${r.place}` : ""}</span>
                   <span className={`tabular whitespace-nowrap ${r.qty < 0 ? "text-danger" : "text-success"}`}>{r.qty > 0 ? "+" : ""}{qtyFmt(r.qty)}{r.value ? ` · ${signed(r.value)}` : ""}</span></div>
-                <div className="flex justify-between text-xs text-muted"><span className="min-w-0 break-words">{r.location}{r.reason ? ` · ${r.reason}` : ""}{r.supplier ? ` · ${r.supplier}` : ""}</span><span className="tabular">= {qtyFmt(r.balance_qty)}{r.balance_value != null ? ` · ${formatUsd(r.balance_value)}` : ""}</span></div>
+                <div className="flex justify-between text-xs text-muted"><span className="min-w-0 break-words">{r.technician ? `👷 ${r.technician}` : ""}{r.reason ? ` · ${r.reason}` : ""}{r.supplier ? ` · ${r.supplier}` : ""}</span><span className="tabular">= {qtyFmt(r.balance_qty)}{r.balance_value != null ? ` · ${formatUsd(r.balance_value)}` : ""}</span></div>
               </li>
             ))}
           </ul>
           <div className="flex justify-between font-bold py-1 border-t border-grey-line"><span>{t("inventory.ending")}</span><span className="tabular">{qtyFmt(c.ending.qty)} · {c.ending.value != null ? formatUsd(c.ending.value) : ""}</span></div>
         </div>
       )}
+      {manage && (
+        <div className="flex gap-2 items-end mt-3">
+          <div className="flex-1"><Field label={t("inventory.reorder")} hint={t("inventory.reorder_hint")}><Input inputMode="decimal" value={level} onChange={(e) => setLevel(e.target.value)} data-testid="reorder-level" /></Field></div>
+          <Button className="mb-3" loading={reorder.isPending} onClick={() => reorder.mutate()} data-testid="reorder-save">{t("app.save")}</Button>
+        </div>
+      )}
     </Dialog>
   );
 }
 
-function TrackDialog({ tracked, onClose }: { tracked: string[]; onClose: () => void }) {
+/** D-144 «ផ្ទៀងផ្ទាត់សម្ភារៈ»: per job (or place) and stock group — what left the stock vs what the invoice charged through the linked
+ *  price-list lines; a difference is highlighted. Filter by technician and dates. Admin / CEO / CFO. */
+function Reconcile() {
   const { t } = useTranslation();
-  const qc = useQueryClient();
-  const onErr = useErr();
-  const cat = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
-  const products = useMemo(() => (cat.data ?? []).filter((i) => i.kind === "product" && i.is_active && !tracked.includes(i.id)), [cat.data, tracked]);
-  const [pick, setPick] = useState(""); const [level, setLevel] = useState("");
-  const save = useMutation({ mutationFn: () => api.inventory.track(pick || products[0]!.id, true, level.trim() === "" ? null : Number(level)),
-    onSuccess: () => { toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["stock-items"] }); onClose(); }, onError: onErr });
+  const [range, setRange] = useState<Range>(() => presetRange("month", todayLocal()));
+  const [tech, setTech] = useState("");
+  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const techs = useMemo(() => (users.data ?? []).filter((u) => u.role === "tech"), [users.data]);
+  const q = useQuery({ queryKey: ["stock-reconcile", ...range, tech], queryFn: () => api.inventory.reconcile(range[0], range[1], tech || undefined) });
+  const d = q.data;
   return (
-    <Dialog open onClose={onClose} title={t("inventory.track")} footer={<>
-      <Button onClick={onClose}>{t("app.cancel")}</Button>
-      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!products.length} loading={save.isPending} onClick={() => save.mutate()} data-testid="track-save">{t("app.save")}</Button>
-    </>}>
-      {!products.length ? <p className="text-sm text-muted">{t("inventory.no_products")}</p> : <>
-        <Field label={t("inventory.item")}><Select value={pick || products[0]!.id} onChange={(e) => setPick(e.target.value)} data-testid="track-item">{products.map((p) => <option key={p.id} value={p.id}>{p.name_km} ({p.unit})</option>)}</Select></Field>
-        <Field label={t("inventory.reorder")} hint={t("inventory.reorder_hint")}><Input inputMode="decimal" value={level} onChange={(e) => setLevel(e.target.value)} /></Field>
-      </>}
-    </Dialog>
+    <>
+      <RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} />
+      <Field label={t("inventory.technician")}><Select value={tech} onChange={(e) => setTech(e.target.value)} data-testid="rec-tech"><option value="">{t("app.all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
+      <p className="text-xs text-muted">{t("inventory.rec_hint")}</p>
+      {!d ? <Skeleton /> : !d.rows.length ? <Card><Empty text={t("inventory.rec_none")} /></Card> : (<>
+        <Card title={t("inventory.rec_totals")}>
+          <ul className="divide-y divide-grey-line -my-2" data-testid="rec-totals">
+            {d.totals.map((x) => (
+              <li key={x.group_code} className="py-2 text-sm flex items-center gap-2">
+                <span className="flex-1 min-w-0 break-words"><span className="font-mono">{x.group_code}</span> {x.group_name}</span>
+                <span className="tabular text-xs text-muted whitespace-nowrap">{t("inventory.rec_out")} {qtyFmt(x.out_qty)} · {t("inventory.rec_invoiced")} {qtyFmt(x.invoiced_qty)}</span>
+                <Badge tone={x.difference === 0 ? "green" : "danger"}>{x.difference > 0 ? "+" : ""}{qtyFmt(x.difference)}</Badge>
+              </li>
+            ))}
+          </ul>
+        </Card>
+        <Card title={t("inventory.rec_rows")}>
+          <ul className="divide-y divide-grey-line -my-2" data-testid="rec-rows">
+            {d.rows.map((r) => (
+              <li key={r.key} className={`py-2 text-sm ${r.difference !== 0 ? "bg-warning-50 -mx-3 px-3" : ""}`} data-testid="rec-row">
+                <div className="flex items-center gap-2">
+                  <span className="flex-1 min-w-0 break-words font-semibold">{r.booking_id ? <Link to={`/bookings/${r.booking_id}`} className="text-blue underline">{r.booking_number}</Link> : r.place}{r.customer_name ? ` · ${r.customer_name}` : ""}</span>
+                  <Badge tone={r.difference === 0 ? "green" : "danger"}>{r.difference > 0 ? "+" : ""}{qtyFmt(r.difference)}</Badge>
+                </div>
+                <div className="text-xs text-muted flex flex-wrap gap-x-2"><span><span className="font-mono">{r.group_code}</span> {r.group_name}</span>{r.technician && <span>👷 {r.technician}</span>}{r.borey_name && <span>🏘 {r.borey_name}</span>}
+                  <span className="tabular">{t("inventory.rec_out")} {qtyFmt(r.out_qty)} · {t("inventory.rec_invoiced")} {qtyFmt(r.invoiced_qty)}</span></div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      </>)}
+    </>
   );
 }
-
-function Jobs() {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const onErr = useErr();
-  const q = useQuery({ queryKey: ["stock-jobs"], queryFn: api.inventory.pendingJobs });
-  const locs = useQuery({ queryKey: ["stock-locations"], queryFn: api.inventory.locations });
-  const [chosen, setChosen] = useState<Record<string, string>>({});
-  const confirm = useMutation({ mutationFn: (v: { id: string; loc: string }) => api.inventory.confirmJob(v.id, v.loc),
-    onSuccess: () => { toast.success(t("inventory.confirmed")); for (const k of [["stock-jobs"], ["stock-items"]]) void qc.invalidateQueries({ queryKey: k }); }, onError: onErr });
-  if (q.isLoading) return <Skeleton />;
-  if (!q.data?.length) return <Card><Empty text={t("inventory.no_jobs")} /></Card>;
-  return (
-    <div className="space-y-2">
-      {q.data.map((j) => {
-        const loc = chosen[j.booking_id] ?? j.suggested_location_id;
-        return (
-          <Card key={j.booking_id}>
-            <div className="flex justify-between gap-2"><Link to={`/bookings/${j.booking_id}`} className="font-semibold text-blue underline min-w-0 break-words">{j.number} · {j.customer_name}</Link>{j.cancelled ? <Badge tone="danger">{t("inventory.cancelled_cost")}</Badge> : <Badge>{t(`status.${j.status}`)}</Badge>}</div>
-            <ul className="text-sm mt-1">{j.materials.map((m) => <li key={m.item_id}>• {m.name}: {qtyFmt(m.qty)} {m.unit}</li>)}</ul>
-            <div className="flex gap-2 mt-2 items-end">
-              <div className="flex-1"><Field label={t("inventory.from")} hint={j.vehicle_code ? `🚐 ${j.vehicle_code} = ${t("inventory.job_vehicle")}` : undefined}><Select value={loc} onChange={(e) => setChosen({ ...chosen, [j.booking_id]: e.target.value })}>{(locs.data ?? []).filter((l) => l.is_active).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field></div>
-              <Button variant="primary" className="mb-3" loading={confirm.isPending} onClick={() => confirm.mutate({ id: j.booking_id, loc })} data-testid="job-confirm"><Check size={16} /> {t("inventory.confirm")}</Button>
-            </div>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-function Locations() {
-  const { t } = useTranslation();
-  const qc = useQueryClient();
-  const onErr = useErr();
-  const q = useQuery({ queryKey: ["stock-locations"], queryFn: api.inventory.locations });
-  const [name, setName] = useState("");
-  const save = useMutation({ mutationFn: (v: Parameters<typeof api.inventory.saveLocation>[0]) => api.inventory.saveLocation(v),
-    onSuccess: () => { toast.success(t("app.saved")); setName(""); void qc.invalidateQueries({ queryKey: ["stock-locations"] }); }, onError: onErr });
-  return (
-    <Card>
-      <ul className="divide-y divide-grey-line -my-2 mb-2">
-        {(q.data ?? []).map((l) => (
-          <li key={l.id} className={`py-2 flex items-center gap-2 ${l.is_active ? "" : "opacity-50"}`}>
-            <span className="flex-1 min-w-0 break-words">{l.kind === "vehicle" ? "🚐" : "🏬"} {l.name}</span>
-            <Button onClick={() => save.mutate({ id: l.id, name: l.name, kind: l.kind, is_active: !l.is_active })}>{l.is_active ? t("app.inactive") : t("app.active")}</Button>
-          </li>
-        ))}
-      </ul>
-      <div className="flex gap-2 items-end">
-        <div className="flex-1"><Field label={t("inventory.new_location")}><Input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} /></Field></div>
-        <Button className="mb-3" disabled={!name.trim()} onClick={() => save.mutate({ name, kind: "warehouse" })}><Plus size={16} /> {t("app.add")}</Button>
-      </div>
-    </Card>
-  );
-}
-

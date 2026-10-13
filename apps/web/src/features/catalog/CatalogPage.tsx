@@ -2,7 +2,7 @@
 // website, quote only). Editing — the form and the Excel import — is for CEO, CFO, Admin and GM (the server checks it too).
 // Excel: download the template (the services as they are now) → upload → preview (new / changed / errors) → apply. Matched by
 // code; nothing is deleted. Over the list: who changed it last, and when.
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -187,15 +187,8 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
   const acctOn = useFeature("accounting") && can("accounting.view"); // D-92: the income account the item posts to
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: acctOn });
   const [incomeAcc, setIncomeAcc] = useState(item?.income_account_id ?? "");
-  const [stockAcc, setStockAcc] = useState(item?.inventory_account_id ?? "");
-  // D-142: a stock account fills the code in — the next sub code (14005 …, still editable) or the account's own code (locked: one item)
-  const [codeLocked, setCodeLocked] = useState(false);
-  const pickStockAcc = (id: string, fill: boolean) => {
-    setStockAcc(id);
-    if (!id) { setCodeLocked(false); return; }
-    void api.catalogNextCode(id).then((n) => { setCodeLocked(!n.sub_codes); if (fill || !n.sub_codes) setCode(n.code); }).catch(() => setCodeLocked(false));
-  };
-  useEffect(() => { if (item?.inventory_account_id) pickStockAcc(item.inventory_account_id, false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // D-144 «ភ្ជាប់កូដស្តុក»: a price-list line's stock group (a copper line → 14000) — the reconciliation report compares what left the stock with what was invoiced
+  const [stockLink, setStockLink] = useState(item?.stock_link_account_id ?? "");
   const [remind, setRemind] = useState(item?.reminder_months ? String(item.reminder_months) : "");
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<CatalogItemInput>({
     resolver: zodResolver(catalogItemSchema.omit({ sell_price: true, cost_price: true, duration_min: true, code: true, web_category: true, from_price: true, show_on_website: true, quote_only: true })),
@@ -214,7 +207,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
     if (v.kind === "service" && (!Number.isInteger(mins) || mins < 15 || mins > 1440)) return toast.error(t("booking.err.DURATION_RANGE"));
     try {
       await api.upsertCatalogItem({ id: item?.id, name_km: v.name_km, name_en: v.name_en || null, kind: v.kind, category: v.category, unit: v.unit || null, sell_price: sellC, cost_price: costC, duration_min: v.kind === "service" ? mins : undefined,
-        reminder_months: remindersOn && v.kind === "service" ? months : undefined, income_account_id: acctOn ? incomeAcc || null : undefined, inventory_account_id: acctOn && v.kind === "product" ? stockAcc || null : undefined, code: code.trim().toUpperCase() || null,
+        reminder_months: remindersOn && v.kind === "service" ? months : undefined, income_account_id: acctOn ? incomeAcc || null : undefined, stock_link_account_id: acctOn ? stockLink || null : undefined, code: code.trim().toUpperCase() || null,
         ...(websiteOn && v.kind === "service" ? { web_category: (webCategory || null) as WebCategory | null, from_price: fromC, show_on_website: shown, quote_only: quoteOnly } : {}) });
       void qc.invalidateQueries({ queryKey: ["catalog"] });
       toast.success(t("app.saved"));
@@ -232,7 +225,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
         <Field label={t("catalog.name_km")} required error={errors.name_km && t("app.required")}><Input invalid={!!errors.name_km} {...register("name_km")} autoFocus /></Field>
         <Field label={t("catalog.name_en")}><Input {...register("name_en")} /></Field>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3">
-          <Field label={t("catalog.code")} hint={stockAcc ? t(codeLocked ? "catalog.code_fixed" : "catalog.code_auto") : undefined}><Input value={code} maxLength={20} disabled={codeLocked} onChange={(e) => setCode(e.target.value.toUpperCase())} data-testid="cat-code" /></Field>
+          <Field label={t("catalog.code")}><Input value={code} maxLength={20} onChange={(e) => setCode(e.target.value.toUpperCase())} data-testid="cat-code" /></Field>
           <Field label={t("catalog.kind")}><Select {...register("kind")}><option value="service">{t("catalog.kind_service")}</option><option value="product">{t("catalog.kind_product")}</option></Select></Field>
           <Field label={t("catalog.category")}><Select {...register("category")}>{SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}</Select></Field>
           <Field label={t("catalog.unit")}><Input placeholder={t("catalog.unit_ph")} {...register("unit")} /></Field>
@@ -270,10 +263,10 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
             </Select>
           </Field>
         )}
-        {acctOn && !service && (
-          <Field label={t("catalog.stock_account")} hint={t("catalog.stock_account_hint")}>
-            <Select value={stockAcc} onChange={(e) => pickStockAcc(e.target.value, true)} data-testid="stock-account">
-              <option value="">{t("catalog.stock_account_default")}</option>
+        {acctOn && (
+          <Field label={t("catalog.stock_link")} hint={t("catalog.stock_link_hint")}>
+            <Select value={stockLink} onChange={(e) => setStockLink(e.target.value)} data-testid="stock-link">
+              <option value="">{t("catalog.stock_link_none")}</option>
               {(accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
             </Select>
           </Field>

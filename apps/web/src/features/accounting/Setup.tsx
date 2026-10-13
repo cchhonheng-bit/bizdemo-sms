@@ -32,7 +32,7 @@ export default function Setup({ info }: { info: BooksInfo | undefined }) {
         </dl>
         {can("accounting.close") && <FiscalYear info={info} monthName={monthName} />}
       </Card>
-      {!info.books_start && (can("accounting.close") ? <Opening today={info.today} draft={info.opening_draft} /> : <p className="text-sm text-muted">{t("acct.not_started")}</p>)}
+      {!info.books_start && (can("accounting.close") ? <Opening today={info.today} draft={info.opening_draft} planned={info.planned_start ?? null} pending={info.pending?.total ?? 0} /> : <p className="text-sm text-muted">{t("acct.not_started")}</p>)}
       {info.books_start && can("accounting.close") && <LockCard info={info} />}
       {info.books_start && can("accounting.close") && <CloseYear info={info} />}
     </>
@@ -101,14 +101,14 @@ type Pay = { supplier: string; amount: string };
 type Bank = { code: string; amount: string };
 /** D-126 (CEO): «រក្សាទុក» keeps the opening balances as a draft — change them as often as needed (each change is logged) — and
  *  «បញ្ជាក់សមតុល្យដើម» posts them and starts the books; after that only a journal entry corrects them */
-function Opening({ today, draft }: { today: string; draft: OpeningValues | null }) {
+function Opening({ today, draft, planned, pending }: { today: string; draft: OpeningValues | null; planned: string | null; pending: number }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const onErr = useAcctErr();
   const customers = useQuery({ queryKey: ["customers", "active"], queryFn: () => api.customers(true) });
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts });
   const dollars = (v?: number) => (v ? String(fromCents(v)) : "");
-  const [date, setDate] = useState(draft?.date ?? today);
+  const [date, setDate] = useState(draft?.date ?? (planned && planned <= today ? planned : today)); // D-144: One Team's 01-10-2026
   const [usd, setUsd] = useState(dollars(draft?.cash_usd)); const [riel, setRiel] = useState(draft?.cash_khr ? String(draft.cash_khr) : "");
   const [aba, setAba] = useState(dollars(draft?.banks?.aba)); const [acleda, setAcleda] = useState(dollars(draft?.banks?.acleda));
   const [stock, setStock] = useState(dollars(draft?.stock)); const [retained, setRetained] = useState(dollars(draft?.retained_earnings));
@@ -127,13 +127,14 @@ function Opening({ today, draft }: { today: string; draft: OpeningValues | null 
   const keep = useMutation({ mutationFn: () => api.accounting.openingDraft(body()), onSuccess: () => { toast.success(t("acct.opening_draft_saved")); void qc.invalidateQueries({ queryKey: ["acct-lock"] }); }, onError: onErr });
   const save = useMutation({
     mutationFn: () => api.accounting.opening(body()),
-    onSuccess: (r) => { toast.success(t("acct.opening_done", { equity: formatUsd(r.opening_equity), n: r.open_invoices })); setConfirm(false); void qc.invalidateQueries(); },
+    onSuccess: (r) => { toast.success(t("acct.opening_done", { equity: formatUsd(r.opening_equity), n: r.open_invoices }) + (r.backlog?.posted ? ` · ${t("acct.backlog_done", { n: r.backlog.posted })}` : "")); setConfirm(false); void qc.invalidateQueries(); },
     onError: (e) => { setConfirm(false); onErr(e); },
   });
   const row = (i: number, patch: Partial<Bank>) => setBanks((x) => x.map((y, j) => (j === i ? { ...y, ...patch } : y)));
   return (
     <Card title={t("acct.opening_title")}>
       <p className="text-xs text-muted mb-3">{t("acct.opening_hint")}</p>
+      {pending > 0 && <p className="mb-3 rounded-md bg-blue-50 p-3 text-sm" data-testid="op-pending">{t("acct.opening_backlog_hint", { n: pending })}</p>}
       <Field label={t("acct.go_live")}><Input type="date" value={date} max={today} onChange={(e) => e.target.value && setDate(e.target.value)} data-testid="op-date" /></Field>
       <div className="grid grid-cols-2 gap-2">
         <Field label={t("acct.pay.cash_usd")}><Input inputMode="decimal" value={usd} onChange={(e) => setUsd(e.target.value)} placeholder="$0.00" data-testid="op-cash-usd" /></Field>

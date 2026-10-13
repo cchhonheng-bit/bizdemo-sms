@@ -7,6 +7,7 @@ import { formatUsd } from "@sms/shared";
 import { api } from "@/lib/api";
 import { Badge, Card, Skeleton } from "@/components/ui";
 import { useAuth } from "@/lib/auth";
+import { useFeature } from "@/lib/config";
 import FxCard from "@/features/dashboard/FxCard";
 
 const hm = (iso: string | null) => (iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Phnom_Penh" }) : null);
@@ -35,11 +36,11 @@ export default function DashboardPanel() {
         </div>
       )}
       {can("fx.set") && <FxCard />}
+      <BooksBanner />
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {tile(t("status.pending_review"), d.pending_review, "/bookings", d.pending_review ? "text-warning" : "")}
         {tile(t("dashboard.approvals"), waiting, "/invoices", waiting ? "text-warning" : "")}
         {tile(t("dashboard.leave_waiting"), d.approvals.leave, "/leave", d.approvals.leave ? "text-warning" : "")}
-        {d.materials_pending !== undefined && tile(t("dashboard.materials_pending", { n: d.materials_pending }), d.materials_pending, "/inventory?tab=jobs", d.materials_pending ? "text-warning" : "")}
         {d.unverified !== undefined ? tile(t("dashboard.unverified"), d.unverified, "/reports", d.unverified ? "text-warning" : "") : tile(t("dashboard.jobs_today"), `${d.today.done}/${d.today.jobs}`, "/bookings")}
       </div>
       <Card title={t("dashboard.techs")}>
@@ -57,5 +58,19 @@ export default function DashboardPanel() {
         )}
       </Card>
     </div>
+  );
+}
+
+/** D-144: CEO / CFO see, until the books start, how much waits to be posted — one tap to the setup */
+function BooksBanner() {
+  const { t } = useTranslation();
+  const { can } = useAuth();
+  const on = useFeature("accounting") && can("accounting.view");
+  const info = useQuery({ queryKey: ["books"], queryFn: api.accounting.info, enabled: on });
+  if (!on || !info.data || info.data.books_start) return null;
+  return (
+    <Link to="/accounting?tab=setup" className="card border-warning p-3 text-sm flex gap-2 items-start" data-testid="books-banner">
+      <span>⚠️</span><span>{t("acct.not_started_pending", { n: info.data.pending?.total ?? 0 })}{info.data.planned_start ? ` · ${t("acct.planned_start", { date: info.data.planned_start })}` : ""}</span>
+    </Link>
   );
 }

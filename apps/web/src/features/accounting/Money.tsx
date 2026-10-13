@@ -25,6 +25,8 @@ export default function Money() {
   const [kind, setKind] = useState<AcctTxType | null>(null);
   const today = todayLocal();
   const recent = useQuery({ queryKey: ["acct-journal", "other", today], queryFn: () => api.accounting.journal(shiftDay(today, -30), today, "other") });
+  const info = useQuery({ queryKey: ["books"], queryFn: api.accounting.info });
+  const pending = useQuery({ queryKey: ["acct-pending"], queryFn: api.accounting.pending, enabled: !!info.data && !info.data.books_start });
   return (
     <>
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -34,6 +36,19 @@ export default function Money() {
           </button>
         ))}
       </div>
+      {!!pending.data?.length && (
+        <Card title={t("acct.pending_title")}>
+          <p className="text-xs text-muted mb-2">{t("acct.pending_hint")}</p>
+          <ul className="divide-y divide-grey-line -my-2" data-testid="acct-pending">
+            {pending.data.map((p) => (
+              <li key={p.id} className="py-2 text-sm flex justify-between gap-2">
+                <span className="min-w-0 break-words"><span className="block text-xs text-muted">{p.date} · {p.kind === "journal" ? t("acct.tab.journal") : t(`acct.tx.${String(p.payload.type)}`, { defaultValue: t("acct.tab.money") })}</span>{p.memo}</span>
+                <Badge tone={p.status === "before_start" ? "grey" : "warning"}>{t(p.status === "before_start" ? "acct.pending_before" : "acct.pending_badge")}</Badge>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
       <Card title={t("acct.recent")}>
         {recent.isLoading ? <Skeleton /> : !recent.data?.length ? <Empty text={t("acct.nothing")} /> : (
           <ul className="divide-y divide-grey-line -my-2">
@@ -76,7 +91,7 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   const save = useMutation({
     mutationFn: () => api.accounting.transaction({ date, type, amount: amt, currency: khr ? "khr" : "usd", account_code: needsAccount ? code : undefined,
       ...(type === "transfer" ? { from, to } : { pay }), supplier: supplier.trim() || null, memo: memo.trim() || null, attachment: photo }),
-    onSuccess: (r) => { toast.success(t("acct.posted", { number: r.number })); void qc.invalidateQueries({ queryKey: ["acct-journal"] }); void qc.invalidateQueries({ queryKey: ["acct-accounts"] }); onClose(); },
+    onSuccess: (r) => { toast.success(r.pending ? t("acct.saved_pending") : t("acct.posted", { number: r.number })); for (const k of ["acct-journal", "acct-accounts", "acct-pending", "books"]) void qc.invalidateQueries({ queryKey: [k] }); onClose(); },
     onError: onErr,
   });
   return (

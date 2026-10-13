@@ -1,4 +1,4 @@
-// Booking page (managers): how the job went — checkpoints + durations (FR-602), the report (photos, materials, notes,
+// Booking page (managers): how the job went — checkpoints + durations (FR-602), the report (photos, the lines added on site, notes,
 // signature) and the GM review: «correct» or «send back» with a note (FR-703, BR-09).
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Field } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { CheckpointList, PhotoGrid } from "@/features/tech/JobExecution";
+import { ExtrasList } from "./JobExtras";
 
 const SHOW = ["en_route", "on_site", "working", "work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
 
@@ -44,7 +45,7 @@ export default function JobReview({ booking }: { booking: Booking }) {
           </div>
           <div><div className="text-muted text-xs">{t("job.photos_before")}</div><PhotoGrid photos={d.photos} kind="before" /></div>
           <div><div className="text-muted text-xs">{t("job.photos_after")}</div><PhotoGrid photos={d.photos} kind="after" /></div>
-          {d.materials.length > 0 && <div><div className="text-muted text-xs">{t("job.materials")}</div><ul>{d.materials.map((m) => <li key={m.catalog_item_id}>• {m.name_km} × {m.qty} {m.unit}</li>)}</ul></div>}
+          <ExtrasList extras={d.extras ?? []} />
           {d.report.notes && <p className="whitespace-pre-wrap break-words">📝 {d.report.notes}</p>}
           {d.report.signature_file && <div><div className="text-muted text-xs">{t("job.signature")}</div><img src={`/api/files/${d.report.signature_file}`} alt="signature" className="h-24 bg-white border border-grey-line rounded" /></div>}
           {d.report.review_note && <p className="text-warning break-words">✏️ {d.report.review_note}{d.report.reviewed_by_name ? ` · ${d.report.reviewed_by_name}` : ""}</p>}

@@ -31,7 +31,7 @@ export default function AccountingPage() {
       <h1>{t("acct.title")}</h1>
       {view && info.data && !info.data.books_start && tab !== "setup" && (
         <Card className="border-warning" >
-          <p className="flex gap-2 items-start text-sm"><AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" /> <span>{t("acct.not_started")}</span></p>
+          <p className="flex gap-2 items-start text-sm"><AlertTriangle size={18} className="text-warning shrink-0 mt-0.5" /> <span>{info.data.pending?.total ? t("acct.not_started_pending", { n: info.data.pending.total }) : t("acct.not_started")}{info.data.planned_start ? ` · ${t("acct.planned_start", { date: info.data.planned_start })}` : ""}</span></p>
           {can("accounting.close") && <Button variant="primary" className="mt-3 w-full sm:w-auto" onClick={() => go("setup")} data-testid="go-setup">{t("acct.start_books")}</Button>}
         </Card>
       )}

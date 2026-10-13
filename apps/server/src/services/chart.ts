@@ -117,8 +117,8 @@ export const typeOfCode = (code: string): AccType | null => (({ 1: "asset", 2: "
 export const SUB_CODE_ACCOUNTS = ["14000", "15000", "16000", "17000", "18000"];
 /** one stock item for every no-sub stock account (13001 … 13199) that has none yet: code = the account code, the account's name, tracked */
 export async function ensureNoSubItems(db: Db, companyId: string): Promise<number> {
-  const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, inventory_account_id)
-    select a.company_id, a.code, a.name_km, a.name_en, 'product', 'mep', 'គ្រឿង', true, a.id
+  const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, is_stock, inventory_account_id)
+    select a.company_id, a.code, a.name_km, a.name_en, 'product', 'mep', 'គ្រឿង', true, true, a.id
     from accounts a where a.company_id = ${companyId} and a.type = 'asset' and not a.is_group and not a.sub_codes and a.code ~ '^13[01][0-9]{2}$' and a.code !~ '00$'
       and not exists (select 1 from catalog_items ci where ci.company_id = a.company_id and ci.code = a.code) returning id`;
   await db`insert into stock_items (company_id, item_id) select ci.company_id, ci.id from catalog_items ci where ci.company_id = ${companyId} and ci.track_stock on conflict do nothing`;
@@ -166,8 +166,8 @@ export async function replaceChart(t: Db, companyId: string, apply: boolean): Pr
   const acc = new Map((await t<{ code: string; id: string }[]>`select code, id from accounts where company_id = ${companyId}`).map((a) => [a.code, a.id]));
   for (const [code, name, account] of STOCK_ITEMS) {
     if (existing.has(code)) await t`update catalog_items set inventory_account_id = ${acc.get(account)!}, track_stock = true where company_id = ${companyId} and code = ${code}`;
-    else await t`insert into catalog_items (company_id, code, name_km, kind, category, unit, track_stock, inventory_account_id)
-      values (${companyId}, ${code}, ${name}, 'product', 'mep', 'ម៉ែត្រ', true, ${acc.get(account)!})`;
+    else await t`insert into catalog_items (company_id, code, name_km, kind, category, unit, track_stock, is_stock, inventory_account_id)
+      values (${companyId}, ${code}, ${name}, 'product', 'mep', 'ម៉ែត្រ', true, true, ${acc.get(account)!})`;
   }
   return plan;
 }

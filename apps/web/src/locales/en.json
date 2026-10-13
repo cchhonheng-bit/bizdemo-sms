@@ -39,7 +39,7 @@
     "bookings": "Bookings",
     "customers": "Customers",
     "requests": "Customer requests",
-    "catalog": "Products & Services",
+    "catalog": "Services & prices",
     "users": "Users",
     "website": "Website",
     "settings": "Settings",
@@ -329,8 +329,7 @@
       "working": "Working",
       "leave": "Leave"
     },
-    "uninvoiced": "Done, not invoiced",
-    "materials_pending": "Materials to confirm ({{n}})"
+    "uninvoiced": "Done, not invoiced"
   },
   "zone": {
     "inside": "Inside Borey",
@@ -412,7 +411,7 @@
     "address_old": "Old address"
   },
   "catalog": {
-    "title": "Products & Services",
+    "title": "Services & prices",
     "new": "New item",
     "name": "Name",
     "name_km": "Name (Khmer)",
@@ -481,11 +480,10 @@
       "ONE_ITEM_PER_CODE": "This account already has its item — one account, one item (turn sub codes on in the chart for more)",
       "NOT_STOCK_ACCOUNT": "Choose a stock account"
     },
-    "stock_account": "Stock account",
-    "stock_account_hint": "Which account holds this stock (e.g. 14000 copper pipe)",
-    "stock_account_default": "18000 technicians' materials (default)",
-    "code_auto": "Filled in from the stock account · editable",
-    "code_fixed": "Code = the account's (one item on this account)"
+    "stock_link": "Stock link",
+    "stock_link_hint": "The stock group this line uses (e.g. copper pipe → 14000) — for the reconciliation report only · never moves stock",
+    "stock_link_none": "Not linked",
+    "price_list_hint": "This list = the services and sale lines the technician and the invoice use · materials live on the «Stock» page (Admin)"
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -686,11 +684,7 @@
     "edit_time_changed": "New time — choose who asked and write why",
     "edit_notify_hint": "Required · the technicians, the Telegram group and the customer get the new time",
     "requester_shop": "Our company",
-    "crew_and_vehicle": "Technicians and vehicle",
-    "materials_used_q": "Were the materials used?",
-    "materials_used_hint": "Recorded: {{items}}",
-    "materials_used_yes": "Used — a job cost (never invoiced)",
-    "materials_used_no": "Not used — no stock change"
+    "crew_and_vehicle": "Technicians and vehicle"
   },
   "tech": {
     "hello": "Hello {{name}}",
@@ -826,8 +820,6 @@
     "photos_before": "Photos before",
     "photos_after": "Photos after",
     "add_photo": "Take / add photo",
-    "materials": "Materials used",
-    "materials_hint": "From the catalog — search by name or code · no prices · stock leaves only for tracked items",
     "notes": "Notes",
     "signature": "Customer signature",
     "signature_hint": "The customer signs with a finger",
@@ -863,11 +855,9 @@
       "NOT_PENDING_REVIEW": "Not waiting for review",
       "FORBIDDEN": "No permission",
       "NETWORK": "No internet",
-      "MATERIALS_CONFIRMED": "Admin already took the stock — materials are locked",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
-    "pick_item": "Search by name or code…",
-    "new_item": "New item"
+    "pick_item": "Search by name or code…"
   },
   "quote": {
     "title": "Quotes",
@@ -1025,8 +1015,6 @@
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
       "EXTRAS_PENDING": "Review the work added by the technician first (the job page)"
     },
-    "extra_materials": "Materials outside the quote",
-    "extra_materials_hint": "Recorded on the job but not in the quote · tick to add to the invoice",
     "journal": "Accounting entries",
     "journal_none": "Nothing posted yet — the books have not started, or the invoice is not issued"
   },
@@ -1249,19 +1237,16 @@
     "title": "Stock",
     "tab": {
       "stock": "Stock",
-      "jobs": "Jobs to confirm",
-      "locations": "Locations",
-      "monthend": "Month-end stock"
+      "monthend": "Month-end stock",
+      "reconcile": "Reconciliation"
     },
     "op": {
       "in": "Stock in",
       "adjust": "Adjust",
-      "transfer": "Transfer",
-      "opening": "Opening balance"
+      "out": "Stock out"
     },
     "value_total": "Stock value",
-    "track": "Track item",
-    "none": "No tracked items yet",
+    "none": "No stock yet — press «Stock in» to start",
     "avg": "avg cost",
     "low": "Low (< {{level}})",
     "item": "Item",
@@ -1274,17 +1259,11 @@
     "total": "Total",
     "minus": "− Remove",
     "plus": "+ Add",
-    "track_first": "Track an item first",
     "card": "Stock card",
     "opening": "Opening",
     "ending": "Ending",
     "reorder": "Reorder level",
     "reorder_hint": "Below this → alert (empty = none)",
-    "no_products": "No other products to track (add them in the catalog as «product»)",
-    "confirm": "Confirm, take stock",
-    "confirmed": "Stock taken",
-    "no_jobs": "No job waiting for materials confirmation",
-    "new_location": "New location",
     "pay": {
       "cash_usd": "Cash $",
       "cash_khr": "Cash ៛",
@@ -1300,20 +1279,28 @@
       "adjust": "Adjustment",
       "transfer_out": "Transfer out",
       "transfer_in": "Transfer in",
-      "reverse": "Reversal"
+      "reverse": "Reversal",
+      "out": "Stock out (technician)"
     },
     "err": {
       "INSUFFICIENT_STOCK": "Not enough stock",
       "OPENING_EXISTS": "This item already has moves",
-      "NOT_TRACKED": "This item is not tracked",
       "NOT_A_PRODUCT": "Only products can be tracked",
       "REASON_REQUIRED": "Please enter a reason",
-      "SAME_LOCATION": "Same location",
-      "ALREADY_CONFIRMED": "Already confirmed",
-      "NOT_FINISHED": "The job is not finished",
       "LOCATION_NOT_FOUND": "Location not found",
       "FORBIDDEN": "Not allowed",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "NOT_STOCK_ITEM": "Not a stock item — price-list lines never move stock",
+      "NOT_STOCK_ACCOUNT": "Pick a stock account (13001 … 18000)",
+      "COST_REQUIRED": "Enter the unit cost or the total",
+      "PAY_REQUIRED": "Pick how it was paid",
+      "TECH_NOT_FOUND": "Pick a technician",
+      "PLACE_REQUIRED": "Pick a job or write the place",
+      "ITEM_REQUIRED": "Enter the item's name",
+      "BAD_DATE": "Invalid date (never in the future)",
+      "CODE_TAKEN": "This code exists already",
+      "ONE_ITEM_PER_CODE": "This account already has its item (one item only)",
+      "CODE_NOT_IN_ACCOUNT": "The code is outside this account"
     },
     "cancelled_cost": "Cancelled · job cost",
     "me_date": "As of",
@@ -1322,12 +1309,43 @@
     "me_diff": "Difference",
     "me_ok": "Stock = books ✓",
     "me_diff_hint": "Look for a stock move before the books started, or a hand entry on a stock account",
-    "job_vehicle": "the job's vehicle",
-    "unit_cost_short": "Unit cost"
+    "unit_cost_short": "Unit cost",
+    "separate_hint": "This stock is the Admin's · technicians never move it — the Admin records «Stock out» when a technician collects materials",
+    "in_existing": "Item in stock",
+    "in_new": "New item",
+    "item_name": "Name / model",
+    "item_name_hint": "The same name on the same account = the same item · the code fills itself (14001 …)",
+    "account": "Stock account",
+    "account_hint": "e.g. 14000 copper pipe · 13001 air conditioner",
+    "unit": "Unit",
+    "date": "Date",
+    "note": "Note",
+    "paid_with": "Paid with",
+    "in_done": "Stocked in · total {{total}} · balance {{balance}}",
+    "out_hint": "A technician collects materials? Record it here — the job, or the place (project · borey · house no.)",
+    "technician": "Technician",
+    "job": "Job",
+    "job_hint": "Pick this technician's job, or leave it and write the place",
+    "no_job": "— no job (write the place) —",
+    "place": "Place",
+    "place_ph": "Borey … house no. …",
+    "in_stock": "In stock {{qty}} {{unit}}",
+    "left_after": "Left {{qty}} {{unit}}",
+    "out_done": "Stock out recorded · {{balance}} {{unit}} left",
+    "adjust_plus": "+ counted more",
+    "adjust_minus": "− counted less / damaged",
+    "adjust_cost_hint": "Empty = the current average cost",
+    "all_techs": "All technicians",
+    "rec_hint": "What left the stock against what was invoiced (through the lines linked to a stock group) — a difference is the thing to check",
+    "rec_none": "No stock out or invoice in this period",
+    "rec_totals": "Totals by group",
+    "rec_rows": "By job / place",
+    "rec_out": "Out",
+    "rec_invoiced": "Invoiced"
   },
   "acct": {
     "title": "Accounting",
-    "not_started": "The books have not started — enter the opening balances (cash, banks, debts) first. Until then nothing is posted.",
+    "not_started": "The books have not started — expenses, invoices and stock are always saved and posted by themselves when you press «Start the books»",
     "start_books": "Start the books",
     "tab": {
       "reports": "Reports",
@@ -1545,7 +1563,7 @@
       "NOT_INCOME_ACCOUNT": "Choose an income account",
       "NOT_ASSET_ACCOUNT": "Choose an asset account",
       "BAD_REQUEST": "Invalid request",
-      "OPENING_REQUIRED": "Enter the opening balances first",
+      "OPENING_REQUIRED": "The books have not started — press «Start the books» first (transactions are always saved)",
       "OPENING_DONE": "The opening balances are already done",
       "NOT_BALANCED": "Debit and credit are not equal",
       "PERIOD_LOCKED": "This period is locked — use a later date or ask the CFO",
@@ -1582,7 +1600,16 @@
     "rate_label": "Exchange rate",
     "added_by_system": "Added by the system",
     "sub_codes": "Items carry sub codes (14001, 14002 …)",
-    "sub_codes_hint": "Off = this account is its one item, its code = the account (e.g. 13001)"
+    "sub_codes_hint": "Off = this account is its one item, its code = the account (e.g. 13001)",
+    "not_started_pending": "The books have not started · {{n}} transactions wait — press «Start the books» when ready and everything is posted by itself",
+    "planned_start": "Planned start {{date}}",
+    "saved_pending": "Saved · it is posted when the books start",
+    "pending_title": "Waiting for the books to start",
+    "pending_hint": "Saved · posted by itself when you press «Start the books» (a day before the start day = inside the opening balances)",
+    "pending_badge": "Waiting",
+    "pending_before": "Before the start day",
+    "backlog_done": "{{n}} waiting transactions posted",
+    "opening_backlog_hint": "{{n}} transactions (invoices, payments, stock, expenses) from the start day on — on confirm they are all posted in date order · nothing to enter again"
   },
   "print": {
     "invoice": "INVOICE",
@@ -1642,11 +1669,11 @@
   },
   "extras": {
     "title": "Added work",
-    "hint": "The customer asked for more on site? Add it here · Admin / GM review it and set the price",
-    "mode_service": "A catalog service",
-    "mode_other": "Other work",
-    "other_text": "What work",
-    "other_hint": "Write it short · a photo helps · technicians set no price",
+    "hint": "The customer asked for more on site? Add it here — from the price list or in your own words · every line reaches the invoice and the customer's message",
+    "mode_service": "From the price list",
+    "mode_other": "Other work / material",
+    "other_text": "Which work or material",
+    "other_hint": "Write it short · quantity · unit · a photo helps · technicians set no price — Admin or GM price it before the invoice",
     "photo": "Take a photo (optional)",
     "photo_ok": "Photo ready ✓",
     "add": "Add",
@@ -1669,7 +1696,7 @@
       "REPORT_LOCKED": "The report is sent · nothing more can be added",
       "NOT_ON_SITE": "Press «Arrived» first",
       "DESCRIPTION_REQUIRED": "Please write the work",
-      "SERVICE_NOT_FOUND": "Service not found",
+      "SERVICE_NOT_FOUND": "Not on the price list (stock items cannot be picked)",
       "PRICE_REQUIRED": "Please set the price",
       "REASON_REQUIRED": "Please give a reason",
       "INVOICE_EXISTS": "The invoice exists · change prices on the invoice",
@@ -1677,9 +1704,8 @@
       "FORBIDDEN": "Not allowed",
       "BAD_IMAGE": "The photo is not valid"
     },
-    "mode_material": "Other material",
-    "material_text": "Which material",
-    "material_hint": "Name, quantity, unit · technicians set no price — Admin or GM do",
-    "unit": "Unit"
+    "unit": "Unit",
+    "kind_service": "Service",
+    "kind_product": "Goods"
   }
 }

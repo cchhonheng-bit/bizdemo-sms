@@ -1,5 +1,5 @@
 // Job execution on the technician's phone (Flow 1+2): 5 checkpoints (GPS, offline-safe), photos before/after (compressed),
-// materials (no prices), notes, customer signature → submit for GM review. Big one-hand buttons (Requirements §6).
+// work added on site (price-list lines, no prices · D-144: never stock), notes, customer signature → submit for GM review. Big one-hand buttons (Requirements §6).
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +7,6 @@ import { Camera, Check, Eraser, MapPinOff, Send, Trash2, WifiOff } from "lucide-
 import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api";
 import { compressPhoto, queued, readGps, sendCheckpoint } from "@/lib/offline";
 import { ActionBar, Button, Card, Field, Input, Skeleton } from "@/components/ui";
-import { ItemPicker } from "@/features/bookings/ItemPicker";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth";
 import { ExtrasCard } from "@/features/bookings/JobExtras";
@@ -112,9 +111,6 @@ export default function JobExecution({ booking }: { booking: Booking }) {
 
 function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
   const { t } = useTranslation();
-  const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
-  const products = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active), [catalog.data]); // D-142: every catalog item (services too)
-  const [mats, setMats] = useState(info.materials.map((m) => ({ catalog_item_id: m.catalog_item_id, qty: String(m.qty) })));
   const [notes, setNotes] = useState(info.report?.notes ?? "");
   const [uploading, setUploading] = useState<string | null>(null);
   const sig = useRef<SignatureHandle>(null);
@@ -127,21 +123,15 @@ function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo
     catch (e) { toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
     setUploading(null);
   };
-  const saveMats = useMutation({
-    mutationFn: () => api.job.materials(booking.id, mats.filter((m) => Number(m.qty) > 0).map((m) => ({ catalog_item_id: m.catalog_item_id, qty: Number(m.qty) }))),
-    onSuccess: () => { toast.success(t("app.saved")); onDone(); }, onError: (e) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })),
-  });
   const submit = useMutation({
     mutationFn: async () => {
       const png = sig.current?.png();
       if (!png) throw Object.assign(new Error("SIGNATURE_REQUIRED"), { code: "SIGNATURE_REQUIRED" });
-      if (mats.length) await api.job.materials(booking.id, mats.filter((m) => Number(m.qty) > 0).map((m) => ({ catalog_item_id: m.catalog_item_id, qty: Number(m.qty) })));
       return api.job.report(booking.id, notes, png);
     },
     onSuccess: () => { toast.success(t("job.submitted")); onDone(); },
     onError: (e) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
-  const nameOf = (id: string) => products.find((p) => p.id === id);
 
   return (
     <Card title={t("job.report")}>
@@ -154,20 +144,6 @@ function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo
           <PhotoGrid photos={info.photos} kind={kind} onRemove={(id) => void api.job.removePhoto(booking.id, id).then(onDone)} />
         </Field>
       ))}
-      <Field label={t("job.materials")} hint={t("job.materials_hint")}>
-        <ItemPicker items={products} exclude={mats.map((m) => m.catalog_item_id)} onPick={(i) => setMats((m) => [...m, { catalog_item_id: i.id, qty: "1" }])} testId="mat-search" />
-        <ul className="mt-2 space-y-2">
-          {mats.map((m, i) => (
-            <li key={m.catalog_item_id} className="flex items-center gap-2">
-              <span className="flex-1 min-w-0 break-words text-sm">{nameOf(m.catalog_item_id)?.name_km ?? "…"}</span>
-              <Input className="!w-24" inputMode="decimal" value={m.qty} onChange={(e) => setMats((x) => x.map((y, j) => (j === i ? { ...y, qty: e.target.value } : y)))} aria-label="qty" />
-              <span className="text-xs text-muted w-8">{nameOf(m.catalog_item_id)?.unit}</span>
-              <button type="button" className="tap-target text-danger" aria-label="remove" onClick={() => setMats((x) => x.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
-            </li>
-          ))}
-        </ul>
-        {mats.length > 0 && <Button type="button" className="mt-2" loading={saveMats.isPending} onClick={() => saveMats.mutate()}>{t("app.save")}</Button>}
-      </Field>
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field>
       <Field label={t("job.signature")} required hint={t("job.signature_hint")}><SignaturePad ref={sig} /></Field>
       <ActionBar>
