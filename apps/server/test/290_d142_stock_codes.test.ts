@@ -59,13 +59,15 @@ describe("5 · item codes on the client's scheme", () => {
     expect((await product("x", { code: "13009", inventory_account_id: a.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT");
   });
 
-  it("sub codes: 14000 → 14005 after the client's 14001–14004, 16000 → 16001; the code is editable inside the parent's range, unique; a code outside is refused", async () => {
+  it("sub codes: 14000 → 14001, then 14002 (the live shop holds the client's 14001–14004 → 14005), 16000 → 16001; the code is editable inside the parent's range, unique; a code outside is refused", async () => {
     const a14 = await account("14000"), a16 = await account("16000");
     expect(a14.sub_codes && a16.sub_codes).toBe(true);
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json).toEqual({ code: "14005", sub_codes: true, taken: false });
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json).toEqual({ code: "14001", sub_codes: true, taken: false });
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a16.id}`)).json).toEqual({ code: "16001", sub_codes: true, taken: false });
-    expect((await product("ទុយោស្ពាន់ 19mm", { code: "14005", inventory_account_id: a14.id })).status).toBe(200);
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14006");
+    expect((await product("ទុយោស្ពាន់ 16mm", { code: "14001", inventory_account_id: a14.id, unit: "m" })).status).toBe(200);
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14002");
+    expect((await product("ទុយោស្ពាន់ 19mm", { code: "14002", inventory_account_id: a14.id })).status).toBe(200);
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14003");
     expect((await product("ទុយោស្ពាន់ 22mm", { code: "14100", inventory_account_id: a14.id })).status).toBe(200); // edited by hand, still under 14
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14101");
     expect((await product("x", { code: "14100", inventory_account_id: a14.id })).json.error).toBe("CODE_TAKEN");

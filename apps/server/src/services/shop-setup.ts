@@ -45,8 +45,8 @@ export const shopSetupInput = z.object({
   test: z.object({ customers: z.array(z.string().max(40)).max(100).default([]), bookings: z.array(z.string().max(20)).max(100).default([]) }).strict().optional(),
 }).strict();
 
-type CatRow = { id: string; code: string; name_km: string; name_en: string | null; kind: string; category: string; unit: string; sell_price: number; cost_price: number | null; duration_min: number; from_price: number | null };
-const catRows = (companyId: string, code?: string) => sql<CatRow[]>`select id, code, name_km, name_en, kind::text as kind, category::text as category, unit, sell_price, cost_price, duration_min, from_price
+type CatRow = { id: string; code: string; name_km: string; name_en: string | null; kind: string; category: string; unit: string; sell_price: number; cost_price: number | null; duration_min: number; from_price: number | null; is_active: boolean };
+const catRows = (companyId: string, code?: string) => sql<CatRow[]>`select id, code, name_km, name_en, kind::text as kind, category::text as category, unit, sell_price, cost_price, duration_min, from_price, is_active
   from catalog_items where company_id = ${companyId} and ${code ? sql`code = ${code}` : sql`code is not null`}`;
 const show = (k: string, v: unknown) => (v == null || v === "" ? "—" : /_price$/.test(k) && typeof v === "number" ? `$${(v / 100).toFixed(2)}` : typeof v === "string" ? v : JSON.stringify(v));
 

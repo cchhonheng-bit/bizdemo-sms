@@ -93,7 +93,8 @@ describe("D-141 postings on the new codes", () => {
     const pipeAcc = await code("14000");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
-    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, inventory_account_id: pipeAcc.id })).json.id;
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
+    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "14001", inventory_account_id: pipeAcc.id })).json.id;
     const tape = (await ceo.req("POST", "/api/catalog", { name_km: "ស្កុតបិទ", kind: "product", category: "mep", unit: "pcs", sell_price: 100 })).json.id;
     for (const i of [pipe, tape]) expect((await admin.req("POST", `/api/inventory/items/${i}/track`, { track: true })).status).toBe(200);
     const wh = ((await admin.req("GET", "/api/inventory/locations")).json as any[]).find((l) => l.kind === "warehouse").id;
@@ -141,10 +142,11 @@ describe("D-141 chart-replace", () => {
     expect((await sql`select income_account_id from catalog_items where id = ${svcB}`)[0]!.income_account_id).toBeNull();
     const items = await sql<{ code: string; name_km: string; track_stock: boolean; acc: string }[]>`select ci.code, ci.name_km, ci.track_stock, a.code as acc
       from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.b} order by ci.code`;
-    expect(items.map((i) => [i.code, i.name_km, i.acc])).toEqual(STOCK_ITEMS.map(([c, n, a]) => [c, n, a]));
-    expect(items.every((i) => i.track_stock)).toBe(true);
+    expect(items.filter((i) => /^1[45]/.test(i.code)).map((i) => [i.code, i.name_km, i.acc])).toEqual(STOCK_ITEMS.map(([c, n, a]) => [c, n, a]));
+    expect(items.filter((i) => /^13/.test(i.code)).map((i) => i.code)).toEqual(["13001", "13002", "13003", "13004", "13005", "13101", "13102", "13103", "13104"]); // D-142: the account IS the item
+    expect(items.every((i) => i.track_stock && i.acc === (i.code.startsWith("13") ? i.code : i.code.slice(0, 2) + "000"))).toBe(true);
     expect(items.find((i) => i.code === "14001")!.name_km).toBe("ទុយោស្ពាន់ 16mm (16*0.72)");
     await tx(null, (t) => replaceChart(t, s.b, true)); // again: idempotent (items linked, not doubled)
-    expect((await sql`select count(*)::int as n from catalog_items where company_id = ${s.b} and code like '1%'`)[0]!.n).toBe(14);
+    expect((await sql`select count(*)::int as n from catalog_items where company_id = ${s.b} and code like '1%'`)[0]!.n).toBe(23);
   });
 });
