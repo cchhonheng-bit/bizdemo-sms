@@ -196,10 +196,11 @@ describe("B · every line the technician adds reaches the job, the draft invoice
     await sql`update bookings set status = 'closed', closed_at = now() where id = ${job2}`;
     hubCalls.length = 0;
     await customerNotices();
-    const done = hubCalls.find((c) => c.path === "/internal/notify-subscriber" && c.body.subscriber_id === 8101);
-    expect(done?.body.text).toContain("✅ ការងាររួចរាល់");
-    expect(done?.body.text).toContain("• ទុយោស្ពាន់ (ម៉ែត្រ) ×6");
-    expect(done?.body.text).toContain("• ខ្សែភ្លើង 2.5 ×20");
+    const texts = hubCalls.filter((c) => c.path === "/internal/notify-subscriber" && c.body.subscriber_id === 8101).map((c) => c.body.text as string);
+    const done = texts.find((x) => x.includes("ខ្សែភ្លើង 2.5")); // the first job (BK-0001, 5 m) is told in the same sweep
+    expect(done).toContain("✅ ការងាររួចរាល់");
+    expect(done).toContain("• ទុយោស្ពាន់ (ម៉ែត្រ) ×6");
+    expect(done).toContain("• ខ្សែភ្លើង 2.5 ×20");
     // a job on site is cancelled with a reason alone (D-140 E2's materials question is gone)
     const c = await onSite(outside);
     expect((await kim.req("POST", `/api/bookings/${c}/extras`, { kind: "service", item_id: copper, qty: 1 })).status).toBe(200);
