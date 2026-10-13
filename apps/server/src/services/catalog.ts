@@ -92,6 +92,8 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
       ...(b.income_account_id !== undefined ? { income_account_id: b.income_account_id ?? null } : {}),
       ...(b.inventory_account_id !== undefined ? { inventory_account_id: service ? null : b.inventory_account_id ?? null } : {}),
       ...(b.stock_link_account_id !== undefined ? { stock_link_account_id: b.stock_link_account_id ?? null } : {}),
+      // D-144: an item on a stock account is the Admin's stock — never in the price list (the stock page makes items this way too)
+      ...(b.inventory_account_id && !service ? { is_stock: true } : {}),
       ...(withCost && b.cost_price !== undefined ? { cost_price: b.cost_price ?? null } : {}),
       ...(b.web_category !== undefined ? { web_category: service ? b.web_category ?? null : null } : {}),
       ...(b.from_price !== undefined ? { from_price: service ? b.from_price ?? null : null } : {}),
@@ -100,16 +102,16 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
     };
     let id: string;
     if (!old) {
-      id = (await t<{ id: string }[]>`insert into catalog_items (company_id, code, name_km, name_en, kind, category, web_category, unit, sell_price, cost_price, duration_min, reminder_months, income_account_id, inventory_account_id, stock_link_account_id,
+      id = (await t<{ id: string }[]>`insert into catalog_items (company_id, code, name_km, name_en, kind, category, web_category, unit, sell_price, cost_price, duration_min, reminder_months, income_account_id, inventory_account_id, stock_link_account_id, is_stock,
           from_price, show_on_website, quote_only, created_by, updated_by)
         values (${user.companyId}, ${next.code ?? null}, ${b.name_km}, ${next.name_en ?? null}, ${b.kind}::item_kind, ${b.category}::service_category, ${next.web_category ?? null}, ${next.unit!}, ${b.sell_price},
-          ${next.cost_price ?? null}, ${next.duration_min!}, ${next.reminder_months ?? null}, ${next.income_account_id ?? null}, ${next.inventory_account_id ?? null}, ${next.stock_link_account_id ?? null}, ${next.from_price ?? null}, ${next.show_on_website ?? true}, ${next.quote_only ?? false},
+          ${next.cost_price ?? null}, ${next.duration_min!}, ${next.reminder_months ?? null}, ${next.income_account_id ?? null}, ${next.inventory_account_id ?? null}, ${next.stock_link_account_id ?? null}, ${next.is_stock ?? false}, ${next.from_price ?? null}, ${next.show_on_website ?? true}, ${next.quote_only ?? false},
           ${user.id}, ${user.id}) returning id`)[0]!.id;
     } else {
       id = old.id;
       const m = { ...old, ...next } as Item;
       await t`update catalog_items set code = ${m.code}, name_km = ${m.name_km}, name_en = ${m.name_en}, kind = ${m.kind}::item_kind, category = ${m.category}::service_category, web_category = ${m.web_category},
-          unit = ${m.unit}, sell_price = ${m.sell_price}, cost_price = ${m.cost_price}, duration_min = ${m.duration_min}, reminder_months = ${m.reminder_months}, income_account_id = ${m.income_account_id}, inventory_account_id = ${m.inventory_account_id ?? null}, stock_link_account_id = ${m.stock_link_account_id ?? null},
+          unit = ${m.unit}, sell_price = ${m.sell_price}, cost_price = ${m.cost_price}, duration_min = ${m.duration_min}, reminder_months = ${m.reminder_months}, income_account_id = ${m.income_account_id}, inventory_account_id = ${m.inventory_account_id ?? null}, stock_link_account_id = ${m.stock_link_account_id ?? null}, is_stock = ${m.is_stock},
           from_price = ${m.from_price}, show_on_website = ${m.show_on_website}, quote_only = ${m.quote_only}, is_sample = ${old.is_sample && !diff(old, next)}, updated_by = ${user.id}
         where id = ${id}`;
     }

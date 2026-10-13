@@ -22,7 +22,8 @@ async function reviewed(status = "reviewed"): Promise<string> {
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "work_done", "pending_review", "reviewed"];
   for (const st of path.slice(0, path.indexOf(status) + 1)) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
-  await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${id}, ${prod}, 3)`;
+  await sql`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, status, added_by)
+    values (${s.a}, ${id}, 'service', ${prod}, 'ហ្គាស R32', 3, 'unit', 0, 1200, 'confirmed', ${s.users.kim})`; // D-144: a price-list line the technician added, confirmed
   return id;
 }
 const direct = async (c: Client, lines = [line(64000)], customer = cust2) => c.req("POST", "/api/invoices", { customer_id: customer, lines });
@@ -80,7 +81,7 @@ describe("invoice from a reviewed job (FR-801 · BR-09 · AC-02 · BR-10)", () =
     expect((await admin.req("GET", `/api/invoices/prefill?booking=${pending}`)).json.error).toBe("NOT_REVIEWED");
   });
 
-  it("prefill = the booked service + the materials from the technician report, at catalog prices", async () => {
+  it("prefill = the booked service + the lines the technician added (confirmed), at list prices", async () => {
     job = await reviewed();
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines).toEqual([

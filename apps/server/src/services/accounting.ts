@@ -581,7 +581,7 @@ export async function postBacklog(t: Db, user: SessionUser, start: string) {
     events.push({ date: p.d, order: p.ord, kind: p.kind, run: async () => {
       // a saved line that cannot post any more (an account switched off since …) stays waiting and is named — it never stops the start
       try {
-        await t.savepoint(async (sp) => {
+        await (t as Extract<Db, { savepoint: unknown }>).savepoint(async (sp: Db) => {
           const b = await books(sp, c);
           const r = p.kind === "other" ? await postOther(sp, user, null, p.payload as OtherInput, b, p.attachment_id) : await postJournal(sp, user, null, p.payload as JournalInput, p.attachment_id);
           await sp`update pending_postings set status = 'posted', entry_id = ${r.id}, posted_at = now() where id = ${p.id}`;

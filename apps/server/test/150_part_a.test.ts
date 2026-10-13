@@ -20,7 +20,8 @@ async function job(o: { customer?: string; item?: string; status?: string; units
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "work_done", "pending_review", "reviewed"];
   for (const st of path.slice(0, path.indexOf(o.status ?? "reviewed") + 1)) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
-  if (o.materials) await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${id}, ${prod}, 2)`;
+  if (o.materials) await sql`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, status, added_by)
+    values (${s.a}, ${id}, 'service', ${prod}, 'ហ្គាស', 2, 'unit', 0, 1000, 'confirmed', ${s.users.kim})`; // D-144: a line the technician added, confirmed
   return id;
 }
 const invoiceFor = async (booking: string, cents: number) => {

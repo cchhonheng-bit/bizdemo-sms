@@ -147,7 +147,7 @@ export async function stockIn(user: SessionUser, ip: string | null, v: StockInIn
 export async function stockOut(user: SessionUser, ip: string | null, v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string | null; note?: string | null }) {
   return tx(user.id, async (t) => {
     const loc = await warehouseId(t, user.companyId);
-    const tech = (await t<{ id: string; full_name: string }[]>`select id, full_name from users where id = ${v.technician_id} and company_id = ${user.companyId} and is_active`)[0];
+    const tech = (await t<{ id: string; full_name: string }[]>`select id, full_name from users where id = ${v.technician_id} and company_id = ${user.companyId} and is_active and role = 'tech'`)[0];
     if (!tech) throw new AppError("TECH_NOT_FOUND", 404);
     const place = v.place?.trim().slice(0, 120) || null;
     let number: string | null = null;

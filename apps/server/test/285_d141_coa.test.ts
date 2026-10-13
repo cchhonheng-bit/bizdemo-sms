@@ -89,26 +89,22 @@ describe("D-141 postings on the new codes", () => {
     expect(after.map((x, i) => x - before[i]!)).toEqual([-700, -3000, -5000, -10000, -1200, 18700]);
   });
 
-  it("each stock item on its own stock account: stock in → 14000; materials (14000–18000) cost 50005 on a job AND on a direct sale (D-143); no account → 18000", async () => {
+  it("each stock item on its own stock account: stock in → 14000; materials (14000–18000) cost 50005 for a job AND for a sale (D-143); a new name on 18000", async () => {
     const pipeAcc = await code("14000");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
     const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "14001", inventory_account_id: pipeAcc.id })).json.id;
-    const tape = (await ceo.req("POST", "/api/catalog", { name_km: "ស្កុតបិទ", kind: "product", category: "mep", unit: "pcs", sell_price: 100 })).json.id;
-    for (const i of [pipe, tape]) expect((await admin.req("POST", `/api/inventory/items/${i}/track`, { track: true })).status).toBe(200);
-    const wh = ((await admin.req("GET", "/api/inventory/locations")).json as any[]).find((l) => l.kind === "warehouse").id;
     const b0 = await Promise.all(["14000", "18000", "50005", "50001", "11001"].map(bal));
-    expect((await admin.req("POST", "/api/inventory/in", { item_id: pipe, location_id: wh, qty: 20, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
-    expect((await admin.req("POST", "/api/inventory/in", { item_id: tape, location_id: wh, qty: 10, unit_cost: 50, pay: "cash_usd" })).status).toBe(200);
-    // a job uses 3 m of pipe (confirmed by the Admin)
+    expect((await admin.req("POST", "/api/inventory/in", { item_id: pipe, qty: 20, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
+    expect((await admin.req("POST", "/api/inventory/in", { name: "ស្កុតបិទ", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).status).toBe(200); // D-144: made on its first entry
+    // the technician collects 3 m of pipe for a job (the Admin records it)
     const job = (await admin.req("POST", "/api/bookings", { customer_id: inside, type: "A", category: "mep", service_text: "ដំឡើង", zone: "inside", ...span(new Date(Date.now() + 50 * 3600_000).toISOString()) })).json.id;
-    await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${job}, ${pipe}, 3)`;
     expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
-    for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
-    expect((await admin.req("POST", `/api/inventory/jobs/${job}/confirm`, { location_id: wh })).status).toBe(200);
-    // a direct sale of 2 m of pipe
-    await invoice(outside, [{ kind: "product", qty: 2, unit_price: 500, catalog_item_id: pipe }]);
+    expect((await admin.req("POST", "/api/inventory/out", { item_id: pipe, qty: 3, technician_id: s.users.kim, booking_id: job })).status).toBe(200);
+    // 2 m sold over the counter: the Admin records the stock out by the place; the invoice itself moves nothing (D-144)
+    expect((await admin.req("POST", "/api/inventory/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
+    await invoice(outside, [{ kind: "product", qty: 2, unit_price: 500 }]);
     const b1 = await Promise.all(["14000", "18000", "50005", "50001", "11001"].map(bal));
     expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 600 + 400, 0, -4500]); // D-143: copper pipe → 50005 wherever it leaves
   });

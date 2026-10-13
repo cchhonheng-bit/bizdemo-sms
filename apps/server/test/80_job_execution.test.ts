@@ -135,11 +135,13 @@ describe("job report + GM review (M7)", () => {
     expect((await app.inject({ method: "GET", url: `/api/files/${p.json.id}`, headers: { cookie: gm.cookie! } })).statusCode).toBe(200);
   });
 
-  it("materials from the catalog without prices; the technician never receives prices (AC-01)", async () => {
-    expect((await kim.req("PUT", `/api/bookings/${id}/materials`, { items: [{ catalog_item_id: product, qty: 3.5 }] })).status).toBe(200);
-    expect((await kim.req("PUT", `/api/bookings/${id}/materials`, { items: [{ catalog_item_id: product, qty: 0 }] })).status).toBe(400);
+  it("a price-list line added on site without prices; the technician never receives prices (AC-01); the materials picker is gone (D-144)", async () => {
+    expect((await kim.req("POST", `/api/bookings/${id}/extras`, { kind: "service", item_id: product, qty: 3.5 })).status).toBe(200);
+    expect((await kim.req("POST", `/api/bookings/${id}/extras`, { kind: "service", item_id: product, qty: 0 })).status).toBe(400);
+    expect((await kim.req("PUT", `/api/bookings/${id}/materials`, { items: [{ catalog_item_id: product, qty: 1 }] })).status).toBe(404);
     const j = await job(kim, id);
-    expect(j.materials).toEqual([expect.objectContaining({ name_km: "ទុយោ PVC", qty: 3.5, unit: "m" })]);
+    expect(j.materials).toBeUndefined();
+    expect(j.extras).toEqual([expect.objectContaining({ description: "ទុយោ PVC", qty: 3.5, unit: "m", unit_price: null })]);
     expect(JSON.stringify(j)).not.toMatch(/sell_price|cost_price|:(250|120)[,}]]/); // prices as values only (a UUID may contain the digits)
   });
 

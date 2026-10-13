@@ -1,6 +1,6 @@
-// D-142 (CEO 13-10) — tests first: item codes on the client's scheme (sub codes under 14000 … 18000, the account IS the item for
-// 13001 …), stock locations = warehouse + vehicles, any product stocked in / moved, job materials from the job's vehicle, materials
-// from every catalog item + «សម្ភារៈផ្សេងៗ» without a price, a catalog item turned off disappears from the website, the invoice
+// D-142 (CEO 13-10) as D-144 left it — tests first: item codes on the client's scheme (sub codes under 14000 … 18000, the account IS
+// the item for 13001 …), stock in as a direct entry (warehouse only), stock out to a technician for a job, the technician's list
+// without stock items + «ការងារ/សម្ភារៈបន្ថែម» without a price, a catalog item turned off disappears from the website, the invoice
 // keeps the job number only, the accounting view of an invoice (the $500 example), the month-end stock check against the books.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
@@ -14,17 +14,22 @@ import { loginAs, makeApp, PLACE, PW, resetDb, seed, span, type Client, type See
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, admin: Client, gm: Client, kim: Client, cfo: Client;
-let inside: string, outside: string, today: string, wh: string, van: string, vanLoc: string;
+let inside: string, outside: string, today: string, copper: string;
 const H = 3_600_000;
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
 const inv = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/inventory${path}`, body);
 const account = async (code: string) => (await sql<{ id: string; sub_codes: boolean }[]>`select id, sub_codes from accounts where company_id = ${s.a} and code = ${code}`)[0]!;
-const itemByCode = async (code: string) => (await sql<{ id: string; name_km: string; track_stock: boolean; is_active: boolean; acc: string | null }[]>`
-  select ci.id, ci.name_km, ci.track_stock, ci.is_active, a.code as acc from catalog_items ci left join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.a} and ci.code = ${code}`)[0];
+const itemByCode = async (code: string) => (await sql<{ id: string; name_km: string; track_stock: boolean; is_stock: boolean; is_active: boolean; acc: string | null }[]>`
+  select ci.id, ci.name_km, ci.track_stock, ci.is_stock, ci.is_active, a.code as acc from catalog_items ci left join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.a} and ci.code = ${code}`)[0];
 const bal = async (code: string) => Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b from journal_lines l join accounts a on a.id = l.account_id
   where a.company_id = ${s.a} and a.code = ${code}`)[0]!.b);
 const product = (name: string, extra: Record<string, unknown> = {}) => ceo.req("POST", "/api/catalog", { name_km: name, kind: "product", category: "mep", unit: "unit", sell_price: 100, ...extra });
 const stockOf = async (itemId: string) => ((await inv(admin, "/items")).json as any[]).find((x) => x.item_id === itemId);
+const jobFor = async (customer: string, text: string, h: number) => {
+  const id = (await admin.req("POST", "/api/bookings", { customer_id: customer, type: "A", category: "mep", service_text: text, zone: "inside", ...span(new Date(Date.now() + h * H).toISOString()) })).json.id;
+  expect((await admin.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
+  return id as string;
+};
 
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
@@ -38,18 +43,14 @@ beforeAll(async () => {
   expect((await acc(cfo, "/opening", { date: today, cash_usd: 100000 })).status).toBe(200); // the books start: every stock move below is posted
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី", phones: ["012 111 222"], zone: "inside" })).json.id;
   outside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្រៅបុរី", phones: ["012 111 333"], zone: "outside" })).json.id;
-  const locs = (await inv(admin, "/locations")).json as { id: string; kind: string; vehicle_code: string | null }[];
-  wh = locs.find((l) => l.kind === "warehouse")!.id;
-  van = (await sql<{ id: string }[]>`select id from vehicles where company_id = ${s.a} and code = '01'`)[0]!.id;
-  vanLoc = locs.find((l) => l.vehicle_code === "01")!.id;
 });
 afterAll(async () => { config.shop.features = ""; await app.close(); });
 
 describe("5 · item codes on the client's scheme", () => {
-  it("no-sub accounts: 13001 … 13005 and 13101 … 13104 each ARE their stock item (code = account code, tracked); a second item there is refused", async () => {
+  it("no-sub accounts: 13001 … 13005 and 13101 … 13104 each ARE their stock item (code = account code, stock); a second item there is refused", async () => {
     for (const code of ["13001", "13002", "13003", "13004", "13005", "13101", "13102", "13103", "13104"]) {
       const it = await itemByCode(code);
-      expect(it, code).toMatchObject({ track_stock: true, is_active: true, acc: code });
+      expect(it, code).toMatchObject({ track_stock: true, is_stock: true, is_active: true, acc: code });
       expect(it!.name_km).toBe((await sql<{ n: string }[]>`select name_km as n from accounts where company_id = ${s.a} and code = ${code}`)[0]!.n);
     }
     expect(await itemByCode("13006")).toBeUndefined(); // no such account (nameless in the client's file)
@@ -59,12 +60,14 @@ describe("5 · item codes on the client's scheme", () => {
     expect((await product("x", { code: "13009", inventory_account_id: a.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT");
   });
 
-  it("sub codes: 14000 → 14001, then 14002 (the live shop holds the client's 14001–14004 → 14005), 16000 → 16001; the code is editable inside the parent's range, unique; a code outside is refused", async () => {
+  it("sub codes: 14000 → 14001, then 14002 (the live shop holds the client's 14001–14004 → 14005), 16000 → 16001; the code is editable inside the parent's range, unique; a code outside is refused; an item on a stock account is stock", async () => {
     const a14 = await account("14000"), a16 = await account("16000");
     expect(a14.sub_codes && a16.sub_codes).toBe(true);
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json).toEqual({ code: "14001", sub_codes: true, taken: false });
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a16.id}`)).json).toEqual({ code: "16001", sub_codes: true, taken: false });
     expect((await product("ទុយោស្ពាន់ 16mm", { code: "14001", inventory_account_id: a14.id, unit: "m" })).status).toBe(200);
+    expect(await itemByCode("14001")).toMatchObject({ is_stock: true, acc: "14000" }); // D-144: never in the price list
+    expect(((await ceo.req("GET", "/api/catalog")).json as any[]).some((i) => i.code === "14001")).toBe(false);
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14002");
     expect((await product("ទុយោស្ពាន់ 19mm", { code: "14002", inventory_account_id: a14.id })).status).toBe(200);
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a14.id}`)).json.code).toBe("14003");
@@ -87,63 +90,58 @@ describe("5 · item codes on the client's scheme", () => {
   });
 });
 
-describe("4 · locations: warehouse + vehicles; any product in / moved; the job's vehicle", () => {
-  it("stock in turns an untracked product into a stock item; a transfer warehouse → vehicle of any quantity; a service is never stock", async () => {
-    const tape = (await product("ស្កុតបិទ", { unit: "pcs" })).json.id;
-    expect((await itemByCode("x"))).toBeUndefined();
-    expect((await inv(admin, "/in", { item_id: tape, location_id: wh, qty: 7.5, unit_cost: 40, pay: "cash_usd" })).status).toBe(200);
-    expect((await sql`select track_stock from catalog_items where id = ${tape}`)[0]).toMatchObject({ track_stock: true });
-    expect((await inv(admin, "/transfer", { item_id: tape, from: wh, to: vanLoc, qty: 2.5 })).status).toBe(200);
-    const st = await stockOf(tape);
-    expect(st.by_location.find((l: any) => l.location_id === vanLoc).qty).toBe(2.5);
-    expect(st.by_location.find((l: any) => l.location_id === wh).qty).toBe(5);
-    expect(st.account_code).toBe("18000"); // no account of its own → the fallback
+describe("4 · stock in as a direct entry, stock out to a technician (D-144: the warehouse only)", () => {
+  it("a new name on 18000 → item 18001 made on the way; a service is never stock; the only location is the warehouse", async () => {
+    const a18 = await account("18000");
+    const r = await inv(admin, "/in", { name: "ស្កុតបិទ", account_id: a18.id, unit: "pcs", qty: 7.5, unit_cost: 40, pay: "cash_usd" });
+    expect(r.status).toBe(200);
+    expect(r.json).toMatchObject({ created: true, total: 300, balance: 7.5 });
+    expect(await itemByCode("18001")).toMatchObject({ is_stock: true, track_stock: true, acc: "18000" });
+    expect(await stockOf(r.json.item_id)).toMatchObject({ qty: 7.5, value: 300, account_code: "18000" });
     const svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុល", kind: "service", category: "mep", unit: "job", sell_price: 3000 })).json.id;
-    expect((await inv(admin, "/in", { item_id: svc, location_id: wh, qty: 1, unit_cost: 1, pay: "cash_usd" })).json.error).toBe("NOT_A_PRODUCT");
-    const kinds = new Set(((await inv(admin, "/locations")).json as any[]).map((l) => l.kind));
-    expect([...kinds].every((k) => k === "warehouse" || k === "vehicle")).toBe(true);
+    expect((await inv(admin, "/in", { item_id: svc, qty: 1, unit_cost: 1, pay: "cash_usd" })).json.error).toBe("NOT_STOCK_ITEM");
+    expect(((await inv(admin, "/locations")).json as any[]).map((l) => l.kind)).toEqual(["warehouse"]);
   });
 
-  it("a job's materials leave the JOB'S VEHICLE when the Admin confirms (no location chosen)", async () => {
+  it("a job's copper leaves the warehouse when the Admin records the technician's collection (job BK); a sale by the place", async () => {
     const pipe = (await itemByCode("14001"))!.id;
-    expect((await inv(admin, "/in", { item_id: pipe, location_id: wh, qty: 10, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
-    expect((await inv(admin, "/transfer", { item_id: pipe, from: wh, to: vanLoc, qty: 5 })).status).toBe(200);
-    const job = (await admin.req("POST", "/api/bookings", { customer_id: inside, type: "A", category: "mep", service_text: "ដំឡើង", zone: "inside", ...span(new Date(Date.now() + 40 * H).toISOString()) })).json.id;
-    expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [], vehicle_id: van })).status).toBe(200);
-    await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${job}, ${pipe}, 3)`;
-    for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
-    const pending = ((await inv(admin, "/jobs/pending")).json as any[]).find((j) => j.booking_id === job);
-    expect(pending).toMatchObject({ suggested_location_id: vanLoc, vehicle_code: "01" });
-    expect((await inv(admin, `/jobs/${job}/confirm`, {})).status).toBe(200);
-    expect((await sql<{ loc: string; qty: string }[]>`select location_id as loc, qty::text from stock_moves where ref_id = ${job} and kind = 'out_job'`)[0]).toMatchObject({ loc: vanLoc, qty: "-3.000" });
-    const st = await stockOf(pipe);
-    expect(st.by_location.find((l: any) => l.location_id === vanLoc).qty).toBe(2);
-    expect(st.by_location.find((l: any) => l.location_id === wh).qty).toBe(5);
+    expect((await inv(admin, "/in", { item_id: pipe, qty: 10, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
+    const job = await jobFor(inside, "ដំឡើង", 40);
+    const r = await inv(admin, "/out", { item_id: pipe, qty: 3, technician_id: s.users.kim, booking_id: job });
+    expect(r.status).toBe(200);
+    expect(r.json.balance).toBe(7);
+    expect((await sql<{ qty: string; tech: string }[]>`select qty::text, technician_id as tech from stock_moves where ref_id = ${job} and kind = 'out'`)[0]).toMatchObject({ qty: "-3.000", tech: s.users.kim });
+    expect((await inv(admin, "/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, place: "ហាង (លក់ផ្ទាល់)" })).json.balance).toBe(5);
+    expect(await stockOf(pipe)).toMatchObject({ qty: 5, value: 1000 });
+    expect(await bal("50005")).toBe(1000); expect(await bal("14000")).toBe(1000); // copper's cost → technicians' materials (D-143)
   });
 });
 
-describe("3 · materials from every catalog item; «សម្ភារៈផ្សេងៗ» without a price", () => {
-  it("the technician records a service and an appliance as materials; writes a free material (text, quantity, unit) — no price; the Admin prices it → an invoice product line", async () => {
-    const job = (await admin.req("POST", "/api/bookings", { customer_id: inside, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(new Date(Date.now() + 60 * H).toISOString()) })).json.id;
-    expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
+describe("3 · the technician's list has no stock item; «ការងារ/សម្ភារៈបន្ថែម» without a price", () => {
+  it("the technician adds a price-list sale line and writes a free line (text, quantity, unit) — no price; the Admin prices it as goods → an invoice product line", async () => {
+    copper = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ (ម៉ែត្រ)", kind: "product", category: "mep", unit: "ម៉ែត្រ", sell_price: 1500, stock_link_account_id: (await account("14000")).id })).json.id;
+    const job = await jobFor(inside, "ជួសជុល", 60);
     const start = Date.now() - 2 * H;
     await sql`update bookings set scheduled_at = ${new Date(start)}, ends_at = ${new Date(start + 2 * H)} where id = ${job}`;
     for (const step of ["depart", "arrive"]) expect((await kim.req("POST", `/api/bookings/${job}/checkpoint`, { step, no_gps: true })).status).toBe(200);
-    const svc = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and kind = 'service' limit 1`)[0]!.id;
+    const list = (await kim.req("GET", "/api/catalog")).json as any[];
+    expect(list.some((i) => i.code === "13001" || i.code === "14001" || i.is_stock)).toBe(false);
+    expect(list.some((i) => i.id === copper)).toBe(true);
     const ac = (await itemByCode("13001"))!.id;
-    expect((await kim.req("PUT", `/api/bookings/${job}/materials`, { items: [{ catalog_item_id: svc, qty: 1 }, { catalog_item_id: ac, qty: 1 }] })).status).toBe(200);
-    const mats = (await kim.req("GET", `/api/bookings/${job}/job`)).json.materials;
-    expect(mats.map((m: any) => [m.kind, m.code])).toEqual(expect.arrayContaining([["service", null], ["product", "13001"]]));
-    const x = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "material", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ" });
+    expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: ac, qty: 1 })).json.error).toBe("SERVICE_NOT_FOUND");
+    expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: copper, qty: 4 })).status).toBe(200);
+    const x = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ" });
     expect(x.status).toBe(200);
-    expect((await kim.req("GET", `/api/bookings/${job}/job`)).json.extras[0]).toMatchObject({ kind: "material", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ", unit_price: null, status: "pending" });
-    expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "material", description: "x", qty: 1 })).json.error).toBe("DESCRIPTION_REQUIRED");
+    expect((await kim.req("GET", `/api/bookings/${job}/job`)).json.extras[1]).toMatchObject({ kind: "other", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ", unit_price: null, status: "pending" });
+    expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "x", qty: 1 })).json.error).toBe("DESCRIPTION_REQUIRED");
     expect((await admin.req("POST", `/api/bookings/${job}/extras/${x.json.id}/review`, { action: "confirm" })).json.error).toBe("PRICE_REQUIRED");
-    expect((await admin.req("POST", `/api/bookings/${job}/extras/${x.json.id}/review`, { action: "confirm", unit_price: 150 })).status).toBe(200);
+    expect((await admin.req("POST", `/api/bookings/${job}/extras/${x.json.id}/review`, { action: "confirm", unit_price: 150, kind: "product" })).status).toBe(200);
+    const first = (await admin.req("GET", `/api/bookings/${job}/job`)).json.extras[0].id;
+    expect((await admin.req("POST", `/api/bookings/${job}/extras/${first}/review`, { action: "confirm" })).status).toBe(200);
     for (const st of ["work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines.find((l: any) => l.description === "ខ្សែភ្លើង 2.5")).toMatchObject({ kind: "product", qty: 20, unit: "ម៉ែត្រ", unit_price: 150, catalog_item_id: null });
-    expect(p.lines.find((l: any) => l.catalog_item_id === ac)).toMatchObject({ kind: "product", qty: 1 }); // the appliance recorded as a material is on the invoice too
+    expect(p.lines.find((l: any) => l.catalog_item_id === copper)).toMatchObject({ kind: "product", qty: 4, unit_price: 1500 });
     expect(p.booking_number).toMatch(/^BK-\d{4}$/); // 2: the invoice carries the job's number (the screens show it alone)
   });
 });
@@ -171,12 +169,13 @@ describe("1 · «ចង់ទិញម៉ាស៊ីនត្រជាក់» 
 
 describe("6 · the accounting view of an invoice — the $500 example", () => {
   let invoiceId: string;
-  it("AC $450 (item 13001, cost $300) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50 · Dr 50001 300 / Cr 13001 300", async () => {
+  it("AC $450 (item 13001, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13001 300", async () => {
     const ac = (await itemByCode("13001"))!.id;
-    expect((await inv(admin, "/in", { item_id: ac, location_id: wh, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).status).toBe(200);
+    expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).status).toBe(200);
     const before = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13001"].map(async (c) => [c, await bal(c)])));
+    expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, place: "ក្រៅបុរី ផ្ទះ 7" })).json.balance).toBe(1);
     const r = await admin.req("POST", "/api/invoices", { customer_id: outside, lines: [
-      { catalog_item_id: ac, description: "ម៉ាស៊ីនត្រជាក់ 1HP", kind: "product", qty: 1, unit: "គ្រឿង", unit_price: 45000 },
+      { description: "ម៉ាស៊ីនត្រជាក់ 1HP", kind: "product", qty: 1, unit: "គ្រឿង", unit_price: 45000 },
       { description: "ដំឡើង", kind: "service", qty: 1, unit: "job", unit_price: 5000 }] });
     expect(r.status).toBe(200);
     invoiceId = r.json.id;
@@ -188,12 +187,12 @@ describe("6 · the accounting view of an invoice — the $500 example", () => {
     expect((await stockOf(ac))).toMatchObject({ qty: 1, value: 30000 });
   });
 
-  it("«ការកត់ត្រាគណនេយ្យ» on the invoice: the issue, the stock at cost and the payment, each line with code + name; GM and technician: 403", async () => {
+  it("«ការកត់ត្រាគណនេយ្យ» on the invoice: the issue and the payment, each line with code + name (the stock has its own record); GM and technician: 403", async () => {
     const j = await admin.req("GET", `/api/invoices/${invoiceId}/journal`);
     expect(j.status).toBe(200);
-    expect(j.json.map((e: any) => e.source).sort()).toEqual(["invoice", "payment", "stock"]);
+    expect(j.json.map((e: any) => e.source).sort()).toEqual(["invoice", "payment"]);
     const flat = j.json.flatMap((e: any) => e.lines.map((l: any) => [l.code, l.debit, l.credit]));
-    expect(flat).toEqual(expect.arrayContaining([["12002", 50000, 0], ["40001", 0, 45000], ["40002", 0, 5000], ["50001", 30000, 0], ["13001", 0, 30000], ["11002", 45000, 0], ["12002", 0, 45000]]));
+    expect(flat).toEqual(expect.arrayContaining([["12002", 50000, 0], ["40001", 0, 45000], ["40002", 0, 5000], ["11002", 45000, 0], ["12002", 0, 45000]]));
     expect(j.json.every((e: any) => e.lines.every((l: any) => typeof l.name_km === "string" && l.name_km.length > 0))).toBe(true);
     expect((await cfo.req("GET", `/api/invoices/${invoiceId}/journal`)).status).toBe(200);
     expect((await gm.req("GET", `/api/invoices/${invoiceId}/journal`)).status).toBe(403);
@@ -203,36 +202,36 @@ describe("6 · the accounting view of an invoice — the $500 example", () => {
   it("trial balance / balance sheet: the stock accounts only (14000 as the sum of its items, 13001 as itself) — never an item code", async () => {
     const tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;
     expect(tb.balanced).toBe(true);
-    expect(tb.rows.find((r: any) => r.code === "13001").balance).toBe(30000); // 2 in − 1 sold, at cost
-    expect(tb.rows.find((r: any) => r.code === "14000").balance).toBe(1400); // 14001: 10 in @ $2, 3 used on the job
+    expect(tb.rows.find((r: any) => r.code === "13001").balance).toBe(30000); // 2 in − 1 out, at cost
+    expect(tb.rows.find((r: any) => r.code === "14000").balance).toBe(1000); // 14001: 10 in @ $2, 3 for the job + 2 sold
     expect(tb.rows.some((r: any) => /^14[0-9]{3}$/.test(r.code) && r.code !== "14000")).toBe(false);
-    expect(tb.rows.find((r: any) => r.code === "50005").balance).toBe(600); // the job's materials
+    expect(tb.rows.find((r: any) => r.code === "50005").balance).toBe(1000); // the copper that left
   });
 });
 
 describe("D-143 · the cost account follows the item's group", () => {
-  it("job BK with AC 13001 + copper 14001 confirmed → Dr 50001 (AC cost) + Dr 50005 (copper cost); the job's invoice with both lines deducts nothing twice", async () => {
+  it("job BK: AC 13001 + copper 14001 handed out → Dr 50001 (AC cost) + Dr 50005 (copper cost); the job's invoice with both lines moves nothing", async () => {
     const ac = (await itemByCode("13001"))!.id, pipe = (await itemByCode("14001"))!.id;
     const b0 = Object.fromEntries(await Promise.all(["50001", "50005", "13001", "14000"].map(async (c) => [c, await bal(c)])));
-    const job = (await admin.req("POST", "/api/bookings", { customer_id: outside, type: "A", category: "mep", service_text: "ដំឡើងម៉ាស៊ីនត្រជាក់", zone: "outside", ...span(new Date(Date.now() + 80 * H).toISOString()) })).json.id;
-    expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200); // no vehicle → the warehouse
-    await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${job}, ${ac}, 1), (${job}, ${pipe}, 2)`;
-    for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
-    expect((await inv(admin, `/jobs/${job}/confirm`, {})).status).toBe(200);
+    const job = await jobFor(outside, "ដំឡើងម៉ាស៊ីនត្រជាក់", 80);
+    expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, booking_id: job })).json.balance).toBe(0);
+    expect((await inv(admin, "/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, booking_id: job })).json.balance).toBe(3);
     const b1 = Object.fromEntries(await Promise.all(["50001", "50005", "13001", "14000"].map(async (c) => [c, await bal(c)])));
     expect({ "50001": b1["50001"]! - b0["50001"]!, "50005": b1["50005"]! - b0["50005"]!, "13001": b1["13001"]! - b0["13001"]!, "14000": b1["14000"]! - b0["14000"]! })
       .toEqual({ "50001": 30000, "50005": 400, "13001": -30000, "14000": -400 }); // AC at its $300 cost, 2 m of copper at $2
     const moves = (await sql`select count(*)::int as n from stock_moves where company_id = ${s.a}`)[0]!.n;
-    const before = { ac: await stockOf(ac), pipe: await stockOf(pipe) };
-    for (const st of ["pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
-    const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
-    expect(p.lines.filter((l: any) => l.kind === "product").map((l: any) => l.catalog_item_id).sort()).toEqual([ac, pipe].sort());
-    const r = await admin.req("POST", "/api/invoices", { booking_id: job, lines: p.lines });
+    for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
+    const r = await admin.req("POST", "/api/invoices", { booking_id: job, lines: [
+      { description: "ម៉ាស៊ីនត្រជាក់ 1HP", kind: "product", qty: 1, unit: "គ្រឿង", unit_price: 45000 },
+      { catalog_item_id: copper, description: "ទុយោស្ពាន់ (ម៉ែត្រ)", kind: "product", qty: 2, unit: "ម៉ែត្រ", unit_price: 1500 }] });
     expect((await admin.req("POST", `/api/invoices/${r.json.id}/issue`, {})).status).toBe(200);
-    expect((await sql`select count(*)::int as n from stock_moves where company_id = ${s.a}`)[0]!.n).toBe(moves); // no second deduction
-    expect((await stockOf(ac)).qty).toBe(before.ac.qty); expect((await stockOf(pipe)).qty).toBe(before.pipe.qty);
+    expect((await sql`select count(*)::int as n from stock_moves where company_id = ${s.a}`)[0]!.n).toBe(moves); // the invoice moves nothing
+    expect((await stockOf(ac)).qty).toBe(0); expect((await stockOf(pipe)).qty).toBe(3);
     const b2 = Object.fromEntries(await Promise.all(["50001", "50005"].map(async (c) => [c, await bal(c)])));
     expect(b2).toEqual({ "50001": b1["50001"], "50005": b1["50005"] });
+    // «ផ្ទៀងផ្ទាត់សម្ភារៈ»: 2 m out, 2 m invoiced → nothing to look at
+    const rec = (await inv(admin, `/reconcile?from=${today}&to=${today}`)).json;
+    expect(rec.rows.find((x: any) => x.booking_id === job && x.group_code === "14000")).toMatchObject({ out_qty: 2, invoiced_qty: 2, difference: 0 });
   });
 });
 
@@ -242,7 +241,7 @@ describe("7 · month-end stock check", () => {
     expect(r.status).toBe(200);
     const by = Object.fromEntries(r.json.accounts.map((a: any) => [a.code, a]));
     expect(by["13001"]).toMatchObject({ qty: 0, value: 0, balance: 0, difference: 0 }); // after D-143's job took the last AC
-    expect(by["14000"]).toMatchObject({ qty: 5, value: 1000, balance: 1000, difference: 0 });
+    expect(by["14000"]).toMatchObject({ qty: 3, value: 600, balance: 600, difference: 0 });
     expect(by["14000"].items.map((i: any) => i.code)).toContain("14001");
     expect(r.json.difference).toBe(0);
     expect(r.json.stock_total).toBe(r.json.books_total);

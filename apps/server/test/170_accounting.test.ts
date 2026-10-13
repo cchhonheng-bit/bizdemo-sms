@@ -58,32 +58,32 @@ describe("C1 chart of accounts", () => {
     expect((await kim.req("POST", "/api/accounting/accounts", { code: "50021", name_km: "x", type: "expense" })).status).toBe(403);
   });
 
-  it("before the opening balances nothing posts: journal → OPENING_REQUIRED; invoices / stock stay out of the books", async () => {
+  it("before the opening balances nothing posts: a journal entry is saved for later (D-144), invoices / stock wait too", async () => {
     const [a, b] = [(await code("50010")).id, (await code("11001")).id];
-    expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 100 }, { account_id: b, credit: 100 }] })).json.error).toBe("OPENING_REQUIRED");
+    expect((await acc(admin, "/journal", { date: today, memo: "x", lines: [{ account_id: a, debit: 100 }, { account_id: b, credit: 100 }] })).json).toMatchObject({ pending: true, number: null });
     // before go-live: an issued invoice with a part payment, stock of another product
     const i = await invoice([{ kind: "service", qty: 1, unit_price: 5000 }]);
     await admin.req("POST", `/api/invoices/${i}/issue`);
     await admin.req("POST", `/api/invoices/${i}/payments`, { amount: 1000, currency: "usd", method: "cash_usd" });
-    const wh = ((await admin.req("GET", "/api/inventory/locations")).json as any[]).find((l) => l.kind === "warehouse").id;
-    await admin.req("POST", `/api/inventory/items/${prod2}/track`, { track: true });
-    await admin.req("POST", "/api/inventory/opening", { item_id: prod2, location_id: wh, qty: 10, unit_cost: 150 });
+    prod2 = (await admin.req("POST", "/api/inventory/in", { name: "បំពង់", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 150, opening: true })).json.item_id;
     expect(await entries()).toBe(0);
   });
 });
 
 describe("opening balances (go-live)", () => {
-  it("CFO only; cash, banks, payables as entered + open invoices, stock and deposits from the app + old debts as opening invoices; balanced by opening equity; locks before", async () => {
+  it("CFO only; cash, banks, payables as entered + old debts as opening invoices; balanced by opening equity; what happened from the start day on is posted as itself (D-144); locks before", async () => {
     const body = { date: start, cash_usd: 20000, cash_khr: 400000, banks: { aba: 150000, acleda: 50000 },
       receivables: [{ customer_id: cust, amount: 12000, note: "វិក្កយបត្រក្រដាស" }], payables: [{ supplier: "ហាងស៊ីម៉ង់ត៍", amount: 8000 }] };
     expect((await acc(admin, "/opening", body)).status).toBe(403);
     expect((await acc(cfo, "/opening", { ...body, date: "2099-01-01" })).json.error).toBe("BAD_DATE");
     const r = await acc(cfo, "/opening", body);
     expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ open_invoices: 1, opening_invoices: ["OB-0001"] });
-    expect(r.json.opening_equity).toBe(20000 + 10000 + 150000 + 50000 + 12000 + 4000 + 1500 - 8000);
-    expect(await bal("11001")).toBe(20000); expect(await bal("11004")).toBe(10000); expect(await bal("11003")).toBe(150000); expect(await bal("11002")).toBe(50000);
-    expect(await bal("12002")).toBe(16000); expect(await bal("18000")).toBe(1500); expect(await bal("20003")).toBe(-8000); expect(await bal("30004")).toBe(-r.json.opening_equity);
+    expect(r.json).toMatchObject({ open_invoices: 0, opening_invoices: ["OB-0001"] }); // today's invoice is after the start day → posted as an invoice
+    expect(r.json.opening_equity).toBe(20000 + 10000 + 150000 + 50000 + 12000 - 8000);
+    expect(r.json.backlog).toMatchObject({ invoices: 1, payments: 1, stock: 1, transactions: 1, before_start: 0, failed: 0 });
+    expect(await bal("11001")).toBe(20000 + 1000 - 100); expect(await bal("11004")).toBe(10000); expect(await bal("11003")).toBe(150000); expect(await bal("11002")).toBe(50000);
+    expect(await bal("12002")).toBe(16000); expect(await bal("18000")).toBe(1500); expect(await bal("20003")).toBe(-8000); expect(await bal("50010")).toBe(100);
+    expect(await bal("30004")).toBe(-r.json.opening_equity - 1500); // the opening stock move posts Dr stock / Cr opening equity
     const debt = ((await admin.req("GET", "/api/invoices/debts")).json as any[]).find((d) => d.customer_id === cust);
     expect(debt.total).toBe(16000); // the old paper debt is collectable like any invoice
     const dash = (await ceo.req("GET", "/api/reports/dashboard")).json;
@@ -200,22 +200,18 @@ describe("C3 automatic postings from the app", () => {
     await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
   });
 
-  it("stock in on credit: Dr inventory / Cr payable; loss adjustment at average cost; job use: Dr cost of sales / Cr inventory; inventory account = stock value", async () => {
-    const wh = ((await admin.req("GET", "/api/inventory/locations")).json as any[]).find((l) => l.kind === "warehouse").id;
-    await admin.req("POST", `/api/inventory/items/${prod}/track`, { track: true });
+  it("stock in on credit: Dr inventory / Cr payable; loss adjustment at average cost; handed to a technician for a job: Dr cost / Cr inventory; inventory account = stock value", async () => {
     const [inv0, ap0, adj0, cogs0] = await Promise.all(["18000", "20003", "50012", "50005"].map(bal));
-    await admin.req("POST", "/api/inventory/in", { item_id: prod, location_id: wh, qty: 10, unit_cost: 150, pay: "credit", supplier: "ហាងអគ្គិសនី" });
+    prod = (await admin.req("POST", "/api/inventory/in", { name: "ខ្សែភ្លើង", account_id: (await code("18000")).id, unit: "m", qty: 10, unit_cost: 150, pay: "credit", supplier: "ហាងអគ្គិសនី" })).json.item_id;
     expect(await bal("18000")).toBe(inv0 + 1500);
     expect(await bal("20003")).toBe(ap0 - 1500);
-    await admin.req("POST", "/api/inventory/adjust", { item_id: prod, location_id: wh, qty: -2, reason: "ខូច" });
+    await admin.req("POST", "/api/inventory/adjust", { item_id: prod, qty: -2, reason: "ខូច" });
     expect(await bal("18000")).toBe(inv0 + 1200);
     expect(await bal("50012")).toBe(adj0 + 300);
-    // a job uses 3 m (Admin confirms)
+    // the technician collects 3 m for a job (the Admin records it)
     const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ភ្លើង", zone: "inside", ...span(when()) })).json.id;
-    await sql`insert into booking_materials (booking_id, catalog_item_id, qty) values (${b}, ${prod}, 3)`;
     await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.kim, assistants: [] });
-    for (const st of ["on_site", "work_done"]) await sql`update bookings set status = ${st}::booking_status where id = ${b}`;
-    expect((await admin.req("POST", `/api/inventory/jobs/${b}/confirm`, { location_id: wh })).status).toBe(200);
+    expect((await admin.req("POST", "/api/inventory/out", { item_id: prod, qty: 3, technician_id: s.users.kim, booking_id: b })).status).toBe(200);
     expect(await bal("50005")).toBe(cogs0 + 450);
     const items = (await admin.req("GET", "/api/inventory/items")).json as any[];
     expect(await bal("18000")).toBe(items.reduce((x, i) => x + i.value, 0)); // books = stock value
