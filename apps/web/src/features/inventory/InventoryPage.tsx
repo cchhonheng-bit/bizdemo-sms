@@ -120,7 +120,7 @@ function OpDialog({ op, items, onClose }: { op: Op; items: StockItem[]; onClose:
   const [loc, setLoc] = useState(""); const [to, setTo] = useState("");
   const [qty, setQty] = useState(""); const [cost, setCost] = useState(""); const [sign, setSign] = useState<1 | -1>(-1);
   const [pay, setPay] = useState<StockPay>("cash_usd"); const [supplier, setSupplier] = useState(""); const [reason, setReason] = useState("");
-  const from = loc || active[0]?.id || "";
+  const from = loc || (active.find((l) => l.kind === "warehouse") ?? active[0])?.id || ""; // D-142: stock in / opening / a transfer start at the warehouse
   const n = Number(qty);
   let c = NaN; try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
   const valid = !!item && !!from && n > 0 && (op === "transfer" ? !!to && to !== from : op === "adjust" ? reason.trim().length >= 3 : c >= 0);

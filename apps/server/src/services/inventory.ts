@@ -24,7 +24,7 @@ export async function ensureLocations(db: Db, companyId: string): Promise<void> 
 export async function listLocations(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
   return sql`select l.id, l.name, l.kind, l.vehicle_id, v.code as vehicle_code, l.is_active from stock_locations l left join vehicles v on v.id = l.vehicle_id
-    where l.company_id = ${user.companyId} order by l.kind desc, l.name`;
+    where l.company_id = ${user.companyId} order by l.kind, l.name`; // the enum puts the warehouse first (D-142: stock in lands there by default)
 }
 export async function saveLocation(user: SessionUser, ip: string | null, v: { id?: string; name: string; kind: "warehouse" | "vehicle"; vehicle_id?: string | null; is_active?: boolean }) {
   return tx(user.id, async (t) => {
@@ -249,7 +249,7 @@ export async function items(user: SessionUser) {
       left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
     where i.company_id = ${user.companyId} and i.track_stock order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
   const bal = await sql<{ item_id: string; location_id: string; name: string; qty: string }[]>`select b.item_id, b.location_id, l.name, b.qty::text from stock_balances b
-    join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind desc, l.name`;
+    join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind, l.name`;
   return rows.map((r) => {
     const qty = Number(r.qty), value = Number(r.value);
     return { item_id: r.item_id, code: r.code, name: r.name, unit: r.unit, qty, value, avg_cost: qty > 0 ? Math.round(value / qty) : 0,

@@ -936,8 +936,8 @@ const gmDev = await device({ desktop: true });
   const cat2 = await ceoApi.call("GET", "/api/catalog"), pipe = (Array.isArray(cat2) ? cat2 : cat2.items).find((x) => x.code === "14001");
   await step(A, "E4 the Admin records a job's materials too (with who recorded each line)", page, async () => {
     must(pipe, "the stock items of the new chart (14001 …) are missing");
-    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('select[name="mat_pick"]').waitFor({ timeout: 10_000 }); // the list itself is empty (invisible) until a line is added
-    await page.locator('select[name="mat_pick"]').selectOption(pipe.id); await page.locator('button[aria-label="បន្ថែម"]').first().click();
+    await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="mat-search"]').waitFor({ timeout: 10_000 }); // D-142: found by code
+    await page.locator('[data-testid="mat-search"]').fill(pipe.code); await page.getByRole('listbox').getByRole('button').first().click();
     await page.locator('[data-testid="mat-save"]').click(); await idle(page);
     const m = (await adminApi.call("GET", `/api/bookings/${onSite.id}/job`)).materials;
     must(m.length === 1 && m[0].added_by_name === "QA រដ្ឋបាល", `materials ${JSON.stringify(m)}`);
@@ -1032,7 +1032,7 @@ const gmDev = await device({ desktop: true });
   // a job on site for QA ជាង ២
   const onSite = await adminApi.call("POST", "/api/bookings", { customer_id: outsideC.id, type: "A", category: "mep", service_text: "ដំឡើង", zone: "outside", scheduled_at: new Date(Date.now() + 10 * 3_600_000).toISOString(), ends_at: new Date(Date.now() + 12 * 3_600_000).toISOString() });
   await adminApi.call("POST", `/api/bookings/${onSite.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
-  const t0 = new Date(Date.now() - 20 * 60_000); t0.setSeconds(0, 0);
+  const t0 = new Date(Date.now() - 5 * 3_600_000); t0.setSeconds(0, 0); // its own window, clear of section 13's jobs of the same technician
   sql(`update bookings set scheduled_at = '${t0.toISOString()}', ends_at = '${new Date(t0.getTime() + 2 * 3_600_000).toISOString()}' where id = '${onSite.id}'`);
   for (const st of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${onSite.id}/checkpoint`, { step: st, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
   const techDev = await device({ ip: 78 });
