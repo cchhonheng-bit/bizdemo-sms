@@ -9,7 +9,7 @@ import { tellCustomer } from "../services/customer-notify.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
 import { addExtra, forCrew, listExtras, removeOwnExtra, reviewExtra } from "../services/extras.js";
-import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, setMaterials, STEPS, submitReport } from "../services/jobs.js";
+import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
 const iso = z.string().datetime({ offset: true });
@@ -126,8 +126,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/extras", { bodyLimit: 3_000_000 }, async (req) => {
     const v = z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999) }).strict(),
-      // D-142: «សម្ភារៈផ្សេងៗ» = a material the technician writes (text + quantity + unit), priced by Admin / GM like other work
-      z.object({ kind: z.enum(["other", "material"]), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(),
+      // D-144 «ការងារ/សម្ភារៈបន្ថែម»: a text + quantity + unit + photo, priced by Admin / GM (who say service or goods)
+      z.object({ kind: z.literal("other"), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(),
         unit: z.string().trim().max(20).nullable().optional(), photo: z.string().max(2_900_000).nullable().optional() }).strict(),
     ]).parse(req.body ?? {});
     const r = await addExtra(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
@@ -142,7 +142,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/extras/:xid/review", async (req) => {
     if (!req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);
     const p = z.object({ id: z.string().uuid(), xid: z.string().uuid() }).parse(req.params);
-    const v = z.object({ action: z.enum(["confirm", "remove"]), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), reason: z.string().trim().max(300).nullable().optional() }).strict().parse(req.body ?? {});
+    const v = z.object({ action: z.enum(["confirm", "remove"]), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), reason: z.string().trim().max(300).nullable().optional(),
+      kind: z.enum(["service", "product"]).nullable().optional() }).strict().parse(req.body ?? {});
     return reviewExtra(req.user!, req.ip, p.id, p.xid, v);
   });
   app.post("/:id/checkpoint", async (req) => {
@@ -161,10 +162,6 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     const p = z.object({ id: z.string().uuid(), fid: z.string().uuid() }).parse(req.params);
     return removePhoto(req.user!, req.perms, p.id, p.fid);
   });
-  app.put("/:id/materials", async (req) => {
-    const v = z.object({ items: z.array(z.object({ catalog_item_id: z.string().uuid(), qty: z.number().positive().max(100000) }).strict()).max(100) }).strict().parse(req.body);
-    return setMaterials(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.items);
-  });
   app.post("/:id/report", bigBody, async (req) => {
     const v = z.object({ notes: z.string().max(2000).default(""), signature: z.string().optional().nullable() }).strict().parse(req.body ?? {});
     return submitReport(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
@@ -182,8 +179,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   // R4: CEO / GM / Admin (permission cancel.request — all three by default), reason required
   app.post("/:id/cancel", async (req) => {
     if (!req.perms.includes("cancel.request")) throw new AppError("FORBIDDEN", 403);
-    const { reason, materials_used } = cancelSchema.parse(req.body ?? {});
-    const r = await cancelBooking(req.user!, req.ip, idParam.parse(req.params).id, reason, materials_used);
+    const { reason } = cancelSchema.parse(req.body ?? {});
+    const r = await cancelBooking(req.user!, req.ip, idParam.parse(req.params).id, reason);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
   });

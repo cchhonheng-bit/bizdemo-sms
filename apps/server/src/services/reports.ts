@@ -2,8 +2,6 @@
 // Revenue = issued (not void) invoice totals by issue date; received = payments by payment date; zone from the booking,
 // else the customer (AC-13). Money figures only for report.finance (CEO, CFO); operations for report.ops.
 import { AUDIT_GROUPS, formatKhr, formatUsd, LAST_CHANGE_SCOPES } from "@sms/shared";
-import { featureOn } from "../lib/features.js";
-import { waitingMaterials } from "./inventory.js";
 import { sql, tx, type Db } from "../db.js";
 import { notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
@@ -165,8 +163,6 @@ export async function dashboard(user: SessionUser, perms: string[]) {
     approvals: { discounts: counts.disc, voids: counts.voids, leave: counts.leave }, techs,
   };
   if (perms.includes("report.verify")) out.unverified = (await items(c, null, true)).length;
-  // D-140 E1: «សម្ភារៈរង់ចាំបញ្ជាក់ (n)» — finished (or cancelled-but-used) jobs whose materials are not confirmed yet
-  if (featureOn("inventory") && (perms.includes("inventory.view") || perms.includes("inventory.manage"))) out.materials_pending = (await waitingMaterials(sql, c)).n;
   if (perms.includes("report.finance")) {
     const month = today.slice(0, 8) + "01";
     const d = await summaryData(c, today, today, true) as { revenue: Money; payments: { total: number } };

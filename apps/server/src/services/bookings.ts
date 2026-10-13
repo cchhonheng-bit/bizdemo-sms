@@ -579,8 +579,8 @@ export async function rescheduleHistory(user: SessionUser, id: string) {
 }
 
 // ---------- cancel (R4) ------------------------------------------------------------------------------------
-export async function cancelBooking(user: SessionUser, ip: string | null, id: string, reason: string, materialsUsed?: boolean) {
-  return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason, { materialsUsed, ask: true }));
+export async function cancelBooking(user: SessionUser, ip: string | null, id: string, reason: string) {
+  return tx(user.id, (t) => cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, id, reason));
 }
 
 /** a customer record that exists only because of a website booking the staff never accepted (declined, or expired unanswered)
@@ -594,17 +594,10 @@ export async function dropUnacceptedAccount(t: Db, bookingId: string): Promise<v
 
 /** who cancels: a staff member, or (D-96, customer home) the customer — then userId is null and Admin + GM are told as well */
 export type CancelActor = { companyId: string; userId: string | null; name: { km: string; en: string } };
-export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string, o: { materialsUsed?: boolean; ask?: boolean } = {}) {
+export async function cancelBookingIn(t: Db, actor: CancelActor, ip: string | null, id: string, reason: string) {
   const b = (await t<BookingRow[]>`select * from bookings where id = ${id} and company_id = ${actor.companyId} for update`)[0];
   if (!b) throw notFound();
   if (!CANCELLABLE_STATUSES.includes(b.status)) throw new AppError("BOOKING_NOT_CANCELLABLE", 400);
-  // D-140 E2: materials already recorded on the job → «សម្ភារៈបានប្រើរួចឬទេ?» (yes = a job cost to confirm, no = unused)
-  const mats = (await t`select 1 from booking_materials where booking_id = ${id} limit 1`).length > 0;
-  if (mats && o.ask && o.materialsUsed === undefined) throw new AppError("MATERIALS_ANSWER_REQUIRED", 400);
-  if (mats && o.materialsUsed !== undefined) {
-    await t`update bookings set materials_used = ${o.materialsUsed} where id = ${id}`;
-    await audit(t, { companyId: actor.companyId, userId: actor.userId, action: "booking.materials_used", table: "bookings", rowId: id, new: { materials_used: o.materialsUsed }, ip });
-  }
   // status → cancelled (never deleted); the exclusion constraints stop counting it → technicians + vehicle are free
   await t`update bookings set status = 'cancelled', cancel_reason = ${reason}, cancelled_at = now(), cancelled_by = ${actor.userId} where id = ${id}`;
   await t`update booking_status_log set note = ${reason} where id = (select max(id) from booking_status_log where booking_id = ${id} and to_status = 'cancelled')`;

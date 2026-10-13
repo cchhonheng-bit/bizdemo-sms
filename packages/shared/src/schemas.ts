@@ -101,6 +101,8 @@ export const catalogItemSchema = z.object({
   income_account_id: z.string().uuid().nullable().optional(),
   /** D-141: a stock item's own stock account (13001 …, 14000 copper pipe …); null = 18000 technicians' materials */
   inventory_account_id: z.string().uuid().nullable().optional(),
+  /** D-144 «ភ្ជាប់កូដស្តុក»: a price-list line's stock group (a copper line → 14000) — for the reconciliation report only */
+  stock_link_account_id: z.string().uuid().nullable().optional(),
   /** D-106 website catalog: code (the Excel key), website category, «from» price in cents (empty = the price is told on contact),
    *  shown on the website, quote only (never booked online) */
   code: z.string().trim().toUpperCase().regex(/^[A-Z0-9][A-Z0-9._-]{0,19}$/, "CODE_FORMAT").optional().or(z.literal("")).nullable(),
@@ -159,7 +161,7 @@ export type AssignInput = z.infer<typeof assignSchema>;
 
 /** R4: cancel with a reason (CEO / GM / Admin) */
 /** R4 · D-140 E2: with materials recorded on the job, the staff answer «សម្ភារៈបានប្រើរួចឬទេ?» (true = a job cost to confirm, false = unused) */
-export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG"), materials_used: z.boolean().optional() }).strict();
+export const cancelSchema = z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(500, "TOO_LONG") }).strict();
 export type CancelInput = z.infer<typeof cancelSchema>;
 
 /** D2: who asked to move the appointment */

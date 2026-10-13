@@ -1,67 +1,48 @@
-// Inventory (D-87 · flag "inventory"): generic stock for any shop. Append-only moves (qty 3 decimals, value in integer cents),
-// weighted-average cost per item across all locations (computed in SQL numeric — no floats), quantities per location,
-// no negative stock unless the setting allows it, low-stock alert once a day, accounting hook on every move.
+// Inventory (D-87 · D-144 «stock is separate»): the Admin's stock, in the warehouse only — bought in (a direct entry: the item is made
+// on its first entry, on the client's code scheme D-142), taken out when a technician collects it (with the technician and the job
+// or the place), counted / corrected. Append-only moves (qty 3 decimals, value in integer cents), weighted-average cost per item,
+// no negative stock unless the setting allows it, low-stock alert once a day, accounting hook on every move (the cost side follows
+// the item's group — D-143). Technician work never moves stock; an invoice never moves stock (D-144). Read with inventory.view,
+// change with inventory.manage (technicians never).
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
-import { featureOn } from "../lib/features.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
+import { assertCodeOnAccount, nextItemCode } from "./catalog.js";
 import { postStock } from "./ledger-hooks.js";
 import { notifyUser } from "./telegram.js";
 
 export type Pay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
-type Kind = "opening" | "in" | "out_job" | "out_sale" | "adjust" | "transfer_out" | "transfer_in" | "reverse";
+type Kind = "opening" | "in" | "out" | "adjust" | "transfer_out" | "transfer_in" | "reverse" | "out_job" | "out_sale";
 
-// ---------- locations ----------
-/** a warehouse and one location per active vehicle exist by default (a shop can add, rename or switch them off) */
+// ---------- the warehouse (the only place stock lives since D-144) ----------
 export async function ensureLocations(db: Db, companyId: string): Promise<void> {
-  if (!(await db`select 1 from stock_locations where company_id = ${companyId} and kind = 'warehouse'`).length)
-    await db`insert into stock_locations (company_id, name, kind) values (${companyId}, 'ឃ្លាំងធំ', 'warehouse')`;
-  await db`insert into stock_locations (company_id, name, kind, vehicle_id)
-    select v.company_id, 'ឡាន ' || v.code, 'vehicle', v.id from vehicles v
-    where v.company_id = ${companyId} and v.is_active and not exists (select 1 from stock_locations l where l.vehicle_id = v.id)`;
+  if (!(await db`select 1 from stock_locations where company_id = ${companyId} and kind = 'warehouse' and is_active`).length)
+    await db`insert into stock_locations (company_id, name, kind) values (${companyId}, 'ឃ្លាំង', 'warehouse')`;
+}
+export async function warehouseId(db: Db, companyId: string): Promise<string> {
+  await ensureLocations(db, companyId);
+  return (await db<{ id: string }[]>`select id from stock_locations where company_id = ${companyId} and kind = 'warehouse' and is_active order by created_at limit 1`)[0]!.id;
 }
 export async function listLocations(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
-  return sql`select l.id, l.name, l.kind, l.vehicle_id, v.code as vehicle_code, l.is_active from stock_locations l left join vehicles v on v.id = l.vehicle_id
-    where l.company_id = ${user.companyId} order by l.kind, l.name`; // the enum puts the warehouse first (D-142: stock in lands there by default)
-}
-export async function saveLocation(user: SessionUser, ip: string | null, v: { id?: string; name: string; kind: "warehouse" | "vehicle"; vehicle_id?: string | null; is_active?: boolean }) {
-  return tx(user.id, async (t) => {
-    if (v.vehicle_id && !(await t`select 1 from vehicles where id = ${v.vehicle_id} and company_id = ${user.companyId}`).length) throw notFound();
-    const id = v.id
-      ? (await t<{ id: string }[]>`update stock_locations set name = ${v.name.trim()}, is_active = coalesce(${v.is_active ?? null}, is_active) where id = ${v.id} and company_id = ${user.companyId} returning id`)[0]?.id
-      : (await t<{ id: string }[]>`insert into stock_locations (company_id, name, kind, vehicle_id) values (${user.companyId}, ${v.name.trim()}, ${v.kind}, ${v.vehicle_id ?? null}) returning id`)[0]!.id;
-    if (!id) throw notFound();
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.location", table: "stock_locations", rowId: id, new: v, ip });
-    return { id };
-  });
-}
-
-export async function trackItem(user: SessionUser, ip: string | null, itemId: string, track: boolean, reorderLevel: number | null | undefined) {
-  return tx(user.id, async (t) => {
-    const it = (await t<{ kind: string }[]>`select kind::text from catalog_items where id = ${itemId} and company_id = ${user.companyId} for update`)[0];
-    if (!it) throw notFound();
-    if (it.kind !== "product") throw new AppError("NOT_A_PRODUCT", 400);
-    await t`update catalog_items set track_stock = ${track}, reorder_level = case when ${reorderLevel !== undefined} then ${reorderLevel ?? null}::numeric else reorder_level end where id = ${itemId}`;
-    await t`insert into stock_items (company_id, item_id) values (${user.companyId}, ${itemId}) on conflict do nothing`;
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.track", table: "catalog_items", rowId: itemId, new: { track, reorder_level: reorderLevel }, ip });
-    return { ok: true };
-  });
+  return sql`select l.id, l.name, l.kind, l.is_active from stock_locations l where l.company_id = ${user.companyId} and l.kind = 'warehouse' and l.is_active order by l.created_at`;
 }
 
 // ---------- the one place that moves stock ----------
 type MoveIn = { item: string; location: string; kind: Kind; qty: number; value?: number | null; ref_type?: string; ref_id?: string | null;
-  pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null };
+  pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null; date?: string | null;
+  technician?: string | null; place?: string | null };
 
 async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
   const loc = (await t<{ id: string }[]>`select id from stock_locations where id = ${m.location} and company_id = ${user.companyId} and is_active`)[0];
   if (!loc) throw new AppError("LOCATION_NOT_FOUND", 404);
-  const it = (await t<{ track: boolean; reorder: string | null; name: string; kind: string }[]>`select track_stock as track, reorder_level::text as reorder, name_km as name, kind::text as kind from catalog_items
+  const it = (await t<{ reorder: string | null; name: string; kind: string; is_stock: boolean }[]>`select reorder_level::text as reorder, name_km as name, kind::text as kind, is_stock from catalog_items
     where id = ${m.item} and company_id = ${user.companyId}`)[0];
   if (!it) throw notFound();
   if (it.kind !== "product") throw new AppError("NOT_A_PRODUCT", 400);
-  if (!it.track) await t`update catalog_items set track_stock = true where id = ${m.item}`; // D-142: any product can be stocked — its first move turns tracking on
+  if (!it.is_stock) throw new AppError("NOT_STOCK_ITEM", 400); // D-144: a price-list line is never stock
+  await t`update catalog_items set track_stock = true where id = ${m.item} and not track_stock`;
   await t`insert into stock_items (company_id, item_id) values (${user.companyId}, ${m.item}) on conflict do nothing`;
   await t`insert into stock_balances (location_id, item_id) values (${m.location}, ${m.item}) on conflict do nothing`;
   const s = (await t<{ qty: string; value: string }[]>`select qty::text, value_cents::text as value from stock_items where item_id = ${m.item} for update`)[0]!;
@@ -80,10 +61,14 @@ async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
     value = m.kind === "transfer_in" ? 0 : m.value != null ? m.value : Number((await t<{ v: string }[]>`select case when ${s.qty}::numeric > 0
         then round(${s.value}::numeric * ${q}::numeric / ${s.qty}::numeric) else 0 end::text as v`)[0]!.v); // + adjustment at today's average
   }
-  const tz = (await t<{ tz: string; fx: string }[]>`select c.timezone as tz, s.fx_rate_khr::text as fx from companies c join company_settings s on s.company_id = c.id where c.id = ${user.companyId}`)[0]!;
-  const id = (await t<{ id: number }[]>`insert into stock_moves (company_id, item_id, location_id, kind, qty, value_cents, fx_rate_khr, move_date, ref_type, ref_id, pay, supplier, reason, transfer_group, reversal_of, created_by)
-    values (${user.companyId}, ${m.item}, ${m.location}, ${m.kind}::stock_move_kind, ${q}, ${value}, ${tz.fx}::numeric, (now() at time zone ${tz.tz})::date,
-      ${m.ref_type ?? "manual"}, ${m.ref_id ?? null}, ${m.pay ?? null}, ${m.supplier ?? null}, ${m.reason ?? null}, ${m.group ?? null}, ${m.reversal_of ?? null}, ${user.id}) returning id`)[0]!.id;
+  const tz = (await t<{ tz: string; fx: string; today: string }[]>`select c.timezone as tz, s.fx_rate_khr::text as fx, (now() at time zone c.timezone)::date::text as today
+    from companies c join company_settings s on s.company_id = c.id where c.id = ${user.companyId}`)[0]!;
+  if (m.date && (Number.isNaN(Date.parse(m.date)) || m.date > tz.today)) throw new AppError("BAD_DATE", 400); // a date of choice, never in the future
+  const id = (await t<{ id: number }[]>`insert into stock_moves (company_id, item_id, location_id, kind, qty, value_cents, fx_rate_khr, move_date, ref_type, ref_id, pay, supplier, reason, transfer_group, reversal_of,
+      technician_id, place, created_by)
+    values (${user.companyId}, ${m.item}, ${m.location}, ${m.kind}::stock_move_kind, ${q}, ${value}, ${tz.fx}::numeric, ${m.date ?? tz.today}::date,
+      ${m.ref_type ?? "manual"}, ${m.ref_id ?? null}, ${m.pay ?? null}, ${m.supplier ?? null}, ${m.reason ?? null}, ${m.group ?? null}, ${m.reversal_of ?? null},
+      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}) returning id`)[0]!.id;
   await t`update stock_items set qty = qty + ${q}, value_cents = value_cents + ${value} where item_id = ${m.item}`;
   await t`update stock_balances set qty = qty + ${q} where location_id = ${m.location} and item_id = ${m.item}`;
   if (q < 0 && it.reorder != null) await lowStock(t, user, m.item, it.name, Number(it.reorder), tz.tz);
@@ -97,157 +82,121 @@ async function lowStock(t: Db, user: SessionUser, item: string, name: string, re
   if (!r) return;
   for (const u of await t<{ id: string }[]>`select u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
       and rp.permission_key = 'inventory.manage' and rp.allowed where u.company_id = ${user.companyId} and u.is_active`)
-    await notifyUser(t, user.companyId, u.id, "stock.low", { km: `📦 ស្តុកជិតអស់ · ${name}`, en: `📦 Low stock · ${name}` }, { km: `នៅសល់ ${Number(r.qty)} (កម្រិត ${reorder})`, en: `${Number(r.qty)} left (level ${reorder})` }, "/inventory", `low:${item}:${Date.now()}:${u.id}`);
+    await notifyUser(t, user.companyId, u.id, "stock.low", { km: `📦 ស្តុកជិតអស់ · ${name}`, en: `📦 Low stock · ${name}` }, { km: `នៅសល់ ${Number(r.qty)} (កម្រិត ${reorder})`, en: `${Number(r.qty)} left (level ${reorder})` }, "/inventory", `low:${item}:${Date.now()}`);
 }
 
-// ---------- operations ----------
 const cents = async (t: Db, qty: number, unit?: number | null, total?: number | null) => total != null ? total
   : Number((await t<{ v: string }[]>`select round(${qty}::numeric * ${unit ?? 0}::numeric)::text as v`)[0]!.v);
+const balanceOf = async (t: Db, item: string, location: string) => Number((await t<{ q: string }[]>`select qty::text as q from stock_balances where item_id = ${item} and location_id = ${location}`)[0]?.q ?? 0);
 
-export async function opening(user: SessionUser, ip: string | null, v: { item_id: string; location_id: string; qty: number; unit_cost: number }) {
-  return tx(user.id, async (t) => {
-    if ((await t`select 1 from stock_moves where item_id = ${v.item_id} and company_id = ${user.companyId}`).length) throw new AppError("OPENING_EXISTS", 400);
-    const id = await move(t, user, { item: v.item_id, location: v.location_id, kind: "opening", qty: v.qty, value: await cents(t, v.qty, v.unit_cost), ref_type: "opening" });
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.opening", table: "stock_moves", rowId: String(id), new: v, ip });
-    await postStock(t, user, [id]);
-    return { id };
-  });
+// ---------- stock in: a direct entry (D-144) ----------
+export type StockInInput = { item_id?: string | null; name?: string | null; code?: string | null; unit?: string | null; account_id?: string | null;
+  qty: number; unit_cost?: number | null; total?: number | null; pay?: Pay | null; supplier?: string | null; date?: string | null; note?: string | null;
+  /** the stock the shop already held before the books (no money moves: Dr stock / Cr opening equity) */
+  opening?: boolean };
+
+/** the stock item an entry is about: the one chosen, else the one on that account with that name (a no-sub account IS its one item),
+ *  else a new one — code on the client's scheme (D-142), made as the Admin's stock item (never in the price list) */
+async function stockItemFor(t: Db, user: SessionUser, ip: string | null, v: StockInInput): Promise<{ id: string; created: boolean; name: string }> {
+  if (v.item_id) {
+    const it = (await t<{ id: string; name_km: string; is_stock: boolean; kind: string }[]>`select id, name_km, is_stock, kind::text as kind from catalog_items where id = ${v.item_id} and company_id = ${user.companyId}`)[0];
+    if (!it) throw notFound();
+    if (it.kind !== "product" || !it.is_stock) throw new AppError("NOT_STOCK_ITEM", 400);
+    return { id: it.id, created: false, name: it.name_km };
+  }
+  const name = v.name?.trim().slice(0, 120);
+  if (!name) throw new AppError("ITEM_REQUIRED", 400);
+  if (!v.account_id) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  const acc = (await t<{ id: string; code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select id, code, sub_codes, is_group, type::text as type from accounts
+    where id = ${v.account_id} and company_id = ${user.companyId}`)[0];
+  if (!acc || acc.is_group || acc.type !== "asset" || !/^1[3-8]/.test(acc.code)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  const code = v.code?.trim().toUpperCase() || null;
+  const found = (await t<{ id: string; name_km: string }[]>`select id, name_km from catalog_items where company_id = ${user.companyId} and is_stock and kind = 'product'
+    and (${code}::text is not null and code = ${code} or (inventory_account_id = ${acc.id} and (${!acc.sub_codes} or lower(name_km) = lower(${name})))) order by (code = ${code}) desc nulls last limit 1`)[0];
+  if (found) return { id: found.id, created: false, name: found.name_km };
+  const next = await nextItemCode(t, user.companyId, acc.id);
+  if (!acc.sub_codes && next.taken) throw new AppError("ONE_ITEM_PER_CODE", 409);
+  const useCode = code ?? next.code;
+  await assertCodeOnAccount(t, user.companyId, acc.id, useCode, null);
+  if ((await t`select 1 from catalog_items where company_id = ${user.companyId} and code = ${useCode}`).length) throw new AppError("CODE_TAKEN", 409);
+  const id = (await t<{ id: string }[]>`insert into catalog_items (company_id, code, name_km, kind, category, unit, sell_price, is_stock, track_stock, inventory_account_id, show_on_website, created_by, updated_by)
+    values (${user.companyId}, ${useCode}, ${name}, 'product', 'mep', ${v.unit?.trim().slice(0, 20) || "unit"}, 0, true, true, ${acc.id}, false, ${user.id}, ${user.id}) returning id`)[0]!.id;
+  await t`insert into stock_items (company_id, item_id) values (${user.companyId}, ${id}) on conflict do nothing`;
+  await audit(t, { companyId: user.companyId, userId: user.id, action: "catalog.upsert", table: "catalog_items", rowId: id, new: { name_km: name, code: useCode, is_stock: true, account: acc.code }, ip });
+  return { id, created: true, name };
 }
 
-export async function stockIn(user: SessionUser, ip: string | null, v: { item_id: string; location_id: string; qty: number; unit_cost?: number; total?: number; pay: Pay; supplier?: string | null; note?: string | null }) {
+export async function stockIn(user: SessionUser, ip: string | null, v: StockInInput) {
   if (v.unit_cost == null && v.total == null) throw new AppError("COST_REQUIRED", 400);
+  if (!v.opening && !v.pay) throw new AppError("PAY_REQUIRED", 400);
   return tx(user.id, async (t) => {
-    const id = await move(t, user, { item: v.item_id, location: v.location_id, kind: "in", qty: v.qty, value: await cents(t, v.qty, v.unit_cost, v.total), ref_type: "purchase", pay: v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null });
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.in", table: "stock_moves", rowId: String(id), new: v, ip });
+    const loc = await warehouseId(t, user.companyId);
+    const item = await stockItemFor(t, user, ip, v);
+    if (v.opening && (await t`select 1 from stock_moves where item_id = ${item.id} and company_id = ${user.companyId}`).length) throw new AppError("OPENING_EXISTS", 400);
+    const value = await cents(t, v.qty, v.unit_cost, v.total);
+    const id = await move(t, user, { item: item.id, location: loc, kind: v.opening ? "opening" : "in", qty: v.qty, value, ref_type: v.opening ? "opening" : "purchase",
+      pay: v.opening ? null : v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null, date: v.date });
+    await audit(t, { companyId: user.companyId, userId: user.id, action: v.opening ? "stock.opening" : "stock.in", table: "stock_moves", rowId: String(id),
+      new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, supplier: v.supplier ?? null, date: v.date ?? null }, ip });
     await postStock(t, user, [id]);
-    return { id };
+    return { id, item_id: item.id, created: item.created, total: value, balance: await balanceOf(t, item.id, loc) };
   });
 }
 
-export async function adjust(user: SessionUser, ip: string | null, v: { item_id: string; location_id: string; qty: number; reason: string; unit_cost?: number | null }) {
+// ---------- stock out: the Admin records what a technician collects (D-144) ----------
+export async function stockOut(user: SessionUser, ip: string | null, v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string | null; note?: string | null }) {
+  return tx(user.id, async (t) => {
+    const loc = await warehouseId(t, user.companyId);
+    const tech = (await t<{ id: string; full_name: string }[]>`select id, full_name from users where id = ${v.technician_id} and company_id = ${user.companyId} and is_active`)[0];
+    if (!tech) throw new AppError("TECH_NOT_FOUND", 404);
+    const place = v.place?.trim().slice(0, 120) || null;
+    let number: string | null = null;
+    if (v.booking_id) {
+      const b = (await t<{ number: string }[]>`select number from bookings where id = ${v.booking_id} and company_id = ${user.companyId}`)[0];
+      if (!b) throw notFound();
+      number = b.number;
+    } else if (!place) throw new AppError("PLACE_REQUIRED", 400); // a job, or the project / borey / house no.
+    const id = await move(t, user, { item: v.item_id, location: loc, kind: "out", qty: -v.qty, ref_type: v.booking_id ? "booking" : "out", ref_id: v.booking_id ?? null,
+      technician: tech.id, place, reason: v.note?.trim() || null, date: v.date });
+    const balance = await balanceOf(t, v.item_id, loc);
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.out", table: "stock_moves", rowId: String(id),
+      new: { item_id: v.item_id, qty: v.qty, technician: tech.full_name, booking: number, place, date: v.date ?? null, balance }, ip });
+    await postStock(t, user, [id]);
+    return { id, balance };
+  });
+}
+
+/** a count («កែតម្រូវ»): + or − at the warehouse, with a reason; a + takes the average cost (or the one given) */
+export async function adjust(user: SessionUser, ip: string | null, v: { item_id: string; qty: number; reason: string; unit_cost?: number | null; date?: string | null }) {
   if (v.reason.trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
   return tx(user.id, async (t) => {
-    const id = await move(t, user, { item: v.item_id, location: v.location_id, kind: "adjust", qty: v.qty, value: v.qty > 0 && v.unit_cost != null ? await cents(t, v.qty, v.unit_cost) : null, reason: v.reason.trim() });
+    const loc = await warehouseId(t, user.companyId);
+    const id = await move(t, user, { item: v.item_id, location: loc, kind: "adjust", qty: v.qty, value: v.qty > 0 && v.unit_cost != null ? await cents(t, v.qty, v.unit_cost) : null, reason: v.reason.trim(), date: v.date });
     await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.adjust", table: "stock_moves", rowId: String(id), new: v, ip });
     await postStock(t, user, [id]);
-    return { id };
+    return { id, balance: await balanceOf(t, v.item_id, loc) };
   });
 }
 
-export async function transfer(user: SessionUser, ip: string | null, v: { item_id: string; from: string; to: string; qty: number }) {
-  if (v.from === v.to) throw new AppError("SAME_LOCATION", 400);
+export async function setReorder(user: SessionUser, ip: string | null, itemId: string, level: number | null) {
   return tx(user.id, async (t) => {
-    const group = (await t<{ g: string }[]>`select gen_random_uuid()::text as g`)[0]!.g;
-    const a = await move(t, user, { item: v.item_id, location: v.from, kind: "transfer_out", qty: -v.qty, ref_type: "transfer", group });
-    const b = await move(t, user, { item: v.item_id, location: v.to, kind: "transfer_in", qty: v.qty, ref_type: "transfer", group });
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.transfer", table: "stock_moves", rowId: String(a), new: { ...v, moves: [a, b] }, ip });
-    return { ids: [a, b] };
+    const r = await t`update catalog_items set reorder_level = ${level} where id = ${itemId} and company_id = ${user.companyId} and is_stock returning id`;
+    if (!r.length) throw notFound();
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.track", table: "catalog_items", rowId: itemId, new: { reorder_level: level }, ip });
+    return { ok: true };
   });
-}
-
-// ---------- job materials: technician records, Admin confirms ----------
-const FINISHED = ["work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
-/** D-140 E: finished jobs, and cancelled ones whose materials WERE used (a job cost — never invoiced), still waiting for «បញ្ជាក់សម្ភារៈ» */
-const WAITING = (db: Db) => db`b.materials_confirmed_at is null and (b.status = any(${db.array(FINISHED)}::booking_status[]) or (b.status = 'cancelled' and b.materials_used))
-  and exists (select 1 from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock)`;
-/** when the job ended: the actual finish (D-139), the finish step, the cancel time */
-export const ENDED_AT = (db: Db) => db`coalesce(b.finished_at, (select max(k.at) from booking_checkpoints k where k.booking_id = b.id and k.step = 'finish'), b.cancelled_at, b.updated_at)`;
-export async function pendingJobs(user: SessionUser) {
-  await ensureLocations(sql, user.companyId);
-  return sql`select b.id as booking_id, b.number, b.status, c.name as customer_name, b.status = 'cancelled' as cancelled, ${ENDED_AT(sql)} as ended_at, v.code as vehicle_code,
-      coalesce((select l.id from stock_locations l where l.vehicle_id = b.vehicle_id and l.is_active),
-               (select l.id from stock_locations l where l.company_id = b.company_id and l.kind = 'warehouse' and l.is_active order by l.created_at limit 1)) as suggested_location_id,
-      (select json_agg(json_build_object('item_id', i.id, 'name', i.name_km, 'unit', i.unit, 'qty', m.qty::float) order by i.name_km)
-         from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock) as materials
-    from bookings b join customers c on c.id = b.customer_id left join vehicles v on v.id = b.vehicle_id
-    where b.company_id = ${user.companyId} and not b.is_test and ${WAITING(sql)}
-    order by b.scheduled_at`;
-}
-/** D-140 E1: how many jobs wait (the dashboard) — and those waiting more than 24 h after they ended (the daily reminder) */
-export async function waitingMaterials(db: Db, companyId: string, olderThanHours = 0): Promise<{ n: number; numbers: string[] }> {
-  const rows = await db<{ number: string }[]>`select b.number from bookings b where b.company_id = ${companyId} and not b.is_test and ${WAITING(db)}
-    and ${ENDED_AT(db)} < now() - make_interval(hours => ${olderThanHours}) order by b.scheduled_at`;
-  return { n: rows.length, numbers: rows.map((x) => x.number) };
-}
-
-/** D-140 E1: once a day in the daytime (09:00–17:00 shop time) Admin + GM hear about jobs whose materials are still not confirmed
- *  24 h after the job ended; `now` for the tests */
-export const MATERIALS_REMINDER_HOURS = { from: 9, to: 17 } as const;
-export async function materialsReminders(now: Date = new Date()): Promise<number> {
-  if (!featureOn("inventory")) return 0;
-  let sent = 0;
-  for (const co of await sql<{ id: string; tz: string }[]>`select id, timezone as tz from companies where is_active`) {
-    const l = (await sql<{ h: number; d: string }[]>`select extract(hour from (${now}::timestamptz at time zone ${co.tz}))::int as h, ((${now}::timestamptz at time zone ${co.tz})::date)::text as d`)[0]!;
-    if (l.h < MATERIALS_REMINDER_HOURS.from || l.h >= MATERIALS_REMINDER_HOURS.to) continue;
-    const w = await waitingMaterials(sql, co.id, 24);
-    if (!w.n) continue;
-    if (!(await sql`insert into materials_alerts (company_id, day) values (${co.id}, ${l.d}) on conflict do nothing returning day`).length) continue;
-    const list = w.numbers.slice(0, 10).join(", ") + (w.n > 10 ? " …" : "");
-    for (const u of await sql<{ id: string }[]>`select id from users where company_id = ${co.id} and is_active and role in ('admin', 'gm')`)
-      await notifyUser(sql, co.id, u.id, "materials.waiting", { km: `📦 សម្ភារៈរង់ចាំបញ្ជាក់ (${w.n})`, en: `📦 Materials to confirm (${w.n})` },
-        { km: `ការងារបញ្ចប់លើស ២៤ ម៉ោង តែមិនទាន់បញ្ជាក់សម្ភារៈ៖\n${list}`, en: `Jobs that ended more than 24 h ago, materials not confirmed:\n${list}` }, "/inventory?tab=jobs", `mat-wait:${l.d}:${u.id}`);
-    sent++;
-  }
-  return sent;
-}
-
-export async function confirmJob(user: SessionUser, ip: string | null, bookingId: string, locationId?: string | null) {
-  return tx(user.id, async (t) => {
-    const b = (await t<{ id: string; status: string; confirmed: Date | null; vehicle_id: string | null; used: boolean | null }[]>`select id, status::text, materials_confirmed_at as confirmed, vehicle_id, materials_used as used
-      from bookings where id = ${bookingId} and company_id = ${user.companyId} for update`)[0];
-    if (!b) throw notFound();
-    if (b.confirmed) throw new AppError("ALREADY_CONFIRMED", 400);
-    if (!FINISHED.includes(b.status) && !(b.status === "cancelled" && b.used)) throw new AppError("NOT_FINISHED", 400); // D-140 E2: a cancelled job's used materials too
-    await ensureLocations(t, user.companyId);
-    const loc = locationId ?? (await t<{ id: string }[]>`select coalesce((select id from stock_locations where vehicle_id = ${b.vehicle_id} and is_active),
-        (select id from stock_locations where company_id = ${user.companyId} and kind = 'warehouse' and is_active order by created_at limit 1)) as id`)[0]!.id;
-    const mats = await t<{ item: string; qty: string }[]>`select m.catalog_item_id as item, m.qty::text from booking_materials m join catalog_items i on i.id = m.catalog_item_id
-      where m.booking_id = ${bookingId} and i.track_stock`;
-    const ids: number[] = [];
-    for (const m of mats) ids.push(await move(t, user, { item: m.item, location: loc, kind: "out_job", qty: -Number(m.qty), ref_type: "booking", ref_id: bookingId }));
-    await t`update booking_materials set confirmed_at = now(), confirmed_by = ${user.id} where booking_id = ${bookingId}`;
-    await t`update bookings set materials_confirmed_at = now() where id = ${bookingId}`;
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.job_confirm", table: "bookings", rowId: bookingId, new: { location: loc, moves: ids }, ip });
-    await postStock(t, user, ids);
-    return { moves: ids.length };
-  });
-}
-
-// ---------- direct sales (invoice without a job) ----------
-/** at issue: tracked product lines leave the sale location (setting) or the main warehouse */
-export async function deductSale(t: Db, user: SessionUser, invoiceId: string): Promise<void> {
-  if (!featureOn("inventory")) return;
-  const lines = await t<{ item: string; qty: string }[]>`select l.catalog_item_id as item, l.qty::text from invoice_lines l join catalog_items i on i.id = l.catalog_item_id
-    where l.invoice_id = ${invoiceId} and i.track_stock and i.kind = 'product'`;
-  if (!lines.length) return;
-  await ensureLocations(t, user.companyId);
-  const loc = (await t<{ id: string }[]>`select coalesce((select sale_location_id from company_settings where company_id = ${user.companyId}),
-      (select id from stock_locations where company_id = ${user.companyId} and kind = 'warehouse' and is_active order by created_at limit 1)) as id`)[0]!.id;
-  const ids: number[] = [];
-  for (const l of lines) ids.push(await move(t, user, { item: l.item, location: loc, kind: "out_sale", qty: -Number(l.qty), ref_type: "invoice", ref_id: invoiceId }));
-  await postStock(t, user, ids);
-}
-
-/** a void puts back exactly what the record took (same quantity and value, same location) */
-export async function reverseRef(t: Db, user: SessionUser, refType: "invoice" | "booking", refId: string): Promise<void> {
-  const moves = await t<{ id: number; item: string; loc: string; qty: string; value: string }[]>`select m.id, m.item_id as item, m.location_id as loc, m.qty::text, m.value_cents::text as value
-    from stock_moves m where m.company_id = ${user.companyId} and m.ref_type = ${refType} and m.ref_id = ${refId} and m.kind <> 'reverse'
-      and not exists (select 1 from stock_moves r where r.reversal_of = m.id)`;
-  const ids: number[] = [];
-  for (const m of moves) ids.push(await move(t, user, { item: m.item, location: m.loc, kind: "reverse", qty: -Number(m.qty), value: -Number(m.value), ref_type: refType, ref_id: refId, reversal_of: m.id }));
-  if (ids.length) await postStock(t, user, ids);
 }
 
 // ---------- read ----------
+/** the stock items with quantity, value, average cost and their stock account (13001 …, 14000 …; none → the 18000 fallback) */
 export async function items(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
-  // D-142: each item with its stock account (13001 …, 14000 …; none → the 18000 fallback) — the page groups by account
   const rows = await sql<{ item_id: string; code: string | null; name: string; unit: string; qty: string; value: string; reorder: string | null; account_id: string | null; account_code: string | null; account_name: string | null; account_name_en: string | null }[]>`
     select i.id as item_id, i.code, i.name_km as name, i.unit, coalesce(s.qty, 0)::text as qty, coalesce(s.value_cents, 0)::text as value, i.reorder_level::text as reorder,
       coalesce(a.id, d.id) as account_id, coalesce(a.code, d.code) as account_code, coalesce(a.name_km, d.name_km) as account_name, coalesce(a.name_en, d.name_en) as account_name_en
     from catalog_items i left join stock_items s on s.item_id = i.id left join accounts a on a.id = i.inventory_account_id
       left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
-    where i.company_id = ${user.companyId} and i.track_stock order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
+    where i.company_id = ${user.companyId} and i.is_stock and i.kind = 'product' order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
   const bal = await sql<{ item_id: string; location_id: string; name: string; qty: string }[]>`select b.item_id, b.location_id, l.name, b.qty::text from stock_balances b
     join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind, l.name`;
   return rows.map((r) => {
@@ -267,7 +216,7 @@ export async function monthEnd(user: SessionUser, to: string, withBooks: boolean
       i.id as item_id, i.code as item_code, i.name_km as item_name, i.unit, coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value
     from catalog_items i left join accounts a on a.id = i.inventory_account_id left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
       left join stock_moves m on m.item_id = i.id and m.move_date <= ${to}::date
-    where i.company_id = ${user.companyId} and i.track_stock group by 1, 2, 3, 4, 5, 6, 7 order by 1, 5 nulls last, 6`;
+    where i.company_id = ${user.companyId} and i.is_stock group by 1, 2, 3, 4, 5, 6, 7 order by 1, 5 nulls last, 6`;
   const byCode = new Map<string, { code: string; name_km: string; name_en: string | null; qty: number; value: number; balance: number | null; difference: number | null;
     items: { item_id: string; code: string | null; name: string; unit: string; qty: number; value: number }[] }>();
   for (const r of rows) {
@@ -297,17 +246,59 @@ export async function monthEnd(user: SessionUser, to: string, withBooks: boolean
   return { to, accounts, stock_total, books_total: books?.total ?? null, difference: books ? stock_total - books.total : null };
 }
 
+/** D-144 «ផ្ទៀងផ្ទាត់សម្ភារៈ»: per job (or place) and per stock group, what left the stock against what the invoice charged through the
+ *  price-list lines linked to that group («ភ្ជាប់កូដស្តុក») — a difference is the thing to look at; totals per group for the period */
+export async function reconcile(user: SessionUser, q: { from: string; to: string; technician?: string | null; borey?: string | null }) {
+  const c = user.companyId;
+  const outs = await sql<{ booking_id: string | null; place: string | null; grp: string; grp_name: string; technician: string | null; technician_id: string | null; qty: string }[]>`
+    select m.ref_id as booking_id, m.place, coalesce(a.code, d.code, '18000') as grp, coalesce(a.name_km, d.name_km, '—') as grp_name, u.full_name as technician, m.technician_id, sum(-m.qty)::text as qty
+    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = i.inventory_account_id
+      left join accounts d on d.company_id = m.company_id and d.role = 'inventory' left join users u on u.id = m.technician_id
+      left join bookings b on b.id::text = m.ref_id left join customers cu on cu.id = b.customer_id
+    where m.company_id = ${c} and m.kind = 'out' and m.move_date between ${q.from}::date and ${q.to}::date
+      ${q.technician ? sql`and m.technician_id = ${q.technician}` : sql``} ${q.borey ? sql`and cu.borey_id = ${q.borey}` : sql``}
+    group by 1, 2, 3, 4, 5, 6`;
+  const invs = await sql<{ booking_id: string | null; number: string; grp: string; grp_name: string; qty: string }[]>`
+    select i.booking_id, i.number, sa.code as grp, sa.name_km as grp_name, sum(l.qty)::text as qty
+    from invoices i join invoice_lines l on l.invoice_id = i.id join catalog_items ci on ci.id = l.catalog_item_id join accounts sa on sa.id = ci.stock_link_account_id
+      join companies co on co.id = i.company_id left join bookings b on b.id = i.booking_id left join customers cu on cu.id = i.customer_id
+    where i.company_id = ${c} and i.status = 'issued' and (i.issued_at at time zone co.timezone)::date between ${q.from}::date and ${q.to}::date
+      ${q.technician ? sql`and exists (select 1 from booking_technicians bt where bt.booking_id = i.booking_id and bt.user_id = ${q.technician})` : sql``}
+      ${q.borey ? sql`and cu.borey_id = ${q.borey}` : sql``}
+    group by 1, 2, 3, 4`;
+  type Row = { key: string; booking_id: string | null; booking_number: string | null; customer_name: string | null; borey_name: string | null; place: string | null; technician: string | null;
+    group_code: string; group_name: string; out_qty: number; invoiced_qty: number; difference: number };
+  const rows = new Map<string, Row>();
+  const at = (key: string, seed: Omit<Row, "key" | "out_qty" | "invoiced_qty" | "difference">) => {
+    const r = rows.get(key) ?? { key, ...seed, out_qty: 0, invoiced_qty: 0, difference: 0 };
+    rows.set(key, r); return r;
+  };
+  for (const o of outs) { const r = at(`${o.booking_id ?? `p:${o.place ?? ""}`}|${o.grp}`, { booking_id: o.booking_id, booking_number: null, customer_name: null, borey_name: null, place: o.place, technician: o.technician, group_code: o.grp, group_name: o.grp_name }); r.out_qty += Number(o.qty); if (!r.technician) r.technician = o.technician; }
+  for (const i of invs) { const r = at(`${i.booking_id ?? `inv:${i.number}`}|${i.grp}`, { booking_id: i.booking_id, booking_number: null, customer_name: null, borey_name: null, place: i.booking_id ? null : i.number, technician: null, group_code: i.grp, group_name: i.grp_name }); r.invoiced_qty += Number(i.qty); }
+  const ids = [...new Set([...rows.values()].map((r) => r.booking_id).filter((x): x is string => !!x))];
+  const info = ids.length ? await sql<{ id: string; number: string; customer_name: string; borey_name: string | null; lead: string | null }[]>`select b.id, b.number, cu.name as customer_name, bo.name as borey_name,
+      (select u.full_name from booking_technicians bt join users u on u.id = bt.user_id where bt.booking_id = b.id order by (bt.role = 'lead') desc limit 1) as lead
+    from bookings b join customers cu on cu.id = b.customer_id left join boreys bo on bo.id = cu.borey_id where b.id = any(${sql.array(ids)}::uuid[])` : [];
+  const byId = new Map(info.map((x) => [x.id, x]));
+  const out = [...rows.values()].map((r) => { const b = r.booking_id ? byId.get(r.booking_id) : null; return { ...r, booking_number: b?.number ?? null, customer_name: b?.customer_name ?? null, borey_name: b?.borey_name ?? null,
+    technician: r.technician ?? b?.lead ?? null, out_qty: Math.round(r.out_qty * 1000) / 1000, invoiced_qty: Math.round(r.invoiced_qty * 1000) / 1000, difference: Math.round((r.out_qty - r.invoiced_qty) * 1000) / 1000 }; })
+    .sort((x, y) => (x.booking_number ?? x.place ?? "").localeCompare(y.booking_number ?? y.place ?? "") || x.group_code.localeCompare(y.group_code));
+  const totals = new Map<string, { group_code: string; group_name: string; out_qty: number; invoiced_qty: number; difference: number }>();
+  for (const r of out) { const tt = totals.get(r.group_code) ?? { group_code: r.group_code, group_name: r.group_name, out_qty: 0, invoiced_qty: 0, difference: 0 }; tt.out_qty += r.out_qty; tt.invoiced_qty += r.invoiced_qty; tt.difference = Math.round((tt.out_qty - tt.invoiced_qty) * 1000) / 1000; totals.set(r.group_code, tt); }
+  return { from: q.from, to: q.to, rows: out, totals: [...totals.values()].sort((x, y) => x.group_code.localeCompare(y.group_code)) };
+}
+
 /** stock card: opening, every move with running quantity and value, ending (value only for the whole company) */
 export async function card(user: SessionUser, itemId: string, from: string, to: string, locationId?: string) {
   if (!(await sql`select 1 from catalog_items where id = ${itemId} and company_id = ${user.companyId}`).length) throw notFound();
   const loc = locationId ? sql`and m.location_id = ${locationId}` : sql``;
   const op = (await sql<{ qty: string; value: string }[]>`select coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value from stock_moves m
     where m.item_id = ${itemId} and m.company_id = ${user.companyId} and m.move_date < ${from}::date ${loc}`)[0]!;
-  const moves = await sql<{ id: number; date: string; kind: string; qty: string; value: string; ref_type: string | null; ref_id: string | null; reason: string | null; supplier: string | null; location: string; ref_label: string | null; by_name: string | null }[]>`
-    select m.id, m.move_date::text as date, m.kind::text, m.qty::text, m.value_cents::text as value, m.ref_type, m.ref_id, m.reason, m.supplier, l.name as location, u.full_name as by_name,
+  const moves = await sql<{ id: number; date: string; kind: string; qty: string; value: string; ref_type: string | null; ref_id: string | null; reason: string | null; supplier: string | null; location: string; ref_label: string | null; by_name: string | null; technician: string | null; place: string | null }[]>`
+    select m.id, m.move_date::text as date, m.kind::text, m.qty::text, m.value_cents::text as value, m.ref_type, m.ref_id, m.reason, m.supplier, l.name as location, u.full_name as by_name, tu.full_name as technician, m.place,
       case m.ref_type when 'booking' then (select number from bookings where id::text = m.ref_id) when 'invoice' then (select number from invoices where id::text = m.ref_id) end as ref_label
-    from stock_moves m join stock_locations l on l.id = m.location_id left join users u on u.id = m.created_by
-    where m.item_id = ${itemId} and m.company_id = ${user.companyId} and m.move_date between ${from}::date and ${to}::date ${loc} order by m.id`;
+    from stock_moves m join stock_locations l on l.id = m.location_id left join users u on u.id = m.created_by left join users tu on tu.id = m.technician_id
+    where m.item_id = ${itemId} and m.company_id = ${user.companyId} and m.move_date between ${from}::date and ${to}::date ${loc} order by m.move_date, m.id`;
   let q = Number(op.qty), v = Number(op.value);
   const opening = { qty: q, value: locationId ? null : v };
   const rows = moves.map((m) => {

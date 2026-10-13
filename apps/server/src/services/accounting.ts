@@ -154,14 +154,14 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         // D-143 (CEO): the cost account follows the item's group, on a job or a direct sale alike — appliances 13000 / 13100 → 50001
         // (cost of goods), materials 14000–18000 (and items without an account → 18000) → 50005 (technicians' materials)
         const cost = m.inv_code?.startsWith("13") ? R.cogs : R.materials;
-        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
+        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out" || kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
         lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name }, { account: counter, amount: -v, memo: m.name, supplier: kind === "in" && pay === "credit" ? supplier : null });
       }
       const m0 = ms[0];
       if (!m0) return;
       const ref = m0.ref_type === "booking" ? (await t<{ n: string }[]>`select number as n from bookings where id::text = ${m0.ref_id}`)[0]?.n
         : m0.ref_type === "invoice" ? (await t<{ n: string }[]>`select number as n from invoices where id::text = ${m0.ref_id}`)[0]?.n : null;
-      await post(t, u, { date: m0.date, fx: Number(m0.fx), source: "stock", source_id: m0.ref_id ?? m0.id, lines,
+      await post(t, u, { date: m0.date, fx: Number(m0.fx), source: "stock", source_id: m0.id, lines,
         memo: [ref, ms.length === 1 ? m0.name : null].filter(Boolean).join(" · ") || "—" });
       return;
     }
@@ -253,17 +253,21 @@ export async function readReceipt(user: SessionUser, id: string): Promise<{ mime
   return { mime: f.mime, data: await readFile(join(config.uploadsDir, f.path)) };
 }
 
-async function started(t: Db, companyId: string, date: string) {
-  const b = await books(t, companyId);
-  if (!b.start) throw new AppError("OPENING_REQUIRED", 400);
-  if (date > b.today) throw new AppError("BAD_DATE", 400);
-  return b;
+type Books = Awaited<ReturnType<typeof books>>;
+/** D-144: an expense or a journal entry made before the books start is saved and posted the moment they start — never refused */
+async function savePending(t: Db, user: SessionUser, ip: string | null, kind: "other" | "journal", date: string, memo: string, payload: unknown, attachmentId: string | null) {
+  const id = (await t<{ id: string }[]>`insert into pending_postings (company_id, kind, entry_date, memo, payload, attachment_id, created_by)
+    values (${user.companyId}, ${kind}, ${date}::date, ${memo.trim().slice(0, 300) || "-"}, ${t.json(payload as never)}, ${attachmentId}, ${user.id}) returning id`)[0]!.id;
+  await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.pending", table: "pending_postings", rowId: id, new: { kind, date, memo }, ip });
+  return { id, number: null, pending: true as const };
+}
+/** what waits for the books (the money tab shows it) */
+export async function listPending(user: SessionUser) {
+  return sql`select id, kind, entry_date::text as date, memo, payload, status, created_at from pending_postings where company_id = ${user.companyId} and status <> 'posted' order by entry_date, created_at`;
 }
 
-export async function createJournal(user: SessionUser, ip: string | null, v: { date: string; memo: string; note?: string | null; attachment?: string | null;
-  lines: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] }) {
-  return tx(user.id, async (t) => {
-    await started(t, user.companyId, v.date);
+export type JournalInput = { date: string; memo: string; note?: string | null; attachment?: string | null; lines: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] };
+async function journalLines(t: Db, user: SessionUser, v: JournalInput) {
     const ids = [...new Set(v.lines.map((l) => l.account_id))];
     const acc = await t<{ id: string; active: boolean; group: boolean }[]>`select id, is_active as active, is_group as group from accounts where company_id = ${user.companyId} and id = any(${t.array(ids)}::uuid[])`;
     if (acc.length !== ids.length) throw notFound();
@@ -271,12 +275,25 @@ export async function createJournal(user: SessionUser, ip: string | null, v: { d
     if (acc.some((a) => a.group)) throw new AppError("ACCOUNT_IS_GROUP", 400); // D-141
     const lines = v.lines.map((l) => ({ account: l.account_id, amount: (l.debit ?? 0) - (l.credit ?? 0), memo: l.memo?.trim() || null }));
     if (lines.reduce((s, l) => s + l.amount, 0) !== 0) throw new AppError("NOT_BALANCED", 400);
+    return lines;
+}
+export async function createJournal(user: SessionUser, ip: string | null, v: JournalInput) {
+  return tx(user.id, async (t) => {
+    const b = await books(t, user.companyId);
+    if (v.date > b.today) throw new AppError("BAD_DATE", 400);
+    await journalLines(t, user, v);
     const attachment = v.attachment ? await attach(t, user, v.attachment) : null;
+    if (!b.start) return savePending(t, user, ip, "journal", v.date, v.memo, { ...v, attachment: undefined }, attachment); // D-144
+    return postJournal(t, user, ip, v, attachment);
+  });
+}
+/** the posting itself — from the form once the books run, or from the backlog when they start */
+async function postJournal(t: Db, user: SessionUser, ip: string | null, v: JournalInput, attachment: string | null) {
+    const lines = await journalLines(t, user, v);
     const r = (await post(t, user, { date: v.date, memo: v.memo, note: v.note?.trim() || null, source: "manual", lines, attachment_id: attachment }))!;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.journal", table: "journal_entries", rowId: r.id,
       new: { number: r.number, date: v.date, memo: v.memo, lines: v.lines.map(({ account_id, debit, credit }) => ({ account_id, debit, credit })) }, ip });
     return r;
-  });
 }
 
 /** a posted entry is never edited: a manual entry or other transaction is corrected by its reversal (dated today, reason required) */
@@ -355,8 +372,17 @@ export async function lockInfo(user: SessionUser) {
   const b = await books(sql, user.companyId);
   const next_year_end = b.start ? fyEnd(fyStart(nextOpenYearStart(b), b.fy_month)) : null;
   const draft = b.start ? null : ((await sql<{ d: unknown }[]>`select opening_draft as d from company_settings where company_id = ${user.companyId}`)[0]?.d ?? null);
+  const planned = (await sql<{ p: string | null }[]>`select books_planned_start::text as p from company_settings where company_id = ${user.companyId}`)[0]?.p ?? null;
+  // D-144: before the books start, the CEO / CFO banner counts what waits to be posted
+  const pending = b.start ? null : (await sql<{ transactions: number; invoices: number; payments: number; deposits: number; stock: number }[]>`select
+      (select count(*)::int from pending_postings where company_id = ${user.companyId} and status = 'pending') as transactions,
+      (select count(*)::int from invoices where company_id = ${user.companyId} and status = 'issued' and not opening) as invoices,
+      (select count(*)::int from payments where company_id = ${user.companyId} and reversal_of is null and voided_at is null) as payments,
+      (select count(*)::int from deposits where company_id = ${user.companyId} and status <> 'void') as deposits,
+      (select count(*)::int from stock_moves where company_id = ${user.companyId} and kind not in ('transfer_in', 'transfer_out')) as stock`)[0]!;
   return { books_start: b.start, lock_date: b.locked, today: b.today, fx_rate_khr: Number(b.fx), fiscal_year_start_month: b.fy_month, books_closed_through: b.closed_through,
-    next_year_end, can_close: !!next_year_end && next_year_end < b.today, opening_draft: draft };
+    next_year_end, can_close: !!next_year_end && next_year_end < b.today, opening_draft: draft, planned_start: planned,
+    pending: pending ? { ...pending, total: pending.transactions + pending.invoices + pending.payments + pending.deposits + pending.stock } : null };
 }
 
 /** nothing on or before the lock date can be posted; moving it back (re-opening) needs a reason */
@@ -416,14 +442,14 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
       add({ account: acc, amount: amt });
     }
     // the inventory module's value when it holds one — on each item's own stock account (D-141) — else the figure entered
-    const byAccount = await t<{ account: string | null; v: string }[]>`select ci.inventory_account_id::text as account, coalesce(sum(si.value_cents), 0)::text as v
-      from stock_items si join catalog_items ci on ci.id = si.item_id where si.company_id = ${user.companyId} group by ci.inventory_account_id`;
+    const byAccount = await t<{ account: string | null; v: string }[]>`select ci.inventory_account_id::text as account, coalesce(sum(m.value_cents), 0)::text as v
+      from stock_moves m join catalog_items ci on ci.id = m.item_id where m.company_id = ${user.companyId} and m.move_date < ${v.date}::date group by ci.inventory_account_id`; // D-144: the stock held before the start day
     const appStock = byAccount.reduce((x, a) => x + Number(a.v), 0);
     if (appStock) for (const a of byAccount) add({ account: a.account ?? R.inventory, amount: Number(a.v), memo: null });
     else add({ account: R.inventory, amount: v.stock ?? 0, memo: null });
     add({ account: R.retained, amount: -(v.retained_earnings ?? 0) }); // D-92: retained earnings of the years before the books
     for (const d of await t<{ usd: number; customer_id: string; number: string }[]>`select d.usd_cents as usd, b.customer_id, b.number from deposits d join bookings b on b.id = d.booking_id
-        where d.company_id = ${user.companyId} and d.status = 'active' order by d.created_at`)
+        where d.company_id = ${user.companyId} and d.status = 'active' and d.paid_on < ${v.date}::date order by d.created_at`)
       add({ account: R.deposits, amount: -d.usd, customer_id: d.customer_id, memo: d.number });
     for (const p of v.payables ?? []) add({ account: R.ap, amount: -p.amount, supplier: p.supplier.trim(), memo: p.supplier.trim() });
     const mainEquity = equity;
@@ -431,8 +457,9 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
     // open invoices already in the app: one entry each, so a later void reverses exactly it
     const open = await t<{ id: string; number: string; customer_id: string; balance: string }[]>`select x.id, x.number, x.customer_id, (x.total - x.paid)::text as balance from (
         select i.id, i.number, i.customer_id, (select coalesce(sum(round(l.qty * l.unit_price)), 0) from invoice_lines l where l.invoice_id = i.id) - i.discount as total,
-          (select coalesce(sum(p.usd_cents), 0) from payments p where p.invoice_id = i.id) as paid
-        from invoices i where i.company_id = ${user.companyId} and i.status = 'issued') x where x.total > x.paid order by x.number`;
+          (select coalesce(sum(p.usd_cents), 0) from payments p where p.invoice_id = i.id and p.paid_on < ${v.date}::date) as paid
+        from invoices i join companies co on co.id = i.company_id where i.company_id = ${user.companyId} and i.status = 'issued'
+          and (i.issued_at at time zone co.timezone)::date < ${v.date}::date) x where x.total > x.paid order by x.number`; // D-144: issued before the start day
     for (const i of open) {
       const amt = Number(i.balance);
       await post(t, user, { date: v.date, memo: i.number, source: "invoice", source_id: i.id, fx, lines: [
@@ -452,21 +479,32 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
         { account: R.ar, amount: r.amount, customer_id: r.customer_id }, { account: R.opening, amount: -r.amount }] });
       equity += r.amount; entries++; invoices.push(number);
     }
+    const backlog = await postBacklog(t, user, v.date); // D-144: everything dated on / after the start day, in date order
     await t`update company_settings set books_locked_until = ${v.date}::date - 1, opening_draft = null where company_id = ${user.companyId}`; // confirmed: the draft is done
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.opening", table: "company_settings", rowId: user.companyId,
       new: { date: v.date, cash_usd: v.cash_usd, cash_khr: v.cash_khr, banks: v.banks, stock: v.stock, retained_earnings: v.retained_earnings, payables: v.payables, receivables: v.receivables,
-        open_invoices: open.length, opening_invoices: invoices, opening_equity: equity }, ip });
-    return { opening_equity: equity, retained_earnings: v.retained_earnings ?? 0, entries, open_invoices: open.length, opening_invoices: invoices };
+        open_invoices: open.length, opening_invoices: invoices, opening_equity: equity, backlog }, ip });
+    return { opening_equity: equity, retained_earnings: v.retained_earnings ?? 0, entries, open_invoices: open.length, opening_invoices: invoices, backlog };
   });
 }
 
 // ---------- C4 other transactions ----------
 export type TxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
 
-export async function otherTransaction(user: SessionUser, ip: string | null, v: { date: string; type: TxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string;
-  account_code?: string; supplier?: string | null; memo?: string | null; note?: string | null; attachment?: string | null }) {
+export type OtherInput = { date: string; type: TxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string;
+  account_code?: string; supplier?: string | null; memo?: string | null; note?: string | null; attachment?: string | null };
+export async function otherTransaction(user: SessionUser, ip: string | null, v: OtherInput) {
   return tx(user.id, async (t) => {
-    const b = await started(t, user.companyId, v.date);
+    const b = await books(t, user.companyId);
+    if (v.date > b.today) throw new AppError("BAD_DATE", 400);
+    if (v.amount <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
+    const attachment = v.attachment ? await attach(t, user, v.attachment) : null;
+    if (!b.start) return savePending(t, user, ip, "other", v.date, v.memo?.trim() || v.type, { ...v, attachment: undefined }, attachment); // D-144: «រក្សាទុករួច · នឹងចូលគណនីពេលចាប់ផ្ដើមសៀវភៅ»
+    return postOther(t, user, ip, v, b, attachment);
+  });
+}
+/** the posting itself — from the form once the books run, or from the backlog when they start */
+async function postOther(t: Db, user: SessionUser, ip: string | null, v: OtherInput, b: Books, attachment: string | null) {
     const R = await roleIds(t, user.companyId);
     const cents = v.currency === "khr" ? khrToCents(v.amount, Number(b.fx)) : v.amount;
     if (cents <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
@@ -506,13 +544,58 @@ export async function otherTransaction(user: SessionUser, ip: string | null, v: 
         break;
       }
     }
-    const attachment = v.attachment ? await attach(t, user, v.attachment) : null;
     const memo = [v.memo?.trim(), supplier].filter(Boolean).join(" · ") || "—"; // the type is the source_id (shown translated)
     const r = (await post(t, user, { date: v.date, memo, note: v.note?.trim() || null, source: "other", source_id: v.type, fx: Number(b.fx), lines,
       khr_amount: v.currency === "khr" ? v.amount : null, attachment_id: attachment }))!;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.transaction", table: "journal_entries", rowId: r.id, new: { number: r.number, ...v, attachment: !!v.attachment, usd_cents: cents }, ip });
     return r;
-  });
+}
+
+/** D-144: when the books start, every invoice, payment, deposit, stock move and saved transaction dated on / after the start day is
+ *  posted in date order — never twice (an entry already there for the same source is left alone); older saved transactions are marked
+ *  «before the start» (their effect is in the opening balances) */
+export async function postBacklog(t: Db, user: SessionUser, start: string) {
+  const c = user.companyId;
+  const done = new Set((await t<{ k: string }[]>`select source || ':' || source_id as k from journal_entries where company_id = ${c} and source_id is not null`).map((x) => x.k));
+  type Ev = { date: string; order: number; run: () => Promise<void>; kind: string };
+  const events: Ev[] = [];
+  const invoices = await t<{ id: string; d: string; ord: number }[]>`select i.id, (i.issued_at at time zone co.timezone)::date::text as d, extract(epoch from i.issued_at)::int as ord
+    from invoices i join companies co on co.id = i.company_id where i.company_id = ${c} and i.status = 'issued' and not i.opening and (i.issued_at at time zone co.timezone)::date >= ${start}::date`;
+  for (const i of invoices) if (!done.has(`invoice:${i.id}`)) events.push({ date: i.d, order: i.ord, kind: "invoice", run: () => onEvent(t, user, { kind: "invoice_issue", invoice_id: i.id, date: i.d }) });
+  const payments = await t<{ id: string; method: string; usd: number; fx: string; d: string; ord: number; deposit: boolean }[]>`select p.id::text as id, p.method::text as method, p.usd_cents as usd, p.fx_rate_khr::text as fx,
+      p.paid_on::text as d, extract(epoch from p.created_at)::int as ord, p.deposit_id is not null as deposit
+    from payments p where p.company_id = ${c} and p.reversal_of is null and p.voided_at is null and p.paid_on >= ${start}::date`;
+  for (const p of payments) if (!done.has(`payment:${p.id}`)) events.push({ date: p.d, order: p.ord, kind: p.deposit ? "deposit_applied" : "payment",
+    run: () => onEvent(t, user, p.deposit ? { kind: "deposit_applied", payment_id: p.id, usd_cents: p.usd, fx: Number(p.fx) } : { kind: "payment", id: p.id, method: p.method, usd_cents: p.usd, fx: Number(p.fx), date: p.d }) });
+  const deposits = await t<{ id: string; method: string; usd: number; fx: string; d: string; ord: number }[]>`select d.id::text as id, d.method::text as method, d.usd_cents as usd, d.fx_rate_khr::text as fx, d.paid_on::text as d, extract(epoch from d.created_at)::int as ord
+    from deposits d where d.company_id = ${c} and d.status <> 'void' and d.paid_on >= ${start}::date`;
+  for (const d of deposits) if (!done.has(`deposit:${d.id}`)) events.push({ date: d.d, order: d.ord, kind: "deposit", run: () => onEvent(t, user, { kind: "deposit", id: d.id, method: d.method, usd_cents: d.usd, fx: Number(d.fx), date: d.d }) });
+  const moves = await t<{ id: number; d: string }[]>`select id, move_date::text as d from stock_moves where company_id = ${c} and move_date >= ${start}::date and kind not in ('transfer_in', 'transfer_out') order by id`;
+  for (const m of moves) if (!done.has(`stock:${m.id}`)) events.push({ date: m.d, order: m.id, kind: "stock", run: () => onEvent(t, user, { kind: "stock", move_ids: [m.id] }) });
+  const pending = await t<{ id: string; kind: "other" | "journal"; d: string; memo: string; payload: OtherInput | JournalInput; attachment_id: string | null; ord: number }[]>`select id, kind, entry_date::text as d, memo, payload, attachment_id, extract(epoch from created_at)::int as ord
+    from pending_postings where company_id = ${c} and status = 'pending' order by entry_date, created_at`;
+  let before_start = 0, failed = 0;
+  const failures: { id: string; memo: string; error: string }[] = [];
+  for (const p of pending) {
+    if (p.d < start) { await t`update pending_postings set status = 'before_start' where id = ${p.id}`; before_start++; continue; }
+    events.push({ date: p.d, order: p.ord, kind: p.kind, run: async () => {
+      // a saved line that cannot post any more (an account switched off since …) stays waiting and is named — it never stops the start
+      try {
+        await t.savepoint(async (sp) => {
+          const b = await books(sp, c);
+          const r = p.kind === "other" ? await postOther(sp, user, null, p.payload as OtherInput, b, p.attachment_id) : await postJournal(sp, user, null, p.payload as JournalInput, p.attachment_id);
+          await sp`update pending_postings set status = 'posted', entry_id = ${r.id}, posted_at = now() where id = ${p.id}`;
+        });
+      } catch (e) { failed++; failures.push({ id: p.id, memo: p.memo, error: e instanceof AppError ? e.code : "ERROR" }); }
+    } });
+  }
+  events.sort((x, y) => x.date.localeCompare(y.date) || x.order - y.order);
+  const counts: Record<string, number> = {};
+  for (const e of events) { await e.run(); counts[e.kind] = (counts[e.kind] ?? 0) + 1; }
+  const report = { start, posted: events.length, invoices: counts.invoice ?? 0, payments: (counts.payment ?? 0) + (counts.deposit_applied ?? 0), deposits: counts.deposit ?? 0, stock: counts.stock ?? 0,
+    transactions: (counts.other ?? 0) + (counts.journal ?? 0) - failed, before_start, failed, failures };
+  await audit(t, { companyId: c, userId: user.id, action: "acct.backlog", table: "company_settings", rowId: c, new: report, ip: null });
+  return report;
 }
 
 // ---------- C5 reports ----------

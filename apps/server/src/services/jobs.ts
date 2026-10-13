@@ -105,11 +105,9 @@ export async function jobInfo(user: SessionUser, id: string) {
     select c.step, c.at, c.lat, c.lng, c.accuracy_m as accuracy, c.no_gps, c.offline, u.full_name as by_name
     from booking_checkpoints c left join users u on u.id = c.by_user where c.booking_id = ${id} order by c.at, c.id`;
   const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey') order by created_at`;
-  const materials = await sql`select m.catalog_item_id, i.name_km, i.name_en, i.unit, i.kind::text as kind, i.code, i.track_stock, m.qty::float as qty, m.added_at, a.full_name as added_by_name, m.confirmed_at
-    from booking_materials m join catalog_items i on i.id = m.catalog_item_id left join users a on a.id = m.added_by where m.booking_id = ${id} order by i.name_km`;
   const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name
     from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by where r.booking_id = ${id}`)[0] ?? null;
-  return { checkpoints, durations: durations(checkpoints), photos, materials, report };
+  return { checkpoints, durations: durations(checkpoints), photos, report };
 }
 
 // ---------- files (photos, signature) ----------
@@ -180,32 +178,13 @@ export async function readJobFile(user: SessionUser, fileId: string): Promise<{ 
 }
 
 // ---------- materials ----------
-/** D-140 E4: the Admin records / corrects a job's materials too, with the GM's rules (the crew and the GM as before) */
-export async function loadForMaterials(t: Db, user: SessionUser, id: string, perms: string[]): Promise<Booking> {
+/** work added on a job (D-140 F · D-144): the crew, a GM with job.checkpoint, or the Admin */
+export async function loadForWork(t: Db, user: SessionUser, id: string, perms: string[]): Promise<Booking> {
   if (user.role !== "admin") return loadForCrew(t, user, id, perms);
   const b = (await t<Booking[]>`select b.id, b.company_id, b.number, b.status, b.scheduled_at, c.timezone from bookings b join companies c on c.id = b.company_id
     where b.id = ${id} and b.company_id = ${user.companyId} and b.status <> 'cancelled' for update of b`)[0];
   if (!b) throw notFound();
   return b;
-}
-export async function setMaterials(user: SessionUser, perms: string[], ip: string | null, id: string, items: { catalog_item_id: string; qty: number }[]) {
-  return tx(user.id, async (t) => {
-    const b = await loadForMaterials(t, user, id, perms);
-    if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
-    if ((await t`select 1 from bookings where id = ${id} and materials_confirmed_at is not null`).length) throw new AppError("MATERIALS_CONFIRMED", 400); // D-87: stock already taken
-    const ids = [...new Set(items.map((i) => i.catalog_item_id))];
-    if (ids.length) {
-      const okIds = (await t<{ id: string }[]>`select id from catalog_items where id = any(${t.array(ids)}::uuid[]) and company_id = ${user.companyId} and is_active`).map((r) => r.id);
-      if (okIds.length !== ids.length) throw new AppError("ITEM_NOT_FOUND", 404);
-    }
-    // a line that stays keeps who recorded it (D-140); a new line is recorded by this user
-    const old = await t<{ catalog_item_id: string; qty: number }[]>`select catalog_item_id, qty::float as qty from booking_materials where booking_id = ${id} order by catalog_item_id`;
-    await t`delete from booking_materials where booking_id = ${id} and not (catalog_item_id = any(${t.array(ids)}::uuid[]))`;
-    for (const i of items) await t`insert into booking_materials (booking_id, catalog_item_id, qty, added_by) values (${id}, ${i.catalog_item_id}, ${i.qty}, ${user.id})
-      on conflict (booking_id, catalog_item_id) do update set qty = excluded.qty`;
-    await audit(t, { companyId: b.company_id, userId: user.id, action: "job.materials", table: "booking_materials", rowId: id, old: { items: old }, new: { items }, ip });
-    return { ok: true };
-  });
 }
 
 // ---------- report + review ----------

@@ -5,8 +5,7 @@ import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import {
   balanceSheet, closeYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
-  reverseJournal, saveAccount, saveOpening, saveOpeningDraft, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport,
-} from "../services/accounting.js";
+  reverseJournal, saveAccount, saveOpening, saveOpeningDraft, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport, listPending } from "../services/accounting.js";
 import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, setSalary, voidRun } from "../services/payroll.js";
 
 const id = z.string().uuid();
@@ -52,6 +51,7 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
 
   // lock + opening
   app.get("/lock", view, async (req) => lockInfo(req.user!));
+  app.get("/pending", view, async (req) => listPending(req.user!)); // D-144: saved before the books start
   app.post("/lock", close, async (req) => setLock(req.user!, req.ip, z.object({ lock_date: day, reason: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
   const openingBody = z.object({ date: day, cash_usd: cents.optional(), cash_khr: z.number().int().min(0).max(1_000_000_000_000).optional(),
     banks: z.record(z.string().regex(/^(aba|acleda|[1-9][0-9]{3,5})$/), cents).optional(), stock: cents.optional(), // D-92: each bank by code, stock value, retained earnings

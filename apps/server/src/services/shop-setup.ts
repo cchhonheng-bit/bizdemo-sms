@@ -11,8 +11,9 @@
 import { z } from "zod";
 import { randomBytes } from "node:crypto";
 import { CATALOG_CODE_RE, createUserSchema, khPhoneLocal, normalizeKhPhone, usernameSchema, type CatalogItemInput } from "@sms/shared";
-import { sql } from "../db.js";
+import { sql, tx } from "../db.js";
 import { hashPassword } from "../lib/password.js";
+import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { applyImport, previewImport, setItemActive, upsertItem } from "./catalog.js";
 import { checkImage } from "./jobs.js";
@@ -31,7 +32,12 @@ export const shopSetupInput = z.object({
   /** after the Excel: a field by item code, like the catalog form (prices in cents, as the API; sell_price = the invoice line's default) */
   catalog: z.array(z.object({ code: z.string().regex(CATALOG_CODE_RE), duration_min: z.number().int().min(15).max(1440).optional(),
     from_price: z.number().int().min(0).max(100_000_000).nullable().optional(), sell_price: z.number().int().min(0).max(100_000_000).optional(),
-    cost_price: z.number().int().min(0).max(100_000_000).nullable().optional(), is_active: z.boolean().optional() }).strict()).max(500).optional(),
+    cost_price: z.number().int().min(0).max(100_000_000).nullable().optional(), is_active: z.boolean().optional(),
+    /** D-144: a line the shop does not have yet (made with these; a price-list line, never stock) + its stock group for the reconciliation («ភ្ជាប់កូដស្តុក», an account code) */
+    name_km: z.string().trim().min(1).max(120).optional(), kind: z.enum(["service", "product"]).optional(), unit: z.string().trim().max(20).optional(), stock_link: z.string().regex(/^1[3-8][0-9]{3}$/).nullable().optional(),
+    show_on_website: z.boolean().optional() }).strict()).max(500).optional(),
+  /** D-144: the day the books are meant to start (the CFO's form opens on it) */
+  books_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** staff accounts turned off / on by username — the Users page's rules: never the platform account, a CEO account only by a CEO */
   users: z.array(z.object({ username: z.string().min(1).max(40), active: z.boolean().optional(),
     /** D-135: a new password at the next sign-in · the temporary password stops working at this moment (null = no deadline) */
@@ -57,6 +63,13 @@ async function platformUser(companyId: string): Promise<SessionUser> {
   return { id: u.id, companyId, role: u.role, username: u.username, fullName: u.full_name, mustChangePassword: false, language: u.language, sessionId: "cli" };
 }
 
+async function setPlannedStart(user: SessionUser, companyId: string, day: string) {
+  await tx(user.id, async (t) => {
+    const old = (await t<{ p: string | null }[]>`select books_planned_start::text as p from company_settings where company_id = ${companyId}`)[0]?.p ?? null;
+    await t`update company_settings set books_planned_start = ${day}::date where company_id = ${companyId}`;
+    await audit(t, { companyId, userId: user.id, action: "settings.update", table: "company_settings", rowId: companyId, old: { books_planned_start: old }, new: { books_planned_start: day }, ip: null });
+  });
+}
 /** the plan (dry run) or the plan + «applied ✓», one line each */
 export async function shopSetup(slug: string, raw: unknown, apply: boolean): Promise<string[]> {
   const input = shopSetupInput.parse(raw);
@@ -108,12 +121,14 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
     const items = new Map((await catRows(c.id)).map((i) => [i.code, i]));
     for (const p of input.catalog) {
       const it = items.get(p.code);
-      if (!it && !planned.has(p.code)) throw new Error(`catalog: no item with code ${p.code}`);
+      if (!it && !planned.has(p.code) && !p.name_km) throw new Error(`catalog: no item with code ${p.code} (give name_km to make it)`);
+      if (!it && p.name_km) { out.push(`catalog ${p.code} new: ${p.name_km} · ${p.kind ?? "service"} · ${p.unit ?? "unit"} · sell $${((p.sell_price ?? 0) / 100).toFixed(2)}${p.stock_link ? ` · stock link ${p.stock_link}` : ""}`); continue; }
       const after: Record<string, unknown> = { ...(it ?? {}), ...(planned.get(p.code) ?? {}) };
       const ch = (["duration_min", "from_price", "sell_price", "cost_price", "is_active"] as const).filter((k) => p[k] !== undefined).map((k) => `${k} ${show(k, after[k])} → ${show(k, p[k])}`);
       out.push(`catalog ${p.code}: ${ch.join(" · ") || "nothing to change"}`);
     }
   }
+  if (input.books_start) out.push(`books start (planned): ${input.books_start}`);
   const people: { id: string; active: boolean }[] = [], rules: { id: string; mustChange?: boolean; tempExpires?: Date | null }[] = [];
   const made: { username: string; full_name: string; role: string; phone?: string; email?: string }[] = [];
   const testPw: { username: string; id: string | null; password: string; until: Date }[] = []; // id null = made in this run
@@ -193,13 +208,21 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
   for (const g of gallery) await addSitePhoto(user, null, "gallery", g);
   if (input.catalog_xlsx) await applyImport(user, null, Buffer.from(input.catalog_xlsx, "base64"));
   for (const p of input.catalog ?? []) {
-    const it = (await catRows(c.id, p.code))[0];
+    let it = (await catRows(c.id, p.code))[0];
+    if (!it && p.name_km) { // D-144: a new price-list line
+      const link = p.stock_link ? (await sql<{ id: string }[]>`select id from accounts where company_id = ${c.id} and code = ${p.stock_link}`)[0]?.id ?? null : null;
+      if (p.stock_link && !link) throw new Error(`catalog ${p.code}: no account ${p.stock_link}`);
+      await upsertItem(user, null, { code: p.code, name_km: p.name_km, name_en: "", kind: p.kind ?? "service", category: "mep", unit: p.unit ?? "unit", sell_price: p.sell_price ?? 0,
+        duration_min: p.duration_min ?? 120, stock_link_account_id: link, show_on_website: p.show_on_website ?? false, ...(p.from_price !== undefined ? { from_price: p.from_price } : {}) }, false);
+      it = (await catRows(c.id, p.code))[0]!;
+    }
     if (!it) throw new Error(`catalog: no item with code ${p.code}`);
     await upsertItem(user, null, { id: it.id, code: it.code, name_km: it.name_km, name_en: it.name_en ?? "", kind: it.kind as CatalogItemInput["kind"], category: it.category as CatalogItemInput["category"],
       unit: it.unit, sell_price: p.sell_price ?? it.sell_price, duration_min: p.duration_min ?? it.duration_min, ...(p.from_price !== undefined ? { from_price: p.from_price } : {}),
       ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}) }, p.cost_price !== undefined);
     if (p.is_active !== undefined) await setItemActive(user, null, it.id, p.is_active);
   }
+  if (input.books_start) await setPlannedStart(user, c.id, input.books_start);
   const newIds = new Map<string, string>(); // a new account has no usable password until its test password below
   for (const m of made) newIds.set(m.username, await insertUser(user, null, m, await hashPassword(randomBytes(24).toString("base64url"))));
   for (const x of people) await updateUser(user, null, x.id, { is_active: x.active });

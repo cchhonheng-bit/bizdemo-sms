@@ -11,7 +11,6 @@ import { audit } from "./audit.js";
 import { notifyUser } from "./telegram.js";
 import { applyDeposits } from "./deposits.js";
 import { postInvoiceIssue, postPayment, reverseSource } from "./ledger-hooks.js";
-import { deductSale, reverseRef } from "./inventory.js";
 import type { Tx } from "../lib/i18n.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
@@ -83,15 +82,11 @@ export async function prefill(user: SessionUser, bookingId: string) {
   if (!b) throw notFound();
   if (await openInvoice(sql, b.id)) throw new AppError("INVOICE_EXISTS", 409);
   if (b.status !== "reviewed") throw new AppError("NOT_REVIEWED", 400); // BR-09 · AC-02
-  if (await pendingExtras(sql, b.id)) throw new AppError("EXTRAS_PENDING", 409); // D-140 F: Admin / GM review the work added on site first
+  const waiting = await pendingExtras(sql, b.id); // D-140 F · D-144: Admin / GM price the lines the technician added first — the draft invoice says which
+  if (waiting.length) throw new AppError("EXTRAS_PENDING", 409, { lines: waiting.map((x) => x.description) });
   const quote = await sql<InvoiceLineInput[]>`select l.catalog_item_id, l.description, l.kind::text as kind, l.qty::float as qty, l.unit, l.unit_price
     from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = ${b.id} and q.status = 'accepted' order by l.sort, l.id`;
   let lines: InvoiceLineInput[] = [...quote];
-  // D-140 E3: a quoted job — materials recorded but not in the quote are offered apart («សម្ភារៈក្រៅសម្រង់តម្លៃ», unticked)
-  const extraMaterials: InvoiceLineInput[] = quote.length ? await sql<InvoiceLineInput[]>`select m.catalog_item_id, i.name_km as description, i.kind::text as kind, m.qty::float as qty, i.unit, coalesce(i.sell_price, 0)::int as unit_price
-      from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = ${b.id}
-        and not exists (select 1 from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = ${b.id} and q.status = 'accepted' and l.catalog_item_id = m.catalog_item_id)
-      order by i.name_km` : [];
   if (!lines.length) {
     // D-140: a job with service lines suggests one invoice line per service (catalog price × quantity), else the one booked service
     const booked = b.web_lines?.length ? b.web_lines : b.service_item_id ? [{ id: b.service_item_id, qty: 1 }] : [];
@@ -102,15 +97,12 @@ export async function prefill(user: SessionUser, bookingId: string) {
       if (i) lines.push({ catalog_item_id: i.catalog_item_id, description: i.description, kind: i.kind, qty: l.qty, unit: i.unit, unit_price: i.unit_price });
     }
     if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "unit", unit_price: 0 });
-    lines.push(...await sql<InvoiceLineInput[]>`select m.catalog_item_id, i.name_km as description, i.kind::text as kind, m.qty::float as qty, i.unit, coalesce(i.sell_price, 0)::int as unit_price
-      from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = ${b.id} order by i.name_km`);
   }
   lines.push(...await extraInvoiceLines(sql, b.id)); // D-140 F: work added on site, as Admin / GM confirmed it
   // FR-1201: a warranty job is free — same lines, $0
   const free = !!b.warranty_of_number;
   lines = lines.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: free ? 0 : Number(l.unit_price) }));
-  const extra_materials = extraMaterials.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: free ? 0 : Number(l.unit_price) }));
-  return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, warranty_of_number: b.warranty_of_number, lines, extra_materials };
+  return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, warranty_of_number: b.warranty_of_number, lines };
 }
 
 export async function createInvoice(user: SessionUser, ip: string | null, v: { booking_id?: string; customer_id?: string; lines: InvoiceLineInput[]; notes?: string | null }) {
@@ -121,7 +113,7 @@ export async function createInvoice(user: SessionUser, ip: string | null, v: { b
       if (!b) throw notFound();
       if (await openInvoice(t, b.id)) throw new AppError("INVOICE_EXISTS", 409);
       if (b.status !== "reviewed") throw new AppError("NOT_REVIEWED", 400);
-      if (await pendingExtras(t, b.id)) throw new AppError("EXTRAS_PENDING", 409); // D-140 F
+      if ((await pendingExtras(t, b.id)).length) throw new AppError("EXTRAS_PENDING", 409); // D-140 F
       customerId = b.customer_id; bookingId = b.id;
     } else {
       if (!(await t`select 1 from customers where id = ${v.customer_id!} and company_id = ${user.companyId}`).length) throw notFound();
@@ -222,7 +214,6 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
       else if (deposited > 0) await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.issue", table: "invoices", rowId: id, new: { number: i.number, total, fx, ...(back ? { issued_on: date, back_days: back, reason: why || null } : {}) }, ip });
-    if (!i.booking_id) await deductSale(t, user, id); // direct sale: tracked products leave stock now (job materials are confirmed on the job)
     await postInvoiceIssue(t, user, id, back ? date : undefined);
     return { id, status: "issued" as const };
   });
@@ -272,7 +263,6 @@ async function doVoid(t: Db, user: SessionUser, i: Inv, reason: string, ip: stri
   if (i.booking_id) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
   await audit(t, { companyId: i.company_id, userId: user.id, action: "invoice.void", table: "invoices", rowId: i.id, new: { number: i.number, reason }, ip });
   await reverseSource(t, user, "invoice", i.id, reason);
-  await reverseRef(t, user, "invoice", i.id); // a direct sale gives its stock back
   await tellBoss(t, i, user, "invoice.void", { km: `🚫 មោឃៈ · ${i.number}`, en: `🚫 VOID · ${i.number}` },
     { km: `👤 ${i.customer_name}\nដោយ ${user.fullName}\n📝 ${reason}`, en: `👤 ${i.customer_name}\nby ${user.fullName}\n📝 ${reason}` });
 }
@@ -397,7 +387,6 @@ export async function uninvoiced(companyId: string) {
         case when b.parent_booking_id is not null then 0 else coalesce(
           (select sum(round(l.qty * l.unit_price))::int from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = b.id and q.status = 'accepted'),
           coalesce((select sum(coalesce(i.sell_price, 0) * (l->>'qty')::int)::int from jsonb_array_elements(b.web_lines) l join catalog_items i on i.id = (l->>'id')::uuid), (select sell_price from catalog_items where id = b.service_item_id), 0)
-            + coalesce((select sum(round(m.qty * coalesce(i.sell_price, 0)))::int from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id), 0)
             + coalesce((select sum(round(x.qty * x.unit_price))::int from job_extras x where x.booking_id = b.id and x.status <> 'removed' and x.unit_price is not null), 0)
         ) end as estimate
       from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id

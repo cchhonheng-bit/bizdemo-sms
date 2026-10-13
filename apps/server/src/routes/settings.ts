@@ -32,6 +32,8 @@ const settingsPatch = z.object({
   reminder_default_months: z.number().int().min(1).max(60).optional(),
   reminder_daily_limit: z.number().int().min(0).max(1000).optional(),
   company_info: z.record(z.unknown()).optional(),
+  /** D-144: the day the books are meant to start (CEO / CFO) */
+  books_planned_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
 });
 
 export const settingsRoutes: FastifyPluginAsync = async (app) => {
@@ -82,6 +84,7 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
           reminder_default_months = coalesce(${p.reminder_default_months ?? null}, reminder_default_months),
           reminder_daily_limit = coalesce(${p.reminder_daily_limit ?? null}, reminder_daily_limit),
           company_info = coalesce(${p.company_info ? t.json(p.company_info as never) : null}, company_info),
+          books_planned_start = case when ${p.books_planned_start !== undefined} then ${p.books_planned_start ?? null}::date else books_planned_start end,
           updated_by = ${req.user!.id}
         where company_id = ${req.user!.companyId} returning *`;
       await audit(t, { companyId: req.user!.companyId, userId: req.user!.id, action: "settings.update", table: "company_settings", rowId: req.user!.companyId, old, new: r[0], ip: req.ip });
