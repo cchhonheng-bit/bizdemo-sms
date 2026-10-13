@@ -104,12 +104,16 @@ async function stockItemFor(t: Db, user: SessionUser, ip: string | null, v: Stoc
     if (it.kind !== "product" || !it.is_stock) throw new AppError("NOT_STOCK_ITEM", 400);
     return { id: it.id, created: false, name: it.name_km };
   }
-  const name = v.name?.trim().slice(0, 120);
-  if (!name) throw new AppError("ITEM_REQUIRED", 400);
+  const name = v.name?.trim().slice(0, 120) ?? "";
   if (!v.account_id) throw new AppError("NOT_STOCK_ACCOUNT", 400);
   const acc = (await t<{ id: string; code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select id, code, sub_codes, is_group, type::text as type from accounts
     where id = ${v.account_id} and company_id = ${user.companyId}`)[0];
   if (!acc || acc.is_group || acc.type !== "asset" || !/^1[3-8]/.test(acc.code)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  if (!name && !acc.sub_codes) { // a no-sub account (13001 …) IS its one item
+    const one = (await t<{ id: string; name_km: string }[]>`select id, name_km from catalog_items where company_id = ${user.companyId} and inventory_account_id = ${acc.id} and is_stock limit 1`)[0];
+    if (one) return { id: one.id, created: false, name: one.name_km };
+  }
+  if (!name) throw new AppError("ITEM_REQUIRED", 400);
   const code = v.code?.trim().toUpperCase() || null;
   const found = (await t<{ id: string; name_km: string }[]>`select id, name_km from catalog_items where company_id = ${user.companyId} and is_stock and kind = 'product'
     and (${code}::text is not null and code = ${code} or (inventory_account_id = ${acc.id} and (${!acc.sub_codes} or lower(name_km) = lower(${name})))) order by (code = ${code}) desc nulls last limit 1`)[0];

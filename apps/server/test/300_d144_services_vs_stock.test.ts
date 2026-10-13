@@ -94,7 +94,7 @@ describe("A · the price list and the stock are separate", () => {
     const again = await inv(admin, "/in", { name: "ទុយោស្ពាន់ 6mm", account_id: a14000, qty: 5, unit_cost: 200, pay: "cash_usd" });
     expect(again.json).toMatchObject({ created: false, item_id: pipe, total: 1000, balance: 15 });
     expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).json).toMatchObject({ created: false, total: 60000, balance: 2 });
-    expect((await inv(admin, "/in", { item_id: ac, qty: 1, total: 25000, pay: "aba" })).json).toMatchObject({ total: 25000, balance: 3 }); // a total typed instead of a unit cost
+    expect((await inv(admin, "/in", { account_id: a13001, qty: 1, total: 25000, pay: "aba" })).json).toMatchObject({ item_id: ac, total: 25000, balance: 3 }); // the account alone names its one item; a total typed instead of a unit cost
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, pay: "aba" })).json.error).toBe("COST_REQUIRED");
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, unit_cost: 1 })).json.error).toBe("PAY_REQUIRED");
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, unit_cost: 1, pay: "aba", date: "2099-01-01" })).json.error).toBe("BAD_DATE");
@@ -201,7 +201,7 @@ describe("B · every line the technician adds reaches the job, the draft invoice
     expect(done?.body.text).toContain("• ទុយោស្ពាន់ (ម៉ែត្រ) ×6");
     expect(done?.body.text).toContain("• ខ្សែភ្លើង 2.5 ×20");
     // a job on site is cancelled with a reason alone (D-140 E2's materials question is gone)
-    const c = await onSite();
+    const c = await onSite(outside);
     expect((await kim.req("POST", `/api/bookings/${c}/extras`, { kind: "service", item_id: copper, qty: 1 })).status).toBe(200);
     expect((await admin.req("POST", `/api/bookings/${c}/cancel`, { reason: "អតិថិជនបោះបង់" })).status).toBe(200);
     expect((await admin.req("POST", `/api/bookings/${c}/cancel`, { reason: "x", materials_used: true })).status).toBe(400); // the field is gone

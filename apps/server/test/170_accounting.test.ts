@@ -9,7 +9,7 @@ import { hashPassword } from "../src/lib/password.js";
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, gm: Client, admin: Client, cfo: Client, kim: Client, ceoB: Client;
-let cust: string, prod: string, prod2: string, today: string, yesterday: string, start: string;
+let cust: string, prod: string, today: string, yesterday: string, start: string;
 let slot = 0;
 const when = () => new Date(Date.now() + (2 + 3 * slot++) * 3600_000).toISOString();
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
@@ -31,7 +31,6 @@ beforeAll(async () => {
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
   cust = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន គណនេយ្យ", phones: ["012626262"], zone: "inside" })).json.id;
   prod = (await ceo.req("POST", "/api/catalog", { name_km: "ខ្សែភ្លើង", kind: "product", category: "mep", unit: "m", sell_price: 200 })).json.id;
-  prod2 = (await ceo.req("POST", "/api/catalog", { name_km: "បំពង់", kind: "product", category: "mep", unit: "pcs", sell_price: 300 })).json.id;
   const d = (await sql<{ t: string; y: string; s: string }[]>`select (now() at time zone 'Asia/Phnom_Penh')::date::text as t, ((now() at time zone 'Asia/Phnom_Penh')::date - 1)::text as y,
     ((now() at time zone 'Asia/Phnom_Penh')::date - 3)::text as s`)[0]!;
   today = d.t; yesterday = d.y; start = d.s;
@@ -65,7 +64,7 @@ describe("C1 chart of accounts", () => {
     const i = await invoice([{ kind: "service", qty: 1, unit_price: 5000 }]);
     await admin.req("POST", `/api/invoices/${i}/issue`);
     await admin.req("POST", `/api/invoices/${i}/payments`, { amount: 1000, currency: "usd", method: "cash_usd" });
-    prod2 = (await admin.req("POST", "/api/inventory/in", { name: "បំពង់", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 150, opening: true })).json.item_id;
+    expect((await admin.req("POST", "/api/inventory/in", { name: "បំពង់", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 150, opening: true })).json).toMatchObject({ created: true, total: 1500 });
     expect(await entries()).toBe(0);
   });
 });

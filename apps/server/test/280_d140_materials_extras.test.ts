@@ -13,7 +13,7 @@ import { loginAs, makeApp, PLACE, resetDb, seed, span, type Client, type Seed } 
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, gm: Client, admin: Client, kim: Client;
-let cust: string, svc: string, longSvc: string, gas: string, pipe: string;
+let cust: string, svc: string, longSvc: string;
 const H = 3_600_000;
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
 const later = (h: number) => new Date(Date.now() + h * H).toISOString();
@@ -41,8 +41,6 @@ beforeAll(async () => {
   cust = (await admin.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន សម្ភារៈ", phones: ["012 600 600"], zone: "inside" })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 1500, duration_min: 60 })).json.id;
   longSvc = (await ceo.req("POST", "/api/catalog", { name_km: "ដំឡើងម៉ាស៊ីន", kind: "service", category: "mep", unit: "job", sell_price: 5000, duration_min: 90 })).json.id;
-  gas = (await ceo.req("POST", "/api/catalog", { name_km: "ហ្គាស R32", kind: "product", category: "mep", unit: "kg", sell_price: 1000 })).json.id;
-  pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់", kind: "product", category: "mep", unit: "m", sell_price: 300 })).json.id;
 });
 afterAll(async () => { setHubTransport(null); config.shop.features = ""; await app.close(); });
 
