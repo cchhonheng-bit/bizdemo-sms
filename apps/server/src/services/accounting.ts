@@ -185,14 +185,16 @@ export const statementOf = (t: AccType): "BS" | "PL" => (t === "income" || t ===
 export async function listAccounts(user: SessionUser) {
   await ensureChart(sql, user.companyId);
   return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; role: string | null; is_active: boolean; used: boolean; balance: string;
-      is_group: boolean; parent_code: string | null; added_by_system: boolean }[]>`
-    select a.id, a.code, a.name_km, a.name_en, a.type::text as type, a.role, a.is_active, a.is_group, a.parent_code, a.added_by_system,
+      is_group: boolean; parent_code: string | null; added_by_system: boolean; sub_codes: boolean }[]>`
+    select a.id, a.code, a.name_km, a.name_en, a.type::text as type, a.role, a.is_active, a.is_group, a.parent_code, a.added_by_system, a.sub_codes,
       exists (select 1 from journal_lines l where l.account_id = a.id) as used,
       coalesce((select sum(l.debit_cents - l.credit_cents) from journal_lines l where l.account_id = a.id), 0)::text as balance
     from accounts a where a.company_id = ${user.companyId} order by a.code`).map((a) => ({ ...a, balance: Number(a.balance), statement: statementOf(a.type) }));
 }
 
-export async function saveAccount(user: SessionUser, ip: string | null, v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AccType; is_active?: boolean }) {
+export async function saveAccount(user: SessionUser, ip: string | null, v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AccType; is_active?: boolean;
+  /** D-142: the stock account's items carry sub codes (14001, 14002 …) — else the account is its one item */
+  sub_codes?: boolean }) {
   return tx(user.id, async (t) => {
     await ensureChart(t, user.companyId);
     const taken = (await t<{ id: string }[]>`select id from accounts where company_id = ${user.companyId} and code = ${v.code}`)[0];
@@ -208,10 +210,11 @@ export async function saveAccount(user: SessionUser, ip: string | null, v: { id?
       if (v.is_active === false && a.role) throw new AppError("SYSTEM_ACCOUNT", 400);
       old = a;
       await t`update accounts set code = ${v.code}, name_km = ${v.name_km.trim()}, name_en = ${v.name_en?.trim() || null}, type = ${v.type}::account_type,
-        is_active = coalesce(${v.is_active ?? null}, is_active), parent_code = ${a.is_group ? parentOf(v.code) : await parentIn(t, user.companyId, v.code)} where id = ${id}`;
+        is_active = coalesce(${v.is_active ?? null}, is_active), parent_code = ${a.is_group ? parentOf(v.code) : await parentIn(t, user.companyId, v.code)},
+        sub_codes = coalesce(${v.sub_codes ?? null}, sub_codes) where id = ${id}`;
     } else {
-      id = (await t<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type, parent_code) values (${user.companyId}, ${v.code}, ${v.name_km.trim()}, ${v.name_en?.trim() || null},
-        ${v.type}::account_type, ${await parentIn(t, user.companyId, v.code)}) returning id`)[0]!.id;
+      id = (await t<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type, parent_code, sub_codes) values (${user.companyId}, ${v.code}, ${v.name_km.trim()}, ${v.name_en?.trim() || null},
+        ${v.type}::account_type, ${await parentIn(t, user.companyId, v.code)}, ${v.sub_codes ?? false}) returning id`)[0]!.id;
     }
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.account", table: "accounts", rowId: id, old, new: v, ip });
     return { id };
@@ -299,6 +302,23 @@ export async function listJournal(user: SessionUser, q: { from: string; to: stri
       ${q.source ? sql`and e.source = ${q.source}` : sql``}
       ${q.account ? sql`and exists (select 1 from journal_lines l where l.entry_id = e.id and l.account_id = ${q.account})` : sql``}
     order by e.entry_date desc, e.created_at desc limit 500`).map((r) => ({ ...r, amount: Number(r.amount), status: r.reversed ? "reversed" : "posted" }));
+}
+
+/** D-142 «ការកត់ត្រាគណនេយ្យ»: every entry of one invoice — its issue, its payments (deposits applied too), the stock a direct sale took —
+ *  each line with the account's code and name, debit or credit (reversed entries marked) */
+export async function invoiceJournal(user: SessionUser, invoiceId: string) {
+  if (!(await sql`select 1 from invoices where id = ${invoiceId} and company_id = ${user.companyId}`).length) throw notFound();
+  const pays = (await sql<{ id: string }[]>`select id::text as id from payments where invoice_id = ${invoiceId}`).map((p) => p.id);
+  const entries = await sql<{ id: string; number: string; date: string; memo: string; source: Source; source_id: string | null; reversal_of: string | null; reversed: boolean }[]>`
+    select e.id, e.number, e.entry_date::text as date, e.memo, e.source, e.source_id, e.reversal_of, exists (select 1 from journal_entries r where r.reversal_of = e.id) as reversed
+    from journal_entries e where e.company_id = ${user.companyId}
+      and ((e.source in ('invoice', 'stock') and e.source_id = ${invoiceId}) or (e.source = 'payment' and e.source_id = any(${sql.array(pays)}::text[])))
+    order by e.entry_date, e.created_at, e.number`;
+  const lines = entries.length ? await sql<{ entry_id: string; code: string; name_km: string; name_en: string | null; debit: string; credit: string }[]>`
+    select l.entry_id, a.code, a.name_km, a.name_en, l.debit_cents::text as debit, l.credit_cents::text as credit
+    from journal_lines l join accounts a on a.id = l.account_id where l.entry_id = any(${sql.array(entries.map((e) => e.id))}::uuid[]) order by l.entry_id, l.debit_cents desc, a.code, l.id` : [];
+  return entries.map((e) => ({ ...e, status: e.reversed ? "reversed" : "posted",
+    lines: lines.filter((l) => l.entry_id === e.id).map((l) => ({ code: l.code, name_km: l.name_km, name_en: l.name_en, debit: Number(l.debit), credit: Number(l.credit) })) }));
 }
 
 async function sourceLink(companyId: string, source: string, sourceId: string | null): Promise<string | null> {

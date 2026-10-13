@@ -2,7 +2,7 @@
 // website, quote only). Editing — the form and the Excel import — is for CEO, CFO, Admin and GM (the server checks it too).
 // Excel: download the template (the services as they are now) → upload → preview (new / changed / errors) → apply. Matched by
 // code; nothing is deleted. Over the list: who changed it last, and when.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -170,7 +170,7 @@ function PreviewDialog({ preview, loading, onClose, onApply }: { preview: Catalo
   );
 }
 
-function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem | null; showCost: boolean; websiteOn: boolean; onClose: () => void }) {
+export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem | null; showCost: boolean; websiteOn: boolean; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === "en" ? "en" : "km";
   const qc = useQueryClient();
@@ -188,6 +188,14 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: acctOn });
   const [incomeAcc, setIncomeAcc] = useState(item?.income_account_id ?? "");
   const [stockAcc, setStockAcc] = useState(item?.inventory_account_id ?? "");
+  // D-142: a stock account fills the code in — the next sub code (14005 …, still editable) or the account's own code (locked: one item)
+  const [codeLocked, setCodeLocked] = useState(false);
+  const pickStockAcc = (id: string, fill: boolean) => {
+    setStockAcc(id);
+    if (!id) { setCodeLocked(false); return; }
+    void api.catalogNextCode(id).then((n) => { setCodeLocked(!n.sub_codes); if (fill || !n.sub_codes) setCode(n.code); }).catch(() => setCodeLocked(false));
+  };
+  useEffect(() => { if (item?.inventory_account_id) pickStockAcc(item.inventory_account_id, false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [remind, setRemind] = useState(item?.reminder_months ? String(item.reminder_months) : "");
   const { register, handleSubmit, watch, formState: { errors, isSubmitting } } = useForm<CatalogItemInput>({
     resolver: zodResolver(catalogItemSchema.omit({ sell_price: true, cost_price: true, duration_min: true, code: true, web_category: true, from_price: true, show_on_website: true, quote_only: true })),
@@ -224,7 +232,7 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
         <Field label={t("catalog.name_km")} required error={errors.name_km && t("app.required")}><Input invalid={!!errors.name_km} {...register("name_km")} autoFocus /></Field>
         <Field label={t("catalog.name_en")}><Input {...register("name_en")} /></Field>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3">
-          <Field label={t("catalog.code")}><Input value={code} maxLength={20} onChange={(e) => setCode(e.target.value.toUpperCase())} data-testid="cat-code" /></Field>
+          <Field label={t("catalog.code")} hint={stockAcc ? t(codeLocked ? "catalog.code_fixed" : "catalog.code_auto") : undefined}><Input value={code} maxLength={20} disabled={codeLocked} onChange={(e) => setCode(e.target.value.toUpperCase())} data-testid="cat-code" /></Field>
           <Field label={t("catalog.kind")}><Select {...register("kind")}><option value="service">{t("catalog.kind_service")}</option><option value="product">{t("catalog.kind_product")}</option></Select></Field>
           <Field label={t("catalog.category")}><Select {...register("category")}>{SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}</Select></Field>
           <Field label={t("catalog.unit")}><Input placeholder={t("catalog.unit_ph")} {...register("unit")} /></Field>
@@ -264,7 +272,7 @@ function ItemDialog({ item, showCost, websiteOn, onClose }: { item: CatalogItem 
         )}
         {acctOn && !service && (
           <Field label={t("catalog.stock_account")} hint={t("catalog.stock_account_hint")}>
-            <Select value={stockAcc} onChange={(e) => setStockAcc(e.target.value)} data-testid="stock-account">
+            <Select value={stockAcc} onChange={(e) => pickStockAcc(e.target.value, true)} data-testid="stock-account">
               <option value="">{t("catalog.stock_account_default")}</option>
               {(accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
             </Select>

@@ -112,11 +112,25 @@ export function parentOf(code: string, groups: string[] = GROUPS): string | null
 /** the type follows the code's first digit (1 asset · 2 liability · 3 equity · 4 income · 5 expense) */
 export const typeOfCode = (code: string): AccType | null => (({ 1: "asset", 2: "liability", 3: "equity", 4: "income", 5: "expense" }) as Record<string, AccType>)[code[0]!] ?? null;
 
+/** D-142 (the client's scheme): stock accounts whose items carry sub codes (14000 → 14001, 14002 …); every other stock account
+ *  (13001 ម៉ាស៊ីនត្រជាក់ …) IS its item — one stock item per account, its code = the account code */
+export const SUB_CODE_ACCOUNTS = ["14000", "15000", "16000", "17000", "18000"];
+/** one stock item for every no-sub stock account (13001 … 13199) that has none yet: code = the account code, the account's name, tracked */
+export async function ensureNoSubItems(db: Db, companyId: string): Promise<number> {
+  const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, inventory_account_id)
+    select a.company_id, a.code, a.name_km, a.name_en, 'product', 'mep', 'គ្រឿង', true, a.id
+    from accounts a where a.company_id = ${companyId} and a.type = 'asset' and not a.is_group and not a.sub_codes and a.code ~ '^13[01][0-9]{2}$' and a.code !~ '00$'
+      and not exists (select 1 from catalog_items ci where ci.company_id = a.company_id and ci.code = a.code) returning id`;
+  await db`insert into stock_items (company_id, item_id) select ci.company_id, ci.id from catalog_items ci where ci.company_id = ${companyId} and ci.track_stock on conflict do nothing`;
+  return made.length;
+}
+
 /** a new company gets the chart; a company that already has one keeps it (chart-replace swaps it while the books are empty) */
 export async function insertChart(db: Db, companyId: string): Promise<void> {
   for (const [code, km, en, type, role, flag] of CHART)
-    await db`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system)
-      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role}, ${flag === "group"}, ${parentOf(code)}, ${flag === "added"}) on conflict do nothing`;
+    await db`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system, sub_codes)
+      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role}, ${flag === "group"}, ${parentOf(code)}, ${flag === "added"}, ${SUB_CODE_ACCOUNTS.includes(code)}) on conflict do nothing`;
+  await ensureNoSubItems(db, companyId);
 }
 
 /** the old chart's codes (D-88 template) → the new ones, by role — the mapping shown before a replace */

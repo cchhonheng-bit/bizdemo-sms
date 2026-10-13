@@ -62,9 +62,10 @@ function AccountDialog({ account, onClose }: { account: Account | null; onClose:
   const [km, setKm] = useState(account?.name_km ?? ""); const [en, setEn] = useState(account?.name_en ?? "");
   const [type, setType] = useState<AcctType>(account?.type ?? "expense");
   const [active, setActive] = useState(account?.is_active ?? true);
+  const [sub, setSub] = useState(account?.sub_codes ?? false); // D-142
   const locked = !!account && (account.used || !!account.role);
   const done = () => { toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["acct-accounts"] }); onClose(); };
-  const save = useMutation({ mutationFn: () => api.accounting.saveAccount({ id: account?.id, code, name_km: km, name_en: en || null, type, is_active: active }), onSuccess: done, onError: onErr });
+  const save = useMutation({ mutationFn: () => api.accounting.saveAccount({ id: account?.id, code, name_km: km, name_en: en || null, type, is_active: active, sub_codes: sub }), onSuccess: done, onError: onErr });
   const remove = useMutation({ mutationFn: () => api.accounting.deleteAccount(account!.id), onSuccess: done, onError: onErr });
   return (
     <Dialog open onClose={onClose} title={account ? t("acct.edit_account") : t("acct.new_account")} footer={<>
@@ -79,6 +80,10 @@ function AccountDialog({ account, onClose }: { account: Account | null; onClose:
       <Field label={t("acct.name_km")} required><Input value={km} onChange={(e) => setKm(e.target.value)} maxLength={80} data-testid="acc-name" /></Field>
       <Field label={t("acct.name_en")}><Input value={en} onChange={(e) => setEn(e.target.value)} maxLength={80} /></Field>
       {account && !account.role && <label className="flex items-center gap-2 min-h-[44px] text-sm"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t("acct.active")}</label>}
+      {type === "asset" && /^1[3-8]\d{3}$/.test(code) && !account?.is_group && (
+        <label className="flex items-start gap-2 min-h-[44px] text-sm"><input type="checkbox" className="mt-1" checked={sub} onChange={(e) => setSub(e.target.checked)} data-testid="acc-sub" />
+          <span>{t("acct.sub_codes")}<span className="block text-xs text-muted">{t("acct.sub_codes_hint")}</span></span></label>
+      )}
       {locked && <p className="text-xs text-muted">{account?.role ? t("acct.system_hint") : t("acct.used_hint")}</p>}
     </Dialog>
   );

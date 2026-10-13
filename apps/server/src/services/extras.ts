@@ -13,7 +13,7 @@ import { loadForMaterials, PHOTO_STATUSES, storeFile } from "./jobs.js";
 import { fmtLocal, notifyUser } from "./telegram.js";
 import { ceoIds, isTestBooking, testTitle } from "./test-mode.js";
 
-export type Extra = { id: string; kind: "service" | "other"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number;
+export type Extra = { id: string; kind: "service" | "other" | "material"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number;
   unit_price: number | null; photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: Date; added_by: string | null; added_by_name: string | null;
   reviewed_at: Date | null; reviewed_by_name: string | null; review_note: string | null };
 
@@ -28,7 +28,7 @@ export async function pendingExtras(db: Db, bookingId: string): Promise<number> 
   return (await db<{ n: number }[]>`select count(*)::int as n from job_extras where booking_id = ${bookingId} and status = 'pending'`)[0]!.n;
 }
 
-export type AddExtra = { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; photo?: string | null };
+export type AddExtra = { kind: "service"; item_id: string; qty: number } | { kind: "other" | "material"; description: string; qty?: number; unit?: string | null; photo?: string | null };
 
 export async function addExtra(user: SessionUser, perms: string[], ip: string | null, id: string, v: AddExtra) {
   const out = await tx(user.id, async (t) => {
@@ -44,7 +44,8 @@ export async function addExtra(user: SessionUser, perms: string[], ip: string | 
     } else {
       const text = v.description.trim();
       if (text.length < 2) throw new AppError("DESCRIPTION_REQUIRED", 400);
-      row = { catalog_item_id: null, description: text.slice(0, 300), qty: v.qty ?? 1, unit: null, minutes: 0, unit_price: null, photo: v.photo ? await storeFile(t, user, id, "extra", v.photo) : null };
+      row = { catalog_item_id: null, description: text.slice(0, 300), qty: v.qty ?? 1, unit: v.kind === "material" ? v.unit?.trim().slice(0, 20) || null : null, minutes: 0, unit_price: null,
+        photo: v.photo ? await storeFile(t, user, id, "extra", v.photo) : null };
     }
     const xid = (await t<{ id: string }[]>`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, photo_file, added_by)
       values (${user.companyId}, ${id}, ${v.kind}, ${row.catalog_item_id}, ${row.description}, ${row.qty}, ${row.unit}, ${row.minutes}, ${row.unit_price}, ${row.photo}, ${user.id}) returning id`)[0]!.id;
@@ -114,9 +115,9 @@ export async function reviewExtra(user: SessionUser, ip: string | null, id: stri
 
 /** the confirmed lines as invoice lines (catalog service at its price × qty; other work at the price Admin / GM set) */
 export async function extraInvoiceLines(db: Db, bookingId: string) {
-  return (await db<{ catalog_item_id: string | null; description: string; qty: number; unit: string | null; unit_price: number }[]>`select catalog_item_id, description, qty::float as qty, unit, unit_price
+  return (await db<{ kind: string; catalog_item_id: string | null; description: string; qty: number; unit: string | null; unit_price: number }[]>`select kind, catalog_item_id, description, qty::float as qty, unit, unit_price
     from job_extras where booking_id = ${bookingId} and status = 'confirmed' order by added_at, id`)
-    .map((x) => ({ catalog_item_id: x.catalog_item_id, description: x.description, kind: "service" as const, qty: x.qty, unit: x.unit ?? "job", unit_price: x.unit_price }));
+    .map((x) => ({ catalog_item_id: x.catalog_item_id, description: x.description, kind: x.kind === "material" ? "product" as const : "service" as const, qty: x.qty, unit: x.unit ?? (x.kind === "material" ? "unit" : "job"), unit_price: x.unit_price }));
 }
 
 /** technicians never see prices (AC-01) */

@@ -74,7 +74,7 @@ export default function InvoiceEditorPage() {
   return (
     <div className="max-w-3xl space-y-4">
       <h1>{id ? `${t("app.edit")} ${existing.data?.number ?? ""}` : direct ? t("invoice.new_direct") : t("invoice.new")}</h1>
-      {head && <p className="text-sm text-muted break-words">{[head.booking_number, head.customer_name, head.service_text].filter(Boolean).join(" · ")}</p>}
+      {head && <p className="text-sm text-muted break-words">{[head.booking_number, head.customer_name].filter(Boolean).join(" · ")}</p>}
       {direct && (
         <Card title={t("booking.customer")}>
           {cust ? (

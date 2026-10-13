@@ -42,6 +42,28 @@ function diff(old: Partial<Item> | null, next: Partial<Item>): { old: Record<str
   }
   return Object.keys(n).length ? { old: o, new: n } : null;
 }
+/** D-142 (the client's scheme): an item on a stock account follows the account's code scheme — sub codes: the account's digits without
+ *  trailing zeros + 3 digits (14000 → 14001 …); no sub codes: the account code itself, and only one item on that account */
+async function assertCodeOnAccount(db: Db, companyId: string, accountId: string, code: string | null, exceptId: string | null) {
+  const a = (await db<{ code: string; sub_codes: boolean }[]>`select code, sub_codes from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
+  if (!a) return;
+  if (a.sub_codes) {
+    const prefix = a.code.replace(/0+$/, "");
+    if (!code || !new RegExp(`^${prefix}[0-9]{3}$`).test(code)) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix, example: `${prefix}001` });
+  } else {
+    if (code !== a.code) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix: a.code, example: a.code });
+    if ((await db`select 1 from catalog_items where company_id = ${companyId} and inventory_account_id = ${accountId} ${exceptId ? db`and id <> ${exceptId}` : db``}`).length) throw new AppError("ONE_ITEM_PER_CODE", 409);
+  }
+}
+/** D-142: what the catalog form fills in when a stock account is chosen — the next free sub code, or the account's own code (and whether an item has it) */
+export async function nextItemCode(db: Db, companyId: string, accountId: string): Promise<{ code: string; sub_codes: boolean; taken: boolean }> {
+  const a = (await db<{ code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select code, sub_codes, is_group, type::text as type from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
+  if (!a || a.is_group || a.type !== "asset") throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  if (!a.sub_codes) return { code: a.code, sub_codes: false, taken: (await db`select 1 from catalog_items where company_id = ${companyId} and code = ${a.code}`).length > 0 };
+  const prefix = a.code.replace(/0+$/, "");
+  const last = (await db<{ n: number }[]>`select coalesce(max(substr(code, ${prefix.length + 1})::int), 0)::int as n from catalog_items where company_id = ${companyId} and code ~ ${`^${prefix}[0-9]{3}$`}`)[0]!.n;
+  return { code: `${prefix}${String(last + 1).padStart(3, "0")}`, sub_codes: true, taken: false };
+}
 async function codeFree(db: Db, companyId: string, code: string | null, exceptId: string | null) {
   if (!code) return;
   if ((await db`select 1 from catalog_items where company_id = ${companyId} and code = ${code} ${exceptId ? db`and id <> ${exceptId}` : db``}`).length) throw new AppError("CODE_TAKEN", 409);
@@ -54,6 +76,7 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
   if (b.income_account_id && !(await sql`select 1 from accounts where id = ${b.income_account_id} and company_id = ${user.companyId} and type = 'income' and not is_group`).length) throw new AppError("NOT_INCOME_ACCOUNT", 400);
   // D-141: a stock item's own stock account — an asset posting account (13001 …, 14000 copper pipe …)
   if (b.inventory_account_id && (b.kind !== "product" || !(await sql`select 1 from accounts where id = ${b.inventory_account_id} and company_id = ${user.companyId} and type = 'asset' and not is_group`).length)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  if (b.inventory_account_id) await assertCodeOnAccount(sql, user.companyId, b.inventory_account_id, b.code || null, b.id ?? null); // D-142
   const code = b.code ? b.code : null;
   return tx(user.id, async (t) => {
     const old = b.id ? (await t<Item[]>`select ${COLS(t)} from catalog_items where id = ${b.id} and company_id = ${user.companyId} for update`)[0] ?? null : null;

@@ -10,6 +10,10 @@ import { api, errCode, fmtDateTime, type Booking, type JobExtra, type JobInfo } 
 import { compressPhoto } from "@/lib/offline";
 import { Badge, Button, Card, Dialog, Field, Input, Select } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { useAuth } from "@/lib/auth";
+import { useFeature } from "@/lib/config";
+import { ItemDialog } from "@/features/catalog/CatalogPage";
+import { ItemPicker } from "./ItemPicker";
 import { splitLocal } from "./time";
 
 const OPEN = ["on_site", "working", "work_done", "revision"];
@@ -28,17 +32,19 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
   const lang = i18n.language === "en" ? "en" : "km";
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
   const services = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active && i.kind === "service"), [catalog.data]);
-  const [mode, setMode] = useState<"service" | "other">("service");
+  const [mode, setMode] = useState<"service" | "material" | "other">("service");
+  const [unit, setUnit] = useState("");
   const [item, setItem] = useState(""), [qty, setQty] = useState("1"), [text, setText] = useState(""), [photo, setPhoto] = useState<string | null>(null);
   const [overlap, setOverlap] = useState<{ number: string; scheduled_at: string } | null>(null);
   const extras = (info.extras ?? []).filter((x) => x.status !== "removed");
   const add = useMutation({
-    mutationFn: () => api.job.addExtra(booking.id, mode === "service" ? { kind: "service", item_id: item, qty: Math.max(1, Number(qty) || 1) } : { kind: "other", description: text.trim(), photo }),
+    mutationFn: () => api.job.addExtra(booking.id, mode === "service" ? { kind: "service", item_id: item, qty: Math.max(1, Number(qty) || 1) }
+      : mode === "material" ? { kind: "material", description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, photo } : { kind: "other", description: text.trim(), photo }),
     onSuccess: (r) => {
       setOverlap(r.overlap);
       if (r.overlap) toast.error(t("extras.overlap", { number: r.overlap.number, time: splitLocal(r.overlap.scheduled_at).time }));
       else toast.success(t("extras.added"));
-      setItem(""); setQty("1"); setText(""); setPhoto(null); onDone();
+      setItem(""); setQty("1"); setText(""); setUnit(""); setPhoto(null); onDone();
     },
     onError: (e) => toast.error(t(`extras.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
@@ -49,8 +55,8 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
     <Card title={t("extras.title")} className="mb-4">
       <p className="text-xs text-muted mb-3">{t("extras.hint")}</p>
       {overlap && <p className="mb-3 rounded-md bg-warning-50 text-warning p-3 text-sm" role="alert" data-testid="extra-overlap">⚠️ {t("extras.overlap", { number: overlap.number, time: splitLocal(overlap.scheduled_at).time })}</p>}
-      <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup">
-        {(["service", "other"] as const).map((m) => (
+      <div className="grid grid-cols-3 gap-2 mb-3" role="radiogroup">
+        {(["service", "material", "other"] as const).map((m) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} data-testid={`extra-mode-${m}`}
             className={`min-h-[48px] rounded-md border px-3 text-sm ${mode === m ? "border-navy bg-[#E6EDFD] font-bold text-navy" : "border-grey-line bg-white"}`}>{t(`extras.mode_${m}`)}</button>
         ))}
@@ -65,7 +71,13 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
         </div>
       ) : (
         <>
-          <Field label={t("extras.other_text")} hint={t("extras.other_hint")}><textarea className="input h-20 py-2" name="extra_text" maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+          <Field label={t(mode === "material" ? "extras.material_text" : "extras.other_text")} hint={t(mode === "material" ? "extras.material_hint" : "extras.other_hint")}><textarea className="input h-20 py-2" name="extra_text" maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+          {mode === "material" && (
+            <div className="grid grid-cols-2 gap-x-3">
+              <Field label={t("booking.line_qty")}><Input type="number" inputMode="decimal" min={1} max={999} name="extra_qty" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+              <Field label={t("extras.unit")}><Input name="extra_unit" maxLength={20} placeholder="ម៉ែត្រ" value={unit} onChange={(e) => setUnit(e.target.value)} /></Field>
+            </div>
+          )}
           <label className="btn-secondary w-full cursor-pointer mb-3">
             <Camera size={18} /> {photo ? t("extras.photo_ok") : t("extras.photo")}
             <input type="file" accept="image/*" capture="environment" className="sr-only" data-testid="extra-photo" onChange={(e) => { const f = e.target.files?.[0]; if (f) void compressPhoto(f).then(setPhoto); e.target.value = ""; }} />
@@ -116,7 +128,7 @@ export function ExtrasReview({ booking }: { booking: Booking }) {
           <li key={x.id} className={`py-3 ${x.status === "removed" ? "opacity-60" : ""}`}>
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div className="min-w-0">
-                <div className="font-semibold break-words">{x.description}{x.qty !== 1 ? ` ×${x.qty}` : ""} <Badge tone="purple">{t("extras.flag")}</Badge></div>
+                <div className="font-semibold break-words">{x.description}{x.qty !== 1 ? ` ×${x.qty}${x.unit ? ` ${x.unit}` : ""}` : ""} <Badge tone="purple">{t("extras.flag")}</Badge>{x.kind === "material" && <> <Badge tone="grey">{t("extras.mode_material")}</Badge></>}</div>
                 <AddedBy x={x} />
                 {x.photo_file && <a className="block text-sm text-blue underline min-h-[32px]" href={`/api/files/${x.photo_file}`} target="_blank" rel="noreferrer">{t("extras.see_photo")}</a>}
                 {x.status === "removed" && <p className="text-xs text-danger">{t("extras.removed", { reason: x.review_note ?? "" })}</p>}
@@ -153,9 +165,11 @@ export function MaterialsEditor({ booking }: { booking: Booking }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["job", booking.id], queryFn: () => api.job.info(booking.id) });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
-  const products = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active && i.kind === "product"), [catalog.data]);
+  const products = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active), [catalog.data]); // D-142: every catalog item, by name or code
   const [mats, setMats] = useState<{ catalog_item_id: string; qty: string }[] | null>(null);
-  const [pick, setPick] = useState("");
+  const [adding, setAdding] = useState(false); // D-142: «+ ទំនិញថ្មី» — the catalog form, right here
+  const { can } = useAuth();
+  const websiteOn = useFeature("website");
   const rows = mats ?? (q.data?.materials ?? []).map((m) => ({ catalog_item_id: m.catalog_item_id, qty: String(m.qty) }));
   const save = useMutation({
     mutationFn: () => api.job.materials(booking.id, rows.filter((m) => Number(m.qty) > 0).map((m) => ({ catalog_item_id: m.catalog_item_id, qty: Number(m.qty) }))),
@@ -167,11 +181,11 @@ export function MaterialsEditor({ booking }: { booking: Booking }) {
   const byWho = (id: string) => q.data!.materials.find((m) => m.catalog_item_id === id)?.added_by_name;
   return (
     <Card title={t("job.materials")} className="mb-4">
-      <div className="flex gap-2">
-        <Select name="mat_pick" value={pick} onChange={(e) => setPick(e.target.value)} className="flex-1 min-w-0"><option value="">—</option>
-          {products.filter((p) => !rows.some((m) => m.catalog_item_id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name_km} ({p.unit})</option>)}</Select>
-        <Button type="button" disabled={!pick} onClick={() => { setMats([...rows, { catalog_item_id: pick, qty: "1" }]); setPick(""); }} aria-label={t("extras.add")}><Plus size={16} /></Button>
+      <div className="flex gap-2 items-start">
+        <div className="flex-1 min-w-0"><ItemPicker items={products} exclude={rows.map((m) => m.catalog_item_id)} onPick={(i) => setMats([...rows, { catalog_item_id: i.id, qty: "1" }])} testId="mat-search" /></div>
+        <Button type="button" onClick={() => setAdding(true)} data-testid="mat-new"><Plus size={16} /> {t("job.new_item")}</Button>
       </div>
+      {adding && <ItemDialog item={null} showCost={can("cost.read")} websiteOn={websiteOn} onClose={() => { setAdding(false); void qc.invalidateQueries({ queryKey: ["catalog"] }); }} />}
       <ul className="mt-2 space-y-2" data-testid="mat-rows">
         {rows.map((m, i) => (
           <li key={m.catalog_item_id} className="flex items-center gap-2">

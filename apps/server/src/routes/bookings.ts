@@ -126,7 +126,9 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/extras", { bodyLimit: 3_000_000 }, async (req) => {
     const v = z.discriminatedUnion("kind", [
       z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999) }).strict(),
-      z.object({ kind: z.literal("other"), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(), photo: z.string().max(2_900_000).nullable().optional() }).strict(),
+      // D-142: «សម្ភារៈផ្សេងៗ» = a material the technician writes (text + quantity + unit), priced by Admin / GM like other work
+      z.object({ kind: z.enum(["other", "material"]), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(),
+        unit: z.string().trim().max(20).nullable().optional(), photo: z.string().max(2_900_000).nullable().optional() }).strict(),
     ]).parse(req.body ?? {});
     const r = await addExtra(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));

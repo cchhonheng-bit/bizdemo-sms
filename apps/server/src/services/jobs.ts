@@ -105,8 +105,8 @@ export async function jobInfo(user: SessionUser, id: string) {
     select c.step, c.at, c.lat, c.lng, c.accuracy_m as accuracy, c.no_gps, c.offline, u.full_name as by_name
     from booking_checkpoints c left join users u on u.id = c.by_user where c.booking_id = ${id} order by c.at, c.id`;
   const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey') order by created_at`;
-  const materials = await sql`select m.catalog_item_id, i.name_km, i.name_en, i.unit, m.qty::float as qty, m.added_at, a.full_name as added_by_name, m.confirmed_at
-    from booking_materials m join catalog_items i on i.id = m.catalog_item_id left join users a on a.id = m.added_by where m.booking_id = ${id} order by i.name_km`;
+  const materials = await sql`select m.catalog_item_id, i.name_km, i.name_en, i.unit, i.kind::text as kind, i.code, i.track_stock, m.qty::float as qty, m.added_at, a.full_name as added_by_name, m.confirmed_at
+    from booking_materials m join catalog_items i on i.id = m.catalog_item_id left join users a on a.id = m.added_by where m.booking_id = ${id} order by i.name_km`;
   const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name
     from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by where r.booking_id = ${id}`)[0] ?? null;
   return { checkpoints, durations: durations(checkpoints), photos, materials, report };

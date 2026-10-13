@@ -6,7 +6,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, Check, Eraser, MapPinOff, Send, Trash2, WifiOff } from "lucide-react";
 import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api";
 import { compressPhoto, queued, readGps, sendCheckpoint } from "@/lib/offline";
-import { ActionBar, Button, Card, Field, Input, Select, Skeleton } from "@/components/ui";
+import { ActionBar, Button, Card, Field, Input, Skeleton } from "@/components/ui";
+import { ItemPicker } from "@/features/bookings/ItemPicker";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth";
 import { ExtrasCard } from "@/features/bookings/JobExtras";
@@ -112,9 +113,8 @@ export default function JobExecution({ booking }: { booking: Booking }) {
 function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
   const { t } = useTranslation();
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
-  const products = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active && i.kind === "product"), [catalog.data]);
+  const products = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active), [catalog.data]); // D-142: every catalog item (services too)
   const [mats, setMats] = useState(info.materials.map((m) => ({ catalog_item_id: m.catalog_item_id, qty: String(m.qty) })));
-  const [pick, setPick] = useState("");
   const [notes, setNotes] = useState(info.report?.notes ?? "");
   const [uploading, setUploading] = useState<string | null>(null);
   const sig = useRef<SignatureHandle>(null);
@@ -155,10 +155,7 @@ function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo
         </Field>
       ))}
       <Field label={t("job.materials")} hint={t("job.materials_hint")}>
-        <div className="flex gap-2">
-          <Select value={pick} onChange={(e) => setPick(e.target.value)} className="flex-1"><option value="">—</option>{products.filter((p) => !mats.some((m) => m.catalog_item_id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name_km} ({p.unit})</option>)}</Select>
-          <Button type="button" disabled={!pick} onClick={() => { setMats((m) => [...m, { catalog_item_id: pick, qty: "1" }]); setPick(""); }}>+</Button>
-        </div>
+        <ItemPicker items={products} exclude={mats.map((m) => m.catalog_item_id)} onPick={(i) => setMats((m) => [...m, { catalog_item_id: i.id, qty: "1" }])} testId="mat-search" />
         <ul className="mt-2 space-y-2">
           {mats.map((m, i) => (
             <li key={m.catalog_item_id} className="flex items-center gap-2">

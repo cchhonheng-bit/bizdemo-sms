@@ -36,7 +36,7 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
   app.get("/accounts", view, async (req) => listAccounts(req.user!));
   app.post("/accounts", postP, async (req) => saveAccount(req.user!, req.ip, z.object({ id: id.optional(), code: z.string().regex(/^[1-9][0-9]{3,5}$/),
     name_km: z.string().trim().min(1).max(80), name_en: z.string().trim().max(80).nullable().optional(), type: z.enum(["asset", "liability", "equity", "income", "expense"]),
-    is_active: z.boolean().optional() }).strict().parse(req.body)));
+    is_active: z.boolean().optional(), sub_codes: z.boolean().optional() }).strict().parse(req.body)));
   app.delete("/accounts/:id", postP, async (req) => deleteAccount(req.user!, req.ip, z.object({ id }).parse(req.params).id));
 
   // C2 journal

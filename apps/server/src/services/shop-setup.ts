@@ -14,7 +14,7 @@ import { CATALOG_CODE_RE, createUserSchema, khPhoneLocal, normalizeKhPhone, user
 import { sql } from "../db.js";
 import { hashPassword } from "../lib/password.js";
 import type { SessionUser } from "./auth.js";
-import { applyImport, previewImport, upsertItem } from "./catalog.js";
+import { applyImport, previewImport, setItemActive, upsertItem } from "./catalog.js";
 import { checkImage } from "./jobs.js";
 import { addSitePhoto, INFO_KEYS, MAX_GALLERY, removeSitePhoto, saveCompanyImage, saveSite, sitePatch, type SiteContent } from "./site.js";
 import { markAsTest } from "./test-mode.js";
@@ -31,7 +31,7 @@ export const shopSetupInput = z.object({
   /** after the Excel: a field by item code, like the catalog form (prices in cents, as the API; sell_price = the invoice line's default) */
   catalog: z.array(z.object({ code: z.string().regex(CATALOG_CODE_RE), duration_min: z.number().int().min(15).max(1440).optional(),
     from_price: z.number().int().min(0).max(100_000_000).nullable().optional(), sell_price: z.number().int().min(0).max(100_000_000).optional(),
-    cost_price: z.number().int().min(0).max(100_000_000).nullable().optional() }).strict()).max(500).optional(),
+    cost_price: z.number().int().min(0).max(100_000_000).nullable().optional(), is_active: z.boolean().optional() }).strict()).max(500).optional(),
   /** staff accounts turned off / on by username — the Users page's rules: never the platform account, a CEO account only by a CEO */
   users: z.array(z.object({ username: z.string().min(1).max(40), active: z.boolean().optional(),
     /** D-135: a new password at the next sign-in · the temporary password stops working at this moment (null = no deadline) */
@@ -110,7 +110,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
       const it = items.get(p.code);
       if (!it && !planned.has(p.code)) throw new Error(`catalog: no item with code ${p.code}`);
       const after: Record<string, unknown> = { ...(it ?? {}), ...(planned.get(p.code) ?? {}) };
-      const ch = (["duration_min", "from_price", "sell_price", "cost_price"] as const).filter((k) => p[k] !== undefined).map((k) => `${k} ${show(k, after[k])} → ${show(k, p[k])}`);
+      const ch = (["duration_min", "from_price", "sell_price", "cost_price", "is_active"] as const).filter((k) => p[k] !== undefined).map((k) => `${k} ${show(k, after[k])} → ${show(k, p[k])}`);
       out.push(`catalog ${p.code}: ${ch.join(" · ") || "nothing to change"}`);
     }
   }
@@ -198,6 +198,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
     await upsertItem(user, null, { id: it.id, code: it.code, name_km: it.name_km, name_en: it.name_en ?? "", kind: it.kind as CatalogItemInput["kind"], category: it.category as CatalogItemInput["category"],
       unit: it.unit, sell_price: p.sell_price ?? it.sell_price, duration_min: p.duration_min ?? it.duration_min, ...(p.from_price !== undefined ? { from_price: p.from_price } : {}),
       ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}) }, p.cost_price !== undefined);
+    if (p.is_active !== undefined) await setItemActive(user, null, it.id, p.is_active);
   }
   const newIds = new Map<string, string>(); // a new account has no usable password until its test password below
   for (const m of made) newIds.set(m.username, await insertUser(user, null, m, await hashPassword(randomBytes(24).toString("base64url"))));

@@ -476,11 +476,16 @@
       "BAD_FILE": "This file is not an Excel file",
       "CODE_TAKEN": "This code is already used",
       "CODE_FORMAT": "Code: capitals, digits, . - _ (up to 20)",
-      "FORBIDDEN": "You may not edit the catalog"
+      "FORBIDDEN": "You may not edit the catalog",
+      "CODE_NOT_IN_ACCOUNT": "The code must start with the stock account's digits (e.g. 14001) or equal the account (e.g. 13001)",
+      "ONE_ITEM_PER_CODE": "This account already has its item — one account, one item (turn sub codes on in the chart for more)",
+      "NOT_STOCK_ACCOUNT": "Choose a stock account"
     },
     "stock_account": "Stock account",
     "stock_account_hint": "Which account holds this stock (e.g. 14000 copper pipe)",
-    "stock_account_default": "18000 technicians' materials (default)"
+    "stock_account_default": "18000 technicians' materials (default)",
+    "code_auto": "Filled in from the stock account · editable",
+    "code_fixed": "Code = the account's (one item on this account)"
   },
   "booking": {
     "title": "Jobs / Bookings",
@@ -822,7 +827,7 @@
     "photos_after": "Photos after",
     "add_photo": "Take / add photo",
     "materials": "Materials used",
-    "materials_hint": "From the catalog — no prices",
+    "materials_hint": "From the catalog — search by name or code · no prices · stock leaves only for tracked items",
     "notes": "Notes",
     "signature": "Customer signature",
     "signature_hint": "The customer signs with a finger",
@@ -860,7 +865,9 @@
       "NETWORK": "No internet",
       "MATERIALS_CONFIRMED": "Admin already took the stock — materials are locked",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
-    }
+    },
+    "pick_item": "Search by name or code…",
+    "new_item": "New item"
   },
   "quote": {
     "title": "Quotes",
@@ -1019,7 +1026,9 @@
       "EXTRAS_PENDING": "Review the work added by the technician first (the job page)"
     },
     "extra_materials": "Materials outside the quote",
-    "extra_materials_hint": "Recorded on the job but not in the quote · tick to add to the invoice"
+    "extra_materials_hint": "Recorded on the job but not in the quote · tick to add to the invoice",
+    "journal": "Accounting entries",
+    "journal_none": "Nothing posted yet — the books have not started, or the invoice is not issued"
   },
   "attendance": {
     "title": "Attendance",
@@ -1241,7 +1250,8 @@
     "tab": {
       "stock": "Stock",
       "jobs": "Jobs to confirm",
-      "locations": "Locations"
+      "locations": "Locations",
+      "monthend": "Month-end stock"
     },
     "op": {
       "in": "Stock in",
@@ -1305,7 +1315,15 @@
       "FORBIDDEN": "Not allowed",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
-    "cancelled_cost": "Cancelled · job cost"
+    "cancelled_cost": "Cancelled · job cost",
+    "me_date": "As of",
+    "me_stock": "Stock",
+    "me_books": "Books",
+    "me_diff": "Difference",
+    "me_ok": "Stock = books ✓",
+    "me_diff_hint": "Look for a stock move before the books started, or a hand entry on a stock account",
+    "job_vehicle": "the job's vehicle",
+    "unit_cost_short": "Unit cost"
   },
   "acct": {
     "title": "Accounting",
@@ -1562,7 +1580,9 @@
       "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it"
     },
     "rate_label": "Exchange rate",
-    "added_by_system": "Added by the system"
+    "added_by_system": "Added by the system",
+    "sub_codes": "Items carry sub codes (14001, 14002 …)",
+    "sub_codes_hint": "Off = this account is its one item, its code = the account (e.g. 13001)"
   },
   "print": {
     "invoice": "INVOICE",
@@ -1656,6 +1676,10 @@
       "EXTRA_LOCKED": "This line is already reviewed",
       "FORBIDDEN": "Not allowed",
       "BAD_IMAGE": "The photo is not valid"
-    }
+    },
+    "mode_material": "Other material",
+    "material_text": "Which material",
+    "material_hint": "Name, quantity, unit · technicians set no price — Admin or GM do",
+    "unit": "Unit"
   }
 }

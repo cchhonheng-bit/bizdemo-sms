@@ -57,10 +57,11 @@ type MoveIn = { item: string; location: string; kind: Kind; qty: number; value?:
 async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
   const loc = (await t<{ id: string }[]>`select id from stock_locations where id = ${m.location} and company_id = ${user.companyId} and is_active`)[0];
   if (!loc) throw new AppError("LOCATION_NOT_FOUND", 404);
-  const it = (await t<{ track: boolean; reorder: string | null; name: string }[]>`select track_stock as track, reorder_level::text as reorder, name_km as name from catalog_items
+  const it = (await t<{ track: boolean; reorder: string | null; name: string; kind: string }[]>`select track_stock as track, reorder_level::text as reorder, name_km as name, kind::text as kind from catalog_items
     where id = ${m.item} and company_id = ${user.companyId}`)[0];
   if (!it) throw notFound();
-  if (!it.track) throw new AppError("NOT_TRACKED", 400);
+  if (it.kind !== "product") throw new AppError("NOT_A_PRODUCT", 400);
+  if (!it.track) await t`update catalog_items set track_stock = true where id = ${m.item}`; // D-142: any product can be stocked — its first move turns tracking on
   await t`insert into stock_items (company_id, item_id) values (${user.companyId}, ${m.item}) on conflict do nothing`;
   await t`insert into stock_balances (location_id, item_id) values (${m.location}, ${m.item}) on conflict do nothing`;
   const s = (await t<{ qty: string; value: string }[]>`select qty::text, value_cents::text as value from stock_items where item_id = ${m.item} for update`)[0]!;
@@ -153,12 +154,12 @@ const WAITING = (db: Db) => db`b.materials_confirmed_at is null and (b.status = 
 export const ENDED_AT = (db: Db) => db`coalesce(b.finished_at, (select max(k.at) from booking_checkpoints k where k.booking_id = b.id and k.step = 'finish'), b.cancelled_at, b.updated_at)`;
 export async function pendingJobs(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
-  return sql`select b.id as booking_id, b.number, b.status, c.name as customer_name, b.status = 'cancelled' as cancelled, ${ENDED_AT(sql)} as ended_at,
+  return sql`select b.id as booking_id, b.number, b.status, c.name as customer_name, b.status = 'cancelled' as cancelled, ${ENDED_AT(sql)} as ended_at, v.code as vehicle_code,
       coalesce((select l.id from stock_locations l where l.vehicle_id = b.vehicle_id and l.is_active),
                (select l.id from stock_locations l where l.company_id = b.company_id and l.kind = 'warehouse' and l.is_active order by l.created_at limit 1)) as suggested_location_id,
       (select json_agg(json_build_object('item_id', i.id, 'name', i.name_km, 'unit', i.unit, 'qty', m.qty::float) order by i.name_km)
          from booking_materials m join catalog_items i on i.id = m.catalog_item_id where m.booking_id = b.id and i.track_stock) as materials
-    from bookings b join customers c on c.id = b.customer_id
+    from bookings b join customers c on c.id = b.customer_id left join vehicles v on v.id = b.vehicle_id
     where b.company_id = ${user.companyId} and not b.is_test and ${WAITING(sql)}
     order by b.scheduled_at`;
 }
@@ -240,17 +241,60 @@ export async function reverseRef(t: Db, user: SessionUser, refType: "invoice" | 
 // ---------- read ----------
 export async function items(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
-  const rows = await sql<{ item_id: string; name: string; unit: string; qty: string; value: string; reorder: string | null }[]>`
-    select i.id as item_id, i.name_km as name, i.unit, coalesce(s.qty, 0)::text as qty, coalesce(s.value_cents, 0)::text as value, i.reorder_level::text as reorder
-    from catalog_items i left join stock_items s on s.item_id = i.id where i.company_id = ${user.companyId} and i.track_stock order by i.name_km`;
+  // D-142: each item with its stock account (13001 …, 14000 …; none → the 18000 fallback) — the page groups by account
+  const rows = await sql<{ item_id: string; code: string | null; name: string; unit: string; qty: string; value: string; reorder: string | null; account_id: string | null; account_code: string | null; account_name: string | null; account_name_en: string | null }[]>`
+    select i.id as item_id, i.code, i.name_km as name, i.unit, coalesce(s.qty, 0)::text as qty, coalesce(s.value_cents, 0)::text as value, i.reorder_level::text as reorder,
+      coalesce(a.id, d.id) as account_id, coalesce(a.code, d.code) as account_code, coalesce(a.name_km, d.name_km) as account_name, coalesce(a.name_en, d.name_en) as account_name_en
+    from catalog_items i left join stock_items s on s.item_id = i.id left join accounts a on a.id = i.inventory_account_id
+      left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
+    where i.company_id = ${user.companyId} and i.track_stock order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
   const bal = await sql<{ item_id: string; location_id: string; name: string; qty: string }[]>`select b.item_id, b.location_id, l.name, b.qty::text from stock_balances b
     join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind desc, l.name`;
   return rows.map((r) => {
     const qty = Number(r.qty), value = Number(r.value);
-    return { item_id: r.item_id, name: r.name, unit: r.unit, qty, value, avg_cost: qty > 0 ? Math.round(value / qty) : 0,
+    return { item_id: r.item_id, code: r.code, name: r.name, unit: r.unit, qty, value, avg_cost: qty > 0 ? Math.round(value / qty) : 0,
+      account_id: r.account_id, account_code: r.account_code, account_name: r.account_name, account_name_en: r.account_name_en,
       reorder_level: r.reorder == null ? null : Number(r.reorder), low: r.reorder != null && qty < Number(r.reorder),
       by_location: bal.filter((b) => b.item_id === r.item_id).map((b) => ({ location_id: b.location_id, name: b.name, qty: Number(b.qty) })) };
   });
+}
+
+/** D-142 «តម្លៃស្តុកចុងខែ»: stock on a day by account (quantity + value from the moves) beside the books' balance of the stock accounts
+ *  (13000–18999) — the difference per account and in total; the books side only when accounting is on and the user may read it */
+export async function monthEnd(user: SessionUser, to: string, withBooks: boolean) {
+  const rows = await sql<{ code: string; name_km: string; name_en: string | null; item_id: string; item_code: string | null; item_name: string; unit: string; qty: string; value: string }[]>`
+    select coalesce(a.code, d.code, '18000') as code, coalesce(a.name_km, d.name_km, '—') as name_km, coalesce(a.name_en, d.name_en) as name_en,
+      i.id as item_id, i.code as item_code, i.name_km as item_name, i.unit, coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value
+    from catalog_items i left join accounts a on a.id = i.inventory_account_id left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
+      left join stock_moves m on m.item_id = i.id and m.move_date <= ${to}::date
+    where i.company_id = ${user.companyId} and i.track_stock group by 1, 2, 3, 4, 5, 6, 7 order by 1, 5 nulls last, 6`;
+  const byCode = new Map<string, { code: string; name_km: string; name_en: string | null; qty: number; value: number; balance: number | null; difference: number | null;
+    items: { item_id: string; code: string | null; name: string; unit: string; qty: number; value: number }[] }>();
+  for (const r of rows) {
+    const acc = byCode.get(r.code) ?? { code: r.code, name_km: r.name_km, name_en: r.name_en, qty: 0, value: 0, balance: null, difference: null, items: [] };
+    const qty = Number(r.qty), value = Number(r.value);
+    acc.qty += qty; acc.value += value; acc.items.push({ item_id: r.item_id, code: r.item_code, name: r.item_name, unit: r.unit, qty, value });
+    byCode.set(r.code, acc);
+  }
+  let books: { total: number } | null = null;
+  if (withBooks) {
+    const bal = await sql<{ code: string; name_km: string; name_en: string | null; balance: string }[]>`
+      select a.code, a.name_km, a.name_en, coalesce(sum(case when e.entry_date <= ${to}::date then l.debit_cents - l.credit_cents else 0 end), 0)::text as balance
+      from accounts a left join journal_lines l on l.account_id = a.id left join journal_entries e on e.id = l.entry_id
+      where a.company_id = ${user.companyId} and a.type = 'asset' and not a.is_group and a.code ~ '^1[3-8][0-9]{3}$' group by a.id, a.code, a.name_km, a.name_en order by a.code`;
+    let total = 0;
+    for (const b of bal) {
+      const balance = Number(b.balance);
+      total += balance;
+      const acc = byCode.get(b.code) ?? { code: b.code, name_km: b.name_km, name_en: b.name_en, qty: 0, value: 0, balance: null, difference: null, items: [] };
+      acc.balance = balance; acc.difference = acc.value - balance;
+      byCode.set(b.code, acc);
+    }
+    books = { total };
+  }
+  const accounts = [...byCode.values()].filter((a) => a.items.length || (a.balance ?? 0) !== 0).sort((x, y) => x.code.localeCompare(y.code));
+  const stock_total = accounts.reduce((s, a) => s + a.value, 0);
+  return { to, accounts, stock_total, books_total: books?.total ?? null, difference: books ? stock_total - books.total : null };
 }
 
 /** stock card: opening, every move with running quantity and value, ending (value only for the whole company) */

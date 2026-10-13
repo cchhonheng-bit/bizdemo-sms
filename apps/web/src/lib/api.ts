@@ -79,13 +79,13 @@ export type Checkpoint = { step: "depart" | "arrive" | "start" | "finish" | "ret
 export type JobInfo = {
   checkpoints: Checkpoint[]; durations: { travel: number | null; wait: number | null; work: number | null; return: number | null };
   photos: { id: string; kind: "before" | "after" | "survey"; created_at: string }[];
-  materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number; added_at?: string; added_by_name?: string | null; confirmed_at?: string | null }[];
+  materials: { catalog_item_id: string; name_km: string; name_en: string | null; unit: string; qty: number; kind?: "service" | "product"; code?: string | null; track_stock?: boolean; added_at?: string; added_by_name?: string | null; confirmed_at?: string | null }[];
   /** D-140 F: work the technician added on site (prices hidden from technicians) */
   extras?: JobExtra[];
   report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null } | null;
 };
 /** D-140 F: a line added on site — «បន្ថែមដោយជាង» (who, when), reviewed by Admin / GM before the invoice */
-export type JobExtra = { id: string; kind: "service" | "other"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null;
+export type JobExtra = { id: string; kind: "service" | "other" | "material"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null;
   photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: string; added_by: string | null; added_by_name: string | null; reviewed_at: string | null; reviewed_by_name: string | null; review_note: string | null };
 export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
@@ -151,16 +151,25 @@ export type CustomerHistory = { customer: Customer;
   invoices?: { id: string; number: string; status: "draft" | "issued" | "void"; issued_at: string | null; created_at: string; booking_number: string | null; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid" }[];
   debt?: number };
 export type StockLocation = { id: string; name: string; kind: "warehouse" | "vehicle"; vehicle_id: string | null; vehicle_code: string | null; is_active: boolean };
-export type StockItem = { item_id: string; name: string; unit: string; qty: number; value: number; avg_cost: number; reorder_level: number | null; low: boolean; by_location: { location_id: string; name: string; qty: number }[] };
+export type StockItem = { item_id: string; code?: string | null; name: string; unit: string; qty: number; value: number; avg_cost: number; reorder_level: number | null; low: boolean; by_location: { location_id: string; name: string; qty: number }[];
+  /** D-142: the item's stock account (13001 …, 14000 …; none → 18000) — the stock page groups by it */
+  account_id?: string | null; account_code?: string | null; account_name?: string | null; account_name_en?: string | null };
+/** D-142 «តម្លៃស្តុកចុងខែ»: stock by account on a day beside the books' stock accounts (balance / difference only with accounting.view) */
+export type MonthEnd = { to: string; stock_total: number; books_total: number | null; difference: number | null;
+  accounts: { code: string; name_km: string; name_en: string | null; qty: number; value: number; balance: number | null; difference: number | null; items: { item_id: string; code: string | null; name: string; unit: string; qty: number; value: number }[] }[] };
+/** D-142 «ការកត់ត្រាគណនេយ្យ»: the entries of one invoice, line by line */
+export type InvoiceJournal = { id: string; number: string; date: string; memo: string; source: string; status: "posted" | "reversed"; lines: { code: string; name_km: string; name_en: string | null; debit: number; credit: number }[] };
 export type StockCardRow = { id: number; date: string; kind: string; qty: number; value: number | null; balance_qty: number; balance_value: number | null; ref_label: string | null; reason: string | null; supplier: string | null; location: string; by_name: string | null };
 export type StockCard = { opening: { qty: number; value: number | null }; rows: StockCardRow[]; ending: { qty: number; value: number | null } };
-export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; cancelled?: boolean; ended_at?: string; materials: { item_id: string; name: string; unit: string; qty: number }[] };
+export type PendingJob = { booking_id: string; number: string; status: string; customer_name: string; suggested_location_id: string; cancelled?: boolean; ended_at?: string; vehicle_code?: string | null; materials: { item_id: string; name: string; unit: string; qty: number }[] };
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 // ---------- accounting (D-88) ----------
 export type AcctType = "asset" | "liability" | "equity" | "income" | "expense";
 export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL";
   /** D-141: a group header (never posted to), its group, an account the system added («បន្ថែមដោយប្រព័ន្ធ») */
-  is_group?: boolean; parent_code?: string | null; added_by_system?: boolean };
+  is_group?: boolean; parent_code?: string | null; added_by_system?: boolean;
+  /** D-142: the stock account's items carry sub codes (14001 …); off = the account is its one item (13001) */
+  sub_codes?: boolean };
 export type JournalRow = { id: string; number: string; date: string; memo: string; source: string; source_id: string | null; reversal_of: string | null; amount: number;
   status: "posted" | "reversed"; created_by_name: string | null; attachment_id: string | null };
 export type JournalLine = { id: number; account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; debit: number; credit: number; memo: string | null;
@@ -245,6 +254,8 @@ export const api = {
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
+  /** D-142: the next item code under a stock account (sub codes), or the account's own code (one item) */
+  catalogNextCode: (account: string) => get<{ code: string; sub_codes: boolean; taken: boolean }>(`/api/catalog/next-code?account=${account}`),
   upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null; inventory_account_id?: string | null;
     code?: string | null; web_category?: WebCategory | null; from_price?: number | null; show_on_website?: boolean; quote_only?: boolean }) =>
     (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months,
@@ -289,7 +300,7 @@ export const api = {
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
     /** D-140 F: work added on site */
-    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; photo?: string | null }) =>
+    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number } | { kind: "other" | "material"; description: string; qty?: number; unit?: string | null; photo?: string | null }) =>
       post<{ id: string; ends_at: string | null; overlap: { number: string; scheduled_at: string; who: string } | null }>(`/api/bookings/${id}/extras`, v),
     removeExtra: (id: string, xid: string) => del(`/api/bookings/${id}/extras/${xid}`),
     reviewExtra: (id: string, xid: string, v: { action: "confirm" | "remove"; unit_price?: number | null; reason?: string | null }) => post(`/api/bookings/${id}/extras/${xid}/review`, v),
@@ -307,6 +318,7 @@ export const api = {
     list: (status?: string) => get<InvoiceRow[]>(`/api/invoices${status ? `?status=${status}` : ""}`),
     forBooking: async (bookingId: string) => (await get<InvoiceRow[]>(`/api/invoices?booking=${bookingId}`)).find((i) => i.status !== "void") ?? null,
     get: (id: string) => get<Invoice>(`/api/invoices/${id}`),
+    journal: (id: string) => get<InvoiceJournal[]>(`/api/invoices/${id}/journal`),
     prefill: (bookingId: string) => get<InvoicePrefill>(`/api/invoices/prefill?booking=${bookingId}`),
     create: (v: { booking_id?: string; customer_id?: string; lines: QuoteLine[]; notes: string }) => post<{ id: string; number: string }>("/api/invoices", v),
     update: (id: string, v: { lines: QuoteLine[]; notes: string }) => put(`/api/invoices/${id}`, v),
@@ -376,6 +388,7 @@ export const api = {
     transfer: (v: { item_id: string; from: string; to: string; qty: number }) => post("/api/inventory/transfer", v),
     card: (item: string, from: string, to: string, location?: string) => get<StockCard>(`/api/inventory/card?item=${item}&from=${from}&to=${to}${location ? `&location=${location}` : ""}`),
     pendingJobs: () => get<PendingJob[]>("/api/inventory/jobs/pending"),
+    monthEnd: (to: string) => get<MonthEnd>(`/api/inventory/month-end?to=${to}`),
     confirmJob: (bookingId: string, location_id: string | null) => post(`/api/inventory/jobs/${bookingId}/confirm`, { location_id }),
   },
   settingsImage: (kind: "logo" | "qr", data: string) => post(`/api/settings/image/${kind}`, { data }),
@@ -403,7 +416,7 @@ export const api = {
     setFiscalYear: (start_month: number) => post<{ start_month: number }>("/api/accounting/fiscal-year", { start_month }),
     closeYear: (year_end: string) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end }),
     accounts: () => get<Account[]>("/api/accounting/accounts"),
-    saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean }) => post<{ id: string }>("/api/accounting/accounts", v),
+    saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean; sub_codes?: boolean }) => post<{ id: string }>("/api/accounting/accounts", v),
     deleteAccount: (id: string) => del(`/api/accounting/accounts/${id}`),
     journal: (from: string, to: string, source?: string) => get<JournalRow[]>(`/api/accounting/journal?from=${from}&to=${to}${source ? `&source=${source}` : ""}`),
     entry: (id: string) => get<JournalEntry>(`/api/accounting/journal/${id}`),

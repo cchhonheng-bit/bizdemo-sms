@@ -3,7 +3,8 @@
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { catalogItemSchema } from "@sms/shared";
-import { applyImport, catalogMeta, catalogTemplate, listCatalog, previewImport, setItemActive, upsertItem } from "../services/catalog.js";
+import { applyImport, catalogMeta, catalogTemplate, listCatalog, nextItemCode, previewImport, setItemActive, upsertItem } from "../services/catalog.js";
+import { sql } from "../db.js";
 import { AppError } from "../lib/errors.js";
 
 const file = z.object({ data: z.string().min(10).max(3_000_000) }).strict();
@@ -13,6 +14,8 @@ export const catalogRoutes: FastifyPluginAsync = async (app) => {
   const auth = { preHandler: app.requireAuth };
   app.get("/", auth, async (req) => listCatalog(req.user!, req.perms));
   app.get("/meta", auth, async (req) => catalogMeta(req.user!));
+  // D-142: the next item code under a stock account (the form fills it in; still editable)
+  app.get("/next-code", auth, async (req) => nextItemCode(sql, req.user!.companyId, z.object({ account: z.string().uuid() }).parse(req.query ?? {}).account));
   app.post("/", auth, async (req) => {
     const b = catalogItemSchema.extend({ id: z.string().uuid().nullable().optional() }).parse(req.body);
     return { id: await upsertItem(req.user!, req.ip, b, req.perms.includes("cost.read")) };

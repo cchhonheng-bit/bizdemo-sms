@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, updateInvoice,
 } from "../services/invoices.js";
+import { invoiceJournal } from "../services/accounting.js";
 
 const line = z.object({
   catalog_item_id: z.string().uuid().optional().nullable(),
@@ -31,6 +32,8 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.get("/uninvoiced", async (req) => uninvoiced(req.user!.companyId)); // A1
   app.get("/prefill", { preHandler: app.requirePerm("invoice.issue") }, async (req) => prefill(req.user!, z.object({ booking: z.string().uuid() }).parse(req.query ?? {}).booking));
   app.get("/:id", async (req) => getInvoice(req.user!, req.perms, idParam.parse(req.params).id));
+  // D-142 «ការកត់ត្រាគណនេយ្យ»: the invoice's entries, line by line (CFO / CEO / Admin — accounting.view)
+  app.get("/:id/journal", { preHandler: app.requirePerm("accounting.view") }, async (req) => invoiceJournal(req.user!, idParam.parse(req.params).id));
 
   app.post("/", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
     const v = z.object({ booking_id: z.string().uuid().optional(), customer_id: z.string().uuid().optional(), lines, notes: z.string().max(2000).optional().nullable() })

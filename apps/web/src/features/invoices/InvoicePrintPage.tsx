@@ -46,7 +46,7 @@ export default function InvoicePrintPage() {
         </header>
         <section className="grid sm:grid-cols-2 gap-3 my-4">
           <div><div className="text-xs text-muted">{t("print.customer")}</div><div className="font-semibold">{d.customer_name}</div><div className="text-xs">{d.customer_phones.map(formatKhPhone).join(", ")}</div><div className="text-xs">{d.address ?? ""}</div></div>
-          {d.booking_number && <div><div className="text-xs text-muted">{t("print.job")}</div><div>{d.booking_number}</div><div className="text-xs break-words">{d.service_text}</div></div>}
+          {d.booking_number && <div><div className="text-xs text-muted">{t("print.job")}</div><div>{d.booking_number}</div></div>}
         </section>
         <table className="w-full border-collapse">
           <thead><tr className="bg-navy text-white text-xs"><th className="p-2 text-left">#</th><th className="p-2 text-left">{t("print.description")}</th><th className="p-2 text-right">{t("print.qty")}</th><th className="p-2 text-right">{t("print.price")}</th><th className="p-2 text-right">{t("print.amount")}</th></tr></thead>

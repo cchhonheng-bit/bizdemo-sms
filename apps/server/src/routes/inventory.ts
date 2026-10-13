@@ -1,7 +1,8 @@
 // Inventory (D-87 · flag "inventory"): read with inventory.view, change with inventory.manage. Technicians never (fixed rule).
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { adjust, card, confirmJob, items, listLocations, opening, pendingJobs, saveLocation, stockIn, trackItem, transfer } from "../services/inventory.js";
+import { adjust, card, confirmJob, items, listLocations, monthEnd, opening, pendingJobs, saveLocation, stockIn, trackItem, transfer } from "../services/inventory.js";
+import { featureOn } from "../lib/features.js";
 
 const id = z.string().uuid();
 const qty = z.number().positive().max(1_000_000).multipleOf(0.001);
@@ -32,5 +33,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     return card(req.user!, q.item, q.from, q.to, q.location);
   });
   app.get("/jobs/pending", manage, async (req) => pendingJobs(req.user!));
+  // D-142 «តម្លៃស្តុកចុងខែ»: stock by account on a day beside the books' stock accounts (the books side needs accounting.view)
+  app.get("/month-end", view, async (req) => monthEnd(req.user!, z.object({ to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).parse(req.query ?? {}).to,
+    featureOn("accounting") && req.perms.includes("accounting.view")));
   app.post("/jobs/:id/confirm", manage, async (req) => confirmJob(req.user!, req.ip, z.object({ id }).parse(req.params).id, z.object({ location_id: id.nullable().optional() }).parse(req.body ?? {}).location_id));
 };

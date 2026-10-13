@@ -13,8 +13,9 @@ import { toast } from "@/lib/toast";
 import { presetRange, type Range } from "@/features/reports/range";
 import RangePicker from "@/features/reports/RangePicker";
 import { todayLocal } from "@/features/invoices/util";
+import MonthEnd from "./MonthEnd";
 
-type Tab = "stock" | "jobs" | "locations";
+type Tab = "stock" | "jobs" | "monthend" | "locations";
 type Op = "in" | "adjust" | "transfer" | "opening";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
@@ -23,7 +24,7 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = manage ? ["stock", "jobs", "locations"] : ["stock"];
+  const tabs: Tab[] = manage ? ["stock", "jobs", "monthend", "locations"] : ["stock", "monthend"];
   const [sp] = useSearchParams(); // D-140 E1: the dashboard's «សម្ភារៈរង់ចាំបញ្ជាក់» opens the jobs tab
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
@@ -34,7 +35,7 @@ export default function InventoryPage() {
           {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
         </div>
       )}
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "jobs" ? <Jobs /> : <Locations />}
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "jobs" ? <Jobs /> : tab === "monthend" ? <MonthEnd /> : <Locations />}
     </div>
   );
 }
@@ -45,12 +46,20 @@ function useErr() {
 }
 
 function Stock({ manage }: { manage: boolean }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const q = useQuery({ queryKey: ["stock-items"], queryFn: api.inventory.items });
   const [op, setOp] = useState<Op | null>(null);
   const [cardOf, setCardOf] = useState<StockItem | null>(null);
   const [tracking, setTracking] = useState(false);
   const total = (q.data ?? []).reduce((s, i) => s + i.value, 0);
+  // D-142: any product can be stocked in / moved — the dialogs list every active product (tracked ones with their quantity)
+  const cat = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
+  const allProducts = useMemo<StockItem[]>(() => (cat.data ?? []).filter((i) => i.kind === "product" && i.is_active).map((i) => (q.data ?? []).find((s) => s.item_id === i.id)
+    ?? { item_id: i.id, code: i.code ?? null, name: i.name_km, unit: i.unit, qty: 0, value: 0, avg_cost: 0, reorder_level: null, low: false, by_location: [] }), [cat.data, q.data]);
+  // grouped by stock account (13001 …, 14000 …, 18000), each group expandable
+  const groups = useMemo(() => { const g = new Map<string, { code: string; name: string; items: StockItem[] }>(); for (const i of q.data ?? []) { const k = i.account_code ?? "—";
+    const x = g.get(k) ?? { code: k, name: (i18n.language === "en" && i.account_name_en) || i.account_name || "", items: [] }; x.items.push(i); g.set(k, x); } return [...g.values()]; }, [q.data, i18n.language]);
+  const [closed, setClosed] = useState<Record<string, boolean>>({});
   return (
     <>
       {manage && (
@@ -63,26 +72,38 @@ function Stock({ manage }: { manage: boolean }) {
       )}
       <Card title={`${t("inventory.value_total")} · ${formatUsd(total)}`} actions={manage ? <Button onClick={() => setTracking(true)} data-testid="track-open"><Plus size={16} /> {t("inventory.track")}</Button> : undefined}>
         {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("inventory.none")} /> : (
-          <ul className="divide-y divide-grey-line -my-2" data-testid="stock-list">
-            {q.data.map((i) => (
-              <li key={i.item_id}>
-                <button className="w-full text-left py-3 min-h-[56px]" onClick={() => setCardOf(i)}>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="font-semibold break-words min-w-0">{i.name}</span>
-                    <span className="font-bold tabular whitespace-nowrap">{qtyFmt(i.qty)} {i.unit}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-1 text-xs items-center">
-                    <span className="text-muted tabular">{formatUsd(i.value)} · {t("inventory.avg")} {formatUsd(i.avg_cost)}</span>
-                    {i.low && <Badge tone="danger">{t("inventory.low", { level: i.reorder_level })}</Badge>}
-                    {i.by_location.filter((l) => l.qty !== 0).map((l) => <Badge key={l.location_id} tone="grey">{l.name}: {qtyFmt(l.qty)}</Badge>)}
-                  </div>
+          <div className="-my-2" data-testid="stock-list">
+            {groups.map((g) => (
+              <div key={g.code} data-testid="stock-group">
+                <button className="w-full flex items-center justify-between gap-2 py-3 min-h-[48px] font-semibold border-b border-grey-line" onClick={() => setClosed((c) => ({ ...c, [g.code]: !c[g.code] }))} aria-expanded={!closed[g.code]}>
+                  <span className="min-w-0 break-words text-left"><span className="font-mono">{g.code}</span> {g.name} <span className="text-xs text-muted font-normal">· {g.items.length}</span></span>
+                  <span className="tabular whitespace-nowrap">{formatUsd(g.items.reduce((s, i) => s + i.value, 0))}</span>
                 </button>
-              </li>
+                {!closed[g.code] && (
+                  <ul className="divide-y divide-grey-line">
+                    {g.items.map((i) => (
+                      <li key={i.item_id}>
+                        <button className="w-full text-left py-3 pl-3 min-h-[56px]" onClick={() => setCardOf(i)}>
+                          <div className="flex items-baseline justify-between gap-2">
+                            <span className="font-semibold break-words min-w-0">{i.code && <span className="font-mono text-xs text-muted mr-1">{i.code}</span>}{i.name}</span>
+                            <span className="font-bold tabular whitespace-nowrap">{qtyFmt(i.qty)} {i.unit}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 mt-1 text-xs items-center">
+                            <span className="text-muted tabular">{t("inventory.unit_cost_short")} {formatUsd(i.avg_cost)} · {formatUsd(i.value)}</span>
+                            {i.low && <Badge tone="danger">{t("inventory.low", { level: i.reorder_level })}</Badge>}
+                            {i.by_location.filter((l) => l.qty !== 0).map((l) => <Badge key={l.location_id} tone="grey">{l.name}: {qtyFmt(l.qty)}</Badge>)}
+                          </div>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             ))}
-          </ul>
+          </div>
         )}
       </Card>
-      {op && <OpDialog op={op} items={q.data ?? []} onClose={() => setOp(null)} />}
+      {op && <OpDialog op={op} items={allProducts} onClose={() => setOp(null)} />}
       {cardOf && <CardDialog item={cardOf} onClose={() => setCardOf(null)} />}
       {tracking && <TrackDialog tracked={(q.data ?? []).map((i) => i.item_id)} onClose={() => setTracking(false)} />}
     </>
@@ -117,7 +138,7 @@ function OpDialog({ op, items, onClose }: { op: Op; items: StockItem[]; onClose:
       <Button variant="primary" className="flex-1 sm:flex-none" disabled={!valid} loading={save.isPending} onClick={() => save.mutate()} data-testid="op-save">{t("app.save")}</Button>
     </>}>
       {items.length === 0 ? <p className="text-sm text-muted">{t("inventory.track_first")}</p> : (<>
-        <Field label={t("inventory.item")}><Select value={item} onChange={(e) => setItem(e.target.value)} data-testid="op-item">{items.map((i) => <option key={i.item_id} value={i.item_id}>{i.name} ({qtyFmt(i.qty)} {i.unit})</option>)}</Select></Field>
+        <Field label={t("inventory.item")}><Select value={item} onChange={(e) => setItem(e.target.value)} data-testid="op-item">{items.map((i) => <option key={i.item_id} value={i.item_id}>{i.code ? `${i.code} · ` : ""}{i.name} ({qtyFmt(i.qty)} {i.unit})</option>)}</Select></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label={op === "transfer" ? t("inventory.from") : t("inventory.location")}><Select value={from} onChange={(e) => setLoc(e.target.value)} data-testid="op-loc">{active.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
           {op === "transfer"
@@ -209,7 +230,7 @@ function Jobs() {
             <div className="flex justify-between gap-2"><Link to={`/bookings/${j.booking_id}`} className="font-semibold text-blue underline min-w-0 break-words">{j.number} · {j.customer_name}</Link>{j.cancelled ? <Badge tone="danger">{t("inventory.cancelled_cost")}</Badge> : <Badge>{t(`status.${j.status}`)}</Badge>}</div>
             <ul className="text-sm mt-1">{j.materials.map((m) => <li key={m.item_id}>• {m.name}: {qtyFmt(m.qty)} {m.unit}</li>)}</ul>
             <div className="flex gap-2 mt-2 items-end">
-              <div className="flex-1"><Field label={t("inventory.from")}><Select value={loc} onChange={(e) => setChosen({ ...chosen, [j.booking_id]: e.target.value })}>{(locs.data ?? []).filter((l) => l.is_active).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field></div>
+              <div className="flex-1"><Field label={t("inventory.from")} hint={j.vehicle_code ? `🚐 ${j.vehicle_code} = ${t("inventory.job_vehicle")}` : undefined}><Select value={loc} onChange={(e) => setChosen({ ...chosen, [j.booking_id]: e.target.value })}>{(locs.data ?? []).filter((l) => l.is_active).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field></div>
               <Button variant="primary" className="mb-3" loading={confirm.isPending} onClick={() => confirm.mutate({ id: j.booking_id, loc })} data-testid="job-confirm"><Check size={16} /> {t("inventory.confirm")}</Button>
             </div>
           </Card>
