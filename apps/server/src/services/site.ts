@@ -73,7 +73,8 @@ export function checkFormToken(tok: string, now = Date.now()): "ok" | "fresh" | 
 
 // ---------- Settings → Website (settings.manage) ----------
 export type SitePatch = Partial<Omit<SiteContent, "hero" | "gallery">> & { name_km?: string; name_en?: string; phone?: string; address?: string };
-export const INFO_KEYS = ["name_km", "name_en", "phone", "address"] as const;
+/** D-148: the invoice print's own texts (tagline km / en, the bank line under «Payment Method», the footer line) — Settings → Website */
+export const INFO_KEYS = ["name_km", "name_en", "phone", "address", "invoice_tagline_km", "invoice_tagline_en", "bank_line", "invoice_footer_km"] as const;
 /** the checks of a Settings → Website save (the route and shop-setup, D-131) */
 const text = (n: number) => z.string().trim().max(n);
 const hm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "BAD_TIME");

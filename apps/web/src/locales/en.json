@@ -195,7 +195,11 @@
     "lunch_end": "Lunch until",
     "hours_hint": "Last start = closing time − job length · never across lunch · the shop has to confirm these hours",
     "promo_gap": "Days between two promotions for one customer",
-    "own_page": "Edit the website on the «Website» page in the menu"
+    "own_page": "Edit the website on the «Website» page in the menu",
+    "invoice_tagline_km": "Invoice: line under «INVOICE» (Khmer)",
+    "invoice_tagline_en": "Invoice: line under «INVOICE» (English)",
+    "bank_line": "Invoice: bank line (e.g. ACLEDA: account name)",
+    "invoice_footer_km": "Invoice: bottom line (services offered)"
   },
   "tg": {
     "opening": "Opening from Telegram…",

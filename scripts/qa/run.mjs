@@ -566,6 +566,7 @@ const gmDev = await device({ desktop: true });
     const imgs = await page.evaluate(() => [...document.querySelectorAll("img")].map((i) => ({ src: i.getAttribute("src"), w: i.naturalWidth })));
     must(imgs.some((i) => /image\/logo/.test(i.src) && i.w > 0), "logo not loaded"); must(imgs.some((i) => /image\/qr/.test(i.src) && i.w > 0), "QR not loaded");
     const body = await page.locator('[data-testid="invoice-print"]').innerText(); must(/៛/.test(body), "no riel total");
+    for (const w of ["INVOICE", "Payment Method", "Thank You!", "Serial Nº", "Prepared by", "Staff's Name", "Booking Nº"]) must(body.includes(w), `the print lacks «${w}» (D-148 template)`);
     const png = await page.locator('[data-testid="invoice-print"]').screenshot({ path: join(WORK, "invoice-print.png") });
     const dec = await browser.newPage(); await dec.goto("about:blank"); await dec.addScriptTag({ url: "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js" });
     const payload = await dec.evaluate(async (b64) => {

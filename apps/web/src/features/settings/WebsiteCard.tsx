@@ -11,7 +11,7 @@ import { Button, Card, Field, Input, Skeleton } from "@/components/ui";
 import { compressPhoto } from "@/lib/offline";
 import { toast } from "@/lib/toast";
 
-const INFO = ["name_km", "name_en", "phone", "address"] as const;
+const INFO = ["name_km", "name_en", "phone", "address", "invoice_tagline_km", "invoice_tagline_en", "bank_line", "invoice_footer_km"] as const; // D-148: the last four print on the invoice
 const TEXTS = ["short_name", "tagline_km", "tagline_en", "about_km", "about_en", "highlights_km", "highlights_en", "area_km", "area_en", "hours_km", "hours_en", "facebook"] as const;
 const AREA = new Set(["about_km", "about_en", "highlights_km", "highlights_en"]);
 type Key = (typeof INFO)[number] | (typeof TEXTS)[number];
