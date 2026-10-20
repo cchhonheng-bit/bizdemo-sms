@@ -9,12 +9,16 @@ COPY apps/web/package.json apps/web/
 COPY packages/shared/package.json packages/shared/
 RUN pnpm install --frozen-lockfile
 COPY . .
-ENV VITE_APP_NAME="One Team Service" VITE_APP_SHORT="One Team"
+# D-149: the build id (the image tag) is baked into the web bundle and the server — the app reloads itself when it changes
+ARG BUILD_SHA=dev
+ENV VITE_APP_NAME="One Team Service" VITE_APP_SHORT="One Team" VITE_BUILD=$BUILD_SHA
 RUN pnpm --filter @sms/web build && pnpm --filter @sms/server build \
  && pnpm --filter @sms/server --prod deploy /out
 
 # Runtime stage: production deps of the server only, non-root, tini as PID 1.
 FROM node:22-alpine
+ARG BUILD_SHA=dev
+ENV BUILD_SHA=$BUILD_SHA
 RUN apk add --no-cache tini wget
 WORKDIR /app
 COPY --from=build --chown=node:node /out/node_modules ./node_modules

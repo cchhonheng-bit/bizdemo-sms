@@ -97,7 +97,7 @@ if docker image inspect "$image" >/dev/null 2>&1; then
   say "4/6 image $image already built — reused"
 else
   say "4/6 docker build $image (on the server)"
-  docker build -q -t "$image" "$BUILD" >/dev/null || { rm -rf "$BUILD"; stop "docker build failed."; }
+  docker build -q --build-arg BUILD_SHA="$tag" -t "$image" "$BUILD" >/dev/null || { rm -rf "$BUILD"; stop "docker build failed."; }
   echo "    built $image"
 fi
 rm -rf "$BUILD"

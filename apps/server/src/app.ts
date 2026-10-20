@@ -132,7 +132,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   // ---- public ----------------------------------------------------------------
   app.get("/healthz", async () => {
     await sql`select 1`;
-    return { ok: true };
+    return { ok: true, build: process.env.BUILD_SHA || "dev" }; // D-149: the staff app compares it with its own build and reloads
   });
   app.get("/api/config", async () => {
     // one company per shop box → its public name fills {{company_name}} in /terms and /privacy (A7)

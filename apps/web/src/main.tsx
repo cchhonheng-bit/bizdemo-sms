@@ -6,8 +6,11 @@ import "@/styles.css";
 import App from "@/App";
 import { keepFocusedFieldVisible } from "@/lib/mobile";
 import { startOfflineSync } from "@/lib/offline";
+import { startAutoUpdate } from "@/lib/update";
 
 keepFocusedFieldVisible();
+// D-149: a new deploy reaches every open app by itself (service worker update + build id check → reload)
+startAutoUpdate();
 // checkpoints pressed offline are sent as soon as the phone is back online (real time kept)
 startOfflineSync(() => undefined);
 
