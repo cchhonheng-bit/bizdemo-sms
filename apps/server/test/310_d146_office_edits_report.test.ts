@@ -14,11 +14,12 @@ const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a
 const job = async (c: Client, b: string) => (await c.req("GET", `/api/bookings/${b}/job`)).json;
 const photos = async (b: string, kind: string) => ((await job(ceo, b)).photos as any[]).filter((p) => p.kind === kind).length;
 
-/** a job sent for review by kim: 1 before + 1 after photo, notes, signature */
+/** a job sent for review by kim: 1 before + 1 after photo, notes, signature — each in its own past window (the same technician never overlaps) */
+let slotN = 0;
 async function sent(h: number): Promise<string> {
   const b = (await ceo.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ជួសជុល", zone: "inside", ...span(new Date(Date.now() + h * 3600_000).toISOString()) })).json.id;
   expect((await gm.req("POST", `/api/bookings/${b}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
-  const start = Date.now() - 3 * 3600_000;
+  const start = Date.now() - (3 + 4 * slotN++) * 3600_000;
   await sql`update bookings set scheduled_at = ${new Date(start)}, ends_at = ${new Date(start + 2 * 3600_000)} where id = ${b}`;
   for (const step of ["depart", "arrive", "start", "finish"]) expect((await kim.req("POST", `/api/bookings/${b}/checkpoint`, { step, no_gps: true })).status).toBe(200);
   for (const kind of ["before", "after"]) expect((await kim.req("POST", `/api/bookings/${b}/photos`, { kind, data: JPEG })).status).toBe(200);
