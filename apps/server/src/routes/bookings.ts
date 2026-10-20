@@ -9,7 +9,7 @@ import { tellCustomer } from "../services/customer-notify.js";
 import { flushOutbox } from "../services/telegram.js";
 import { addSurveyPhoto, saveSurvey } from "../services/quotes.js";
 import { addExtra, forCrew, listExtras, removeOwnExtra, reviewExtra } from "../services/extras.js";
-import { addPhoto, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, STEPS, submitReport } from "../services/jobs.js";
+import { addPhoto, editReport, finishForTechnician, jobInfo, recordCheckpoint, removePhoto, reviewReport, STEPS, submitReport } from "../services/jobs.js";
 
 const idParam = z.object({ id: z.string().uuid() });
 const iso = z.string().datetime({ offset: true });
@@ -160,7 +160,12 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   });
   app.delete("/:id/photos/:fid", async (req) => {
     const p = z.object({ id: z.string().uuid(), fid: z.string().uuid() }).parse(req.params);
-    return removePhoto(req.user!, req.perms, p.id, p.fid);
+    return removePhoto(req.user!, req.perms, p.id, p.fid, req.ip);
+  });
+  // D-146: the office corrects a sent report's notes (photos go through the two routes above)
+  app.patch("/:id/report", async (req) => {
+    const v = z.object({ notes: z.string().max(2000).default("") }).strict().parse(req.body ?? {});
+    return editReport(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
   });
   app.post("/:id/report", bigBody, async (req) => {
     const v = z.object({ notes: z.string().max(2000).default(""), signature: z.string().optional().nullable() }).strict().parse(req.body ?? {});

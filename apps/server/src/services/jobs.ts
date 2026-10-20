@@ -105,8 +105,9 @@ export async function jobInfo(user: SessionUser, id: string) {
     select c.step, c.at, c.lat, c.lng, c.accuracy_m as accuracy, c.no_gps, c.offline, u.full_name as by_name
     from booking_checkpoints c left join users u on u.id = c.by_user where c.booking_id = ${id} order by c.at, c.id`;
   const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey') order by created_at`;
-  const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name
-    from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by where r.booking_id = ${id}`)[0] ?? null;
+  const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name,
+      r.edited_at, e.full_name as edited_by_name
+    from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by left join users e on e.id = r.edited_by where r.booking_id = ${id}`)[0] ?? null;
   return { checkpoints, durations: durations(checkpoints), photos, report };
 }
 
@@ -150,24 +151,64 @@ export async function storeFile(t: Db, user: SessionUser, bookingId: string, kin
 }
 
 export const PHOTO_STATUSES = ["on_site", "working", "work_done", "revision"];
+/** D-146: the office (the Admin, or anyone with job.review — GM, CEO) corrects a sent report itself: notes and before / after photos
+ *  while the job waits for review or is reviewed and not invoiced yet — no round trip to the technician */
+const OFFICE_EDIT_STATUSES = ["pending_review", "reviewed"];
+const isOffice = (user: SessionUser, perms: string[]) => user.role === "admin" || perms.includes("job.review");
+async function loadForOffice(t: Db, user: SessionUser, id: string): Promise<Booking> {
+  const b = (await t<Booking[]>`select b.id, b.company_id, b.number, b.status, b.scheduled_at, c.timezone from bookings b join companies c on c.id = b.company_id
+    where b.id = ${id} and b.company_id = ${user.companyId} and b.status <> 'cancelled' for update of b`)[0];
+  if (!b) throw notFound();
+  return b;
+}
 export async function addPhoto(user: SessionUser, perms: string[], ip: string | null, id: string, kind: "before" | "after", data: string) {
   return tx(user.id, async (t) => {
-    const b = await loadForCrew(t, user, id, perms);
-    if (["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
-    if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("NOT_ON_SITE", 400);
+    const office = isOffice(user, perms) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
+    const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
+    if (office && OFFICE_EDIT_STATUSES.includes(b.status)) { await touchReport(t, user, b, ip, { photo: kind }); }
+    else {
+      if (["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+      if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("NOT_ON_SITE", 400);
+    }
     const fid = await storeFile(t, user, id, kind, data);
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.photo", table: "job_files", rowId: fid, new: { booking_id: id, kind }, ip });
     return { id: fid };
   });
 }
-export async function removePhoto(user: SessionUser, perms: string[], id: string, fileId: string) {
+export async function removePhoto(user: SessionUser, perms: string[], id: string, fileId: string, ip: string | null = null) {
   return tx(user.id, async (t) => {
-    const b = await loadForCrew(t, user, id, perms);
-    if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    const office = isOffice(user, perms) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
+    const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
+    if (office && OFFICE_EDIT_STATUSES.includes(b.status)) {
+      // a sent report keeps at least one photo of each kind (OQ-08)
+      const f = (await t<{ kind: string }[]>`select kind from job_files where id = ${fileId} and booking_id = ${id} and deleted_at is null`)[0];
+      if (!f) throw notFound();
+      if (Number((await t<{ n: number }[]>`select count(*)::int as n from job_files where booking_id = ${id} and kind = ${f.kind} and deleted_at is null`)[0]!.n) <= 1) throw new AppError("PHOTOS_REQUIRED", 400);
+      await touchReport(t, user, b, ip, { removed_photo: f.kind });
+    } else if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
     const r = await t`update job_files set deleted_at = now() where id = ${fileId} and booking_id = ${id} and kind in ('before', 'after') and deleted_at is null returning id`;
     if (!r.length) throw notFound();
     return { ok: true };
   });
+}
+/** D-146: the office corrects the sent report's notes — who and when stay on the report; audited old → new */
+export async function editReport(user: SessionUser, perms: string[], ip: string | null, id: string, v: { notes: string }) {
+  if (!isOffice(user, perms)) throw forbidden();
+  return tx(user.id, async (t) => {
+    const b = await loadForOffice(t, user, id);
+    if (!OFFICE_EDIT_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    const old = (await t<{ notes: string | null }[]>`select notes from booking_reports where booking_id = ${id} for update`)[0];
+    if (!old) throw notFound();
+    const notes = v.notes.trim() || null;
+    await t`update booking_reports set notes = ${notes}, edited_by = ${user.id}, edited_at = now() where booking_id = ${id}`;
+    await audit(t, { companyId: b.company_id, userId: user.id, action: "job.report_edit", table: "booking_reports", rowId: id, old: { notes: old.notes }, new: { notes }, ip });
+    return { ok: true };
+  });
+}
+async function touchReport(t: Db, user: SessionUser, b: Booking, ip: string | null, what: Record<string, unknown>) {
+  if (!(await t`select 1 from booking_reports where booking_id = ${b.id}`).length) throw new AppError("REPORT_LOCKED", 400);
+  await t`update booking_reports set edited_by = ${user.id}, edited_at = now() where booking_id = ${b.id}`;
+  await audit(t, { companyId: b.company_id, userId: user.id, action: "job.report_edit", table: "booking_reports", rowId: b.id, new: what, ip });
 }
 /** authenticated download: same company; technicians only files of their jobs */
 export async function readJobFile(user: SessionUser, fileId: string): Promise<{ mime: string; data: Buffer }> {

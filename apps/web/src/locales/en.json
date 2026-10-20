@@ -857,7 +857,10 @@
       "NETWORK": "No internet",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
     },
-    "pick_item": "Search by name or code…"
+    "pick_item": "Search by name or code…",
+    "edit_report": "Correct the report",
+    "edited_by": "Corrected by {{name}} · {{at}}",
+    "edit_hint": "Admin or GM correct it here (notes · photos) — no need to send it back to the technician · keep at least one before and one after photo"
   },
   "quote": {
     "title": "Quotes",

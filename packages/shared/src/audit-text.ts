@@ -42,7 +42,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "job.extra_add": T("ជាងបន្ថែមការងារ", "Technician added work"), "job.extra_remove": T("ដកការងារបន្ថែមចេញ", "Added work taken back"),
   "job.extra_review": T("ពិនិត្យការងារបន្ថែម", "Added work reviewed"), "acct.chart_replace": T("ប្ដូរតារាងគណនី", "Chart of accounts replaced"),
   "job.checkpoint": T("ជាងចុចជំហានការងារ", "Technician step"), "job.materials": T("សម្ភារៈប្រើក្នុងការងារ", "Materials used"), "job.photo": T("រូបការងារ", "Job photo"),
-  "job.report": T("ផ្ញើរបាយការណ៍ការងារ", "Job report sent"), "job.review": T("ពិនិត្យការងារ", "Job reviewed"), "job.reviewed": T("ការងារបានពិនិត្យ", "Job approved"),
+  "job.report": T("ផ្ញើរបាយការណ៍ការងារ", "Job report sent"), "job.report_edit": T("កែរបាយការណ៍ការងារ (ការិយាល័យ)", "Job report corrected (office)"), "job.review": T("ពិនិត្យការងារ", "Job reviewed"), "job.reviewed": T("ការងារបានពិនិត្យ", "Job approved"),
   "job.revision": T("ឲ្យកែការងារ", "Job sent back"), "leave.absent": T("កត់អវត្តមាន", "Absence recorded"), "leave.approve": T("អនុម័តច្បាប់", "Leave approved"),
   "leave.approved": T("ច្បាប់បានអនុម័ត", "Leave approved"), "leave.cancel": T("បោះបង់ច្បាប់", "Leave cancelled"), "leave.reject": T("បដិសេធច្បាប់", "Leave rejected"),
   "leave.rejected": T("ច្បាប់ត្រូវបានបដិសេធ", "Leave rejected"), "leave.request": T("ស្នើច្បាប់ឈប់", "Leave requested"),

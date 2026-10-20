@@ -83,7 +83,9 @@ export type JobInfo = {
   photos: { id: string; kind: "before" | "after" | "survey"; created_at: string }[];
   /** D-140 F: work the technician added on site (prices hidden from technicians) */
   extras?: JobExtra[];
-  report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null } | null;
+  report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null;
+    /** D-146: corrected by the office after it was sent */
+    edited_at?: string | null; edited_by_name?: string | null } | null;
 };
 /** D-140 F: a line added on site — «បន្ថែមដោយជាង» (who, when), reviewed by Admin / GM before the invoice */
 export type JobExtra = { id: string; kind: "service" | "other" | "material"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null;
@@ -308,6 +310,8 @@ export const api = {
     photo: (id: string, kind: "before" | "after", data: string) => post<{ id: string }>(`/api/bookings/${id}/photos`, { kind, data }),
     removePhoto: (id: string, fid: string) => del(`/api/bookings/${id}/photos/${fid}`),
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
+    /** D-146: Admin / GM correct the sent report's notes themselves */
+    editReport: (id: string, notes: string) => patch<{ ok: true }>(`/api/bookings/${id}/report`, { notes }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
     /** D-140 F: work added on site */
     addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null }) =>
