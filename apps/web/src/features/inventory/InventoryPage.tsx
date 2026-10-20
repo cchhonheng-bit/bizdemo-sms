@@ -8,7 +8,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, toCents } from "@sms/shared";
 import { PackageMinus, PackagePlus, SlidersHorizontal } from "lucide-react";
-import { api, errCode, type StockItem, type StockPay } from "@/lib/api";
+import { api, errCode, fmtDateTime, type StockItem, type StockPay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -185,13 +185,21 @@ function StockOutDialog({ items, onClose }: { items: StockItem[]; onClose: () =>
   const refresh = useRefresh();
   const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
   const techs = useMemo(() => (users.data ?? []).filter((u) => u.role === "tech"), [users.data]);
-  const jobs = useQuery({ queryKey: ["bookings", "open-for-stock"], queryFn: () => api.bookings({ statuses: ["assigned", "en_route", "on_site", "working", "work_done", "pending_review", "reviewed"] as never }) });
+  // D-147: every job of the last 30 / next 30 days except cancelled ones — the technician's own first; a closed or invoiced job can still receive a late stock out
+  const day = 86_400_000;
+  const jobs = useQuery({ queryKey: ["bookings", "for-stock"], queryFn: () => api.bookings({ from: new Date(Date.now() - 30 * day).toISOString(), to: new Date(Date.now() + 30 * day).toISOString() }) });
   const [item, setItem] = useState(items[0]?.item_id ?? "");
   const [qty, setQty] = useState(""), [tech, setTech] = useState(""), [job, setJob] = useState(""), [place, setPlace] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
   const [left, setLeft] = useState<number | null>(null);
   const n = Number(qty);
   const current = items.find((i) => i.item_id === item);
-  const techJobs = useMemo(() => (jobs.data ?? []).filter((b) => !tech || b.technicians?.some((x) => x.user_id === tech)), [jobs.data, tech]);
+  const techJobs = useMemo(() => {
+    const all = (jobs.data ?? []).filter((b) => b.status !== "cancelled");
+    const mine = tech ? all.filter((b) => b.technicians?.some((x) => x.user_id === tech)) : [];
+    return [...mine, ...all.filter((b) => !mine.includes(b))];
+  }, [jobs.data, tech]);
+  const picked = techJobs.find((b) => b.id === job);
+  const pickJob = (id: string) => { setJob(id); const b = techJobs.find((x) => x.id === id); const lead = b?.technicians?.find((x) => x.role === "lead") ?? b?.technicians?.[0]; if (!tech && lead) setTech(lead.user_id); };
   const valid = !!item && n > 0 && !!tech && (!!job || place.trim().length > 0);
   const save = useMutation({
     mutationFn: () => api.inventory.stockOut({ item_id: item, qty: n, technician_id: tech, booking_id: job || null, place: job ? null : place.trim(), date, note: note.trim() || null }),
@@ -208,12 +216,22 @@ function StockOutDialog({ items, onClose }: { items: StockItem[]; onClose: () =>
         <div className="grid grid-cols-2 gap-2">
           <Field label={t("inventory.qty")} required hint={current ? t("inventory.in_stock", { qty: qtyFmt(current.qty), unit: current.unit }) : undefined}><Input inputMode="decimal" value={qty} onChange={(e) => setQty(e.target.value)} data-testid="op-qty" /></Field>
           <Field label={t("inventory.technician")} required>
-            <Select value={tech} onChange={(e) => { setTech(e.target.value); setJob(""); }} data-testid="out-tech"><option value="">—</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
+            <Select value={tech} onChange={(e) => setTech(e.target.value)} data-testid="out-tech"><option value="">—</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
           </Field>
         </div>
         <Field label={t("inventory.job")} hint={t("inventory.job_hint")}>
-          <Select value={job} onChange={(e) => setJob(e.target.value)} data-testid="out-job"><option value="">{t("inventory.no_job")}</option>{techJobs.map((b) => <option key={b.id} value={b.id}>{b.number} · {b.customer_name}</option>)}</Select>
+          <Select value={job} onChange={(e) => pickJob(e.target.value)} data-testid="out-job"><option value="">{t("inventory.no_job")}</option>{techJobs.map((b) => <option key={b.id} value={b.id}>{b.number} · {b.customer_name}{b.scheduled_at ? ` · ${b.scheduled_at.slice(5, 10).split("-").reverse().join("-")}` : ""} · {t(`status.${b.status}`)}</option>)}</Select>
         </Field>
+        {picked && (
+          <div className="rounded-md border border-grey-line bg-white p-3 mb-3 text-sm space-y-0.5" data-testid="out-job-info">
+            <div className="font-semibold break-words">{picked.number} · {picked.customer_name} <Badge tone="grey">{t(`status.${picked.status}`)}</Badge></div>
+            <div className="break-words">{picked.service_text}</div>
+            {picked.scheduled_at && <div className="text-muted">🕒 {fmtDateTime(picked.scheduled_at)}</div>}
+            {picked.address && <div className="text-muted break-words">📍 {picked.address}</div>}
+            {picked.customer_phones?.length > 0 && <div className="text-muted">📞 {picked.customer_phones.join(" · ")}</div>}
+            {picked.technicians?.length ? <div className="text-muted">👷 {picked.technicians.map((x) => x.full_name).join(", ")}</div> : null}
+          </div>
+        )}
         {!job && <Field label={t("inventory.place")} required><Input value={place} onChange={(e) => setPlace(e.target.value)} maxLength={120} placeholder={t("inventory.place_ph")} data-testid="out-place" /></Field>}
         <div className="grid grid-cols-2 gap-2">
           <DateField value={date} onChange={setDate} />
