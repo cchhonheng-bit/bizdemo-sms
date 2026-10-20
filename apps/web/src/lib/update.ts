@@ -1,12 +1,11 @@
 // D-149 (owner 20-10): the staff app reloads itself when a new build is deployed — nobody has to clear the cache or reopen the app.
 // Two signals, both checked every 5 minutes and whenever the app comes back to the front:
-//  1. the service worker (vite-plugin-pwa, autoUpdate): `registration.update()` fetches the new worker; when it takes control
-//     (`controllerchange`) the page reloads once;
+//  1. the service worker (vite-plugin-pwa, autoUpdate — the new worker takes over at once): `registration.update()` fetches it;
+//     when it takes control (`controllerchange`) the page reloads once;
 //  2. the build id: `/healthz` answers `{ build }` (baked into the image at docker build); when it differs from the build this
-//     bundle was made with, the worker is asked to update and the page reloads a moment later.
-// A reload never interrupts typing: while a field has the focus the reload waits for the next check.
-import { registerSW } from "virtual:pwa-register";
-
+//     bundle was made with, the worker is asked to update and the page reloads a moment later even if the worker stays quiet.
+// A reload never interrupts typing: while a field has the focus the reload waits. No extra dependency (no workbox-window): the
+// plugin's own inline script registers the worker; this module only talks to the registration.
 const MINUTE = 60_000;
 const BUILD = (import.meta.env.VITE_BUILD as string | undefined) ?? "dev";
 let reloading = false;
@@ -24,14 +23,11 @@ function reload(): void {
 
 export function startAutoUpdate(): void {
   if (!("serviceWorker" in navigator)) return;
-  let reg: ServiceWorkerRegistration | undefined;
-  const update = registerSW({
-    immediate: true,
-    onRegisteredSW(_url, r) { reg = r; },
-  });
-  navigator.serviceWorker.addEventListener("controllerchange", () => { if (navigator.serviceWorker.controller) reload(); });
+  const sw = navigator.serviceWorker;
+  sw.addEventListener("controllerchange", () => { if (sw.controller) reload(); });
   let newer = false;
   const check = async () => {
+    const reg = await sw.getRegistration().catch(() => undefined);
     try { await reg?.update(); } catch { /* offline */ }
     if (BUILD === "dev") return;
     try {
@@ -40,7 +36,7 @@ export function startAutoUpdate(): void {
       if (j.build && j.build !== BUILD) {
         if (newer) return reload(); // the second time round: the worker had its chance — reload anyway
         newer = true;
-        await update(true).catch(() => undefined); // activate the waiting worker → controllerchange → reload
+        reg?.waiting?.postMessage({ type: "SKIP_WAITING" }); // a worker still waiting → take over now → controllerchange → reload
         setTimeout(() => { if (!reloading) reload(); }, 3_000);
       }
     } catch { /* offline: next time */ }
