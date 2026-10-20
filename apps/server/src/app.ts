@@ -197,9 +197,12 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(internalRoutes, { prefix: "/internal" });
 
   // ---- web app (static; SPA fallback in the not-found handler) ------------------
+  // D-149: the plugin sets no Cache-Control of its own (with maxAge it overwrote the «no-cache» set before sendFile — the app shell
+  // and sw.js were cached for an hour, so a deploy reached the phones late). Hashed /assets/ files never change → immutable;
+  // index.html / sw.js / manifest always revalidate.
   if (hasWeb) app.register(fstatic, {
-    root: config.webDist, prefix: `${APP_BASE}/`, wildcard: false, index: false, maxAge: "1h", // the page addresses are routed above and in the not-found handler
-    setHeaders: (res, path) => { if (!/[\\/]assets[\\/]/.test(path)) res.setHeader("Cache-Control", "no-cache"); }, // index.html / sw.js / manifest always revalidate
+    root: config.webDist, prefix: `${APP_BASE}/`, wildcard: false, index: false, cacheControl: false, // the page addresses are routed above and in the not-found handler
+    setHeaders: (res, path) => { res.setHeader("Cache-Control", /[\\/]assets[\\/]/.test(path) ? "public, max-age=31536000, immutable" : "no-cache"); },
   });
   return app;
 }
