@@ -67,6 +67,7 @@ export default function JobExecution({ booking }: { booking: Booking }) {
   const info = useQuery({ queryKey: ["job", booking.id], queryFn: () => api.job.info(booking.id), enabled: EXEC.includes(booking.status) });
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["job", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); };
   const [busy, setBusy] = useState(false);
+  const [extraDirty, setExtraDirty] = useState(false); // D-154: a line picked but not added blocks «send»
   const { me } = useAuth(); // D-140 F: own added lines can be taken back
   if (!EXEC.includes(booking.status)) return null;
   if (info.isLoading || !info.data) return <Skeleton rows={4} />;
@@ -88,7 +89,6 @@ export default function JobExecution({ booking }: { booking: Booking }) {
   };
   const reportOpen = ["on_site", "working", "work_done", "revision"].includes(booking.status);
   const waiting = booking.status === "pending_review"; // D-154: the report is sent — lines and notes can still be fixed until the office reviews
-  const [extraDirty, setExtraDirty] = useState(false);
 
   return (
     <>
