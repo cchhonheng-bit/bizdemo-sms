@@ -155,7 +155,7 @@ export const PHOTO_STATUSES = ["on_site", "working", "work_done", "revision"];
  *  while the job waits for review or is reviewed and not invoiced yet — no round trip to the technician */
 const OFFICE_EDIT_STATUSES = ["pending_review", "reviewed"];
 const isOffice = (user: SessionUser, perms: string[]) => user.role === "admin" || perms.includes("job.review");
-async function loadForOffice(t: Db, user: SessionUser, id: string): Promise<Booking> {
+export async function loadForOffice(t: Db, user: SessionUser, id: string): Promise<Booking> {
   const b = (await t<Booking[]>`select b.id, b.company_id, b.number, b.status, b.scheduled_at, c.timezone from bookings b join companies c on c.id = b.company_id
     where b.id = ${id} and b.company_id = ${user.companyId} and b.status <> 'cancelled' for update of b`)[0];
   if (!b) throw notFound();

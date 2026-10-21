@@ -9,18 +9,20 @@ import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { extendJob } from "./bookings.js";
-import { loadForWork, PHOTO_STATUSES, storeFile } from "./jobs.js";
+import { loadForOffice, loadForWork, PHOTO_STATUSES, storeFile } from "./jobs.js";
 import { fmtLocal, notifyUser } from "./telegram.js";
 import { ceoIds, isTestBooking, testTitle } from "./test-mode.js";
 
 export type Extra = { id: string; kind: "service" | "other" | "material"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number;
   unit_price: number | null; photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: Date; added_by: string | null; added_by_name: string | null;
-  reviewed_at: Date | null; reviewed_by_name: string | null; review_note: string | null; item_kind: "service" | "product" | null };
+  reviewed_at: Date | null; reviewed_by_name: string | null; review_note: string | null; item_kind: "service" | "product" | null;
+  /** D-151: «បន្ថែមដោយការិយាល័យ» when the Admin / GM added the line (confirmed at once) */
+  added_by_role: string | null };
 
 /** the lines added on site (removed ones too, greyed — the review trail); prices only for the office (the route strips them for technicians) */
 export async function listExtras(db: Db, bookingId: string): Promise<Extra[]> {
   return db<Extra[]>`select x.id, x.kind, x.catalog_item_id, x.description, x.qty::float as qty, x.unit, x.minutes, x.unit_price, x.photo_file, x.status, x.added_at, x.added_by,
-      a.full_name as added_by_name, x.reviewed_at, r.full_name as reviewed_by_name, x.review_note, ci.kind::text as item_kind
+      a.full_name as added_by_name, a.role::text as added_by_role, x.reviewed_at, r.full_name as reviewed_by_name, x.review_note, ci.kind::text as item_kind
     from job_extras x left join users a on a.id = x.added_by left join users r on r.id = x.reviewed_by left join catalog_items ci on ci.id = x.catalog_item_id
     where x.booking_id = ${bookingId} order by x.added_at, x.id`;
 }
@@ -29,30 +31,44 @@ export async function pendingExtras(db: Db, bookingId: string): Promise<{ id: st
   return db<{ id: string; description: string }[]>`select id, description from job_extras where booking_id = ${bookingId} and status = 'pending' order by added_at`;
 }
 
-export type AddExtra = { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null };
+export type AddExtra = { kind: "service"; item_id: string; qty: number; unit_price?: number | null }
+  | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null };
+/** D-151: the office = the Admin, or anyone with job.review (GM, CEO) who is not on the job's crew — its lines need no review */
+const OFFICE_STATUSES = [...PHOTO_STATUSES, "pending_review", "reviewed"];
+const isOffice = async (t: Db, user: SessionUser, perms: string[], id: string) =>
+  (user.role === "admin" || perms.includes("job.review")) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
 
 export async function addExtra(user: SessionUser, perms: string[], ip: string | null, id: string, v: AddExtra) {
   const out = await tx(user.id, async (t) => {
-    const b = await loadForWork(t, user, id, perms);
-    if (!PHOTO_STATUSES.includes(b.status)) throw new AppError(["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status) ? "REPORT_LOCKED" : "NOT_ON_SITE", 400);
+    const office = await isOffice(t, user, perms, id);
+    const b = office ? await loadForOffice(t, user, id) : await loadForWork(t, user, id, perms);
+    const allowed = office ? OFFICE_STATUSES : PHOTO_STATUSES;
+    if (!allowed.includes(b.status)) throw new AppError(["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status) ? "REPORT_LOCKED" : "NOT_ON_SITE", 400);
+    if (office && (await t`select 1 from invoices where booking_id = ${id} and status <> 'void'`).length) throw new AppError("INVOICE_EXISTS", 409);
     let row: { catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null; photo: string | null };
     if (v.kind === "service") {
       // D-144: any line of the service / price list — a service (its length extends the job) or a package-priced sale line; never a stock item
       const i = (await t<{ id: string; name_km: string; unit: string; kind: string; duration_min: number; price: number | null }[]>`select id, name_km, unit, kind::text as kind, duration_min, coalesce(sell_price, from_price) as price
         from catalog_items where id = ${v.item_id} and company_id = ${user.companyId} and is_active and not is_stock`)[0];
       if (!i) throw new AppError("SERVICE_NOT_FOUND", 404);
-      row = { catalog_item_id: i.id, description: i.name_km, qty: v.qty, unit: i.unit, minutes: i.kind === "service" ? i.duration_min : 0, unit_price: i.price, photo: null };
+      row = { catalog_item_id: i.id, description: i.name_km, qty: v.qty, unit: i.unit, minutes: i.kind === "service" ? i.duration_min : 0,
+        unit_price: office && v.unit_price != null ? v.unit_price : i.price, photo: null }; // the office may price its own line
     } else {
       const text = v.description.trim();
       if (text.length < 2) throw new AppError("DESCRIPTION_REQUIRED", 400);
-      row = { catalog_item_id: null, description: text.slice(0, 300), qty: v.qty ?? 1, unit: v.unit?.trim().slice(0, 20) || null, minutes: 0, unit_price: null,
+      if (office && v.unit_price == null) throw new AppError("PRICE_REQUIRED", 400); // an office line is confirmed at once → it carries its price
+      row = { catalog_item_id: null, description: text.slice(0, 300), qty: v.qty ?? 1, unit: v.unit?.trim().slice(0, 20) || null, minutes: 0, unit_price: office ? v.unit_price! : null,
         photo: v.photo ? await storeFile(t, user, id, "extra", v.photo) : null };
     }
-    const xid = (await t<{ id: string }[]>`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, photo_file, added_by)
-      values (${user.companyId}, ${id}, ${v.kind}, ${row.catalog_item_id}, ${row.description}, ${row.qty}, ${row.unit}, ${row.minutes}, ${row.unit_price}, ${row.photo}, ${user.id}) returning id`)[0]!.id;
-    const ext = await extendJob(t, user.companyId, id, row.minutes);
+    // D-151: a line the office adds is confirmed at once (no review); a free line says goods or work (the invoice's kind)
+    const kind = v.kind === "other" && office && v.item_kind === "product" ? "material" : v.kind;
+    const xid = (await t<{ id: string }[]>`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, photo_file, added_by, status, reviewed_by, reviewed_at)
+      values (${user.companyId}, ${id}, ${kind}, ${row.catalog_item_id}, ${row.description}, ${row.qty}, ${row.unit}, ${row.minutes}, ${row.unit_price}, ${row.photo}, ${user.id},
+        ${office ? "confirmed" : "pending"}, ${office ? user.id : null}, ${office ? new Date() : null}) returning id`)[0]!.id;
+    // a job still running gets longer by a service's length; a finished one keeps its end (the line is only for the invoice)
+    const ext = PHOTO_STATUSES.includes(b.status) ? await extendJob(t, user.companyId, id, row.minutes) : { ends_at: null, wanted: null, clash: null };
     await audit(t, { companyId: user.companyId, userId: user.id, action: "job.extra_add", table: "job_extras", rowId: xid,
-      new: { booking_id: id, kind: v.kind, description: row.description, qty: row.qty, unit: row.unit, minutes: row.minutes, unit_price: row.unit_price, ends_at: ext.ends_at, ...(ext.clash ? { clash: ext.clash.number } : {}) }, ip });
+      new: { booking_id: id, kind, description: row.description, qty: row.qty, unit: row.unit, minutes: row.minutes, unit_price: row.unit_price, office, ends_at: ext.ends_at, ...(ext.clash ? { clash: ext.clash.number } : {}) }, ip });
     if (ext.clash) await tellClash(t, user, { id, number: b.number, timezone: b.timezone }, row.description, row.minutes, ext.clash, xid);
     return { id: xid, ends_at: ext.ends_at, overlap: ext.clash ? { number: ext.clash.number, scheduled_at: ext.clash.scheduled_at, who: ext.clash.who } : null };
   });

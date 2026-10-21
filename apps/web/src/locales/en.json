@@ -1713,6 +1713,10 @@
     },
     "unit": "Unit",
     "kind_service": "Service",
-    "kind_product": "Goods"
+    "kind_product": "Goods",
+    "added_by_office": "Added by the office · {{name}} · {{at}}",
+    "office_add": "Add work (office)",
+    "office_hint": "Admin or GM add it here — also after the technician's report · confirmed at once · the invoice follows directly, nothing goes back to the technician",
+    "none_yet": "No added work yet"
   }
 }

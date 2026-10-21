@@ -125,10 +125,12 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   // D-140 F: the technician (crew), GM or Admin adds work on site — a catalog service + qty, or «ការងារផ្សេងៗ» (text + photo, no price)
   app.post("/:id/extras", { bodyLimit: 3_000_000 }, async (req) => {
     const v = z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999) }).strict(),
+      z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional() }).strict(),
       // D-144 «ការងារ/សម្ភារៈបន្ថែម»: a text + quantity + unit + photo, priced by Admin / GM (who say service or goods)
       z.object({ kind: z.literal("other"), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(),
-        unit: z.string().trim().max(20).nullable().optional(), photo: z.string().max(2_900_000).nullable().optional() }).strict(),
+        unit: z.string().trim().max(20).nullable().optional(), photo: z.string().max(2_900_000).nullable().optional(),
+        // D-151: the office prices its own line when adding it (ignored for a technician: the office prices later)
+        unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), item_kind: z.enum(["service", "product"]).nullable().optional() }).strict(),
     ]).parse(req.body ?? {});
     const r = await addExtra(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));

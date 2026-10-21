@@ -17,10 +17,55 @@ const OPEN = ["on_site", "working", "work_done", "revision"];
 const dollars = (cents: number | null) => (cents == null ? "" : (cents / 100).toFixed(2));
 const toCents = (v: string) => (v.trim() === "" ? null : Math.round(Number(v) * 100));
 
-/** «បន្ថែមដោយជាង · Kim · 12-10 10:32» */
+/** «បន្ថែមដោយជាង · Kim · 12-10 10:32» — or «បន្ថែមដោយការិយាល័យ» for a line the Admin / GM added (D-151) */
 function AddedBy({ x }: { x: JobExtra }) {
   const { t } = useTranslation();
-  return <span className="text-xs text-muted" data-testid="extra-flag">{t("extras.added_by", { name: x.added_by_name ?? "—", at: fmtDateTime(x.added_at) })}</span>;
+  const office = !!x.added_by_role && x.added_by_role !== "tech";
+  return <span className="text-xs text-muted" data-testid="extra-flag">{t(office ? "extras.added_by_office" : "extras.added_by", { name: x.added_by_name ?? "—", at: fmtDateTime(x.added_at) })}</span>;
+}
+const OFFICE_OPEN = [...OPEN, "pending_review", "reviewed"];
+
+/** D-151: the Admin / GM add a line themselves — also after the report — confirmed at once with its price; the invoice follows directly */
+function OfficeAdd({ booking, onDone }: { booking: Booking; onDone: () => void }) {
+  const { t, i18n } = useTranslation();
+  const lang = i18n.language === "en" ? "en" : "km";
+  const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
+  const list = useMemo(() => (catalog.data ?? []).filter((i) => i.is_active && !i.is_stock), [catalog.data]);
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<"service" | "other">("service");
+  const [item, setItem] = useState(""), [qty, setQty] = useState("1"), [text, setText] = useState(""), [unit, setUnit] = useState(""), [price, setPrice] = useState(""), [kind, setKind] = useState<"service" | "product">("service");
+  const add = useMutation({
+    mutationFn: () => api.job.addExtra(booking.id, mode === "service" ? { kind: "service", item_id: item, qty: Math.max(1, Number(qty) || 1) }
+      : { kind: "other", description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, unit_price: toCents(price), item_kind: kind }),
+    onSuccess: () => { toast.success(t("extras.added")); setItem(""); setQty("1"); setText(""); setUnit(""); setPrice(""); setOpen(false); onDone(); },
+    onError: (e) => toast.error(t(`extras.err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  if (!OFFICE_OPEN.includes(booking.status)) return null;
+  if (!open) return <Button className="mt-3" onClick={() => setOpen(true)} data-testid="office-add-open"><Plus size={16} /> {t("extras.office_add")}</Button>;
+  const ready = mode === "service" ? !!item : text.trim().length >= 2 && price.trim() !== "";
+  return (
+    <div className="mt-3 rounded-md border border-grey-line p-3" data-testid="office-add">
+      <p className="text-xs text-muted mb-2">{t("extras.office_hint")}</p>
+      <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup">
+        {(["service", "other"] as const).map((m) => <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => setMode(m)} className={`min-h-[44px] rounded-md border px-3 text-sm ${mode === m ? "border-navy bg-[#E6EDFD] font-bold text-navy" : "border-grey-line bg-white"}`}>{t(`extras.mode_${m}`)}</button>)}
+      </div>
+      {mode === "service" ? (
+        <div className="flex gap-2 mb-3">
+          <Select name="office_item" className="flex-1 min-w-0" value={item} onChange={(e) => setItem(e.target.value)}><option value="">{t("booking.line_pick")}</option>{list.map((s) => <option key={s.id} value={s.id}>{lang === "en" && s.name_en ? s.name_en : s.name_km}{s.kind === "product" ? ` (${s.unit})` : ""}</option>)}</Select>
+          <Input type="number" inputMode="decimal" min={1} max={999} className="!w-20 tabular" name="office_qty" aria-label={t("booking.line_qty")} value={qty} onChange={(e) => setQty(e.target.value)} />
+        </div>
+      ) : (<>
+        <Field label={t("extras.other_text")}><Input name="office_text" maxLength={300} value={text} onChange={(e) => setText(e.target.value)} /></Field>
+        <div className="grid grid-cols-3 gap-x-2">
+          <Field label={t("booking.line_qty")}><Input type="number" inputMode="decimal" min={1} max={999} name="office_qty" value={qty} onChange={(e) => setQty(e.target.value)} /></Field>
+          <Field label={t("extras.unit")}><Input name="office_unit" maxLength={20} value={unit} onChange={(e) => setUnit(e.target.value)} /></Field>
+          <Field label={t("extras.price")} required><Input inputMode="decimal" placeholder="$" name="office_price" value={price} onChange={(e) => setPrice(e.target.value)} /></Field>
+        </div>
+        <div className="flex rounded-md border border-grey-line overflow-hidden mb-3 w-fit" role="radiogroup">{(["service", "product"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKind(k)} className={`px-3 min-h-[44px] text-xs ${kind === k ? "bg-navy text-white" : "bg-white"}`}>{t(`extras.kind_${k}`)}</button>)}</div>
+      </>)}
+      <div className="flex gap-2"><Button onClick={() => setOpen(false)}>{t("app.cancel")}</Button><Button variant="primary" disabled={!ready} loading={add.isPending} onClick={() => add.mutate()} data-testid="office-add-save">{t("extras.add")}</Button></div>
+    </div>
+  );
 }
 const qtyText = (x: JobExtra) => (x.qty !== 1 || x.unit ? ` ×${x.qty}${x.unit ? ` ${x.unit}` : ""}` : "");
 
@@ -130,10 +175,12 @@ export function ExtrasReview({ booking }: { booking: Booking }) {
     onError: (e) => toast.error(t(`extras.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
   const list = q.data?.extras ?? [];
-  if (!list.length) return null;
+  const office = OFFICE_OPEN.includes(booking.status);
+  if (!list.length && !office) return null;
   const waiting = list.filter((x) => x.status === "pending").length;
   return (
     <Card title={t("extras.review_title")} className="mb-4">
+      {!list.length && <p className="text-sm text-muted">{t("extras.none_yet")}</p>}
       {waiting > 0 && <p className="mb-3 rounded-md bg-warning-50 text-warning p-3 text-sm" data-testid="extras-waiting">{t("extras.waiting", { n: waiting })}</p>}
       <ul className="divide-y divide-grey-line" data-testid="extras-review">
         {list.map((x) => {
@@ -167,6 +214,7 @@ export function ExtrasReview({ booking }: { booking: Booking }) {
           );
         })}
       </ul>
+      <OfficeAdd booking={booking} onDone={refresh} />
       {removing && (
         <Dialog open onClose={() => setRemoving(null)} title={t("extras.remove")} footer={<>
           <Button onClick={() => setRemoving(null)}>{t("app.back")}</Button>

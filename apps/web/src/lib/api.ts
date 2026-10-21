@@ -91,6 +91,8 @@ export type JobInfo = {
 export type JobExtra = { id: string; kind: "service" | "other" | "material"; catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null;
   /** D-144: the price-list item's kind (a free line: null — Admin / GM say service or goods when they price it) */
   item_kind?: "service" | "product" | null;
+  /** D-151: who added it — "admin" / "gm" / "ceo" = the office (confirmed at once), "tech" = the technician */
+  added_by_role?: string | null;
   photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: string; added_by: string | null; added_by_name: string | null; reviewed_at: string | null; reviewed_by_name: string | null; review_note: string | null };
 export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
@@ -314,7 +316,7 @@ export const api = {
     editReport: (id: string, notes: string) => patch<{ ok: true }>(`/api/bookings/${id}/report`, { notes }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
     /** D-140 F: work added on site */
-    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null }) =>
+    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number; unit_price?: number | null } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null }) =>
       post<{ id: string; ends_at: string | null; overlap: { number: string; scheduled_at: string; who: string } | null }>(`/api/bookings/${id}/extras`, v),
     removeExtra: (id: string, xid: string) => del(`/api/bookings/${id}/extras/${xid}`),
     reviewExtra: (id: string, xid: string, v: { action: "confirm" | "remove"; unit_price?: number | null; reason?: string | null; kind?: "service" | "product" | null }) => post(`/api/bookings/${id}/extras/${xid}/review`, v),
