@@ -32,7 +32,8 @@
     "delete": "Delete",
     "remove": "Remove",
     "powered_by": "Powered by",
-    "last_change": "Last change: {{name}} · {{at}}"
+    "last_change": "Last change: {{name}} · {{at}}",
+    "ok": "OK"
   },
   "nav": {
     "dashboard": "Dashboard",
@@ -867,7 +868,11 @@
     "edit_hint": "Admin or GM correct it here (notes · photos) — no need to send it back to the technician · keep at least one before and one after photo",
     "fix_title": "Fix the report (before the review)",
     "fix_hint": "The report is sent — the notes and the added work above can still be changed until the office reviews",
-    "add_first": "A line is picked but not added — press «Add» or clear it first"
+    "add_first": "A line is picked but not added — press «Add» or clear it first",
+    "offline_saved": "Saved on the phone · sent by itself when the internet is back",
+    "offline_hint": "Sent by itself when online — do not remove the app",
+    "queued_photos": "{{n}} photo(s) waiting to send",
+    "sync_failed": "Could not send: {{what}} — {{error}}"
   },
   "quote": {
     "title": "Quotes",
@@ -1723,6 +1728,7 @@
     "none_yet": "No added work yet",
     "done_title": "Work done (technician)",
     "list_price": "List price {{price}} — tap to use",
-    "not_added_yet": "Not added yet — press «Add» to keep this line"
+    "not_added_yet": "Not added yet — press «Add» to keep this line",
+    "queued": "waiting to send"
   }
 }

@@ -125,12 +125,13 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   // D-140 F: the technician (crew), GM or Admin adds work on site — a catalog service + qty, or «ការងារផ្សេងៗ» (text + photo, no price)
   app.post("/:id/extras", { bodyLimit: 3_000_000 }, async (req) => {
     const v = z.discriminatedUnion("kind", [
-      z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional() }).strict(),
+      z.object({ kind: z.literal("service"), item_id: z.string().uuid(), qty: z.number().positive().max(999), unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(),
+        client_key: z.string().max(40).optional() }).strict(), // D-155: the phone's key — a retry never doubles the line
       // D-144 «ការងារ/សម្ភារៈបន្ថែម»: a text + quantity + unit + photo, priced by Admin / GM (who say service or goods)
       z.object({ kind: z.literal("other"), description: z.string().trim().min(2, "DESCRIPTION_REQUIRED").max(300, "TOO_LONG"), qty: z.number().positive().max(999).optional(),
         unit: z.string().trim().max(20).nullable().optional(), photo: z.string().max(2_900_000).nullable().optional(),
         // D-151: the office prices its own line when adding it (ignored for a technician: the office prices later)
-        unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), item_kind: z.enum(["service", "product"]).nullable().optional() }).strict(),
+        unit_price: z.number().int().min(0).max(100_000_000).nullable().optional(), item_kind: z.enum(["service", "product"]).nullable().optional(), client_key: z.string().max(40).optional() }).strict(),
     ]).parse(req.body ?? {});
     const r = await addExtra(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v);
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
@@ -157,8 +158,8 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   });
   const bigBody = { bodyLimit: 3_000_000 }; // base64 of a ≤ 2 MB compressed photo
   app.post("/:id/photos", bigBody, async (req) => {
-    const v = z.object({ kind: z.enum(["before", "after"]), data: z.string().min(10) }).strict().parse(req.body);
-    return addPhoto(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.kind, v.data);
+    const v = z.object({ kind: z.enum(["before", "after"]), data: z.string().min(10), client_key: z.string().max(40).optional() }).strict().parse(req.body);
+    return addPhoto(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.kind, v.data, v.client_key);
   });
   app.delete("/:id/photos/:fid", async (req) => {
     const p = z.object({ id: z.string().uuid(), fid: z.string().uuid() }).parse(req.params);

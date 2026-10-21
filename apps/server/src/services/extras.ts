@@ -34,8 +34,9 @@ export async function pendingExtras(db: Db, bookingId: string): Promise<{ id: st
   return db<{ id: string; description: string }[]>`select id, description from job_extras where booking_id = ${bookingId} and status = 'pending' order by added_at`;
 }
 
-export type AddExtra = { kind: "service"; item_id: string; qty: number; unit_price?: number | null }
-  | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null };
+export type AddExtra = ({ kind: "service"; item_id: string; qty: number; unit_price?: number | null }
+  | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null })
+  & { client_key?: string }; // D-155: the phone's key — a retry never doubles the line
 /** D-151: the office = the Admin, or anyone with job.review (GM, CEO) who is not on the job's crew — its lines need no review */
 const OFFICE_STATUSES = [...PHOTO_STATUSES, "pending_review", "reviewed"];
 const isOffice = async (t: Db, user: SessionUser, perms: string[], id: string) =>
@@ -43,6 +44,7 @@ const isOffice = async (t: Db, user: SessionUser, perms: string[], id: string) =
 
 export async function addExtra(user: SessionUser, perms: string[], ip: string | null, id: string, v: AddExtra) {
   const out = await tx(user.id, async (t) => {
+    if (v.client_key) { const dup = (await t<{ id: string }[]>`select id from job_extras where booking_id = ${id} and client_key = ${v.client_key}`)[0]; if (dup) return { id: dup.id, ends_at: null, overlap: null, duplicate: true }; }
     const office = await isOffice(t, user, perms, id);
     const b = office ? await loadForOffice(t, user, id) : await loadForWork(t, user, id, perms);
     const allowed = office ? OFFICE_STATUSES : [...PHOTO_STATUSES, "pending_review"]; // D-152: the technician still adds while the job waits for review
@@ -68,12 +70,13 @@ export async function addExtra(user: SessionUser, perms: string[], ip: string | 
     const xid = (await t<{ id: string }[]>`insert into job_extras (company_id, booking_id, kind, catalog_item_id, description, qty, unit, minutes, unit_price, photo_file, added_by, status, reviewed_by, reviewed_at)
       values (${user.companyId}, ${id}, ${kind}, ${row.catalog_item_id}, ${row.description}, ${row.qty}, ${row.unit}, ${row.minutes}, ${row.unit_price}, ${row.photo}, ${user.id},
         ${office ? "confirmed" : "pending"}, ${office ? user.id : null}, ${office ? new Date() : null}) returning id`)[0]!.id;
+    if (v.client_key) await t`update job_extras set client_key = ${v.client_key} where id = ${xid}`;
     // a job still running gets longer by a service's length; a finished one keeps its end (the line is only for the invoice)
     const ext = PHOTO_STATUSES.includes(b.status) ? await extendJob(t, user.companyId, id, row.minutes) : { ends_at: null, wanted: null, clash: null };
     await audit(t, { companyId: user.companyId, userId: user.id, action: "job.extra_add", table: "job_extras", rowId: xid,
       new: { booking_id: id, kind, description: row.description, qty: row.qty, unit: row.unit, minutes: row.minutes, unit_price: row.unit_price, office, ends_at: ext.ends_at, ...(ext.clash ? { clash: ext.clash.number } : {}) }, ip });
     if (ext.clash) await tellClash(t, user, { id, number: b.number, timezone: b.timezone }, row.description, row.minutes, ext.clash, xid);
-    return { id: xid, ends_at: ext.ends_at, overlap: ext.clash ? { number: ext.clash.number, scheduled_at: ext.clash.scheduled_at, who: ext.clash.who } : null };
+    return { id: xid, ends_at: ext.ends_at, overlap: ext.clash ? { number: ext.clash.number, scheduled_at: ext.clash.scheduled_at, who: ext.clash.who } : null, duplicate: false };
   });
   return out;
 }

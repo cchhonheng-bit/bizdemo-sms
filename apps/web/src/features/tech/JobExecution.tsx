@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, Check, Eraser, MapPinOff, Send, Trash2, WifiOff } from "lucide-react";
 import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api";
-import { compressPhoto, queued, readGps, sendCheckpoint } from "@/lib/offline";
+import { compressPhoto, newKey, queued, readGps, sendCheckpoint, sendOrQueue, useOffline, clearFailures } from "@/lib/offline";
 import { ActionBar, Button, Card, Field, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { useAuth } from "@/lib/auth";
@@ -68,6 +68,7 @@ export default function JobExecution({ booking }: { booking: Booking }) {
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["job", booking.id] }); void qc.invalidateQueries({ queryKey: ["booking", booking.id] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); };
   const [busy, setBusy] = useState(false);
   const [extraDirty, setExtraDirty] = useState(false); // D-154: a line picked but not added blocks «send»
+  const offline = useOffline(booking.id); // D-155: what this job still has to send
   const { me } = useAuth(); // D-140 F: own added lines can be taken back
   if (!EXEC.includes(booking.status)) return null;
   if (info.isLoading || !info.data) return <Skeleton rows={4} />;
@@ -103,6 +104,8 @@ export default function JobExecution({ booking }: { booking: Booking }) {
         <p className="text-xs text-muted mt-2 flex items-center gap-1"><MapPinOff size={12} /> {t("job.gps_hint")}</p>
       </Card>
       {d.report?.status === "revision" && <div className="card border-warning bg-warning-50 p-3 text-sm break-words" role="alert">✏️ {t("job.revision_note")}: {d.report.review_note}</div>}
+      {offline.pending.some((a) => a.kind !== "checkpoint") && <div className="card border-warning bg-warning-50 p-3 text-sm" role="status" data-testid="job-pending">⏳ {t("job.offline_saved")} · {offline.pending.filter((a) => a.kind !== "checkpoint").map((a) => a.label).join(" · ")}</div>}
+      {offline.failed.length > 0 && <div className="card border-danger bg-danger-50 p-3 text-sm break-words" role="alert" data-testid="job-sync-failed">{offline.failed.map((f) => <div key={f.id}>❌ {t("job.sync_failed", { what: f.label, error: t(`job.err.${f.error}`, { defaultValue: f.error }) })}</div>)}<button type="button" className="underline text-xs mt-1" onClick={() => clearFailures(booking.id)}>{t("app.ok")}</button></div>}
       {booking.status === "pending_review" && <div className="card bg-blue-50 p-3 text-sm" role="status">🔎 {t("job.waiting_review")}</div>}
       {booking.status === "reviewed" && <div className="card bg-success-50 p-3 text-sm" role="status">✅ {t("job.reviewed_ok")}</div>}
       {(reportOpen || waiting) && <ExtrasCard booking={booking} info={d} meId={me?.id} onDone={refresh} onDirty={setExtraDirty} />}
@@ -134,10 +137,21 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
   const sig = useRef<SignatureHandle>(null);
   const canSubmit = booking.status === "work_done" || booking.status === "revision";
 
+  const offline = useOffline(booking.id);
+  const queuedPhotos = (kind: "before" | "after") => offline.pending.filter((a) => a.kind === "photo" && a.body.kind === kind).length;
   const upload = async (kind: "before" | "after", files: FileList | null) => {
     if (!files?.length) return;
     setUploading(kind);
-    try { for (const f of Array.from(files)) await api.job.photo(booking.id, kind, await compressPhoto(f)); onDone(); }
+    try {
+      let kept = 0;
+      for (const f of Array.from(files)) {
+        const data = await compressPhoto(f), client_key = newKey();
+        const r = await sendOrQueue({ bookingId: booking.id, kind: "photo", at: new Date().toISOString(), label: t(`job.photos_${kind}`), body: { kind, client_key } },
+          () => api.job.photo(booking.id, kind, data, client_key), data);
+        if (r.status === "queued") kept++;
+      }
+      if (kept) toast.info(t("job.offline_saved")); else onDone();
+    }
     catch (e) { toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
     setUploading(null);
   };
@@ -145,9 +159,13 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
     mutationFn: async () => {
       const png = sig.current?.png();
       if (!png) throw Object.assign(new Error("SIGNATURE_REQUIRED"), { code: "SIGNATURE_REQUIRED" });
-      return api.job.report(booking.id, notes, png);
+      // D-155: without internet the report is checked here (one photo of each kind, counting the queued ones) and sent later in order
+      const have = (k: "before" | "after") => info.photos.filter((p) => p.kind === k).length + queuedPhotos(k);
+      if (have("before") < 1 || have("after") < 1) throw Object.assign(new Error("PHOTOS_REQUIRED"), { code: "PHOTOS_REQUIRED" });
+      const r = await sendOrQueue({ bookingId: booking.id, kind: "report", at: new Date().toISOString(), label: t("job.report"), body: { notes, signature: png } }, () => api.job.report(booking.id, notes, png));
+      return r.status;
     },
-    onSuccess: () => { toast.success(t("job.submitted")); onDone(); },
+    onSuccess: (status) => { toast.success(status === "queued" ? t("job.offline_saved") : t("job.submitted")); onDone(); },
     onError: (e) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
 
@@ -160,6 +178,7 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
             <input type="file" accept="image/*" capture="environment" multiple className="sr-only" disabled={!!uploading} onChange={(e) => { void upload(kind, e.target.files); e.target.value = ""; }} data-testid={`photo-${kind}`} />
           </label>
           <PhotoGrid photos={info.photos} kind={kind} onRemove={(id) => void api.job.removePhoto(booking.id, id).then(onDone)} />
+          {queuedPhotos(kind) > 0 && <p className="text-xs text-warning mt-1" data-testid={`queued-${kind}`}>⏳ {t("job.queued_photos", { n: queuedPhotos(kind) })}</p>}
         </Field>
       ))}
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field>

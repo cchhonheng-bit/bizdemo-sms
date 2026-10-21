@@ -311,14 +311,14 @@ export const api = {
   },
   job: {
     info: (id: string) => get<JobInfo>(`/api/bookings/${id}/job`),
-    photo: (id: string, kind: "before" | "after", data: string) => post<{ id: string }>(`/api/bookings/${id}/photos`, { kind, data }),
+    photo: (id: string, kind: "before" | "after", data: string, client_key?: string) => post<{ id: string; duplicate?: boolean }>(`/api/bookings/${id}/photos`, { kind, data, ...(client_key ? { client_key } : {}) }),
     removePhoto: (id: string, fid: string) => del(`/api/bookings/${id}/photos/${fid}`),
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
     /** D-146: Admin / GM correct the sent report's notes themselves */
     editReport: (id: string, notes: string) => patch<{ ok: true }>(`/api/bookings/${id}/report`, { notes }),
     review: (id: string, decision: "approve" | "revision", note: string) => post(`/api/bookings/${id}/review`, { decision, note }),
     /** D-140 F: work added on site */
-    addExtra: (id: string, v: { kind: "service"; item_id: string; qty: number; unit_price?: number | null } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null }) =>
+    addExtra: (id: string, v: ({ kind: "service"; item_id: string; qty: number; unit_price?: number | null } | { kind: "other"; description: string; qty?: number; unit?: string | null; photo?: string | null; unit_price?: number | null; item_kind?: "service" | "product" | null }) & { client_key?: string }) =>
       post<{ id: string; ends_at: string | null; overlap: { number: string; scheduled_at: string; who: string } | null }>(`/api/bookings/${id}/extras`, v),
     removeExtra: (id: string, xid: string) => del(`/api/bookings/${id}/extras/${xid}`),
     reviewExtra: (id: string, xid: string, v: { action: "confirm" | "remove"; unit_price?: number | null; reason?: string | null; kind?: "service" | "product" | null }) => post(`/api/bookings/${id}/extras/${xid}/review`, v),

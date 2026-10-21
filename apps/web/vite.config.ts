@@ -41,7 +41,7 @@ export default defineConfig({
             // the guide videos (D-128) stay with the browser's own cache: ranges, large files
             urlPattern: ({ url }) => url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/auth/") && !url.pathname.startsWith("/api/guide/videos/"),
             handler: "NetworkFirst",
-            options: { cacheName: "api", networkTimeoutSeconds: 8, expiration: { maxEntries: 200, maxAgeSeconds: 3600 } },
+            options: { cacheName: "api", networkTimeoutSeconds: 8, expiration: { maxEntries: 400, maxAgeSeconds: 24 * 3600 } }, // D-155: a day's work stays readable offline
           },
         ],
       },

@@ -44,7 +44,8 @@ import { RequireFeature } from "@/app/guards";
 import { Toaster } from "@/components/ui";
 
 const qc: QueryClient = new QueryClient({
-  defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false } },
+  // D-155: offlineFirst — a query still runs without internet, so the service worker can answer it from its cache (the technician's jobs)
+  defaultOptions: { queries: { retry: 1, staleTime: 30_000, refetchOnWindowFocus: false, networkMode: "offlineFirst" }, mutations: { networkMode: "offlineFirst" } },
   // CEO 04-10: the «កែប្រែចុងក្រោយ» lines follow every save at once
   mutationCache: new MutationCache({ onSuccess: () => { void qc.invalidateQueries({ queryKey: ["last-change"] }); } }),
 });

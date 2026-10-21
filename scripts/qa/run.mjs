@@ -1149,6 +1149,41 @@ const gmDev = await device({ desktop: true });
   await techDev.ctx.close();
 }
 
+// ================================================================ 16 · D-155 (owner 21-10): the technician's phone works offline — queued, sent once
+{
+  const A = "16 D-155 offline";
+  const adminApi = await staffApi("admin1", S.u.admin1.pw), j2 = await staffApi("jang2", S.u.jang2.pw);
+  const custs = await adminApi.call("GET", "/api/customers");
+  const c = custs.find((x) => x.is_active);
+  const job = await adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: "ជួសជុល (offline)", zone: "inside", scheduled_at: new Date(Date.now() + 14 * 3_600_000).toISOString(), ends_at: new Date(Date.now() + 16 * 3_600_000).toISOString() });
+  await adminApi.call("POST", `/api/bookings/${job.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+  const t0 = new Date(Date.now() - 9 * 3_600_000); t0.setSeconds(0, 0);
+  sql(`update bookings set scheduled_at = '${t0.toISOString()}', ends_at = '${new Date(t0.getTime() + 2 * 3_600_000).toISOString()}' where id = '${job.id}'`);
+  for (const st of ["depart", "arrive"]) await j2.call("POST", `/api/bookings/${job.id}/checkpoint`, { step: st, at: new Date().toISOString(), lat: 11.55, lng: 104.92, accuracy: 10, no_gps: false, offline: false });
+  const dev = await device({ ip: 79 });
+  await step(A, "offline: a price-list line and a photo are kept on the phone (⏳), back online they reach the server exactly once", dev.page, async () => {
+    const p = dev.page;
+    await uiLogin(p, "jang2", j2.pw);
+    await p.goto(`${BASE}/app/tech/job/${job.id}`); await p.locator('[data-testid="extra-add"]').waitFor({ timeout: 15_000 });
+    await dev.ctx.setOffline(true);
+    const item = await p.locator('select[name="extra_item"] option').nth(1).getAttribute("value");
+    await p.locator('select[name="extra_item"]').selectOption(item); await p.locator('input[name="extra_qty"]').fill("2");
+    await p.locator('[data-testid="extra-add"]').click(); await p.locator('[data-testid="extra-queued"]').waitFor({ timeout: 10_000 });
+    await p.locator('[data-testid="photo-before"]').setInputFiles(PHOTOS[0]); await p.locator('[data-testid="queued-before"]').waitFor({ timeout: 10_000 });
+    await p.locator('[data-testid="job-pending"]').waitFor({ timeout: 5_000 });
+    must(sql(`select count(*) from job_extras where booking_id = '${job.id}'`) === "0" && sql(`select count(*) from job_files where booking_id = '${job.id}' and kind = 'before'`) === "0", "something reached the server while offline");
+    await dev.ctx.setOffline(false);
+    await p.evaluate(() => window.dispatchEvent(new Event("online")));
+    await p.locator('[data-testid="extra-queued"]').waitFor({ state: "detached", timeout: 30_000 });
+    await p.locator('[data-testid="queued-before"]').waitFor({ state: "detached", timeout: 30_000 }).catch(() => {});
+    await sleep(1500);
+    must(sql(`select count(*) from job_extras where booking_id = '${job.id}'`) === "1", "the queued line did not arrive once");
+    must(sql(`select count(*) from job_files where booking_id = '${job.id}' and kind = 'before' and deleted_at is null`) === "1", "the queued photo did not arrive once");
+    await fits(p, "tech-offline-360");
+  });
+  await dev.ctx.close();
+}
+
 // ---------------------------------------------------------------- summary
 rec("15 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
 rec("15 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));

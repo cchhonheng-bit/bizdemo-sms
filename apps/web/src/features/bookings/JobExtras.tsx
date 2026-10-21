@@ -8,7 +8,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, Check, Plus, Trash2, X } from "lucide-react";
 import { formatUsd } from "@sms/shared";
 import { api, errCode, fmtDateTime, type Booking, type JobExtra, type JobInfo } from "@/lib/api";
-import { compressPhoto } from "@/lib/offline";
+import { compressPhoto, newKey, sendOrQueue, useOffline } from "@/lib/offline";
 import { Badge, Button, Card, Dialog, Field, Input, Select } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { splitLocal } from "./time";
@@ -83,13 +83,22 @@ export function ExtrasCard({ booking, info, meId, onDone, onDirty }: { booking: 
   const extras = (info.extras ?? []).filter((x) => x.status !== "removed");
   const dirty = mode === "service" ? !!item : text.trim().length > 0;
   useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
+  const offline = useOffline(booking.id);
+  const queuedLines = offline.pending.filter((a) => a.kind === "extra");
   const add = useMutation({
-    mutationFn: () => api.job.addExtra(booking.id, mode === "service" ? { kind: "service", item_id: item, qty: Math.max(1, Number(qty) || 1) }
-      : { kind: "other", description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, photo }),
+    mutationFn: async () => {
+      const client_key = newKey();
+      const body = mode === "service" ? { kind: "service" as const, item_id: item, qty: Math.max(1, Number(qty) || 1), client_key }
+        : { kind: "other" as const, description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, photo, client_key };
+      const label = mode === "service" ? (list.find((i) => i.id === item)?.name_km ?? "") : text.trim();
+      // D-155: without internet the line waits on the phone (the photo apart) and goes out in order later
+      const r = await sendOrQueue({ bookingId: booking.id, kind: "extra", at: new Date().toISOString(), label, body: { ...body, photo: null } }, () => api.job.addExtra(booking.id, body), photo ?? undefined);
+      return r.status === "sent" ? r.result : { overlap: null, queued: true as const };
+    },
     onSuccess: (r) => {
       setOverlap(r.overlap);
       if (r.overlap) toast.error(t("extras.overlap", { number: r.overlap.number, time: splitLocal(r.overlap.scheduled_at).time }));
-      else toast.success(t("extras.added"));
+      else toast.success("queued" in r && r.queued ? t("job.offline_saved") : t("extras.added"));
       setItem(""); setQty("1"); setText(""); setUnit(""); setPhoto(null); onDone();
     },
     onError: (e) => toast.error(t(`extras.err.${errCode(e)}`, { defaultValue: t("app.error") })),
@@ -132,6 +141,11 @@ export function ExtrasCard({ booking, info, meId, onDone, onDirty }: { booking: 
       )}
       <Button variant="primary" className="w-full" disabled={!ready} loading={add.isPending} onClick={() => add.mutate()} data-testid="extra-add"><Plus size={16} /> {t("extras.add")}</Button>
       {dirty && <p className="mt-2 text-xs text-warning" role="status" data-testid="extra-dirty">{t("extras.not_added_yet")}</p>}
+      {queuedLines.length > 0 && (
+        <ul className="mt-4 divide-y divide-grey-line border border-warning rounded-md" data-testid="extra-queued">
+          {queuedLines.map((a) => <li key={a.id} className="px-3 py-2 text-sm">⏳ {a.label}{Number(a.body.qty) !== 1 ? ` ×${String(a.body.qty)}` : ""} <span className="text-xs text-warning">{t("extras.queued")}</span></li>)}
+        </ul>
+      )}
       {extras.length > 0 && (
         <ul className="mt-4 divide-y divide-grey-line border border-grey-line rounded-md" data-testid="extra-list">
           {extras.map((x) => (

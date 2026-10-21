@@ -29,8 +29,14 @@ export const useAuth = create<State>((set, get_) => ({
       const me = await get<Me>("/api/me");
       setLanguage(me.language);
       set({ status: "authed", me });
+      try { localStorage.setItem("ots.me", JSON.stringify(me)); } catch { /* ignore */ }
     } catch (e) {
-      if (e instanceof ApiError && e.status === 0) return; // offline: keep whatever we had
+      if (e instanceof ApiError && e.status === 0) { // offline: the last known person keeps working (D-155) — the cookie is still there
+        let cached: Me | null = null;
+        try { cached = JSON.parse(localStorage.getItem("ots.me") ?? "null") as Me | null; } catch { /* ignore */ }
+        if (cached) { setLanguage(cached.language); set({ status: "authed", me: cached }); }
+        return;
+      }
       set({ status: "anon", me: null });
     }
   },
@@ -39,6 +45,7 @@ export const useAuth = create<State>((set, get_) => ({
       const r = await post<{ me: Me }>("/api/auth/login", { identifier, password, company: company || undefined });
       setLanguage(r.me.language);
       set({ status: "authed", me: r.me });
+      try { localStorage.setItem("ots.me", JSON.stringify(r.me)); } catch { /* ignore */ }
       void freshen(); // D-150: a newer build on the server → caches dropped + reload right after the sign-in
       return { ok: true };
     } catch (e) {
@@ -47,7 +54,7 @@ export const useAuth = create<State>((set, get_) => ({
   },
   async logout() {
     await post("/api/auth/logout", {}).catch(() => undefined);
-    try { localStorage.removeItem("sms-cache"); } catch { /* ignore */ }
+    try { localStorage.removeItem("sms-cache"); localStorage.removeItem("ots.me"); } catch { /* ignore */ }
     // shared phone: never serve the previous user's cached API responses (service-worker runtime cache)
     try { if ("caches" in window) await caches.delete("api"); } catch { /* ignore */ }
     set({ status: "anon", me: null });

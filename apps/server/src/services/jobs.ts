@@ -161,8 +161,10 @@ export async function loadForOffice(t: Db, user: SessionUser, id: string): Promi
   if (!b) throw notFound();
   return b;
 }
-export async function addPhoto(user: SessionUser, perms: string[], ip: string | null, id: string, kind: "before" | "after", data: string) {
+export async function addPhoto(user: SessionUser, perms: string[], ip: string | null, id: string, kind: "before" | "after", data: string, clientKey?: string) {
   return tx(user.id, async (t) => {
+    // D-155: the phone sends the same photo again after a lost answer → the first copy is the answer
+    if (clientKey) { const dup = (await t<{ id: string }[]>`select id from job_files where booking_id = ${id} and client_key = ${clientKey} and deleted_at is null`)[0]; if (dup) return { id: dup.id, duplicate: true }; }
     const office = isOffice(user, perms) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
     const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
     if (office && OFFICE_EDIT_STATUSES.includes(b.status)) { await touchReport(t, user, b, ip, { photo: kind }); }
@@ -171,8 +173,9 @@ export async function addPhoto(user: SessionUser, perms: string[], ip: string | 
       if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("NOT_ON_SITE", 400);
     }
     const fid = await storeFile(t, user, id, kind, data);
-    await audit(t, { companyId: b.company_id, userId: user.id, action: "job.photo", table: "job_files", rowId: fid, new: { booking_id: id, kind }, ip });
-    return { id: fid };
+    if (clientKey) await t`update job_files set client_key = ${clientKey} where id = ${fid}`;
+    await audit(t, { companyId: b.company_id, userId: user.id, action: "job.photo", table: "job_files", rowId: fid, new: { booking_id: id, kind, offline: !!clientKey }, ip });
+    return { id: fid, duplicate: false };
   });
 }
 export async function removePhoto(user: SessionUser, perms: string[], id: string, fileId: string, ip: string | null = null) {

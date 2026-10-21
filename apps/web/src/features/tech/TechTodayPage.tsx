@@ -1,12 +1,13 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { formatKhPhone } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { Link, useParams } from "react-router-dom";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Clock, MapPin, Phone } from "lucide-react";
 import { api, fmtDate, type Booking } from "@/lib/api";
 import { timeRange } from "@/features/bookings/time";
 import { useAuth } from "@/lib/auth";
+import { useOffline } from "@/lib/offline";
 import { Badge, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { CategoryBadge, DirectionLink, StatusBadge } from "@/features/bookings/parts";
 import JobExecution from "./JobExecution";
@@ -19,15 +20,28 @@ export default function TechTodayPage() {
   const { t } = useTranslation();
   const { me } = useAuth();
   const jobs = useQuery({ queryKey: ["bookings", "mine"], queryFn: () => api.bookings(), refetchInterval: 60_000 });
+  const qc = useQueryClient();
+  const { pending } = useOffline();
   const { today, upcoming } = useMemo(() => {
     const all = (jobs.data ?? []).filter((b) => OPEN.includes(b.status));
     const d = fmtDate(new Date().toISOString());
     return { today: all.filter((b) => fmtDate(b.scheduled_at) === d), upcoming: all.filter((b) => fmtDate(b.scheduled_at) !== d) };
   }, [jobs.data]);
+  // D-155: with internet, today's and the next jobs (page + job data) and the price list are fetched now — the service worker keeps
+  // them a day, so a job still opens in a basement or a borey without signal
+  useEffect(() => {
+    if (!navigator.onLine) return;
+    for (const b of [...today, ...upcoming].slice(0, 12)) {
+      void qc.prefetchQuery({ queryKey: ["booking", b.id], queryFn: () => api.booking(b.id), staleTime: 60_000 });
+      void qc.prefetchQuery({ queryKey: ["job", b.id], queryFn: () => api.job.info(b.id), staleTime: 60_000 });
+    }
+    void qc.prefetchQuery({ queryKey: ["catalog"], queryFn: api.catalog, staleTime: 60_000 });
+  }, [today, upcoming, qc]);
 
   return (
     <div className="space-y-4">
       <h1>{t("tech.hello", { name: me?.full_name ?? "" })}</h1>
+      {pending.length > 0 && <p className="card border-warning bg-warning-50 p-3 text-sm" role="status" data-testid="tech-pending">⏳ {t("job.pending_sync", { n: pending.length })} · {t("job.offline_hint")}</p>}
       <AttendanceCard />
       <section>
         <h2 className="text-base mb-2">{t("tech.today")} <Badge tone="navy">{today.length}</Badge></h2>
