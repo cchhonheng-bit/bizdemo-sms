@@ -122,7 +122,12 @@ cp "$SRC/deploy/server/deploy.sh" "$ROOT/.deploy.sh.new" && sed -i 's/\r$//' "$R
 if [ $ok = 1 ]; then
   echo "$(date '+%F %T') OK $target $image $(git -C "$SRC" log -1 --format=%s | cut -c1-80)" >> "$ROOT/deploys.log"
   echo; echo "DEPLOYED $image → $target  ($(git -C "$SRC" log -1 --format='%h %s' | cut -c1-80))"
-  alert deploy "✅ deployed $target $image — $(git -C "$SRC" log -1 --format=%s | cut -c1-120)"
+  # D-153: the owner's deploy alert carries the Khmer release note for the client (deploy/release-note.kh.txt, rewritten with each
+  # feature deploy) — short, ready to forward; the tag + commit subject stay on the last line for the team
+  note=$(sed 's/\r$//' "$SRC/deploy/release-note.kh.txt" 2>/dev/null | head -c 900)
+  alert deploy "✅ deployed $target $image
+$note
+— $(git -C "$SRC" log -1 --format=%s | cut -c1-100)"
 else
   echo "$(date '+%F %T') WARN-HTTPS $target $image" >> "$ROOT/deploys.log"
   echo; echo "!! containers are healthy but the public HTTPS check failed — check Caddy / DNS"; exit 2
