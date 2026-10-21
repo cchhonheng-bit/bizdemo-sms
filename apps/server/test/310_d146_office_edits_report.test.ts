@@ -52,8 +52,8 @@ describe("D-146 the office corrects a sent report", () => {
     const a = await sql<{ old_data: any; new_data: any }[]>`select old_data, new_data from audit_log where action = 'job.report_edit' and row_id = ${id} order by id`;
     expect(a[0]).toMatchObject({ old_data: { notes: "ប្ដូរទុយោ" }, new_data: { notes: "ប្ដូរទុយោ 3.5 ម៉ែត្រ + ហ្គាស" } });
     expect(a.length).toBe(3); // notes + photo added + photo removed
-    // the technician (even the one on the job) still cannot change a sent report
-    expect((await kim.req("PATCH", `/api/bookings/${id}/report`, { notes: "x" })).status).toBe(403);
+    // D-152: the technician on the job corrects the notes while it waits for review; a technician not on the job never
+    expect((await kim.req("PATCH", `/api/bookings/${id}/report`, { notes: "ប្ដូរទុយោ 3.5 ម៉ែត្រ + ហ្គាស" })).status).toBe(200);
     expect((await kim.req("POST", `/api/bookings/${id}/photos`, { kind: "after", data: JPEG })).json.error).toBe("REPORT_LOCKED");
     expect((await dara.req("PATCH", `/api/bookings/${id}/report`, { notes: "x" })).status).toBe(403);
   });

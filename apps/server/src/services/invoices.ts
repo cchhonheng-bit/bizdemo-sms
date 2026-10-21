@@ -38,7 +38,7 @@ async function writeLines(t: Db, id: string, lines: InvoiceLineInput[]) {
   await t`delete from invoice_lines where invoice_id = ${id}`;
   let i = 0;
   for (const l of lines) await t`insert into invoice_lines (invoice_id, sort, catalog_item_id, description, kind, qty, unit, unit_price)
-    values (${id}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim() || "unit"}, ${l.unit_price})`;
+    values (${id}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim()}, ${l.unit_price})`;
 }
 const subtotalOf = (lines: InvoiceLineInput[]) => lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
 
@@ -99,7 +99,7 @@ export async function prefill(user: SessionUser, bookingId: string) {
       const i = items.get(l.id);
       if (i) lines.push({ catalog_item_id: i.catalog_item_id, description: i.description, kind: i.kind, qty: l.qty, unit: i.unit, unit_price: i.unit_price });
     }
-    if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "unit", unit_price: 0 });
+    if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "", unit_price: 0 });
   }
   lines.push(...done); // D-140 F: work added on site, as Admin / GM confirmed it
   // FR-1201: a warranty job is free — same lines, $0

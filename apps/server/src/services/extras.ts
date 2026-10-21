@@ -143,8 +143,8 @@ export async function extraInvoiceLines(db: Db, bookingId: string) {
     select x.kind, ci.kind::text as item_kind, x.catalog_item_id, x.description, x.qty::float as qty, x.unit, x.unit_price
     from job_extras x left join catalog_items ci on ci.id = x.catalog_item_id where x.booking_id = ${bookingId} and x.status = 'confirmed' order by x.added_at, x.id`)
     .map((x) => ({ catalog_item_id: x.catalog_item_id, description: x.description, kind: (x.item_kind ?? (x.kind === "material" ? "product" : "service")) as "service" | "product",
-      qty: x.qty, unit: x.unit ?? (x.kind === "material" ? "unit" : "job"), unit_price: x.unit_price }));
+      qty: x.qty, unit: x.unit ?? "", unit_price: x.unit_price })); // D-152: no unit = nothing printed
 }
 
 /** technicians never see prices (AC-01) */
-export const forCrew = (list: Extra[]) => list.map((x) => ({ ...x, unit_price: null }));
+export const forCrew = (list: Extra[]) => list.map((x) => ({ ...x, unit_price: null, list_price: null }));

@@ -25,7 +25,7 @@ async function writeLines(t: Db, quoteId: string, lines: QuoteLineInput[]) {
   await t`delete from quote_lines where quote_id = ${quoteId}`;
   let i = 0;
   for (const l of lines) await t`insert into quote_lines (quote_id, sort, catalog_item_id, description, kind, qty, unit, unit_price)
-    values (${quoteId}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim() || "unit"}, ${l.unit_price})`;
+    values (${quoteId}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim()}, ${l.unit_price})`;
 }
 
 export async function createQuote(user: SessionUser, ip: string | null, v: { booking_id: string; lines: QuoteLineInput[]; notes?: string | null; valid_days?: number | null }) {
