@@ -46,3 +46,19 @@
 {$DOMAIN_ROOT}, www.{$DOMAIN_ROOT} {
 	redir https://{$DOMAIN_HUB}{uri} 302
 }
+
+# >>> SME360 (KONZEL) — separate stack in /opt/sme360; its app joins hangkh_default as "sme360-app" >>>
+se.hangkh.com {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+	request_body {
+		max_size 15MB
+	}
+	reverse_proxy sme360-app:3000
+}
+# <<< SME360 <<<
