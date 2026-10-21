@@ -82,8 +82,8 @@ export default function InvoicePrintPage() {
               <tr key={l.id ?? i} className="align-top">
                 <td className="p-2 text-center">{i + 1}</td>
                 <td className="p-2 break-words">{l.description}</td>
-                <td className="p-2 text-center">{l.unit}</td>
-                <td className="p-2 text-center tabular">{l.qty}</td>
+                <td className="p-2 text-center">{l.unit && l.unit !== "unit" ? l.unit : ""}</td>
+                <td className="p-2 text-center tabular">{l.qty === 1 && (!l.unit || l.unit === "unit") ? "" : l.qty}</td>
                 <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.unit_price)}</td>
                 <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.line_total ?? 0)}</td>
               </tr>

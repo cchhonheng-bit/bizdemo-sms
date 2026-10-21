@@ -137,7 +137,7 @@ describe("3 · the technician's list has no stock item; «ការងារ/ស
     expect((await admin.req("POST", `/api/bookings/${job}/extras/${x.json.id}/review`, { action: "confirm" })).json.error).toBe("PRICE_REQUIRED");
     expect((await admin.req("POST", `/api/bookings/${job}/extras/${x.json.id}/review`, { action: "confirm", unit_price: 150, kind: "product" })).status).toBe(200);
     const first = (await admin.req("GET", `/api/bookings/${job}/job`)).json.extras[0].id;
-    expect((await admin.req("POST", `/api/bookings/${job}/extras/${first}/review`, { action: "confirm" })).status).toBe(200);
+    expect((await admin.req("POST", `/api/bookings/${job}/extras/${first}/review`, { action: "confirm", unit_price: 1500 })).status).toBe(200); // D-152: the office types the price
     for (const st of ["work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines.find((l: any) => l.description === "ខ្សែភ្លើង 2.5")).toMatchObject({ kind: "product", qty: 20, unit: "ម៉ែត្រ", unit_price: 150, catalog_item_id: null });

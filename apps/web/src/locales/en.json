@@ -1676,7 +1676,7 @@
   },
   "extras": {
     "title": "Added work",
-    "hint": "The customer asked for more on site? Add it here — from the price list or in your own words · every line reaches the invoice and the customer's message",
+    "hint": "The customer asked for more, or the job differs from the booking? Add it here — from the price list or in your own words · no price (the office sets it) · editable until the office reviews · the invoice takes only this work",
     "mode_service": "From the price list",
     "mode_other": "Other work / material",
     "other_text": "Which work or material",
@@ -1691,7 +1691,7 @@
     "take_back": "Take back",
     "overlap": "This runs into the next job {{number}} at {{time}} · Admin / GM have been told",
     "review_title": "Work added by the technician",
-    "waiting": "{{n}} waiting for review · the invoice waits",
+    "waiting": "{{n}} waiting for a price · the invoice waits",
     "flag": "Added by technician",
     "see_photo": "See the photo",
     "removed": "Removed · {{reason}}",
@@ -1717,6 +1717,8 @@
     "added_by_office": "Added by the office · {{name}} · {{at}}",
     "office_add": "Add work (office)",
     "office_hint": "Admin or GM add it here — also after the technician's report · confirmed at once · the invoice follows directly, nothing goes back to the technician",
-    "none_yet": "No added work yet"
+    "none_yet": "No added work yet",
+    "done_title": "Work done (technician)",
+    "list_price": "List price {{price}} — tap to use"
   }
 }

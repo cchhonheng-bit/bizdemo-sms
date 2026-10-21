@@ -65,8 +65,8 @@ describe("D-140 F work added on site", () => {
     expect(mine.map((x: any) => [x.kind, x.qty, x.status, x.unit_price, x.added_by])).toEqual([["service", 2, "pending", null, s.users.kim], ["other", 1, "pending", null, s.users.kim]]);
     expect(mine[1].photo_file).toBeTruthy();
     const office = (await info(admin, job)).extras;
-    expect(office.map((x: any) => x.unit_price)).toEqual([1500, null]); // the office sees the catalog price
-    expect((await sql`select new_data from audit_log where action = 'job.extra_add' and row_id = ${a.json.id}`)[0]).toMatchObject({ new_data: { kind: "service", qty: 2, minutes: 60, unit_price: 1500 } });
+    expect(office.map((x: any) => [x.unit_price, x.list_price])).toEqual([[null, 1500], [null, null]]); // D-152: no automatic price — the list price is only a hint for the office
+    expect((await sql`select new_data from audit_log where action = 'job.extra_add' and row_id = ${a.json.id}`)[0]).toMatchObject({ new_data: { kind: "service", qty: 2, minutes: 60, unit_price: null } });
   });
 
   it("Admin / GM review before the invoice: confirm (price kept / edited), remove (reason); the invoice waits until all are reviewed", async () => {
@@ -83,7 +83,7 @@ describe("D-140 F work added on site", () => {
     expect((await admin.req("POST", `/api/bookings/${job}/extras/${x4}/review`, { action: "remove" })).json.error).toBe("REASON_REQUIRED");
     expect((await admin.req("POST", `/api/bookings/${job}/extras/${x4}/review`, { action: "remove", reason: "មិនបានធ្វើ" })).status).toBe(200);
     const audit = (await sql<{ old_data: any; new_data: any }[]>`select old_data, new_data from audit_log where action = 'job.extra_review' and row_id = ${x1}`)[0]!;
-    expect([audit.old_data.unit_price, audit.new_data.unit_price]).toEqual([1500, 1200]);
+    expect([audit.old_data.unit_price, audit.new_data.unit_price]).toEqual([null, 1200]);
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
     expect(p.lines.slice(-2).map((l: any) => [l.description, l.qty, l.unit_price])).toEqual([["លាងម៉ាស៊ីនត្រជាក់", 2, 1200], ["ប្ដូរខ្សែភ្លើងចាស់", 1, 2000]]);
     expect(p.lines.some((l: any) => l.description === "ជួសជុលបន្ថែម")).toBe(false);

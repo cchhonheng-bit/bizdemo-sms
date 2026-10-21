@@ -171,7 +171,7 @@ describe("B · every line the technician adds reaches the job, the draft invoice
     expect(mine.extras.map((x: any) => [x.description, x.qty, x.unit, x.unit_price, x.status])).toEqual([["ទុយោស្ពាន់ (ម៉ែត្រ)", 6, "ម៉ែត្រ", null, "pending"], ["ខ្សែភ្លើង 2.5", 20, "ម៉ែត្រ", null, "pending"]]);
     expect(mine.extras[1].photo_file).toBeTruthy();
     const office = (await admin.req("GET", `/api/bookings/${job2}/job`)).json.extras;
-    expect(office.map((x: any) => [x.unit_price, x.added_by, x.added_by_name, x.item_kind])).toEqual([[1500, s.users.kim, "Kim", "product"], [null, s.users.kim, "Kim", null]]);
+    expect(office.map((x: any) => [x.unit_price, x.added_by, x.added_by_name, x.item_kind])).toEqual([[null, s.users.kim, "Kim", "product"], [null, s.users.kim, "Kim", null]]); // D-152: no automatic price
     expect((await gm.req("GET", `/api/bookings/${job2}/job`)).json.extras.length).toBe(2);
   });
 
@@ -181,7 +181,8 @@ describe("B · every line the technician adds reaches the job, the draft invoice
     expect(wait.json.error).toBe("EXTRAS_PENDING");
     expect(wait.json.details.lines).toEqual(["ទុយោស្ពាន់ (ម៉ែត្រ)", "ខ្សែភ្លើង 2.5"]);
     const [x1, x2] = (await admin.req("GET", `/api/bookings/${job2}/job`)).json.extras.map((x: any) => x.id);
-    expect((await admin.req("POST", `/api/bookings/${job2}/extras/${x1}/review`, { action: "confirm" })).status).toBe(200); // the list price
+    expect((await admin.req("POST", `/api/bookings/${job2}/extras/${x1}/review`, { action: "confirm" })).json.error).toBe("PRICE_REQUIRED"); // D-152: the office types the price
+    expect((await admin.req("POST", `/api/bookings/${job2}/extras/${x1}/review`, { action: "confirm", unit_price: 1500 })).status).toBe(200);
     expect((await admin.req("POST", `/api/bookings/${job2}/extras/${x2}/review`, { action: "confirm", unit_price: 100, kind: "product" })).status).toBe(200);
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job2}`)).json;
     expect(p.lines.slice(-2)).toEqual([

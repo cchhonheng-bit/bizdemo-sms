@@ -87,7 +87,10 @@ export async function prefill(user: SessionUser, bookingId: string) {
   const quote = await sql<InvoiceLineInput[]>`select l.catalog_item_id, l.description, l.kind::text as kind, l.qty::float as qty, l.unit, l.unit_price
     from quotes q join quote_lines l on l.quote_id = q.id where q.booking_id = ${b.id} and q.status = 'accepted' order by l.sort, l.id`;
   let lines: InvoiceLineInput[] = [...quote];
-  if (!lines.length) {
+  // D-152 (One Team): the invoice = what the technician actually did (the lines added on site, confirmed by the office) — the
+  // booked service is only suggested when nothing was added on site; an accepted quote still comes first
+  const done = await extraInvoiceLines(sql, b.id);
+  if (!lines.length && !done.length) {
     // D-140: a job with service lines suggests one invoice line per service (catalog price × quantity), else the one booked service
     const booked = b.web_lines?.length ? b.web_lines : b.service_item_id ? [{ id: b.service_item_id, qty: 1 }] : [];
     const items = booked.length ? new Map((await sql<(InvoiceLineInput & { id: string })[]>`select id, id as catalog_item_id, name_km as description, kind::text as kind, unit, coalesce(sell_price, 0)::int as unit_price
@@ -98,7 +101,7 @@ export async function prefill(user: SessionUser, bookingId: string) {
     }
     if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "unit", unit_price: 0 });
   }
-  lines.push(...await extraInvoiceLines(sql, b.id)); // D-140 F: work added on site, as Admin / GM confirmed it
+  lines.push(...done); // D-140 F: work added on site, as Admin / GM confirmed it
   // FR-1201: a warranty job is free — same lines, $0
   const free = !!b.warranty_of_number;
   lines = lines.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: free ? 0 : Number(l.unit_price) }));

@@ -193,10 +193,11 @@ export async function removePhoto(user: SessionUser, perms: string[], id: string
 }
 /** D-146: the office corrects the sent report's notes — who and when stay on the report; audited old → new */
 export async function editReport(user: SessionUser, perms: string[], ip: string | null, id: string, v: { notes: string }) {
-  if (!isOffice(user, perms)) throw forbidden();
   return tx(user.id, async (t) => {
-    const b = await loadForOffice(t, user, id);
-    if (!OFFICE_EDIT_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    // D-152: the crew corrects its own notes while the job waits for review; the office at any time until the invoice (D-146)
+    const office = isOffice(user, perms);
+    const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
+    if (!(office ? OFFICE_EDIT_STATUSES : ["pending_review"]).includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
     const old = (await t<{ notes: string | null }[]>`select notes from booking_reports where booking_id = ${id} for update`)[0];
     if (!old) throw notFound();
     const notes = v.notes.trim() || null;

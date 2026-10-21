@@ -12,7 +12,7 @@ const line = z.object({
   description: z.string().trim().min(1).max(300),
   kind: z.enum(["service", "product"]),
   qty: z.number().positive().max(1_000_000),
-  unit: z.string().trim().max(20).default("unit"),
+  unit: z.string().trim().max(20).default(""), // D-152: optional — blank prints nothing
   unit_price: z.number().int().min(0).max(100_000_000),
 }).strict().refine((l) => l.qty * l.unit_price <= 1_000_000_000, "LINE_TOO_LARGE"); // ≤ $10M a line
 const lines = z.array(line).min(1).max(100).refine((ls) => ls.reduce((s, l) => s + l.qty * l.unit_price, 0) <= 2_000_000_000, "TOTAL_TOO_LARGE"); // sums stay in int4

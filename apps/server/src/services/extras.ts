@@ -17,12 +17,15 @@ export type Extra = { id: string; kind: "service" | "other" | "material"; catalo
   unit_price: number | null; photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: Date; added_by: string | null; added_by_name: string | null;
   reviewed_at: Date | null; reviewed_by_name: string | null; review_note: string | null; item_kind: "service" | "product" | null;
   /** D-151: «បន្ថែមដោយការិយាល័យ» when the Admin / GM added the line (confirmed at once) */
-  added_by_role: string | null };
+  added_by_role: string | null;
+  /** D-152: the price-list price of the item (a hint for the office — the technician's line itself carries no price) */
+  list_price?: number | null };
 
 /** the lines added on site (removed ones too, greyed — the review trail); prices only for the office (the route strips them for technicians) */
 export async function listExtras(db: Db, bookingId: string): Promise<Extra[]> {
   return db<Extra[]>`select x.id, x.kind, x.catalog_item_id, x.description, x.qty::float as qty, x.unit, x.minutes, x.unit_price, x.photo_file, x.status, x.added_at, x.added_by,
-      a.full_name as added_by_name, a.role::text as added_by_role, x.reviewed_at, r.full_name as reviewed_by_name, x.review_note, ci.kind::text as item_kind
+      a.full_name as added_by_name, a.role::text as added_by_role, x.reviewed_at, r.full_name as reviewed_by_name, x.review_note, ci.kind::text as item_kind,
+      coalesce(ci.sell_price, ci.from_price) as list_price
     from job_extras x left join users a on a.id = x.added_by left join users r on r.id = x.reviewed_by left join catalog_items ci on ci.id = x.catalog_item_id
     where x.booking_id = ${bookingId} order by x.added_at, x.id`;
 }
@@ -42,7 +45,7 @@ export async function addExtra(user: SessionUser, perms: string[], ip: string | 
   const out = await tx(user.id, async (t) => {
     const office = await isOffice(t, user, perms, id);
     const b = office ? await loadForOffice(t, user, id) : await loadForWork(t, user, id, perms);
-    const allowed = office ? OFFICE_STATUSES : PHOTO_STATUSES;
+    const allowed = office ? OFFICE_STATUSES : [...PHOTO_STATUSES, "pending_review"]; // D-152: the technician still adds while the job waits for review
     if (!allowed.includes(b.status)) throw new AppError(["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status) ? "REPORT_LOCKED" : "NOT_ON_SITE", 400);
     if (office && (await t`select 1 from invoices where booking_id = ${id} and status <> 'void'`).length) throw new AppError("INVOICE_EXISTS", 409);
     let row: { catalog_item_id: string | null; description: string; qty: number; unit: string | null; minutes: number; unit_price: number | null; photo: string | null };
@@ -52,7 +55,7 @@ export async function addExtra(user: SessionUser, perms: string[], ip: string | 
         from catalog_items where id = ${v.item_id} and company_id = ${user.companyId} and is_active and not is_stock`)[0];
       if (!i) throw new AppError("SERVICE_NOT_FOUND", 404);
       row = { catalog_item_id: i.id, description: i.name_km, qty: v.qty, unit: i.unit, minutes: i.kind === "service" ? i.duration_min : 0,
-        unit_price: office && v.unit_price != null ? v.unit_price : i.price, photo: null }; // the office may price its own line
+        unit_price: office ? (v.unit_price ?? i.price) : null, photo: null }; // D-152: no automatic price on the technician's line — the office types it at the review; the office's own line takes the list price unless typed
     } else {
       const text = v.description.trim();
       if (text.length < 2) throw new AppError("DESCRIPTION_REQUIRED", 400);
@@ -95,7 +98,7 @@ async function tellClash(t: Db, user: SessionUser, b: { id: string; number: stri
 export async function removeOwnExtra(user: SessionUser, perms: string[], ip: string | null, id: string, extraId: string) {
   return tx(user.id, async (t) => {
     const b = await loadForWork(t, user, id, perms);
-    if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    if (![...PHOTO_STATUSES, "pending_review"].includes(b.status)) throw new AppError("REPORT_LOCKED", 400); // D-152: own pending lines go back while the job waits for review
     const x = (await t<{ minutes: number; added_by: string | null; status: string; description: string }[]>`select minutes, added_by, status, description from job_extras where id = ${extraId} and booking_id = ${id} for update`)[0];
     if (!x) throw notFound();
     if (x.status !== "pending" || (x.added_by !== user.id && user.role === "tech")) throw new AppError("EXTRA_LOCKED", 400);

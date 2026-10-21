@@ -978,6 +978,7 @@ const gmDev = await device({ desktop: true });
   await step(A, "F Admin reviews before the invoice: the service at its catalog price, the other work priced by hand; audited", page, async () => {
     await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="extras-review"]').waitFor({ timeout: 10_000 });
     await page.locator('[data-testid="extras-waiting"]').waitFor();
+    await page.locator('[data-testid="extra-list-price"]').first().click(); // D-152: the list price is a hint — one tap takes it
     await page.locator('[data-testid="extra-confirm"]').first().click(); await idle(page); await sleep(600);
     const row = page.locator('[data-testid="extras-review"] li').filter({ hasText: "ប្ដូរខ្សែភ្លើងចាស់" });
     await row.locator('input[name^="extra_price_"]').fill("8"); await row.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
@@ -1073,7 +1074,8 @@ const gmDev = await device({ desktop: true });
   await step(A, "Admin on the job: both lines flagged «បន្ថែមដោយជាង»; the copper line at its list price, the free line priced $1.50 as goods", page, async () => {
     await page.goto(`${BASE}/app/bookings/${onSite.id}`); await page.locator('[data-testid="extras-review"]').waitFor({ timeout: 10_000 });
     must(await page.locator('[data-testid="extras-review"] [data-testid="extra-flag"]').count() === 2, "the lines are not flagged");
-    await page.locator('[data-testid="extras-review"] li').filter({ hasText: "QA ទុយោស្ពាន់ (ម៉ែត្រ)" }).locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);
+    const cu = page.locator('[data-testid="extras-review"] li').filter({ hasText: "QA ទុយោស្ពាន់ (ម៉ែត្រ)" });
+    await cu.locator('[data-testid="extra-list-price"]').click(); await cu.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600); // D-152
     const row = page.locator('[data-testid="extras-review"] li').filter({ hasText: "ខ្សែភ្លើង 2.5" });
     await row.locator('[data-testid="extra-kind"]').getByRole("radio", { name: "ទំនិញ" }).click();
     await row.locator('input[name^="extra_price_"]').fill("1.5"); await row.locator('[data-testid="extra-confirm"]').click(); await idle(page); await sleep(600);

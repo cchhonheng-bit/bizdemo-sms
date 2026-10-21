@@ -151,7 +151,7 @@ export function ExtrasList({ extras }: { extras: JobExtra[] }) {
   if (!list.length) return null;
   return (
     <div data-testid="extras-list">
-      <div className="text-muted text-xs">{t("extras.review_title")}</div>
+      <div className="text-muted text-xs">{t("extras.done_title")}</div>
       <ul>{list.map((x) => <li key={x.id}>• {x.description}{qtyText(x)} <Badge tone="purple">{t("extras.flag")}</Badge>{x.status === "confirmed" && <> <Badge tone="green">{t("extras.confirmed")}</Badge></>}</li>)}</ul>
     </div>
   );
@@ -179,7 +179,7 @@ export function ExtrasReview({ booking }: { booking: Booking }) {
   if (!list.length && !office) return null;
   const waiting = list.filter((x) => x.status === "pending").length;
   return (
-    <Card title={t("extras.review_title")} className="mb-4">
+    <Card title={t("extras.done_title")} className="mb-4">
       {!list.length && <p className="text-sm text-muted">{t("extras.none_yet")}</p>}
       {waiting > 0 && <p className="mb-3 rounded-md bg-warning-50 text-warning p-3 text-sm" data-testid="extras-waiting">{t("extras.waiting", { n: waiting })}</p>}
       <ul className="divide-y divide-grey-line" data-testid="extras-review">
@@ -203,8 +203,9 @@ export function ExtrasReview({ booking }: { booking: Booking }) {
                         {(["service", "product"] as const).map((k) => <button key={k} type="button" role="radio" aria-checked={kind === k} onClick={() => setKinds((p) => ({ ...p, [x.id]: k }))} className={`px-3 min-h-[44px] text-xs ${kind === k ? "bg-navy text-white" : "bg-white"}`}>{t(`extras.kind_${k}`)}</button>)}
                       </div>
                     )}
-                    <Input className="!w-28 tabular" inputMode="decimal" placeholder="$" aria-label={t("extras.price")} name={`extra_price_${x.id}`}
-                      value={prices[x.id] ?? dollars(x.unit_price)} onChange={(e) => setPrices((p) => ({ ...p, [x.id]: e.target.value }))} />
+                    {x.list_price != null && x.unit_price == null && <button type="button" className="text-xs text-blue underline min-h-[44px]" onClick={() => setPrices((p) => ({ ...p, [x.id]: dollars(x.list_price ?? 0) }))} data-testid="extra-list-price">{t("extras.list_price", { price: formatUsd(x.list_price) })}</button>}
+                    <Input className="!w-28 tabular" inputMode="decimal" aria-label={t("extras.price")} name={`extra_price_${x.id}`}
+                      value={prices[x.id] ?? dollars(x.unit_price)} placeholder={x.list_price != null ? `$${dollars(x.list_price)}` : "$"} onChange={(e) => setPrices((p) => ({ ...p, [x.id]: e.target.value }))} />
                     <Button variant="primary" onClick={() => review.mutate({ x, action: "confirm" })} disabled={(prices[x.id] ?? dollars(x.unit_price)) === ""} data-testid="extra-confirm"><Check size={16} /> {t("extras.confirm")}</Button>
                     <Button variant="danger" onClick={() => setRemoving(x)} data-testid="extra-remove"><X size={16} /> {t("extras.remove")}</Button>
                   </div>
