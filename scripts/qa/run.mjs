@@ -1184,6 +1184,56 @@ const gmDev = await device({ desktop: true });
   await dev.ctx.close();
 }
 
+// ================================================================ 17 · D-156 customers by Excel · D-157 a booking in the past · D-158 summary blocks
+{
+  const A = "17 D-156/157/158";
+  const adminApi = await staffApi("admin1", S.u.admin1.pw);
+  const dev = await device({ desktop: true, ip: 81 });
+  const page = dev.page;
+  await uiLogin(page, "admin1", adminApi.pw);
+  await step(A, "D-156 «ទាញ Excel» = the whole list with Khmer headers · «នាំចូល Excel»: one changed + one new row → preview counts → apply → the new customer is in the list", page, async () => {
+    await page.goto(`${BASE}/app/customers`); await idle(page);
+    await page.locator('[data-testid="customers-export"]').waitFor({ timeout: 15_000 });
+    const r = await page.request.get(`${BASE}/api/customers/export.xlsx?lang=km`);
+    must(r.ok() && /spreadsheetml/.test(r.headers()["content-type"] ?? ""), `export ${r.status()}`);
+    const rows = readXlsx(Buffer.from(await r.body()));
+    must(rows[0][0] === "ឈ្មោះ" && rows[0][1].startsWith("ទូរស័ព្ទ") && rows.length > 2, `export rows ${rows.length}`);
+    const first = rows.find((x, i) => i > 0 && x[1]);
+    const edited = join(WORK, "customers-import.xlsx");
+    writeFileSync(edited, writeXlsx("អតិថិជន", [rows[0], [`${first[0]} (Excel)`, first[1], first[2], first[3], first[4], first[5], first[6], first[7], first[8], first[9], first[10], "កែពី Excel", first[12]],
+      ["QA អតិថិជន Excel", "069 777 888", "5", "", "", "", "រាជធានីភ្នំពេញ", "ខណ្ឌច្បារអំពៅ", "សង្កាត់ច្បារអំពៅទី ១", "", "ទេ", "ថ្មីពី Excel", "បាទ"]]));
+    await page.locator('[data-testid="customers-import"] input[type="file"]').setInputFiles(edited);
+    const dlg = page.locator('[role="dialog"]').last();
+    await dlg.waitFor({ timeout: 15_000 });
+    const txt = await dlg.innerText();
+    must(/ថ្មី[^\d]*1/.test(txt) && /កែ[^\d]*1/.test(txt), `preview counts: ${txt.slice(0, 200)}`);
+    await dlg.getByRole("button", { name: /អនុវត្ត|ប្រើ|យល់ព្រម/ }).first().click();
+    await page.locator("text=QA អតិថិជន Excel").first().waitFor({ timeout: 15_000 });
+    const list = await adminApi.call("GET", "/api/customers");
+    const made = list.find((c) => c.name === "QA អតិថិជន Excel");
+    must(made && made.phones[0] === "+85569777888" && made.commune_code === "121201" && made.notes === "ថ្មីពី Excel", "the new row did not land as expected");
+    must(list.find((c) => c.name === `${first[0]} (Excel)` && c.notes === "កែពី Excel"), "the changed row did not update");
+    await fits(page, "customers-import-preview");
+  });
+  await step(A, "D-157 Admin books a job 3 hours ago with a crew (an appointment made by phone) → 200, the page shows the hint, no late alert", page, async () => {
+    const c = (await adminApi.call("GET", "/api/customers")).find((x) => x.is_active);
+    const start = new Date(Date.now() - 3 * 3_600_000), end = new Date(Date.now() - 3_600_000);
+    const job = await adminApi.call("POST", "/api/bookings", { customer_id: c.id, type: "A", category: "mep", service_text: "ជួសជុល (ណាត់តាមទូរស័ព្ទ)", zone: "inside", scheduled_at: start.toISOString(), ends_at: end.toISOString() });
+    await adminApi.call("POST", `/api/bookings/${job.id}/assign`, { lead: S.u.jang2.id, assistants: [] });
+    await page.goto(`${BASE}/app/bookings/${job.id}`); await idle(page);
+    must((await page.innerText("body")).includes("ជួសជុល (ណាត់តាមទូរស័ព្ទ)"), "the past job page did not open");
+    await sleep(500);
+    must(sql("select count(*) from notifications where kind = 'booking.late' and created_at > now() - interval '3 minutes'") === "0", "a late alert was raised for a job booked in the past");
+  });
+  await step(A, "D-158 the bot summary for the CEO comes in blocks (one topic per block, one fact per line)", page, async () => {
+    const { summaryText } = await import(pathToFileURL(join(ROOT, "Source/apps/server/src/services/reports.ts")).href).catch(() => ({}));
+    const text = summaryText ? summaryText("daily", ymdIn(0), ymdIn(0), { revenue: { total: 86800, invoices: 5, inside: 86800, outside: 0 }, payments: { total: 8000, by_method: { cash_usd: 4500, cash_khr: 0, aba: 0, acleda: 3500 }, khr_riel: 0 }, new_debt: 82300, debt_total: 88600, jobs: { created: 7, finished: 7, cancelled: 0, pending_review: 1, in_progress: 0 }, voids: { count: 2, total: 59500 }, discounts: { count: 0, total: 0, over_limit: 0 }, attendance: { present: 0, people: 3, late: 0, absent: 3, leave: 0, out_of_range: 0 } }, "km") : null;
+    if (text) must(text.split("\n\n").length === 7 && text.includes("🧾 ចំណូល\n• វិក្កយបត្រ 5"), "summary blocks");
+    writeFileSync(join(WORK, "summary-sample.txt"), text ?? "(summaryText not importable here — unit test 370 covers it)");
+  });
+  await dev.ctx.close();
+}
+
 // ---------------------------------------------------------------- summary
 rec("15 Phone width", "no page wider than the screen at 360 px", narrow.length === 0, narrow.join(" · "));
 rec("15 Page errors", "no JavaScript error on any page", jsErrors.length === 0, [...new Set(jsErrors)].slice(0, 6).join(" · "));

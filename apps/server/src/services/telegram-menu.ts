@@ -26,7 +26,7 @@ import { btn, customerGrid, menuUrl, row, webOn } from "./customer-bot.js";
 import { decideReschedule } from "./customer-home.js";
 import { decideWebBooking } from "./web-booking.js";
 import { listReminders } from "./reminders.js";
-import { summaryData, summaryText, verification } from "./reports.js";
+import { attendanceSection, dmy, section, summaryData, summaryText, verification } from "./reports.js";
 import { cashCloses } from "./reports-extra.js";
 import { fmtLocal, hubForgetChat } from "./telegram.js";
 
@@ -407,13 +407,13 @@ async function summaryFor(u: Staff, kind: "daily" | "weekly" | "monthly"): Promi
   const data = await summaryData(u.company_id, from, day, finance);
   if (finance) return { text: summaryText(kind, from, day, data, asLang(u.language)), buttons: [backHome(u)] };
   const x = data as { jobs: { created: number; finished: number; cancelled: number; pending_review: number; in_progress: number }; attendance?: { present: number; people: number; late: number; absent: number; leave: number } };
-  const range = from === day ? day : `${from} → ${day}`;
+  const range = from === day ? dmy(day) : `${dmy(from)} → ${dmy(day)}`;
   const lines = [L(`📊 សង្ខេប · ${range}`, `📊 Summary · ${range}`),
-    L(`🔧 ការងារ: ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · លុប ${x.jobs.cancelled} · កំពុងធ្វើ ${x.jobs.in_progress} · រង់ចាំពិនិត្យ ${x.jobs.pending_review}`,
-      `🔧 Jobs: new ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled} · in progress ${x.jobs.in_progress} · waiting for review ${x.jobs.pending_review}`)];
-  if (x.attendance) lines.push(L(`👷 វត្តមាន: មក ${x.attendance.present}/${x.attendance.people} · យឺត ${x.attendance.late} · អវត្តមាន ${x.attendance.absent} · ច្បាប់ ${x.attendance.leave}`,
-    `👷 Attendance: present ${x.attendance.present}/${x.attendance.people} · late ${x.attendance.late} · absent ${x.attendance.absent} · leave ${x.attendance.leave}`));
-  return { text: lines.join("\n"), buttons: [backHome(u)] };
+    section(L("🔧 ការងារ", "🔧 Jobs"), [
+      L(`ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · បោះបង់ ${x.jobs.cancelled}`, `New ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled}`),
+      L(`កំពុងធ្វើ ${x.jobs.in_progress} · រង់ចាំពិនិត្យ ${x.jobs.pending_review}`, `In progress ${x.jobs.in_progress} · waiting for review ${x.jobs.pending_review}`)])];
+  if (x.attendance) lines.push(attendanceSection(x.attendance, asLang(u.language)));
+  return { text: lines.join("\n\n"), buttons: [backHome(u)] }; // D-158: clear blocks
 }
 async function alerts(u: Staff): Promise<Menu> {
   const L = T(u);

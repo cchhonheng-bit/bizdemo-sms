@@ -38,9 +38,9 @@ beforeAll(async () => {
 afterAll(async () => { await app.close(); });
 
 describe("R3 schedule control", () => {
-  it("create: start in the past is rejected (API, not only the UI); the end must be written (D-137); end before start rejected", async () => {
-    expect((await mk(ceo, { scheduled_at: at(-1, 21) })).json.error).toBe("START_IN_PAST");
-    expect((await mk(ceo, { scheduled_at: new Date(Date.now() - 60_000).toISOString() })).json.error).toBe("START_IN_PAST");
+  it("create: a start in the past is allowed for the staff (D-157 — an appointment made by phone); the end must be written (D-137); end before start rejected", async () => {
+    expect((await mk(ceo, { scheduled_at: at(-1, 21), ends_at: at(-1, 23) })).status).toBe(200);
+    expect((await mk(ceo, { scheduled_at: new Date(Date.now() - 60_000).toISOString(), ends_at: new Date(Date.now() + 3_600_000).toISOString() })).status).toBe(200);
     expect((await mk(ceo, { scheduled_at: at(2, 9), noEnd: true })).json.error).toBe("END_REQUIRED"); // D-137: no default end for the staff
     const r = await mk(ceo, { scheduled_at: at(2, 9), ends_at: at(2, 11) });
     expect(r.status).toBe(200);
@@ -67,7 +67,7 @@ describe("R3 schedule control", () => {
 
   it("reschedule: a booking today 21:00 cannot be moved to yesterday; moving the start keeps the duration", async () => {
     const id = (await mk(ceo, { scheduled_at: at(0, 23, 50) > new Date().toISOString() ? at(0, 23, 50) : at(1, 21) })).json.id;
-    expect((await resched(ceo, id, { scheduled_at: at(-1, 21) })).json.error).toBe("START_IN_PAST");
+    expect((await resched(ceo, id, { scheduled_at: at(-1, 21) })).status).toBe(200); // D-157: the staff may move a job into the past
     expect((await resched(ceo, id, { scheduled_at: at(4, 14) })).status).toBe(200);
     const b = (await ceo.req("GET", `/api/bookings/${id}`)).json;
     expect(new Date(b.ends_at).toISOString()).toBe(at(4, 16));
@@ -142,8 +142,7 @@ describe("R1/R2 availability + server-side blocking", () => {
     expect((await assign(gm, y, { lead: s.users.dara })).status).toBe(200);
     expect((await assign(gm, y, { lead: s.users.kim })).json.error).toBe("TECH_UNAVAILABLE"); // kim is on x 09:00–11:00
     await sql`update bookings set scheduled_at = ${at(-1, 9)}, ends_at = ${at(-1, 11)} where id = ${y}`; // the appointment has passed
-    expect((await assign(gm, y, { lead: s.users.dara })).json.error).toBe("START_IN_PAST"); // → reschedule first
-    expect((await ceo.req("GET", `/api/bookings/${y}`)).json.technicians).toEqual([expect.objectContaining({ full_name: "Dara", role: "lead" })]); // unchanged
+    expect((await assign(gm, y, { lead: s.users.dara })).status).toBe(200); // D-157: a passed appointment can still be assigned (already done by phone)
   });
 
   it("concurrent double-save: two assigns of the same technician at the same time → exactly one wins (DB constraint)", async () => {

@@ -202,6 +202,9 @@ async function main() {
       if (!a[0] || !a[1]) throw new Error("usage: reset-password <slug> <username>");
       await resetPassword(a[0], a[1]);
       break;
+    case "sample-customers": // D-156: the customers sample sheet as base64 on stdout (for the owner's demo / the handover)
+      console.log((await import("./services/customer-import.js")).customersSample(a[0] === "en" ? "en" : "km").toString("base64"));
+      break;
     case "seed-demo":
       await seedDemo(a[0] ?? "oneteam");
       break;

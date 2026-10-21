@@ -229,29 +229,51 @@ function localParts(at: Date, tz: string) {
 }
 const addDays = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 
+/** 21-10-2026 (people read day-month-year) */
+export const dmy = (iso: string) => `${iso.slice(8, 10)}-${iso.slice(5, 7)}-${iso.slice(0, 4)}`;
+/** one block of the summary: a heading line, then one fact per line (D-158: owner 21-10 — «report very mess») */
+export const section = (head: string, rows: (string | null | false)[]) => [head, ...rows.filter((r): r is string => !!r).map((r) => `• ${r}`)].join("\n");
+
 export function summaryText(kind: "daily" | "weekly" | "monthly", from: string, to: string, s: Awaited<ReturnType<typeof summaryData>>, lang: Lang): string {
   const x = s as Record<string, any>;
   const L = (km: string, en: string) => pick({ km, en }, lang);
-  const title = kind === "daily" ? L(`📊 របាយការណ៍ប្រចាំថ្ងៃ · ${from}`, `📊 Daily report · ${from}`)
-    : kind === "weekly" ? L(`📊 របាយការណ៍ប្រចាំសប្តាហ៍ · ${from} → ${to}`, `📊 Weekly report · ${from} → ${to}`)
-      : L(`📊 របាយការណ៍ប្រចាំខែ · ${from.slice(0, 7)} (${from} → ${to})`, `📊 Monthly report · ${from.slice(0, 7)} (${from} → ${to})`);
+  const title = kind === "daily" ? L(`📊 របាយការណ៍ប្រចាំថ្ងៃ · ${dmy(from)}`, `📊 Daily report · ${dmy(from)}`)
+    : kind === "weekly" ? L(`📊 របាយការណ៍ប្រចាំសប្តាហ៍ · ${dmy(from)} → ${dmy(to)}`, `📊 Weekly report · ${dmy(from)} → ${dmy(to)}`)
+      : L(`📊 របាយការណ៍ប្រចាំខែ · ${from.slice(5, 7)}-${from.slice(0, 4)}`, `📊 Monthly report · ${from.slice(5, 7)}-${from.slice(0, 4)}`);
   const m = x.payments.by_method;
-  const riel = x.payments.khr_riel ? ` (${formatKhr(x.payments.khr_riel)})` : "";
-  const lines = [
-    title,
-    L(`🧾 ចំណូល: ${formatUsd(x.revenue.total)} (${x.revenue.invoices} វិក្កយបត្រ) · ក្នុងបុរី ${formatUsd(x.revenue.inside)} · ក្រៅបុរី ${formatUsd(x.revenue.outside)}`,
-      `🧾 Revenue: ${formatUsd(x.revenue.total)} (${x.revenue.invoices} invoices) · inside the borey ${formatUsd(x.revenue.inside)} · outside ${formatUsd(x.revenue.outside)}`),
-    L(`💵 ទទួលប្រាក់: ${formatUsd(x.payments.total)} · សាច់ប្រាក់ $ ${formatUsd(m.cash_usd)} · សាច់ប្រាក់ ៛ ${formatUsd(m.cash_khr)} · ABA ${formatUsd(m.aba)} · ACLEDA ${formatUsd(m.acleda)}${riel}`,
-      `💵 Received: ${formatUsd(x.payments.total)} · cash $ ${formatUsd(m.cash_usd)} · cash ៛ ${formatUsd(m.cash_khr)} · ABA ${formatUsd(m.aba)} · ACLEDA ${formatUsd(m.acleda)}${riel}`),
-    L(`📌 ជំពាក់ថ្មី: ${formatUsd(x.new_debt)} · ជំពាក់សរុប: ${formatUsd(x.debt_total)}`, `📌 New debt: ${formatUsd(x.new_debt)} · total debt: ${formatUsd(x.debt_total)}`),
-    L(`🔧 ការងារ: ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · លុប ${x.jobs.cancelled} · រង់ចាំពិនិត្យ ${x.jobs.pending_review}`,
-      `🔧 Jobs: new ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled} · waiting for review ${x.jobs.pending_review}`),
-    L(`🚫 មោឃៈ ${x.voids.count} (${formatUsd(x.voids.total)}) · 💸 បញ្ចុះតម្លៃ ${x.discounts.count} (${formatUsd(x.discounts.total)}; ≥ កម្រិត ${x.discounts.over_limit})`,
-      `🚫 Void ${x.voids.count} (${formatUsd(x.voids.total)}) · 💸 Discount ${x.discounts.count} (${formatUsd(x.discounts.total)}; ≥ limit ${x.discounts.over_limit})`),
+  const usd = formatUsd;
+  const methods = [
+    m.cash_usd ? L(`សាច់ប្រាក់ $: ${usd(m.cash_usd)}`, `Cash $: ${usd(m.cash_usd)}`) : null,
+    m.cash_khr ? L(`សាច់ប្រាក់ ៛: ${usd(m.cash_khr)}${x.payments.khr_riel ? ` (${formatKhr(x.payments.khr_riel)})` : ""}`, `Cash ៛: ${usd(m.cash_khr)}${x.payments.khr_riel ? ` (${formatKhr(x.payments.khr_riel)})` : ""}`) : null,
+    m.aba ? `ABA: ${usd(m.aba)}` : null,
+    m.acleda ? `ACLEDA: ${usd(m.acleda)}` : null,
   ];
-  if (x.attendance) lines.push(L(`👷 វត្តមាន: មក ${x.attendance.present}/${x.attendance.people} · យឺត ${x.attendance.late} · អវត្តមាន ${x.attendance.absent} · ច្បាប់ ${x.attendance.leave} · ក្រៅរង្វង់ ${x.attendance.out_of_range}`,
-    `👷 Attendance: present ${x.attendance.present}/${x.attendance.people} · late ${x.attendance.late} · absent ${x.attendance.absent} · leave ${x.attendance.leave} · out of range ${x.attendance.out_of_range}`));
-  return lines.join("\n");
+  const blocks = [
+    title,
+    section(L("🧾 ចំណូល", "🧾 Revenue"), [
+      L(`វិក្កយបត្រ ${x.revenue.invoices} · សរុប ${usd(x.revenue.total)}`, `${x.revenue.invoices} invoices · total ${usd(x.revenue.total)}`),
+      L(`ក្នុងបុរី ${usd(x.revenue.inside)} · ក្រៅបុរី ${usd(x.revenue.outside)}`, `Inside the borey ${usd(x.revenue.inside)} · outside ${usd(x.revenue.outside)}`)]),
+    section(L(`💵 ទទួលប្រាក់ ${usd(x.payments.total)}`, `💵 Received ${usd(x.payments.total)}`), methods.some(Boolean) ? methods : [L("គ្មានការទទួលប្រាក់", "No payment received")]),
+    section(L("📌 ជំពាក់", "📌 Debt"), [
+      L(`ថ្មី: ${usd(x.new_debt)}`, `New: ${usd(x.new_debt)}`),
+      L(`សរុបទាំងអស់: ${usd(x.debt_total)}`, `Total outstanding: ${usd(x.debt_total)}`)]),
+    section(L("🔧 ការងារ", "🔧 Jobs"), [
+      L(`ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · បោះបង់ ${x.jobs.cancelled}`, `New ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled}`),
+      L(`រង់ចាំពិនិត្យ ${x.jobs.pending_review}`, `Waiting for review ${x.jobs.pending_review}`)]),
+    section(L("⚠️ មោឃៈ និងបញ្ចុះតម្លៃ", "⚠️ Voids and discounts"), [
+      L(`មោឃៈ ${x.voids.count} (${usd(x.voids.total)})`, `Void ${x.voids.count} (${usd(x.voids.total)})`),
+      L(`បញ្ចុះតម្លៃ ${x.discounts.count} (${usd(x.discounts.total)})${x.discounts.over_limit ? ` · លើសកម្រិត ${x.discounts.over_limit}` : ""}`,
+        `Discount ${x.discounts.count} (${usd(x.discounts.total)})${x.discounts.over_limit ? ` · over the limit ${x.discounts.over_limit}` : ""}`)]),
+  ];
+  if (x.attendance) blocks.push(attendanceSection(x.attendance, lang));
+  return blocks.join("\n\n");
+}
+/** the attendance block, shared with the bot's summary for staff without finance rights */
+export function attendanceSection(a: { present: number; people: number; late: number; absent: number; leave: number; out_of_range?: number }, lang: Lang): string {
+  const L = (km: string, en: string) => pick({ km, en }, lang);
+  return section(L(`👷 វត្តមាន (${a.people} នាក់)`, `👷 Attendance (${a.people} people)`), [
+    L(`មក ${a.present} · យឺត ${a.late} · អវត្តមាន ${a.absent}`, `Present ${a.present} · late ${a.late} · absent ${a.absent}`),
+    L(`ច្បាប់ ${a.leave}${a.out_of_range !== undefined ? ` · ក្រៅរង្វង់ ${a.out_of_range}` : ""}`, `Leave ${a.leave}${a.out_of_range !== undefined ? ` · out of range ${a.out_of_range}` : ""}`)]);
 }
 
 /** called by the cron every few minutes; returns how many summaries were sent (each to every CEO + CFO) */
@@ -267,10 +289,10 @@ export async function sendSummaries(at: Date = new Date()): Promise<number> {
       const fresh = await sql`insert into report_runs (company_id, kind, period) values (${co.id}, ${r.kind}, ${r.period}) on conflict do nothing returning period`;
       if (!fresh.length) continue;
       const data = await summaryData(co.id, r.from, r.to, true);
-      const [kmTitle, ...kmBody] = summaryText(r.kind, r.from, r.to, data, "km").split("\n");
-      const [enTitle, ...enBody] = summaryText(r.kind, r.from, r.to, data, "en").split("\n");
+      const [kmTitle, ...kmBody] = summaryText(r.kind, r.from, r.to, data, "km").split("\n\n");
+      const [enTitle, ...enBody] = summaryText(r.kind, r.from, r.to, data, "en").split("\n\n");
       for (const u of await sql<{ id: string }[]>`select id from users where company_id = ${co.id} and is_active and role in ('ceo', 'cfo')`)
-        await notifyUser(sql, co.id, u.id, `report.${r.kind}`, { km: kmTitle!, en: enTitle! }, { km: kmBody.join("\n"), en: enBody.join("\n") }, `/reports?from=${r.from}&to=${r.to}`, `sum:${r.kind}:${r.period}:${u.id}`);
+        await notifyUser(sql, co.id, u.id, `report.${r.kind}`, { km: kmTitle!, en: enTitle! }, { km: kmBody.join("\n\n"), en: enBody.join("\n\n") }, `/reports?from=${r.from}&to=${r.to}`, `sum:${r.kind}:${r.period}:${u.id}`);
       sent++;
     }
   }

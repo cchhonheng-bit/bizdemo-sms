@@ -73,10 +73,10 @@ const parseTime = (v: string | null | undefined, code: string): Date | null => {
   if (Number.isNaN(d.getTime())) throw new AppError(code, 400);
   return d;
 };
-/** a start that is written (create / changed / assign) must not be in the past (absolute instant; UI shows Asia/Phnom_Penh) */
-function assertFuture(start: Date): void {
-  if (start.getTime() < Date.now()) throw new AppError("START_IN_PAST", 400);
-}
+/** D-157 (owner 21-10): the staff may write a start that has passed — an appointment agreed by phone and already done; a booking
+ *  set in the past raises no late alert (see lateAlerts: created after its start, or late_alerted_at set when moved there).
+ *  Customers on the website keep their own rule (slots from now + WEB_LEAD_MIN). */
+function assertFuture(_start: Date): void { /* allowed since D-157 */ }
 async function durationOf(t: Db, companyId: string, serviceItemId: string | null): Promise<number> {
   if (!serviceItemId) return DEFAULT_DURATION_MIN;
   const r = (await t<{ duration_min: number }[]>`select duration_min from catalog_items where id = ${serviceItemId} and company_id = ${companyId}`)[0];
@@ -411,7 +411,7 @@ export async function rescheduleBooking(user: SessionUser, ip: string | null, id
     const team = (await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`).map((x) => x.user_id);
     await assertTeamFree(t, user.companyId, team, w.start!, w.end!, id);
     if (b.vehicle_id) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start!, w.end!, id);
-    await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
+    await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = case when ${w.start} < now() then now() else null end where id = ${id}`; // D-157: moved into the past → no late alert
     await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
     await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
       values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${r.requested_by}::reschedule_requester, ${r.reason.trim()}, ${user.id})`;
@@ -539,7 +539,7 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       if (vehicleChanged) { note("vehicle_id", b.vehicle_id, vehicle); await t`update bookings set vehicle_id = ${vehicle} where id = ${id}`; }
     }
     if (timeChanged) {
-      await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = null where id = ${id}`;
+      await t`update bookings set scheduled_at = ${w.start}, ends_at = ${w.end}, late_alerted_at = case when ${w.start} < now() then now() else null end where id = ${id}`; // D-157: moved into the past → no late alert
       await t`update booking_technicians set released_at = null where booking_id = ${id} and released_at is not null`; // D-139: a release was for the old time
       await t`insert into booking_reschedules (booking_id, company_id, old_start, old_end, new_start, new_end, requested_by, reason, by_user)
         values (${id}, ${user.companyId}, ${b.scheduled_at}, ${b.ends_at}, ${w.start}, ${w.end}, ${e.requested_by!}::reschedule_requester, ${e.reason!.trim()}, ${user.id})`;

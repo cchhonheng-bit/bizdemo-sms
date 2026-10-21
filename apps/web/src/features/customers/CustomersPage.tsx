@@ -5,13 +5,15 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { addressComplete, customerSchema, formatKhPhone, GEO_DEFAULT, matchesSearch, normalizeKhPhone, type CustomerInput } from "@sms/shared";
-import { History, Home, MapPin, Pencil, Plus, Power, X } from "lucide-react";
+import { History, Download, Home, Upload, MapPin, Pencil, Plus, Power, X } from "lucide-react";
 import { api, errCode, type Customer } from "@/lib/api";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PhoneInput, RowAction, Skeleton } from "@/components/ui";
 import { LocationPicker, type LatLngValue } from "@/features/bookings/parts";
 import { toast } from "@/lib/toast";
 import CustomerHistoryDialog from "./CustomerHistoryDialog";
 import { AddressFields } from "./AddressFields";
+import { PreviewDialog, toB64 } from "@/features/catalog/CatalogPage";
+import type { CatalogPreview } from "@/lib/api";
 import { EMPTY_ADDRESS, type AddressValue } from "./geo";
 
 /** D-137: a website / Telegram customer may come without province, khan or sangkat — the staff complete it */
@@ -19,6 +21,10 @@ export function AddressBadge({ c }: { c: Pick<Customer, "address_complete"> }) {
   const { t } = useTranslation();
   return c.address_complete === false ? <Badge tone="warning" data-testid="address-incomplete">{t("customers.address_incomplete")}</Badge> : null;
 }
+
+/** D-156: the changed fields of the Excel preview in words */
+const CUSTOMER_FIELD: Record<string, string> = { name: "customers.name", phones: "customers.phones", house_no: "customers.house_no", street: "customers.street", borey_name: "customers.borey", borey_zone: "customers.borey_zone",
+  province_code: "customers.province", district_code: "customers.district", commune_code: "customers.commune", village_code: "customers.village", zone: "customers.zone", notes: "customers.notes", is_active: "users.active" };
 
 export default function CustomersPage() {
   const { t } = useTranslation();
@@ -29,6 +35,20 @@ export default function CustomersPage() {
   const [history, setHistory] = useState<Customer | null>(null);
   const [q, setQ] = useState("");
   const [showInactive, setShowInactive] = useState(false);
+  // D-156: the list by Excel — «ទាញ Excel» (the same sheet is the template) → «នាំចូល Excel» → preview → apply
+  const { i18n } = useTranslation();
+  const lang = i18n.language === "en" ? "en" : "km";
+  const [preview, setPreview] = useState<{ data: string; result: CatalogPreview } | null>(null);
+  const upload = async (f: File | undefined) => {
+    if (!f) return;
+    try { const data = await toB64(f); setPreview({ data, result: await api.customersPreview(data) }); }
+    catch (e) { toast.error(t(`catalog.import_err.${errCode(e)}`, { defaultValue: t("app.error") })); }
+  };
+  const apply = useMutation({
+    mutationFn: () => api.customersApply(preview!.data),
+    onSuccess: (r) => { toast.success(t("catalog.applied", { new: r.counts.new, changed: r.counts.changed })); setPreview(null); void qc.invalidateQueries({ queryKey: ["customers"] }); },
+    onError: (e) => toast.error(t(`catalog.import_err.${errCode(e)}`, { defaultValue: t("catalog.fix_first") })),
+  });
 
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
   // D-137: Khmer or Latin keyboard — names, addresses, borey; phones in any form (Khmer digits, spaces, +855)
@@ -45,6 +65,8 @@ export default function CustomersPage() {
       <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
         <h1>{t("customers.title")}</h1>
         <div className="flex flex-wrap gap-2">
+          <a className="btn-secondary" href={`/api/customers/export.xlsx?lang=${lang}`} data-testid="customers-export"><Download size={16} /> {t("customers.excel_export")}</a>
+          <label className="btn-secondary cursor-pointer" data-testid="customers-import"><Upload size={16} /> {t("customers.excel_import")}<input type="file" accept=".xlsx,.csv" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} /></label>
           <Button onClick={() => nav("/customers/boreys")} data-testid="boreys-link"><Home size={16} /> {t("customers.boreys")}</Button>
           <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("customers.new")}</Button>
         </div>
@@ -80,6 +102,7 @@ export default function CustomersPage() {
       </Card>
       {editing && <CustomerDialog customer={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
       {history && <CustomerHistoryDialog customer={history} onClose={() => setHistory(null)} />}
+      {preview && <PreviewDialog preview={preview.result} loading={apply.isPending} onClose={() => setPreview(null)} onApply={() => apply.mutate()} labels={CUSTOMER_FIELD} />}
       <ConfirmDialog open={!!toggle} onClose={() => setToggle(null)} loading={act.isPending} danger={toggle?.is_active}
         title={toggle?.is_active ? t("customers.deactivate") : t("customers.activate")} text={toggle?.name ?? ""} onConfirm={() => toggle && act.mutate(toggle)} />
     </div>

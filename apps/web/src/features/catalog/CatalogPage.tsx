@@ -16,7 +16,7 @@ import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
 
 const when = (s: string) => new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(s));
-const toB64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1] ?? ""); r.onerror = () => reject(r.error); r.readAsDataURL(f); });
+export const toB64 = (f: File) => new Promise<string>((resolve, reject) => { const r = new FileReader(); r.onload = () => resolve(String(r.result).split(",")[1] ?? ""); r.onerror = () => reject(r.error); r.readAsDataURL(f); });
 
 export default function CatalogPage() {
   const { t, i18n } = useTranslation();
@@ -138,7 +138,7 @@ export default function CatalogPage() {
 const FIELD_LABEL: Record<string, string> = { name_km: "catalog.name_km", name_en: "catalog.name_en", web_category: "catalog.web_category", unit: "catalog.unit",
   from_price: "catalog.from_price", duration_min: "catalog.duration", show_on_website: "catalog.show_on_website", quote_only: "catalog.quote_only", is_active: "app.active" };
 
-function PreviewDialog({ preview, loading, onClose, onApply }: { preview: CatalogPreview; loading: boolean; onClose: () => void; onApply: () => void }) {
+export function PreviewDialog({ preview, loading, onClose, onApply, labels = FIELD_LABEL }: { preview: CatalogPreview; loading: boolean; onClose: () => void; onApply: () => void; labels?: Record<string, string> }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === "en" ? "en" : "km";
   const c = preview.counts, blocked = c.error > 0 || preview.file_errors.length > 0, nothing = !blocked && c.new + c.changed === 0;
@@ -162,7 +162,7 @@ function PreviewDialog({ preview, loading, onClose, onApply }: { preview: Catalo
               <span className="tabular text-xs">{r.code}</span><span className="font-semibold break-words min-w-0">{r.name}</span>
             </div>
             {r.errors.length > 0 && <div className="text-xs text-danger">{r.errors.map(errText).join(" · ")}</div>}
-            {Object.entries(r.changes).map(([k, [a, b]]) => <div key={k} className="text-xs text-muted break-words" data-testid="cat-change">{FIELD_LABEL[k] ? t(FIELD_LABEL[k]) : k}: {value(k, a)} → {value(k, b)}</div>)}
+            {Object.entries(r.changes).map(([k, [a, b]]) => <div key={k} className="text-xs text-muted break-words" data-testid="cat-change">{labels[k] ? t(labels[k]) : k}: {value(k, a)} → {value(k, b)}</div>)}
           </li>
         ))}
       </ul>

@@ -28,7 +28,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "customer.notify_prefs": T("ការជូនដំណឹងរបស់អតិថិជន", "Customer notification settings"), "customer.password_changed": T("អតិថិជនប្ដូរពាក្យសម្ងាត់", "Customer changed the password"),
   "customer.password_reset": T("ពាក្យសម្ងាត់ថ្មីសម្រាប់អតិថិជន", "Customer password reset"), "customer.password_sent": T("ផ្ញើពាក្យសម្ងាត់ទៅអតិថិជន", "Customer password sent"),
   "customer.test": T("កំណត់ជាអតិថិជនសាកល្បង", "Marked as a test customer"), "customer.tg_link": T("អតិថិជនភ្ជាប់ Telegram", "Customer linked Telegram"), "customer.unit": T("កែម៉ាស៊ីនរបស់អតិថិជន", "Customer equipment saved"),
-  "customer.update": T("កែអតិថិជន", "Customer edited"), "demo.seed": T("ទិន្នន័យសាកល្បង", "Demo data"),
+  "customer.import": T("នាំចូលអតិថិជនពី Excel", "Customers imported from Excel"), "customer.update": T("កែអតិថិជន", "Customer edited"), "demo.seed": T("ទិន្នន័យសាកល្បង", "Demo data"),
   "borey.create": T("បន្ថែមគម្រោងបុរី", "Borey project added"), "borey.update": T("កែគម្រោងបុរី", "Borey project edited"),
   "borey.active": T("បិទ ឬបើកគម្រោងបុរី", "Borey project turned off / on"),
   "deposit.record": T("ទទួលប្រាក់កក់", "Deposit received"), "deposit.void": T("មោឃៈប្រាក់កក់", "Deposit voided"), "fx.set": T("កំណត់អត្រាប្តូរប្រាក់", "Exchange rate set"),

@@ -14,7 +14,7 @@ import { LocationPicker, type LatLngValue } from "./parts";
 import { AddressBadge, CustomerDialog } from "@/features/customers/CustomersPage";
 import { toast } from "@/lib/toast";
 import { useFeature } from "@/lib/config";
-import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, todayLocal } from "./time";
+import { addMinutesLocal, isPastLocal, joinLocal, splitLocal } from "./time";
 import { CrewList } from "./CrewPicker";
 import { conflictText, crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
 
@@ -152,7 +152,6 @@ export default function BookingFormPage() {
   // D2: every booking has the agreed appointment; on the «កែ» screen a new time follows the reschedule rules (who + why)
   const timeError = editing && !timeChanged ? null : !date ? t("booking.err.DATE_REQUIRED")
     : !start ? t("booking.err.START_REQUIRED")
-      : startIso && startChanged && isPastLocal(startIso) ? t("booking.err.START_IN_PAST")
         : !end ? t("booking.err.END_REQUIRED")
           : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START") : null;
 
@@ -288,7 +287,7 @@ export default function BookingFormPage() {
             </Field>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
               <div className="col-span-2 sm:col-span-1">
-                <Field label={t("booking.date")} required hint={editing ? t("booking.time_edit_hint") : t("booking.scheduled_hint")}><Input type="date" min={editing ? undefined : todayLocal()} {...register("date")} /></Field>
+                <Field label={t("booking.date")} required hint={startIso && isPastLocal(startIso) ? t("booking.past_hint") : editing ? t("booking.time_edit_hint") : t("booking.scheduled_hint")}><Input type="date" {...register("date")} /></Field>
               </div>
               <Field label={t("booking.start")} required><Input type="time" step={300} {...register("start")} disabled={!date} /></Field>
               <Field label={t("booking.end")} required><Input type="time" step={300} {...register("end")} disabled={!date || !start} /></Field>

@@ -15,7 +15,7 @@ import SurveyQuoteCards from "@/features/quotes/SurveyQuoteCards";
 import BookingInvoiceCard from "@/features/invoices/BookingInvoiceCard";
 import JobExecution from "@/features/tech/JobExecution";
 import { toast } from "@/lib/toast";
-import { addMinutesLocal, isPastLocal, joinLocal, splitLocal, timeRange, todayLocal } from "./time";
+import { addMinutesLocal, joinLocal, splitLocal, timeRange } from "./time";
 import { CrewList } from "./CrewPicker";
 import { conflictText, crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
 
@@ -186,12 +186,12 @@ function AssignDialog({ booking, onClose }: { booking: Booking; onClose: () => v
   return (
     <Dialog open onClose={onClose} title={`${booking.status === "assigned" ? t("booking.reassign") : t("booking.assign")} · ${booking.number}`} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
-      <Button variant="primary" className="flex-1 sm:flex-none" loading={m.isPending} disabled={!windowOk || crew.length === 0} onClick={() => m.mutate()} data-testid="assign-submit">{t("booking.confirm_assign")} ({crew.length})</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" loading={m.isPending} disabled={crew.length === 0} onClick={() => m.mutate()} data-testid="assign-submit">{t("booking.confirm_assign")} ({crew.length})</Button>
     </>}>
       <div className="card bg-grey-bg p-3 mb-3 text-sm" data-testid="assign-when">
         <div className="text-muted text-xs">{t("booking.appointment")}</div>
         <div className="font-bold tabular text-base">{booking.scheduled_at ? `${fmtDate(booking.scheduled_at)} · ${timeRange(booking.scheduled_at, booking.ends_at)}` : "—"}</div>
-        {!windowOk && <p className="text-danger mt-1" role="alert">{t("booking.err.START_IN_PAST")} — {t("booking.reschedule_first")}</p>}
+        {!windowOk && <p className="text-warning mt-1" role="status">{t("booking.past_hint")}</p>}
       </div>
 
       <Field label={t("booking.crew")} required hint={t("booking.crew_hint")}>
@@ -249,13 +249,13 @@ function RescheduleDialog({ booking, onClose }: { booking: Booking; onClose: () 
   const qc = useQueryClient();
   const s0 = splitLocal(booking.scheduled_at);
   const minutes = booking.scheduled_at && booking.ends_at ? (new Date(booking.ends_at).getTime() - new Date(booking.scheduled_at).getTime()) / 60_000 : 120;
-  const [date, setDate] = useState(isPastLocal(booking.scheduled_at ?? "1970-01-01") ? "" : s0.date);
-  const [start, setStart] = useState(isPastLocal(booking.scheduled_at ?? "1970-01-01") ? "" : s0.time);
-  const [end, setEnd] = useState(booking.ends_at && !isPastLocal(booking.scheduled_at ?? "1970-01-01") ? splitLocal(booking.ends_at).time : "");
+  const [date, setDate] = useState(s0.date);
+  const [start, setStart] = useState(s0.time);
+  const [end, setEnd] = useState(booking.ends_at ? splitLocal(booking.ends_at).time : "");
   const [who, setWho] = useState<string>("");
   const [reason, setReason] = useState("");
   const startIso = date && start ? joinLocal(date, start) : null, endIso = date && end ? joinLocal(date, end) : null;
-  const err = startIso && isPastLocal(startIso) ? t("booking.err.START_IN_PAST") : startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START")
+  const err = startIso && endIso && endIso <= startIso ? t("booking.err.END_BEFORE_START")
     : startIso && startIso === booking.scheduled_at && endIso === booking.ends_at ? t("booking.err.SAME_TIME") : null;
   const ready = !!startIso && !!endIso && !err && !!who && reason.trim().length >= 3;
   const m = useMutation({
@@ -278,7 +278,7 @@ function RescheduleDialog({ booking, onClose }: { booking: Booking; onClose: () 
     </>}>
       <p className="text-sm text-muted mb-3">{t("booking.appointment")}: <b className="tabular text-ink">{booking.scheduled_at ? `${fmtDate(booking.scheduled_at)} · ${timeRange(booking.scheduled_at, booking.ends_at)}` : "—"}</b></p>
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-3">
-        <div className="col-span-2 sm:col-span-1"><Field label={t("booking.date")} required><Input type="date" min={todayLocal()} name="resched_date" value={date} onChange={(e) => setDate(e.target.value)} /></Field></div>
+        <div className="col-span-2 sm:col-span-1"><Field label={t("booking.date")} required><Input type="date" name="resched_date" value={date} onChange={(e) => setDate(e.target.value)} /></Field></div>
         <Field label={t("booking.start")} required><Input type="time" step={300} name="resched_start" value={start} onChange={(e) => { setStart(e.target.value); if (date && e.target.value) setEnd(addMinutesLocal(date, e.target.value, minutes)); }} /></Field>
         <Field label={t("booking.end")} required><Input type="time" step={300} name="resched_end" value={end} onChange={(e) => setEnd(e.target.value)} /></Field>
       </div>

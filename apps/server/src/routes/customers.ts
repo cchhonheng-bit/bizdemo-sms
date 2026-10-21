@@ -12,6 +12,7 @@ import { audit } from "../services/audit.js";
 import { boreyFor } from "../services/boreys.js";
 import { unlockCustomerLogin } from "../services/customer-auth.js";
 import { customerHistory } from "../services/customers.js";
+import { customersApply, customersExport, customersPreview, customersSample } from "../services/customer-import.js";
 
 export const CUSTOMER_COLS = sql`c.id, c.company_id, c.name, c.phones, c.address, c.zone, c.lat, c.lng, c.notes, c.is_active, c.created_at, c.updated_at, c.origin,
   c.house_no, c.street, c.borey_id, bo.name as borey_name, c.borey_zone, c.province_code, c.district_code, c.commune_code, c.village_code,
@@ -25,6 +26,18 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
     return sql`select ${CUSTOMER_COLS} from customers c left join boreys bo on bo.id = c.borey_id where c.company_id = ${req.user!.companyId} and not c.is_test
                ${q.active === "true" ? sql`and c.is_active` : sql``} order by c.name`;
   });
+
+  // D-156: the list as Excel (= the import template), a sample sheet, import preview → apply (customer.manage)
+  const manage = { preHandler: app.requirePerm("customer.manage") };
+  const xlsx = (reply: import("fastify").FastifyReply, name: string, buf: Buffer) => reply.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").header("Content-Disposition", `attachment; filename="${name}"`).send(buf);
+  app.get("/export.xlsx", manage, async (req, reply) => {
+    const q = z.object({ lang: z.enum(["km", "en"]).default("km"), sample: z.enum(["1"]).optional() }).parse(req.query ?? {});
+    return xlsx(reply, `customers-${q.sample ? "sample" : new Date().toISOString().slice(0, 10)}.xlsx`, q.sample ? customersSample(q.lang) : await customersExport(req.user!, q.lang));
+  });
+  const file = z.object({ data: z.string().min(10).max(3_000_000) }).strict();
+  const decode = (b64: string) => { const buf = Buffer.from(b64, "base64"); if (!buf.length) throw new AppError("BAD_FILE", 400); return buf; };
+  app.post("/import/preview", { ...manage, bodyLimit: 3_200_000 }, async (req) => customersPreview(req.user!, decode(file.parse(req.body).data)));
+  app.post("/import/apply", { ...manage, bodyLimit: 3_200_000 }, async (req) => customersApply(req.user!, req.ip, decode(file.parse(req.body).data)));
 
   // FR-203: bookings, invoices, debt, running warranties of one customer
   app.get("/:id/history", { preHandler: app.requireAuth }, async (req) => {

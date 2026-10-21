@@ -268,6 +268,9 @@ export const api = {
     active: (id: string, active: boolean) => post(`/api/boreys/${id}/active`, { active }),
   },
   setCustomerActive: (id: string, active: boolean) => post(`/api/customers/${id}/active`, { active }),
+  /** D-156: the customer list by Excel — export (= template) → preview → apply */
+  customersPreview: (data: string) => post<CatalogPreview>("/api/customers/import/preview", { data }),
+  customersApply: (data: string) => post<{ ok: true; counts: CatalogPreview["counts"] }>("/api/customers/import/apply", { data }),
 
   catalog: () => get<CatalogItem[]>("/api/catalog"),
   /** D-142: the next item code under a stock account (sub codes), or the account's own code (one item) */

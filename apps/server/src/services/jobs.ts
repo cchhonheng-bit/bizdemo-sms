@@ -286,6 +286,7 @@ export async function lateAlerts(): Promise<number> {
       and b.status in ('assigned', 'en_route') and b.scheduled_at is not null
       and now() > b.scheduled_at + make_interval(mins => s.late_alert_min)
       and b.scheduled_at > now() - interval '1 day'
+      and b.created_at < b.scheduled_at -- D-157: booked after its start (an appointment already done by phone) → never «late»
       and not exists (select 1 from booking_checkpoints k where k.booking_id = b.id and k.step = 'arrive')
     returning b.id, b.company_id, b.number, b.scheduled_at, c.timezone, b.is_test,
       (select string_agg(u.full_name, ', ') from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as crew`;

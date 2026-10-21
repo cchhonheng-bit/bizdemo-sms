@@ -92,7 +92,7 @@ export function ExtrasCard({ booking, info, meId, onDone, onDirty }: { booking: 
         : { kind: "other" as const, description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, photo, client_key };
       const label = mode === "service" ? (list.find((i) => i.id === item)?.name_km ?? "") : text.trim();
       // D-155: without internet the line waits on the phone (the photo apart) and goes out in order later
-      const r = await sendOrQueue({ bookingId: booking.id, kind: "extra", at: new Date().toISOString(), label, body: { ...body, photo: null } }, () => api.job.addExtra(booking.id, body), photo ?? undefined);
+      const r = await sendOrQueue({ bookingId: booking.id, kind: "extra", at: new Date().toISOString(), label, body: body.kind === "other" ? { ...body, photo: null } : body }, () => api.job.addExtra(booking.id, body), photo ?? undefined);
       return r.status === "sent" ? r.result : { overlap: null, queued: true as const };
     },
     onSuccess: (r) => {

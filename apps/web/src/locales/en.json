@@ -413,7 +413,9 @@
     "address_full_hint": "Built from the fields above · used on jobs, invoices and the technician's page",
     "map": "Google Maps location",
     "map_hint": "Tap «Use current location» or paste a Google Maps link",
-    "address_old": "Old address"
+    "address_old": "Old address",
+    "excel_export": "Excel export",
+    "excel_import": "Import Excel"
   },
   "catalog": {
     "title": "Services & prices",
@@ -483,7 +485,11 @@
       "FORBIDDEN": "You may not edit the catalog",
       "CODE_NOT_IN_ACCOUNT": "The code must start with the stock account's digits (e.g. 14001) or equal the account (e.g. 13001)",
       "ONE_ITEM_PER_CODE": "This account already has its item — one account, one item (turn sub codes on in the chart for more)",
-      "NOT_STOCK_ACCOUNT": "Choose a stock account"
+      "NOT_STOCK_ACCOUNT": "Choose a stock account",
+      "PHONE": "Bad phone number",
+      "PLACE": "Province / khan / sangkat / village not found (official name or code)",
+      "BOREY": "Borey not found (create it under «Boreys» first)",
+      "ADDRESS": "A new customer needs province + khan + sangkat (or a borey)"
     },
     "stock_link": "Stock link",
     "stock_link_hint": "The stock group this line uses (e.g. copper pipe → 14000) — for the reconciliation report only · never moves stock",
@@ -689,7 +695,8 @@
     "edit_time_changed": "New time — choose who asked and write why",
     "edit_notify_hint": "Required · the technicians, the Telegram group and the customer get the new time",
     "requester_shop": "Our company",
-    "crew_and_vehicle": "Technicians and vehicle"
+    "crew_and_vehicle": "Technicians and vehicle",
+    "past_hint": "This time has passed — an appointment made by phone, done or under way (no late alert)"
   },
   "tech": {
     "hello": "Hello {{name}}",
