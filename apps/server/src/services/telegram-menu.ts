@@ -26,7 +26,7 @@ import { btn, customerGrid, menuUrl, row, webOn } from "./customer-bot.js";
 import { decideReschedule } from "./customer-home.js";
 import { decideWebBooking } from "./web-booking.js";
 import { listReminders } from "./reminders.js";
-import { attendanceSection, dmy, section, summaryData, summaryText, verification } from "./reports.js";
+import { attendanceSection, dmy as dmyIso, section, summaryData, summaryText, verification } from "./reports.js";
 import { cashCloses } from "./reports-extra.js";
 import { fmtLocal, hubForgetChat } from "./telegram.js";
 
@@ -407,7 +407,7 @@ async function summaryFor(u: Staff, kind: "daily" | "weekly" | "monthly"): Promi
   const data = await summaryData(u.company_id, from, day, finance);
   if (finance) return { text: summaryText(kind, from, day, data, asLang(u.language)), buttons: [backHome(u)] };
   const x = data as { jobs: { created: number; finished: number; cancelled: number; pending_review: number; in_progress: number }; attendance?: { present: number; people: number; late: number; absent: number; leave: number } };
-  const range = from === day ? dmy(day) : `${dmy(from)} → ${dmy(day)}`;
+  const range = from === day ? dmyIso(day) : `${dmyIso(from)} → ${dmyIso(day)}`;
   const lines = [L(`📊 សង្ខេប · ${range}`, `📊 Summary · ${range}`),
     section(L("🔧 ការងារ", "🔧 Jobs"), [
       L(`ថ្មី ${x.jobs.created} · បញ្ចប់ ${x.jobs.finished} · បោះបង់ ${x.jobs.cancelled}`, `New ${x.jobs.created} · finished ${x.jobs.finished} · cancelled ${x.jobs.cancelled}`),

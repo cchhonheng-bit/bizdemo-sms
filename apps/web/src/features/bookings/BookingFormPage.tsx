@@ -148,7 +148,6 @@ export default function BookingFormPage() {
   const startIso = date && start ? joinLocal(date, start) : null;
   const endIso = date && end ? joinLocal(date, end) : null;
   const timeChanged = editing && !!bk && (!sameTime(startIso, bk.scheduled_at) || !sameTime(endIso, bk.ends_at));
-  const startChanged = !editing || !sameTime(startIso, bk?.scheduled_at);
   // D2: every booking has the agreed appointment; on the «កែ» screen a new time follows the reschedule rules (who + why)
   const timeError = editing && !timeChanged ? null : !date ? t("booking.err.DATE_REQUIRED")
     : !start ? t("booking.err.START_REQUIRED")
