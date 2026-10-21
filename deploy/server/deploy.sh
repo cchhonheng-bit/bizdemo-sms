@@ -124,7 +124,7 @@ if [ $ok = 1 ]; then
   echo; echo "DEPLOYED $image → $target  ($(git -C "$SRC" log -1 --format='%h %s' | cut -c1-80))"
   # D-153: the owner's deploy alert carries the Khmer release note for the client (deploy/release-note.kh.txt, rewritten with each
   # feature deploy) — short, ready to forward; the tag + commit subject stay on the last line for the team
-  note=$(sed 's/\r$//' "$SRC/deploy/release-note.kh.txt" 2>/dev/null | head -c 900)
+  note=$(sed 's/\r$//' "$SRC/deploy/release-note.kh.txt" 2>/dev/null)   # the whole file: `head -c` cut Khmer mid-character (3 bytes each, 21-10); alerts.ts limits by characters
   alert deploy "✅ deployed $target $image
 $note
 — $(git -C "$SRC" log -1 --format=%s | cut -c1-100)"
