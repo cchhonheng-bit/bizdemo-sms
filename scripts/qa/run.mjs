@@ -1194,9 +1194,10 @@ const gmDev = await device({ desktop: true });
   await step(A, "D-156 «ទាញ Excel» = the whole list with Khmer headers · «នាំចូល Excel»: one changed + one new row → preview counts → apply → the new customer is in the list", page, async () => {
     await page.goto(`${BASE}/app/customers`); await idle(page);
     await page.locator('[data-testid="customers-export"]').waitFor({ timeout: 15_000 });
-    const r = await page.request.get(`${BASE}/api/customers/export.xlsx?lang=km`);
-    must(r.ok() && /spreadsheetml/.test(r.headers()["content-type"] ?? ""), `export ${r.status()}`);
-    const rows = readXlsx(Buffer.from(await r.body()));
+    // fetched inside the page (Node resolves no *.localhost names; the browser does) — the same cookie as the signed-in Admin
+    const r = await page.evaluate(async () => { const r = await fetch("/api/customers/export.xlsx?lang=km"); const u = new Uint8Array(await r.arrayBuffer()); let t = ""; for (const x of u) t += String.fromCharCode(x); return { ok: r.ok, status: r.status, ct: r.headers.get("content-type") ?? "", b64: btoa(t) }; });
+    must(r.ok && /spreadsheetml/.test(r.ct), `export ${r.status} ${r.ct}`);
+    const rows = readXlsx(Buffer.from(r.b64, "base64"));
     must(rows[0][0] === "ឈ្មោះ" && rows[0][1].startsWith("ទូរស័ព្ទ") && rows.length > 2, `export rows ${rows.length}`);
     const first = rows.find((x, i) => i > 0 && x[1]);
     const edited = join(WORK, "customers-import.xlsx");
