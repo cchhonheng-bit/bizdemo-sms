@@ -96,7 +96,7 @@ async function sendAction(a: Action): Promise<void> {
   switch (a.kind) {
     case "checkpoint": await post(`/api/bookings/${a.bookingId}/checkpoint`, { ...body, offline: true }); return;
     case "photo": await post(`/api/bookings/${a.bookingId}/photos`, body); return;
-    case "extra": { const { data, photo: _p, ...rest } = body as { data?: string | null; photo?: unknown } & Record<string, unknown>; void _p; // the photo data travels apart await post(`/api/bookings/${a.bookingId}/extras`, { ...rest, ...(data ? { photo: data } : {}) }); return; }
+    case "extra": { const { data, photo: _p, ...rest } = body as { data?: string | null; photo?: unknown } & Record<string, unknown>; void _p; /* the photo data travels apart */ await post(`/api/bookings/${a.bookingId}/extras`, { ...rest, ...(data ? { photo: data } : {}) }); return; }
     case "report": await post(`/api/bookings/${a.bookingId}/report`, body); return;
   }
 }
