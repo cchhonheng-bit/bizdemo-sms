@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { PermissionKey, Role } from "@sms/shared";
 import { ApiError, get, post } from "./http";
+import { freshen } from "./update";
 import { setLanguage } from "./i18n";
 
 export type Me = {
@@ -38,6 +39,7 @@ export const useAuth = create<State>((set, get_) => ({
       const r = await post<{ me: Me }>("/api/auth/login", { identifier, password, company: company || undefined });
       setLanguage(r.me.language);
       set({ status: "authed", me: r.me });
+      void freshen(); // D-150: a newer build on the server → caches dropped + reload right after the sign-in
       return { ok: true };
     } catch (e) {
       return { ok: false, code: e instanceof ApiError ? e.code : "ERROR" };
