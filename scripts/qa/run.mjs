@@ -1208,7 +1208,8 @@ const gmDev = await device({ desktop: true });
     await dlg.waitFor({ timeout: 15_000 });
     const txt = await dlg.innerText();
     must(/ថ្មី[^\d]*1/.test(txt) && /កែ[^\d]*1/.test(txt), `preview counts: ${txt.slice(0, 200)}`);
-    await dlg.getByRole("button", { name: /អនុវត្ត|ប្រើ|យល់ព្រម/ }).first().click();
+    await dlg.locator('[data-testid="cat-apply"]').click();
+    await dlg.waitFor({ state: "detached", timeout: 20_000 }); // the apply has returned (the dialog closes on success)
     await page.locator("text=QA អតិថិជន Excel").first().waitFor({ timeout: 15_000 });
     const list = await adminApi.call("GET", "/api/customers");
     const made = list.find((c) => c.name === "QA អតិថិជន Excel");

@@ -24,7 +24,7 @@ export function AddressBadge({ c }: { c: Pick<Customer, "address_complete"> }) {
 
 /** D-156: the changed fields of the Excel preview in words */
 const CUSTOMER_FIELD: Record<string, string> = { name: "customers.name", phones: "customers.phones", house_no: "customers.house_no", street: "customers.street", borey_name: "customers.borey", borey_zone: "customers.borey_zone",
-  province_code: "customers.province", district_code: "customers.district", commune_code: "customers.commune", village_code: "customers.village", zone: "customers.zone", notes: "customers.notes", is_active: "users.active" };
+  province_code: "customers.province", district_code: "customers.district", commune_code: "customers.commune", village_code: "customers.village", zone: "customers.zone", notes: "booking.notes", is_active: "app.active" };
 
 export default function CustomersPage() {
   const { t } = useTranslation();
