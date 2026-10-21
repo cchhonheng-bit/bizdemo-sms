@@ -65,7 +65,7 @@ describe("D-151 the office adds work without sending the job back", () => {
     expect((await extras(admin, other))[0]).toMatchObject({ status: "pending", added_by_role: "tech" });
     const inv = (await admin.req("POST", "/api/invoices", { booking_id: id, lines: (await admin.req("GET", `/api/invoices/prefill?booking=${id}`)).json.lines })).json.id;
     expect((await admin.req("POST", `/api/invoices/${inv}/issue`, {})).status).toBe(200);
-    expect((await admin.req("POST", `/api/bookings/${id}/extras`, { kind: "service", item_id: svc, qty: 1 })).json.error).toBe("INVOICE_EXISTS");
+    expect((await admin.req("POST", `/api/bookings/${id}/extras`, { kind: "service", item_id: svc, qty: 1 })).json.error).toBe("REPORT_LOCKED"); // invoiced = locked for everyone
   });
 
   it("before the technician arrives the office cannot add (NOT_ON_SITE, as before); a cancelled job never", async () => {

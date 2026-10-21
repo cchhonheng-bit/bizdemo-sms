@@ -57,7 +57,10 @@ describe("D-140 F work added on site", () => {
     const o = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "ប្ដូរខ្សែភ្លើងចាស់", photo: PNG });
     expect(o.status).toBe(200);
     expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "x" })).json.error).toBe("DESCRIPTION_REQUIRED");
-    expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "តម្លៃ", unit_price: 500 })).status).toBe(400); // no price from the technician
+    const priced = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "តម្លៃ", unit_price: 500 }); // D-151: the field exists for the office — a technician's price is ignored
+    expect(priced.status).toBe(200);
+    expect(((await info(admin, job)).extras as any[]).find((x) => x.id === priced.json.id)).toMatchObject({ unit_price: null, status: "pending" });
+    expect((await kim.req("DELETE", `/api/bookings/${job}/extras/${priced.json.id}`)).status).toBe(200);
     const mine = (await info(kim, job)).extras;
     expect(mine.map((x: any) => [x.kind, x.qty, x.status, x.unit_price, x.added_by])).toEqual([["service", 2, "pending", null, s.users.kim], ["other", 1, "pending", null, s.users.kim]]);
     expect(mine[1].photo_file).toBeTruthy();
