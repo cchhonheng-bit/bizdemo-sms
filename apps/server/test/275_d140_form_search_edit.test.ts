@@ -142,7 +142,6 @@ describe("D-140 C one «កែ» screen", () => {
     const move = { ...span(later(100)) };
     expect((await edit(admin, job, move)).json.error).toBe("REQUESTER_REQUIRED");
     expect((await edit(admin, job, { ...move, requested_by: "customer" })).json.error).toBe("REASON_REQUIRED");
-    expect([200, 409]).toContain((await edit(admin, job, { ...span(later(-2)), requested_by: "customer", reason: "ផ្លាស់ប្ដូរ" })).status); // D-157: the past is allowed (409 only when kim is busy then)
     const clash = await edit(admin, job, { ...move, requested_by: "customer", reason: "អតិថិជនរវល់" });
     expect([clash.status, clash.json.error]).toEqual([409, "TECH_UNAVAILABLE"]); // kim is on the other job then
     // the same save with another technician (assign rules) is fine

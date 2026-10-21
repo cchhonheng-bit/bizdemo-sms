@@ -277,8 +277,8 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     }
     const number = await nextBookingNumber(t, user.companyId);
     const status: BookingStatus = b.type === "B" ? "survey" : "new";
-    const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, address, lat, lng, zone, vehicle_id, notes, created_by, parent_booking_id)
-      values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${serviceItemId}, ${w.start}, ${w.end},
+    const id = (await t<{ id: string }[]>`insert into bookings (company_id, number, customer_id, type, category, status, service_text, service_item_id, scheduled_at, ends_at, late_alerted_at, address, lat, lng, zone, vehicle_id, notes, created_by, parent_booking_id)
+      values (${user.companyId}, ${number}, ${c.id}, ${b.type}::booking_type, ${b.category}::service_category, ${status}::booking_status, ${service}, ${serviceItemId}, ${w.start}, ${w.end}, ${w.start.getTime() < Date.now() ? new Date() : null},
               ${b.address?.trim() || c.address}, ${b.lat ?? c.lat}, ${b.lng ?? c.lng}, ${(b.zone ?? c.zone)}::zone, ${b.vehicle_id}, ${b.notes?.trim() || null}, ${user.id}, ${b.warranty_of ?? null}) returning id`)[0]!.id;
     await t`insert into booking_status_log (booking_id, from_status, to_status, by) values (${id}, null, ${status}::booking_status, ${user.id})`;
     if (lines) await t`update bookings set web_lines = ${t.json(storedLines(lines) as never)} where id = ${id}`;

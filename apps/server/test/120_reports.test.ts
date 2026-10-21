@@ -150,10 +150,10 @@ describe("Telegram summaries to CEO + CFO (FR-1004)", () => {
     expect(await sendSummaries(new Date("2026-09-30T13:01:00Z"))).toBe(2);            // 20:01 → daily, one per company (A and B)
     expect(await sendSummaries(new Date("2026-09-30T15:00:00Z"))).toBe(0);            // again that evening → nothing
     expect(await notes("ceo", "report.daily")).toBe(1); expect(await notes("cfo", "report.daily")).toBe(1);
-    const tg = await sql<{ text: string }[]>`select text from telegram_outbox where chat_id = 950001 and text like '%2026-09-30%'`;
+    const tg = await sql<{ text: string }[]>`select text from telegram_outbox where chat_id = 950001 and text like '%30-09-2026%'`;
     expect(tg).toHaveLength(1); expect(tg[0]!.text).toContain("$");
     expect(await sendSummaries(new Date("2026-10-05T01:05:00Z"))).toBe(2);            // Mon 5 Oct 08:05 → weekly 28 Sep – 4 Oct
-    expect((await sql`select 1 from telegram_outbox where chat_id = 950001 and text like '%2026-09-28%2026-10-04%'`).length).toBe(1);
+    expect((await sql`select 1 from telegram_outbox where chat_id = 950001 and text like '%28-09-2026%04-10-2026%'`).length).toBe(1);
     expect(await sendSummaries(new Date("2026-11-01T01:05:00Z"))).toBe(2);            // Sun 1 Nov 08:05 → monthly October
     expect(await notes("cfo", "report.monthly")).toBe(1);
     expect(await sendSummaries(new Date("2026-11-01T01:30:00Z"))).toBe(0);

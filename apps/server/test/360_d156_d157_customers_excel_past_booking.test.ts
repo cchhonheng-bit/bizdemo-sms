@@ -37,7 +37,7 @@ describe("D-156 customers by Excel", () => {
 
   it("preview: an existing phone = update (changes listed), a new phone = new; errors for a bad phone, an unknown place, a missing address, a duplicate; nothing written", async () => {
     const data = b64([HEAD,
-      ["លោក សុខា ម៉ៃ", "012 345 678 / 098 111 222", "24", "19", "", "", "រាជធានីភ្នំពេញ", "ខណ្ឌចំការមន", "សង្កាត់ទន្លេបាសាក់", "", "ទេ", "បានផ្លាស់ឈ្មោះ", "បាទ"],
+      ["លោក សុខា ម៉ៃ", "012 345 678 / 098 111 222", "24", "19", "", "", "រាជធានីភ្នំពេញ", "ខណ្ឌច្បារអំពៅ", "សង្កាត់ច្បារអំពៅទី ១", "", "ទេ", "បានផ្លាស់ឈ្មោះ", "បាទ"],
       ["អ្នកស្រី ចន្ថា", "015 222 333", "A-12", "", "បុរីពិភពថ្មី", "Zone B", "", "", "", "", "បាទ", "", "បាទ"],
       ["ហាង គីមស៊ុន", "017 888 999", "", "", "", "", "12", "1201", "120101", "", "ទេ", "ជាកូដ", "ទេ"],
       ["ខុស ទូរស័ព្ទ", "abc", "", "", "", "", "12", "1201", "120101", "", "", "", ""],
@@ -47,7 +47,7 @@ describe("D-156 customers by Excel", () => {
     const p = (await admin.req("POST", "/api/customers/import/preview", { data })).json;
     expect(p.counts).toEqual({ new: 2, changed: 1, same: 0, error: 4 });
     expect(p.rows[0]).toMatchObject({ action: "changed", code: "012345678" });
-    expect(Object.keys(p.rows[0].changes).sort()).toEqual(["name", "notes", "phones"]);
+    expect(Object.keys(p.rows[0].changes).sort()).toEqual(["house_no", "name", "notes", "phones", "street"]); // the place (PLACE) is unchanged
     expect(p.rows[1]).toMatchObject({ action: "new", name: "អ្នកស្រី ចន្ថា" });
     expect(p.rows[2]).toMatchObject({ action: "new" });
     expect(p.rows[3].errors).toContain("PHONE"); expect(p.rows[4].errors).toContain("PLACE"); expect(p.rows[5].errors).toContain("ADDRESS"); expect(p.rows[6].errors).toContain("DUPLICATE");
@@ -57,7 +57,7 @@ describe("D-156 customers by Excel", () => {
 
   it("apply a clean file: the existing customer updated (phones, name, notes), two new ones with composed addresses (borey → its place, codes → names), audited; export shows them", async () => {
     const data = b64([HEAD,
-      ["លោក សុខា ម៉ៃ", "012 345 678 / 098 111 222", "24", "19", "", "", "រាជធានីភ្នំពេញ", "ខណ្ឌចំការមន", "សង្កាត់ទន្លេបាសាក់", "", "ទេ", "បានផ្លាស់ឈ្មោះ", "បាទ"],
+      ["លោក សុខា ម៉ៃ", "012 345 678 / 098 111 222", "24", "19", "", "", "រាជធានីភ្នំពេញ", "ខណ្ឌច្បារអំពៅ", "សង្កាត់ច្បារអំពៅទី ១", "", "ទេ", "បានផ្លាស់ឈ្មោះ", "បាទ"],
       ["អ្នកស្រី ចន្ថា", "015 222 333", "A-12", "", "បុរីពិភពថ្មី", "Zone B", "", "", "", "", "បាទ", "", "បាទ"],
       ["ហាង គីមស៊ុន", "017 888 999", "", "", "", "", "12", "1201", "120101", "", "ទេ", "ជាកូដ", "ទេ"]]);
     const r = await admin.req("POST", "/api/customers/import/apply", { data });
@@ -66,7 +66,7 @@ describe("D-156 customers by Excel", () => {
     const list = (await admin.req("GET", "/api/customers")).json as any[];
     expect(list.length).toBe(3);
     const sokha = list.find((c) => c.phones.includes("+85512345678"));
-    expect(sokha).toMatchObject({ name: "លោក សុខា ម៉ៃ", phones: ["+85512345678", "+85598111222"], notes: "បានផ្លាស់ឈ្មោះ", house_no: "24", street: "19", zone: "outside" });
+    expect(sokha).toMatchObject({ name: "លោក សុខា ម៉ៃ", phones: ["+85512345678", "+85598111222"], notes: "បានផ្លាស់ឈ្មោះ", house_no: "24", street: "19", zone: "outside", district_code: "1212" });
     const chantha = list.find((c) => c.phones.includes("+85515222333"));
     expect(chantha).toMatchObject({ zone: "inside", borey_name: "បុរីពិភពថ្មី", borey_zone: "Zone B", province_code: "12", district_code: "1201", commune_code: "120101", address_complete: true });
     expect(chantha.address).toContain("បុរីពិភពថ្មី");
@@ -91,7 +91,7 @@ describe("D-157 the staff book a time that has passed", () => {
     expect((await gm.req("POST", `/api/bookings/${r.json.id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
     expect((await ceo.req("GET", `/api/bookings/${r.json.id}`)).json.status).toBe("assigned");
     await lateAlerts();
-    expect((await sql`select 1 from notifications where kind = 'booking.late'`).length).toBe(0); // booked after its start → never «late»
+    expect((await sql`select 1 from notifications where kind = 'booking.late'`).length).toBe(0); // booked after its start → late_alerted_at set at creation, never «late»
     // a future job moved into the past by the office → no late alert either
     const f = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "x", zone: "inside", ...span(new Date(Date.now() + 48 * 3_600_000).toISOString()) })).json.id;
     expect((await admin.req("POST", `/api/bookings/${f}/reschedule`, { scheduled_at: new Date(Date.now() - 5 * 3_600_000).toISOString(), ends_at: new Date(Date.now() - 4 * 3_600_000).toISOString(), requested_by: "customer", reason: "ធ្វើរួចហើយ" })).status).toBe(200);

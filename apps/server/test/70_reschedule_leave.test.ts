@@ -51,12 +51,12 @@ describe("D2 appointment time + reschedule", () => {
     expect(new Date(b.scheduled_at).toISOString()).toBe(at(3, 14));
   });
 
-  it("reschedule: requester + reason required, not into the past, full history old → new, keeps the job length", async () => {
+  it("reschedule: requester + reason required, full history old → new, keeps the job length", async () => {
     const id = (await mk(ceo, { scheduled_at: at(5, 9) })).json.id; // 09:00–11:00
     expect((await resched(admin, id, { scheduled_at: at(6, 10), reason: "ភ្ញៀវសុំ" })).json.error).toBe("REQUESTER_REQUIRED");
     expect((await resched(admin, id, { scheduled_at: at(6, 10), requested_by: "boss", reason: "x x" })).status).toBe(400);
     expect((await resched(admin, id, { scheduled_at: at(6, 10), requested_by: "customer", reason: "" })).json.error).toBe("REASON_REQUIRED");
-    expect((await resched(admin, id, { scheduled_at: at(-1, 10), requested_by: "customer", reason: "ភ្ញៀវសុំ" })).json.error).toBe("START_IN_PAST");
+    // D-157: a move into the past is allowed for the staff (test 360)
     expect((await resched(admin, id, { scheduled_at: at(5, 9), requested_by: "customer", reason: "ភ្ញៀវសុំ" })).json.error).toBe("SAME_TIME");
     const r = await resched(admin, id, { scheduled_at: at(6, 10), requested_by: "customer", reason: "ភ្ញៀវមិននៅផ្ទះ" });
     expect(r.status).toBe(200);
