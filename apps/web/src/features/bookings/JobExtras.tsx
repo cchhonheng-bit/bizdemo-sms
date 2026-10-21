@@ -2,7 +2,7 @@
 // (a service or a package-priced sale line, at its list price — never a stock item), or «ការងារ/សម្ភារៈបន្ថែម» (a text + quantity +
 // unit + an optional photo, no price). Every line is «បន្ថែមដោយជាង» (who, when). Admin / GM review before the invoice: confirm (price
 // kept or edited; a free line is marked service or goods) / remove (reason). Technician work never moves stock.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Camera, Check, Plus, Trash2, X } from "lucide-react";
@@ -13,7 +13,7 @@ import { Badge, Button, Card, Dialog, Field, Input, Select } from "@/components/
 import { toast } from "@/lib/toast";
 import { splitLocal } from "./time";
 
-const OPEN = ["on_site", "working", "work_done", "revision"];
+const OPEN = ["on_site", "working", "work_done", "revision", "pending_review"]; // D-152 / D-154: the technician still fixes own lines while the job waits for review
 const dollars = (cents: number | null) => (cents == null ? "" : (cents / 100).toFixed(2));
 const toCents = (v: string) => (v.trim() === "" ? null : Math.round(Number(v) * 100));
 
@@ -70,7 +70,9 @@ function OfficeAdd({ booking, onDone }: { booking: Booking; onDone: () => void }
 const qtyText = (x: JobExtra) => (x.qty !== 1 || x.unit ? ` ×${x.qty}${x.unit ? ` ${x.unit}` : ""}` : "");
 
 /** the technician's card: a price-list line or a free line; own lines still waiting can be taken back */
-export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; info: JobInfo; meId: string | undefined; onDone: () => void }) {
+export function ExtrasCard({ booking, info, meId, onDone, onDirty }: { booking: Booking; info: JobInfo; meId: string | undefined; onDone: () => void;
+  /** D-154: a line picked or typed but not added yet — the report must not be sent over it */
+  onDirty?: (dirty: boolean) => void }) {
   const { t, i18n } = useTranslation();
   const lang = i18n.language === "en" ? "en" : "km";
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
@@ -79,6 +81,8 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
   const [item, setItem] = useState(""), [qty, setQty] = useState("1"), [text, setText] = useState(""), [unit, setUnit] = useState(""), [photo, setPhoto] = useState<string | null>(null);
   const [overlap, setOverlap] = useState<{ number: string; scheduled_at: string } | null>(null);
   const extras = (info.extras ?? []).filter((x) => x.status !== "removed");
+  const dirty = mode === "service" ? !!item : text.trim().length > 0;
+  useEffect(() => { onDirty?.(dirty); }, [dirty, onDirty]);
   const add = useMutation({
     mutationFn: () => api.job.addExtra(booking.id, mode === "service" ? { kind: "service", item_id: item, qty: Math.max(1, Number(qty) || 1) }
       : { kind: "other", description: text.trim(), qty: Math.max(1, Number(qty) || 1), unit: unit.trim() || null, photo }),
@@ -127,6 +131,7 @@ export function ExtrasCard({ booking, info, meId, onDone }: { booking: Booking; 
         </>
       )}
       <Button variant="primary" className="w-full" disabled={!ready} loading={add.isPending} onClick={() => add.mutate()} data-testid="extra-add"><Plus size={16} /> {t("extras.add")}</Button>
+      {dirty && <p className="mt-2 text-xs text-warning" role="status" data-testid="extra-dirty">{t("extras.not_added_yet")}</p>}
       {extras.length > 0 && (
         <ul className="mt-4 divide-y divide-grey-line border border-grey-line rounded-md" data-testid="extra-list">
           {extras.map((x) => (

@@ -864,7 +864,10 @@
     "pick_item": "Search by name or code…",
     "edit_report": "Correct the report",
     "edited_by": "Corrected by {{name}} · {{at}}",
-    "edit_hint": "Admin or GM correct it here (notes · photos) — no need to send it back to the technician · keep at least one before and one after photo"
+    "edit_hint": "Admin or GM correct it here (notes · photos) — no need to send it back to the technician · keep at least one before and one after photo",
+    "fix_title": "Fix the report (before the review)",
+    "fix_hint": "The report is sent — the notes and the added work above can still be changed until the office reviews",
+    "add_first": "A line is picked but not added — press «Add» or clear it first"
   },
   "quote": {
     "title": "Quotes",
@@ -1719,6 +1722,7 @@
     "office_hint": "Admin or GM add it here — also after the technician's report · confirmed at once · the invoice follows directly, nothing goes back to the technician",
     "none_yet": "No added work yet",
     "done_title": "Work done (technician)",
-    "list_price": "List price {{price}} — tap to use"
+    "list_price": "List price {{price}} — tap to use",
+    "not_added_yet": "Not added yet — press «Add» to keep this line"
   }
 }

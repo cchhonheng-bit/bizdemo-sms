@@ -87,6 +87,8 @@ export default function JobExecution({ booking }: { booking: Booking }) {
     setBusy(false);
   };
   const reportOpen = ["on_site", "working", "work_done", "revision"].includes(booking.status);
+  const waiting = booking.status === "pending_review"; // D-154: the report is sent — lines and notes can still be fixed until the office reviews
+  const [extraDirty, setExtraDirty] = useState(false);
 
   return (
     <>
@@ -103,13 +105,29 @@ export default function JobExecution({ booking }: { booking: Booking }) {
       {d.report?.status === "revision" && <div className="card border-warning bg-warning-50 p-3 text-sm break-words" role="alert">✏️ {t("job.revision_note")}: {d.report.review_note}</div>}
       {booking.status === "pending_review" && <div className="card bg-blue-50 p-3 text-sm" role="status">🔎 {t("job.waiting_review")}</div>}
       {booking.status === "reviewed" && <div className="card bg-success-50 p-3 text-sm" role="status">✅ {t("job.reviewed_ok")}</div>}
-      {reportOpen && <ExtrasCard booking={booking} info={d} meId={me?.id} onDone={refresh} />}
-      {reportOpen && <ReportForm booking={booking} info={d} onDone={refresh} />}
+      {(reportOpen || waiting) && <ExtrasCard booking={booking} info={d} meId={me?.id} onDone={refresh} onDirty={setExtraDirty} />}
+      {waiting && <NotesFix booking={booking} info={d} onDone={refresh} />}
+      {reportOpen && <ReportForm booking={booking} info={d} onDone={refresh} blocked={extraDirty} />}
     </>
   );
 }
 
-function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
+/** D-154: after the report is sent the notes stay editable until the office reviews (the lines through the card above) */
+function NotesFix({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [notes, setNotes] = useState(info.report?.notes ?? "");
+  const save = useMutation({ mutationFn: () => api.job.editReport(booking.id, notes), onSuccess: () => { toast.success(t("app.saved")); onDone(); },
+    onError: (e) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })) });
+  return (
+    <Card title={t("job.fix_title")}>
+      <p className="text-xs text-muted mb-2">{t("job.fix_hint")}</p>
+      <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} data-testid="notes-fix" /></Field>
+      <Button variant="primary" disabled={notes === (info.report?.notes ?? "")} loading={save.isPending} onClick={() => save.mutate()} data-testid="notes-fix-save">{t("app.save")}</Button>
+    </Card>
+  );
+}
+
+function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info: JobInfo; onDone: () => void; blocked: boolean }) {
   const { t } = useTranslation();
   const [notes, setNotes] = useState(info.report?.notes ?? "");
   const [uploading, setUploading] = useState<string | null>(null);
@@ -147,7 +165,8 @@ function ReportForm({ booking, info, onDone }: { booking: Booking; info: JobInfo
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field>
       <Field label={t("job.signature")} required hint={t("job.signature_hint")}><SignaturePad ref={sig} /></Field>
       <ActionBar>
-        <Button variant="primary" className="flex-1 sm:flex-none" disabled={!canSubmit} loading={submit.isPending} onClick={() => submit.mutate()} data-testid="report-submit"><Send size={16} /> {canSubmit ? t("job.submit") : t("job.finish_first")}</Button>
+        {blocked && <span className="text-xs text-warning self-center" data-testid="submit-blocked">{t("job.add_first")}</span>}
+        <Button variant="primary" className="flex-1 sm:flex-none" disabled={!canSubmit || blocked} loading={submit.isPending} onClick={() => submit.mutate()} data-testid="report-submit"><Send size={16} /> {canSubmit ? t("job.submit") : t("job.finish_first")}</Button>
       </ActionBar>
     </Card>
   );
