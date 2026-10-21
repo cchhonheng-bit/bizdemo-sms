@@ -93,6 +93,8 @@ export type JobExtra = { id: string; kind: "service" | "other" | "material"; cat
   item_kind?: "service" | "product" | null;
   /** D-151: who added it — "admin" / "gm" / "ceo" = the office (confirmed at once), "tech" = the technician */
   added_by_role?: string | null;
+  /** D-152: the price-list price as a hint for the office (never sent to technicians) — the technician's line carries no price */
+  list_price?: number | null;
   photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: string; added_by: string | null; added_by_name: string | null; reviewed_at: string | null; reviewed_by_name: string | null; review_note: string | null };
 export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
