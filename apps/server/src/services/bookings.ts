@@ -73,10 +73,8 @@ const parseTime = (v: string | null | undefined, code: string): Date | null => {
   if (Number.isNaN(d.getTime())) throw new AppError(code, 400);
   return d;
 };
-/** D-157 (owner 21-10): the staff may write a start that has passed — an appointment agreed by phone and already done; a booking
- *  set in the past raises no late alert (see lateAlerts: created after its start, or late_alerted_at set when moved there).
- *  Customers on the website keep their own rule (slots from now + WEB_LEAD_MIN). */
-function assertFuture(_start: Date): void { /* allowed since D-157 */ }
+// D-157 (owner 21-10): the staff may write a start that has passed — an appointment agreed by phone and already done; a booking
+// set in the past raises no late alert (jobs.ts lateAlerts; late_alerted_at below). Website customers keep their own rule (slots from now + WEB_LEAD_MIN).
 async function durationOf(t: Db, companyId: string, serviceItemId: string | null): Promise<number> {
   if (!serviceItemId) return DEFAULT_DURATION_MIN;
   const r = (await t<{ duration_min: number }[]>`select duration_min from catalog_items where id = ${serviceItemId} and company_id = ${companyId}`)[0];
@@ -273,7 +271,6 @@ export async function createBooking(user: SessionUser, ip: string | null, b: Cre
     const minutes = lines ? lines.reduce((s, l) => s + l.minutes, 0) : await durationOf(t, user.companyId, b.service_item_id);
     const w = window(parseTime(b.scheduled_at, "INVALID_VALUE"), parseTime(b.ends_at, "INVALID_VALUE"), minutes);
     if (!w.start) throw new AppError("SCHEDULE_REQUIRED", 400); // D2: every booking has the agreed appointment time
-    assertFuture(w.start);
     if (b.vehicle_id) {
       await assertVehicle(t, user.companyId, b.vehicle_id);
       if (w.start) await assertVehicleFree(t, user.companyId, b.vehicle_id, w.start, w.end!, null);
@@ -361,7 +358,6 @@ export async function assignWithin(t: Db, user: SessionUser, ip: string | null, 
   if (a.vehicle_id) await assertVehicle(t, user.companyId, a.vehicle_id);
   // R3: dispatching needs a future appointment (an overdue booking is rescheduled first)
   const w = { start: b.scheduled_at, end: b.ends_at };
-  assertFuture(w.start);
   // R2: the server decides — busy technicians / vehicle are refused, whatever the UI showed
   for (const o of a.overrides ?? []) if (team.includes(o.user_id)) await releaseForOverride(t, user, ip, { id, number: b.number }, w.start, w.end, o); // D-139
   await assertTeamFree(t, user.companyId, team, w.start, w.end, id);
@@ -405,7 +401,6 @@ export async function rescheduleBooking(user: SessionUser, ip: string | null, id
     const start = parseTime(r.scheduled_at, "INVALID_VALUE")!;
     const keep = b.scheduled_at && b.ends_at ? (b.ends_at.getTime() - b.scheduled_at.getTime()) / 60_000 : await durationOf(t, user.companyId, b.service_item_id);
     const w = window(start, parseTime(r.ends_at, "INVALID_VALUE"), keep);
-    assertFuture(w.start!);
     if (w.start!.getTime() === b.scheduled_at?.getTime() && w.end!.getTime() === b.ends_at?.getTime()) throw new AppError("SAME_TIME", 400);
     // every availability rule again: crew (jobs + leave/absence) and vehicle
     const team = (await t<{ user_id: string }[]>`select user_id from booking_technicians where booking_id = ${id}`).map((x) => x.user_id);
@@ -520,7 +515,6 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       if ((e.reason ?? "").trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
       const keep = b.scheduled_at && b.ends_at ? (b.ends_at.getTime() - b.scheduled_at.getTime()) / 60_000 : await durationOf(t, user.companyId, b.service_item_id);
       const nw = window(start, endIn ?? (e.scheduled_at === undefined ? b.ends_at : null), keep);
-      if (start!.getTime() !== b.scheduled_at?.getTime()) assertFuture(nw.start!);
       w = nw;
       note("scheduled_at", b.scheduled_at, w.start); note("ends_at", b.ends_at, w.end);
     }
