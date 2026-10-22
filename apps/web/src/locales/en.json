@@ -1038,7 +1038,11 @@
       "EXTRAS_PENDING": "Review the work added by the technician first (the job page)"
     },
     "journal": "Accounting entries",
-    "journal_none": "Nothing posted yet — the books have not started, or the invoice is not issued"
+    "journal_none": "Nothing posted yet — the books have not started, or the invoice is not issued",
+    "add_part": "Add another method",
+    "pay_part": "Part {{n}}",
+    "remove_part": "Remove",
+    "pay_total": "Total received"
   },
   "attendance": {
     "title": "Attendance",

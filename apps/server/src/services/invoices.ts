@@ -223,8 +223,17 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
 }
 
 // ---------- payments (FR-805 · BR-14/15 · AC-10) ----------
-export async function recordPayment(user: SessionUser, ip: string | null, id: string, v: { amount: number; currency: "usd" | "khr"; method: PayMethod; paid_on?: string | null; note?: string | null }) {
-  if ((v.method === "cash_usd" && v.currency !== "usd") || (v.method === "cash_khr" && v.currency !== "khr")) throw new AppError("BAD_METHOD", 400);
+export type PayPart = { amount: number; currency: "usd" | "khr"; method: PayMethod };
+/** D-161 (owner 22-10, «multiple pay»): one save may hold several parts — some cash $, some ABA, some ៛ — in ONE transaction:
+ *  each part = one payments row (posted + audited as before), the overpay check runs on the sum, the ៛ rounding settle applies to
+ *  the last part; a single part is the old call. */
+export type PayPart = { amount: number; currency: "usd" | "khr"; method: PayMethod };
+/** D-161 (owner 22-10, «multiple pay»): one save may hold several parts — some cash $, some ABA, some ៛ — in ONE transaction:
+ *  each part = one payments row (posted + audited as before), the overpay check runs on the sum, the ៛ rounding settle applies to
+ *  the last part; a single part is the old call. */
+export async function recordPayment(user: SessionUser, ip: string | null, id: string, v: { parts: PayPart[]; paid_on?: string | null; note?: string | null }) {
+  if (!v.parts.length || v.parts.length > 6) throw new AppError("AMOUNT_TOO_SMALL", 400);
+  for (const p of v.parts) if ((p.method === "cash_usd" && p.currency !== "usd") || (p.method === "cash_khr" && p.currency !== "khr")) throw new AppError("BAD_METHOD", 400);
   return tx(user.id, async (t) => {
     const i = await lockInvoice(t, user, id);
     if (i.status !== "issued") throw new AppError("NOT_ISSUED", 400);
@@ -232,24 +241,33 @@ export async function recordPayment(user: SessionUser, ip: string | null, id: st
       throw new AppError("BAD_DATE", 400);
     const fx = await fxOf(t, user.companyId);
     const { subtotal, paid } = await sums(t, id);
-    const balance = subtotal - i.discount - paid;
-    let cents = v.currency === "usd" ? v.amount : khrToCents(v.amount, fx);
-    // ៛ is rounded to 100 on the invoice: a payment within one rounding step of the balance settles it exactly
-    if (v.currency === "khr" && Math.abs(cents - balance) <= Math.ceil((100 / fx) * 100)) cents = balance;
-    if (balance <= 0 || cents > balance) throw new AppError("OVERPAY", 400);
-    if (cents <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
-    const pid = (await t<{ id: string }[]>`insert into payments (company_id, invoice_id, amount, currency, method, fx_rate_khr, usd_cents, paid_on, note, received_by)
-      values (${user.companyId}, ${id}, ${v.amount}, ${v.currency}::pay_currency, ${v.method}::pay_method, ${fx}, ${cents},
-        ${v.paid_on ? t`${v.paid_on}::date` : t`(now() at time zone (select timezone from companies where id = ${user.companyId}))::date`}, ${v.note?.trim() || null}, ${user.id}) returning id`)[0]!.id;
-    const nowPaid = paid + cents, total = subtotal - i.discount;
+    const total = subtotal - i.discount, balance = total - paid;
+    if (balance <= 0) throw new AppError("OVERPAY", 400);
+    const cents = v.parts.map((p) => (p.currency === "usd" ? p.amount : khrToCents(p.amount, fx)));
+    if (cents.some((c) => c <= 0)) throw new AppError("AMOUNT_TOO_SMALL", 400);
+    let sum = cents.reduce((a, b) => a + b, 0);
+    // ៛ is rounded to 100 on the invoice: a ៛ last part that lands within one rounding step of the balance settles it exactly
+    const last = v.parts.length - 1;
+    if (v.parts[last]!.currency === "khr" && Math.abs(sum - balance) <= Math.ceil((100 / fx) * 100)) { cents[last]! += balance - sum; sum = balance; }
+    if (sum > balance) throw new AppError("OVERPAY", 400);
+    const date = v.paid_on ?? (await t<{ d: string }[]>`select (now() at time zone (select timezone from companies where id = ${user.companyId}))::date::text as d`)[0]!.d;
+    const ids: string[] = [];
+    for (let k = 0; k < v.parts.length; k++) {
+      const p = v.parts[k]!, c = cents[k]!;
+      const pid = (await t<{ id: string }[]>`insert into payments (company_id, invoice_id, amount, currency, method, fx_rate_khr, usd_cents, paid_on, note, received_by)
+        values (${user.companyId}, ${id}, ${p.amount}, ${p.currency}::pay_currency, ${p.method}::pay_method, ${fx}, ${c}, ${date}::date, ${v.note?.trim() || null}, ${user.id}) returning id`)[0]!.id;
+      await postPayment(t, user, { id: pid, method: p.method, usd_cents: c, fx, date });
+      await audit(t, { companyId: user.companyId, userId: user.id, action: "payment.record", table: "payments", rowId: pid,
+        new: { invoice: i.number, amount: p.amount, currency: p.currency, method: p.method, usd_cents: c, fx, ...(v.parts.length > 1 ? { part: `${k + 1}/${v.parts.length}` } : {}) }, ip });
+      ids.push(pid);
+    }
+    const nowPaid = paid + sum;
     if (i.booking_id) {
       const st = (await t<{ status: string }[]>`select status from bookings where id = ${i.booking_id} for update`)[0]!.status;
       if (nowPaid >= total && st !== "closed") await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
       else if (nowPaid < total && st === "invoiced") await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
     }
-    await postPayment(t, user, { id: pid, method: v.method, usd_cents: cents, fx, date: v.paid_on ?? (await t<{ d: string }[]>`select (now() at time zone (select timezone from companies where id = ${user.companyId}))::date::text as d`)[0]!.d });
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "payment.record", table: "payments", rowId: pid, new: { invoice: i.number, amount: v.amount, currency: v.currency, method: v.method, usd_cents: cents, fx }, ip });
-    return { id: pid, paid: nowPaid, balance: total - nowPaid, payment_status: payStatus(total, nowPaid) };
+    return { id: ids[0]!, ids, paid: nowPaid, balance: total - nowPaid, payment_status: payStatus(total, nowPaid) };
   });
 }
 

@@ -185,46 +185,61 @@ function DiscountCard({ d, onDone }: { d: Invoice; onDone: () => void }) {
 }
 
 const METHODS: PayMethod[] = ["cash_usd", "cash_khr", "aba", "acleda"];
+type PayLine = { key: number; currency: "usd" | "khr"; method: PayMethod; amount: string };
+const lineCents = (l: PayLine, fx: number): number => {
+  try { const v = l.currency === "usd" ? toCents(l.amount) : /^\d[\d,]*$/.test(l.amount.trim()) ? Number(l.amount.replace(/,/g, "")) : NaN; return l.currency === "usd" ? v : Math.round((v / fx) * 100); } catch { return NaN; }
+};
+const lineValue = (l: PayLine): number => { try { return l.currency === "usd" ? toCents(l.amount) : Number(l.amount.replace(/,/g, "")); } catch { return NaN; } };
+/** D-161 (owner 22-10): one save may carry several parts — some cash $, some ABA, some ៛ (each line = method · currency · amount) */
 function PaymentDialog({ d, onClose, onDone }: { d: Invoice; onClose: () => void; onDone: () => void }) {
   const { t } = useTranslation();
   const fx = d.company.fx_now;
-  const [currency, setCurrency] = useState<"usd" | "khr">("usd");
-  const [method, setMethod] = useState<PayMethod>("cash_usd");
-  const [amount, setAmount] = useState("");
+  const [lines, setLines] = useState<PayLine[]>([{ key: 1, currency: "usd", method: "cash_usd", amount: "" }]);
   const [paidOn, setPaidOn] = useState(todayLocal());
   const [note, setNote] = useState("");
-  const pick = (c: "usd" | "khr") => { setCurrency(c); setAmount(""); if (method === "cash_usd" && c === "khr") setMethod("cash_khr"); if (method === "cash_khr" && c === "usd") setMethod("cash_usd"); };
-  let value = NaN;
-  try { value = currency === "usd" ? toCents(amount) : /^\d[\d,]*$/.test(amount.trim()) ? Number(amount.replace(/,/g, "")) : NaN; } catch { /* invalid */ }
-  const cents = currency === "usd" ? value : Math.round((value / fx) * 100);
+  const set = (key: number, patch: Partial<PayLine>) => setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+  const pick = (l: PayLine, c: "usd" | "khr") => set(l.key, { currency: c, amount: "", method: l.method === "cash_usd" && c === "khr" ? "cash_khr" : l.method === "cash_khr" && c === "usd" ? "cash_usd" : l.method });
+  const cents = lines.map((l) => lineCents(l, fx));
+  const sum = cents.reduce((a, c) => a + (c > 0 ? c : 0), 0);
+  const valid = cents.every((c) => c > 0);
+  const over = sum > d.balance + Math.ceil((100 / fx) * 100);
+  const remaining = Math.max(0, d.balance - sum);
+  const full = (l: PayLine) => { const rest = d.balance - cents.reduce((a, c, k) => a + (lines[k]!.key !== l.key && c > 0 ? c : 0), 0); set(l.key, { amount: l.currency === "usd" ? fromCents(Math.max(0, rest)).toFixed(2) : String(usdToKhr(Math.max(0, rest), fx)) }); };
   const save = useMutation({
-    mutationFn: () => api.invoices.pay(d.id, { amount: value, currency, method, paid_on: paidOn, note }),
+    mutationFn: () => api.invoices.pay(d.id, { parts: lines.map((l) => ({ amount: lineValue(l), currency: l.currency, method: l.method })), paid_on: paidOn, note }),
     onSuccess: (r) => { toast.success(r.payment_status === "paid" ? t("invoice.paid_full") : t("invoice.paid_part", { balance: formatUsd(r.balance) })); onDone(); },
     onError: (e) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
-  const full = () => setAmount(currency === "usd" ? fromCents(d.balance).toFixed(2) : String(usdToKhr(d.balance, fx)));
   return (
     <Dialog open onClose={onClose} title={`${t("invoice.record_payment")} · ${d.number}`} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
-      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!(value > 0)} loading={save.isPending} onClick={() => save.mutate()} data-testid="pay-save">{t("app.save")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!valid || over} loading={save.isPending} onClick={() => save.mutate()} data-testid="pay-save">{t("app.save")}</Button>
     </>}>
       <div className="rounded-md bg-grey-bg p-3 mb-3 flex justify-between text-sm"><span>{t("invoice.balance")}</span><span className="font-bold tabular">{formatUsd(d.balance)} <span className="font-normal text-muted">≈ {formatKhr(usdToKhr(d.balance, fx))}</span></span></div>
-      <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup" aria-label={t("invoice.currency")}>
-        {(["usd", "khr"] as const).map((c) => <button key={c} type="button" role="radio" aria-checked={currency === c} onClick={() => pick(c)} className={`min-h-[44px] rounded-md border font-semibold ${currency === c ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{c === "usd" ? "$ USD" : "៛ KHR"}</button>)}
-      </div>
-      <Field label={currency === "usd" ? t("invoice.amount_usd") : t("invoice.amount_khr")} required>
-        <div className="flex gap-2">
-          <Input inputMode={currency === "usd" ? "decimal" : "numeric"} value={amount} onChange={(e) => setAmount(e.target.value)} className="flex-1" autoFocus data-testid="pay-amount" />
-          <Button type="button" onClick={full}>{t("invoice.full")}</Button>
+      {lines.map((l, k) => (
+        <div key={l.key} className={`${k > 0 ? "mt-3 pt-3 border-t border-grey-line" : ""}`} data-testid={`pay-line-${k + 1}`}>
+          {lines.length > 1 && <div className="flex items-center justify-between mb-1"><span className="text-xs font-semibold text-muted">{t("invoice.pay_part", { n: k + 1 })}</span>
+            <button type="button" className="text-xs text-danger underline min-h-[32px]" onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} data-testid={`pay-remove-${k + 1}`}>{t("invoice.remove_part")}</button></div>}
+          <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup" aria-label={t("invoice.currency")}>
+            {(["usd", "khr"] as const).map((c) => <button key={c} type="button" role="radio" aria-checked={l.currency === c} onClick={() => pick(l, c)} className={`min-h-[44px] rounded-md border font-semibold ${l.currency === c ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{c === "usd" ? "$ USD" : "៛ KHR"}</button>)}
+          </div>
+          <Field label={l.currency === "usd" ? t("invoice.amount_usd") : t("invoice.amount_khr")} required>
+            <div className="flex gap-2">
+              <Input inputMode={l.currency === "usd" ? "decimal" : "numeric"} value={l.amount} onChange={(e) => set(l.key, { amount: e.target.value })} className="flex-1" autoFocus={k === lines.length - 1} data-testid={k === 0 ? "pay-amount" : `pay-amount-${k + 1}`} />
+              <Button type="button" onClick={() => full(l)}>{t("invoice.full")}</Button>
+            </div>
+          </Field>
+          {l.currency === "khr" && cents[k]! > 0 && <p className="text-xs text-muted -mt-2 mb-2 tabular">= {formatUsd(cents[k]!)} ({formatKhr(fx)}/$)</p>}
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={t("invoice.method_label")}>
+            {METHODS.filter((m) => !(m === "cash_usd" && l.currency === "khr") && !(m === "cash_khr" && l.currency === "usd")).map((m) => (
+              <button key={m} type="button" role="radio" aria-checked={l.method === m} onClick={() => set(l.key, { method: m })} className={`min-h-[44px] rounded-md border text-sm ${l.method === m ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`invoice.method.${m}`)}</button>
+            ))}
+          </div>
         </div>
-      </Field>
-      {currency === "khr" && value > 0 && <p className="text-xs text-muted -mt-2 mb-2 tabular">= {formatUsd(cents)} ({formatKhr(fx)}/$)</p>}
-      <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup" aria-label={t("invoice.method_label")}>
-        {METHODS.filter((m) => !(m === "cash_usd" && currency === "khr") && !(m === "cash_khr" && currency === "usd")).map((m) => (
-          <button key={m} type="button" role="radio" aria-checked={method === m} onClick={() => setMethod(m)} className={`min-h-[44px] rounded-md border text-sm ${method === m ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`invoice.method.${m}`)}</button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-2">
+      ))}
+      {lines.length < 6 && remaining > 0 && <Button type="button" className="mt-3 w-full" onClick={() => setLines((ls) => [...ls, { key: Date.now(), currency: "usd", method: "aba", amount: "" }])} data-testid="pay-add-part">+ {t("invoice.add_part")}</Button>}
+      {lines.length > 1 && <div className="rounded-md bg-grey-bg p-3 mt-3 text-sm flex justify-between" data-testid="pay-sum"><span>{t("invoice.pay_total")}</span><span className="font-bold tabular">{formatUsd(sum)}{over ? <span className="text-danger font-normal"> · {t("invoice.err.OVERPAY")}</span> : remaining > 0 ? <span className="text-muted font-normal"> · {t("invoice.balance")} {formatUsd(remaining)}</span> : null}</span></div>}
+      <div className="grid grid-cols-2 gap-2 mt-3">
         <Field label={t("invoice.paid_on")}><Input type="date" value={paidOn} max={todayLocal()} onChange={(e) => setPaidOn(e.target.value)} /></Field>
         <Field label={t("invoice.pay_note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></Field>
       </div>

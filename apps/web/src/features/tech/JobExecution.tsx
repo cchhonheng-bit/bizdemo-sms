@@ -109,14 +109,14 @@ export default function JobExecution({ booking }: { booking: Booking }) {
       {booking.status === "pending_review" && <div className="card bg-blue-50 p-3 text-sm" role="status">🔎 {t("job.waiting_review")}</div>}
       {booking.status === "reviewed" && <div className="card bg-success-50 p-3 text-sm" role="status">✅ {t("job.reviewed_ok")}</div>}
       {(reportOpen || waiting) && <ExtrasCard booking={booking} info={d} meId={me?.id} onDone={refresh} onDirty={setExtraDirty} />}
-      {waiting && <NotesFix booking={booking} info={d} onDone={refresh} />}
+      {waiting && <NotesFix booking={booking} info={d} onDone={refresh} blocked={extraDirty} />}
       {reportOpen && <ReportForm booking={booking} info={d} onDone={refresh} blocked={extraDirty} />}
     </>
   );
 }
 
 /** D-154: after the report is sent the notes stay editable until the office reviews (the lines through the card above) */
-function NotesFix({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
+function NotesFix({ booking, info, onDone, blocked }: { booking: Booking; info: JobInfo; onDone: () => void; blocked: boolean }) { // D-160: a line picked but not added blocks this save too
   const { t } = useTranslation();
   const [notes, setNotes] = useState(info.report?.notes ?? "");
   const save = useMutation({ mutationFn: () => api.job.editReport(booking.id, notes), onSuccess: () => { toast.success(t("app.saved")); onDone(); },
@@ -125,7 +125,8 @@ function NotesFix({ booking, info, onDone }: { booking: Booking; info: JobInfo; 
     <Card title={t("job.fix_title")}>
       <p className="text-xs text-muted mb-2">{t("job.fix_hint")}</p>
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} data-testid="notes-fix" /></Field>
-      <Button variant="primary" disabled={notes === (info.report?.notes ?? "")} loading={save.isPending} onClick={() => save.mutate()} data-testid="notes-fix-save">{t("app.save")}</Button>
+      {blocked && <p className="text-xs text-warning mb-2" role="status" data-testid="notes-fix-blocked">{t("job.add_first")}</p>}
+      <Button variant="primary" disabled={blocked || notes === (info.report?.notes ?? "")} loading={save.isPending} onClick={() => save.mutate()} data-testid="notes-fix-save">{t("app.save")}</Button>
     </Card>
   );
 }

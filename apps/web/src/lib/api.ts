@@ -347,7 +347,8 @@ export const api = {
     issue: (id: string, v: { date?: string; reason?: string } = {}) => post(`/api/invoices/${id}/issue`, v),
     discount: (id: string, amount: number, note: string) => post<{ discount_status: string }>(`/api/invoices/${id}/discount`, { amount, note }),
     decideDiscount: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/discount/${approve ? "approve" : "reject"}`, { note }),
-    pay: (id: string, v: { amount: number; currency: "usd" | "khr"; method: PayMethod; paid_on: string; note: string }) => post<{ balance: number; payment_status: string }>(`/api/invoices/${id}/payments`, v),
+    /** D-161: several parts (method · currency · amount) in one save */
+    pay: (id: string, v: { parts: { amount: number; currency: "usd" | "khr"; method: PayMethod }[]; paid_on: string; note: string }) => post<{ balance: number; payment_status: string; ids: string[] }>(`/api/invoices/${id}/payments`, v),
     void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
     decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
     debts: () => get<DebtRow[]>("/api/invoices/debts"),

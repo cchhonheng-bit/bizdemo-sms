@@ -1227,6 +1227,23 @@ const gmDev = await device({ desktop: true });
     await sleep(500);
     must(sql("select count(*) from notifications where kind = 'booking.late' and created_at > now() - interval '3 minutes'") === "0", "a late alert was raised for a job booked in the past");
   });
+  await step(A, "D-161 one payment in two parts (cash $ + ABA) on an issued invoice with a balance → two payment rows, balance down by the sum", page, async () => {
+    const inv = (await adminApi.call("GET", "/api/invoices?status=unpaid")).find((x) => x.status === "issued" && (x.balance ?? (x.total - x.paid)) >= 200);
+    must(inv, "no issued invoice with a balance ≥ $2 on the clone");
+    const before = sql(`select count(*) from payments where invoice_id = '${inv.id}'`);
+    await page.goto(`${BASE}/app/invoices/${inv.id}`); await idle(page);
+    await page.locator('[data-testid="pay-open"]').waitFor({ timeout: 10_000 }); await page.locator('[data-testid="pay-open"]').click();
+    await page.locator('[data-testid="pay-amount"]').fill("1.00");
+    await page.locator('[data-testid="pay-add-part"]').click();
+    await page.locator('[data-testid="pay-amount-2"]').fill("0.50");
+    await page.locator('[data-testid="pay-line-2"]').getByRole("radio", { name: "ABA" }).click();
+    must((await page.locator('[data-testid="pay-sum"]').innerText()).includes("$1.50"), "the sum line does not show $1.50");
+    await fits(page, "pay-split-360");
+    await page.locator('[data-testid="pay-save"]').click(); await idle(page); await sleep(800);
+    const after = sql(`select count(*) from payments where invoice_id = '${inv.id}'`);
+    must(Number(after) === Number(before) + 2, `payment rows ${before} → ${after}`);
+    must(sql(`select string_agg(method || ':' || usd_cents, ',' order by usd_cents desc) from payments where invoice_id = '${inv.id}' and created_at > now() - interval '2 minutes'`) === "cash_usd:100,aba:50", "the two parts are not cash_usd 100 + aba 50");
+  });
   await step(A, "D-158 the bot summary for the CEO comes in blocks (one topic per block, one fact per line)", page, async () => {
     const { summaryText } = await import(pathToFileURL(join(ROOT, "Source/apps/server/src/services/reports.ts")).href).catch(() => ({}));
     const text = summaryText ? summaryText("daily", ymdIn(0), ymdIn(0), { revenue: { total: 86800, invoices: 5, inside: 86800, outside: 0 }, payments: { total: 8000, by_method: { cash_usd: 4500, cash_khr: 0, aba: 0, acleda: 3500 }, khr_riel: 0 }, new_debt: 82300, debt_total: 88600, jobs: { created: 7, finished: 7, cancelled: 0, pending_review: 1, in_progress: 0 }, voids: { count: 2, total: 59500 }, discounts: { count: 0, total: 0, over_limit: 0 }, attendance: { present: 0, people: 3, late: 0, absent: 3, leave: 0, out_of_range: 0 } }, "km") : null;

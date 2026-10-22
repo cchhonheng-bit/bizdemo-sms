@@ -2,6 +2,7 @@
 // every write checks its own permission (BR-10, BR-12, BR-19). Technicians never reach these routes (AC-01).
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { AppError } from "../lib/errors.js";
 import {
   assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, updateInvoice,
 } from "../services/invoices.js";
@@ -56,11 +57,15 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.post("/:id/discount/reject", { preHandler: app.requirePerm("discount.approve") }, async (req) => decideDiscount(req.user!, req.ip, idParam.parse(req.params).id, false, note.parse(req.body ?? {}).note));
 
   app.post("/:id/payments", { preHandler: app.requirePerm("payment.record") }, async (req) => {
+    // D-161: one part (amount · currency · method) or several in `parts` — one save, one transaction
+    const part = { amount: z.number().int().positive().max(100_000_000_000), currency: z.enum(["usd", "khr"]), method: z.enum(["cash_usd", "cash_khr", "aba", "acleda"]) };
     const v = z.object({
-      amount: z.number().int().positive().max(100_000_000_000), currency: z.enum(["usd", "khr"]), method: z.enum(["cash_usd", "cash_khr", "aba", "acleda"]),
+      ...Object.fromEntries(Object.entries(part).map(([k, s]) => [k, s.optional()])), parts: z.array(z.object(part).strict()).min(1).max(6).optional(),
       paid_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable(), note: z.string().max(500).optional().nullable(),
-    }).strict().parse(req.body);
-    return recordPayment(req.user!, req.ip, idParam.parse(req.params).id, v);
+    }).strict().parse(req.body) as { amount?: number; currency?: "usd" | "khr"; method?: "cash_usd" | "cash_khr" | "aba" | "acleda"; parts?: { amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda" }[]; paid_on?: string | null; note?: string | null };
+    const parts = v.parts ?? (v.amount !== undefined && v.currency && v.method ? [{ amount: v.amount, currency: v.currency, method: v.method }] : []);
+    if (!parts.length) throw new AppError("AMOUNT_TOO_SMALL", 400);
+    return recordPayment(req.user!, req.ip, idParam.parse(req.params).id, { parts, paid_on: v.paid_on, note: v.note });
   });
 
   app.post("/:id/void", { preHandler: app.requirePerm("void.request") }, async (req) => {
