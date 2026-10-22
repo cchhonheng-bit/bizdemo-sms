@@ -6,21 +6,21 @@ import { loginAs, makeApp, PLACE, resetDb, seed, type Client, type Seed } from "
 import { sql } from "../src/db.js";
 
 let app: FastifyInstance; let s: Seed;
-let ceo: Client, admin: Client, cfo: Client;
+let ceo: Client, admin: Client;
 let cust: string;
 
 /** an issued direct invoice (one service line), $240 by default */
 async function issued(total = 24000): Promise<string> {
   const inv = await admin.req("POST", "/api/invoices", { customer_id: cust, lines: [{ description: "សេវាកម្ម", kind: "service", qty: 1, unit: "", unit_price: total }] });
   expect(inv.status).toBe(200);
-  expect((await cfo.req("POST", `/api/invoices/${inv.json.id}/issue`)).status).toBe(200);
+  expect((await admin.req("POST", `/api/invoices/${inv.json.id}/issue`)).status).toBe(200);
   return inv.json.id as string;
 }
 const pay = (id: string, body: Record<string, unknown>) => admin.req("POST", `/api/invoices/${id}/payments`, body);
 
 beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
-  ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo");
+  ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin");
   cust = (await admin.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន", phones: ["012 000 111"], zone: "inside" })).json.id;
   await sql`update company_settings set fx_rate_khr = 4000 where company_id = ${s.a}`;
 });
