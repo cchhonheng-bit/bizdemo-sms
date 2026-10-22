@@ -1242,7 +1242,8 @@ const gmDev = await device({ desktop: true });
     await page.locator('[data-testid="pay-save"]').click(); await idle(page); await sleep(800);
     const after = sql(`select count(*) from payments where invoice_id = '${inv.id}'`);
     must(Number(after) === Number(before) + 2, `payment rows ${before} → ${after}`);
-    must(sql(`select string_agg(method || ':' || usd_cents, ',' order by usd_cents desc) from payments where invoice_id = '${inv.id}' and created_at > now() - interval '2 minutes'`) === "cash_usd:100,aba:50", "the two parts are not cash_usd 100 + aba 50");
+    // the two newest rows only (section 9 may have paid this invoice seconds earlier)
+    must(sql(`select string_agg(method || ':' || usd_cents, ',' order by usd_cents desc) from (select method, usd_cents from payments where invoice_id = '${inv.id}' order by created_at desc, usd_cents desc limit 2) x`) === "cash_usd:100,aba:50", "the two parts are not cash_usd 100 + aba 50");
   });
   await step(A, "D-158 the bot summary for the CEO comes in blocks (one topic per block, one fact per line)", page, async () => {
     const { summaryText } = await import(pathToFileURL(join(ROOT, "Source/apps/server/src/services/reports.ts")).href).catch(() => ({}));
