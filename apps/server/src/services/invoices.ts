@@ -227,10 +227,6 @@ export type PayPart = { amount: number; currency: "usd" | "khr"; method: PayMeth
 /** D-161 (owner 22-10, «multiple pay»): one save may hold several parts — some cash $, some ABA, some ៛ — in ONE transaction:
  *  each part = one payments row (posted + audited as before), the overpay check runs on the sum, the ៛ rounding settle applies to
  *  the last part; a single part is the old call. */
-export type PayPart = { amount: number; currency: "usd" | "khr"; method: PayMethod };
-/** D-161 (owner 22-10, «multiple pay»): one save may hold several parts — some cash $, some ABA, some ៛ — in ONE transaction:
- *  each part = one payments row (posted + audited as before), the overpay check runs on the sum, the ៛ rounding settle applies to
- *  the last part; a single part is the old call. */
 export async function recordPayment(user: SessionUser, ip: string | null, id: string, v: { parts: PayPart[]; paid_on?: string | null; note?: string | null }) {
   if (!v.parts.length || v.parts.length > 6) throw new AppError("AMOUNT_TOO_SMALL", 400);
   for (const p of v.parts) if ((p.method === "cash_usd" && p.currency !== "usd") || (p.method === "cash_khr" && p.currency !== "khr")) throw new AppError("BAD_METHOD", 400);
