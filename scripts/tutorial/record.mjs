@@ -38,7 +38,7 @@ rmSync(WORK, { recursive: true, force: true }); mkdirSync(WORK, { recursive: tru
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(...a);
 // a dropped SSH link (status 255 / killed, frequent on the office network, 23-10) is retried — the server commands stand a retry
-const sshRetry = (fn, what) => { for (let i = 1; ; i++) { try { return fn(); } catch (e) { const dropped = e?.status === 255 || e?.signal || /EPIPE|Connection|reset|timed out/i.test(String(e?.message)); if (!dropped || i >= 4) throw e; log(`ssh dropped during ${what} (try ${i}) — again in 15 s`); execFileSync(process.platform === "win32" ? "timeout" : "sleep", process.platform === "win32" ? ["/t", "15"] : ["15"], { stdio: "ignore" }); } } };
+const sshRetry = (fn, what) => { for (let i = 1; ; i++) { try { return fn(); } catch (e) { const dropped = e?.status === 255 || e?.signal || /EPIPE|Connection|reset|timed out/i.test(String(e?.message)); if (!dropped || i >= 4) throw e; log(`ssh dropped during ${what} (try ${i}) — again in 15 s`); Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 15_000); } } }; // a plain pause (Windows' timeout.exe refuses a redirected stdin)
 const remote = (args, input) => sshRetry(() => execFileSync("ssh", [SSH, `bash /tmp/tutorial-server.sh ${args}`], { input, maxBuffer: 300e6 }).toString().trim(), args.split(" ")[0]);
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 

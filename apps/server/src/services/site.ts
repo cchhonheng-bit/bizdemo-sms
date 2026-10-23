@@ -83,6 +83,8 @@ export const sitePatch = z.object({
   name_km: text(120).optional(), name_en: text(120).optional(), short_name: text(40).optional(), phone: text(80).optional(), address: text(300).optional(),
   tagline_km: text(160).optional(), tagline_en: text(160).optional(), about_km: text(1200).optional(), about_en: text(1200).optional(),
   area_km: text(300).optional(), area_en: text(300).optional(), hours_km: text(120).optional(), hours_en: text(120).optional(),
+  // D-164: the invoice print texts (D-148) — the form sends them with every save; the strict schema refused the whole save without them
+  invoice_tagline_km: text(200).optional(), invoice_tagline_en: text(200).optional(), bank_line: text(120).optional(), invoice_footer_km: text(300).optional(),
   highlights_km: z.array(text(120)).max(6).optional(), highlights_en: z.array(text(120)).max(6).optional(),
   facebook: z.union([z.literal(""), z.string().max(200).regex(/^https:\/\/(www\.|m\.|web\.)?facebook\.com\/[^\s]+$/, "BAD_URL")]).optional(),
   // D-106 (CEO): online booking hours with a lunch break (from = until: none — One Team 08-10), and the gap between two promotions per customer
