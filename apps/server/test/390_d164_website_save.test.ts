@@ -3,10 +3,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { loginAs, makeApp, resetDb, seed, type Client } from "./helpers.js";
+import { config } from "../src/config.js";
 
 let app: FastifyInstance; let ceo: Client;
-beforeAll(async () => { await resetDb(); await seed(); app = await makeApp(); ceo = await loginAs(app, "ceo"); });
-afterAll(async () => { await app.close(); });
+beforeAll(async () => { config.shop.features = "website,subscribe,reminders"; await resetDb(); await seed(); app = await makeApp(); ceo = await loginAs(app, "ceo"); });
+afterAll(async () => { config.shop.features = ""; await app.close(); });
 
 describe("D-164 the website form saves as a whole", () => {
   it("the full form body (texts + company info + invoice texts + hours + published) → 200; the invoice texts are stored; an unknown key is still refused", async () => {
