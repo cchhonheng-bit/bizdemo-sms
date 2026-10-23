@@ -364,15 +364,16 @@ window.tg = {
 
   // ---------- encode on the server, bring the MP4s home, remove the demo instance ----------
   writeFileSync(join(WORK, "music.mjs"), readFileSync(join(HERE, "music.mjs")));
-  for (let attempt = 1; ; attempt++) { // the upload survives a dropped link too (the frames stay on the PC until they are encoded)
-    try {
-      await new Promise((res, rej) => {
-        const tar = spawn("tar", ["-cf", "-", "-C", WORK, "music.mjs", ...done.map((d) => d.name)]), ssh = spawn("ssh", [SSH, "tar -xf - -C /tmp/tutorial/work"]);
-        ssh.stdin.on("error", () => {}); tar.stdout.on("error", () => {});
-        tar.stdout.pipe(ssh.stdin); ssh.on("close", (code) => (code === 0 ? res() : rej(new Error("upload failed"))));
-      });
-      break;
-    } catch (e) { if (attempt >= 4) throw e; log(`upload failed (try ${attempt}) — again in 15 s`); await sleep(15_000); }
+  // one small upload per clip, each retried: a dropped link costs one clip's transfer, never the whole run (the frames stay on the PC)
+  const upload = (parts) => new Promise((res, rej) => {
+    const tar = spawn("tar", ["-cf", "-", "-C", WORK, ...parts]), ssh = spawn("ssh", [SSH, "mkdir -p /tmp/tutorial/work && tar -xf - -C /tmp/tutorial/work"]);
+    ssh.stdin.on("error", () => {}); tar.stdout.on("error", () => {});
+    tar.stdout.pipe(ssh.stdin); ssh.on("close", (code) => (code === 0 ? res() : rej(new Error("upload failed"))));
+  });
+  for (const parts of [["music.mjs"], ...done.map((d) => [d.name])]) {
+    for (let attempt = 1; ; attempt++) {
+      try { await upload(parts); break; } catch (e) { if (attempt >= 6) throw e; log(`upload of ${parts[0]} failed (try ${attempt}) — again in 20 s`); await sleep(20_000); }
+    }
   }
   for (const d of done) {
     log(`${d.name}: ${remote(`encode ${d.name} ${d.seconds}`)}`);
