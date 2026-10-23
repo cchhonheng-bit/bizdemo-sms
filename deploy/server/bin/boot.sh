@@ -19,7 +19,7 @@ for i in $(seq 1 36); do
   [ -z "$bad" ] && break
   sleep 5
 done
-pub=$(curl -fsS --max-time 15 https://oneteam.hangkh.com/healthz 2>/dev/null | grep -c '"ok":true')
+pub=$(curl -fsS --max-time 15 --resolve oneteam.hangkh.com:443:127.0.0.1 https://oneteam.hangkh.com/healthz 2>/dev/null | grep -c '"ok":true')   # no hairpin NAT: via 127.0.0.1
 msg="🖥 $(hostname) started at $(date '+%Y-%m-%d %H:%M') (boot after a restart)"
 if [ -z "$bad" ] && [ "${pub:-0}" = 1 ]; then msg+=$'\n'"✅ all containers healthy · https://oneteam.hangkh.com answers"
 else msg+=$'\n'"❌ not healthy after 3 min: ${bad:-public HTTPS not answering} → bin/dc ps · bin/dc logs --tail 50 <service>"; fi

@@ -37,7 +37,8 @@ done
 
 # public answers (through Caddy + Let's Encrypt): two misses in a row → Caddy restarted once
 for host in oneteam.hangkh.com hub.hangkh.com; do
-  if curl -fsS --max-time 15 "https://$host/healthz" >/dev/null 2>&1; then put "miss_$host" 0; continue; fi
+  # --resolve: the server cannot reach its own public IP (no hairpin NAT) — Caddy listens on 127.0.0.1:443 with the real certificate
+  if curl -fsS --max-time 15 --resolve "$host:443:127.0.0.1" "https://$host/healthz" >/dev/null 2>&1; then put "miss_$host" 0; continue; fi
   m=$(get "miss_$host"); m=$((${m:-0} + 1)); put "miss_$host" "$m"
   log "https://$host/healthz not answering (×$m)"
   if [ "$m" -eq 2 ]; then

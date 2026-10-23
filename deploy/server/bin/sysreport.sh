@@ -63,8 +63,8 @@ for svc in postgres app-hub app-oneteam caddy; do
   h=$([ -n "$cid" ] && docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$cid" 2>/dev/null || echo missing)
   cst+="$svc ${h} · "; case "$h" in healthy|running) ;; *) warn+=("❗ $svc is $h");; esac
 done
-b1=$(curl -fsS --max-time 10 https://oneteam.hangkh.com/healthz 2>/dev/null | sed -n 's/.*"build":"\([^"]*\)".*/\1/p')
-b2=$(curl -fsS --max-time 10 https://hub.hangkh.com/healthz 2>/dev/null | grep -c '"ok":true')
+b1=$(curl -fsS --max-time 10 --resolve oneteam.hangkh.com:443:127.0.0.1 https://oneteam.hangkh.com/healthz 2>/dev/null | sed -n 's/.*"build":"\([^"]*\)".*/\1/p')   # no hairpin NAT: via 127.0.0.1
+b2=$(curl -fsS --max-time 10 --resolve hub.hangkh.com:443:127.0.0.1 https://hub.hangkh.com/healthz 2>/dev/null | grep -c '"ok":true')
 lines+=("📦 Containers: ${cst%· } · oneteam build ${b1:-NO ANSWER} · hub $([ "${b2:-0}" = 1 ] && echo OK || echo 'NO ANSWER')")
 [ -z "$b1" ] && warn+=("❗ https://oneteam.hangkh.com/healthz does not answer")
 [ "${b2:-0}" != 1 ] && warn+=("❗ https://hub.hangkh.com/healthz does not answer")
