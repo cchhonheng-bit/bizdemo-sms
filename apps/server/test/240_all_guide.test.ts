@@ -53,7 +53,7 @@ describe("access: the shop's CEO and the platform account only", () => {
 });
 
 describe("tabs: the CEO's order and videos", () => {
-  it("ជាង · រដ្ឋបាល · នាយកប្រតិបត្តិ · នាយកហិរញ្ញវត្ថុ · អតិថិជន = L1 · L2 · L3 · L3-00 + L3-01 + L4 · L5; 35 videos; a file not published yet = not ready", async () => {
+  it("ជាង · រដ្ឋបាល · នាយកប្រតិបត្តិ · នាយកហិរញ្ញវត្ថុ · អតិថិជន = L1 · L2 · L3 · L3-00 + L3-01 + L4 · L5; 39 videos; a file not published yet = not ready", async () => {
     const d = (await ceo.req("GET", "/api/guide")).json;
     expect(d.tabs.map((t: any) => t.label)).toEqual(["ជាង", "រដ្ឋបាល", "នាយកប្រតិបត្តិ", "នាយកហិរញ្ញវត្ថុ", "អតិថិជន"]);
     const tab = (k: string) => d.tabs.find((t: any) => t.key === k).videos;
@@ -62,7 +62,7 @@ describe("tabs: the CEO's order and videos", () => {
     expect(tab("ceo")).toEqual(["L3-00", "L3-01", "L3-02", "L3-03", "L3-04", "L3-05"]);
     expect(tab("cfo")).toEqual(["L3-00", "L3-01", "L4-00", "L4-01", "L4-02", "L4-03", "L4-04", "L4-05", "L4-06"]);
     expect(tab("customer")).toEqual(["L5-00", "L5-01", "L5-02", "L5-03", "L5-04", "L5-05", "L5-06"]);
-    expect(d.total).toBe(35); expect(d.videos).toHaveLength(35); expect(new Set(d.tabs.flatMap((t: any) => t.videos)).size).toBe(35);
+    expect(d.total).toBe(39); expect(d.videos).toHaveLength(39); expect(new Set(d.tabs.flatMap((t: any) => t.videos)).size).toBe(39);
     const first = d.videos.find((v: any) => v.id === "L1-00");
     expect(first).toMatchObject({ title: "ទិដ្ឋភាពទូទៅ", ready: true, seconds: 61.5 });
     expect(first.url).toMatch(/^\/api\/guide\/videos\/L1-00\?v=[a-z0-9]+$/);
