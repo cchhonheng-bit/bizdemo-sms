@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { GUIDE_ROLE_TAB, GUIDE_TABS, GUIDE_VIDEOS, guideHelpVideo } from "./guide";
 
 describe("the video guide (D-128 / D-129)", () => {
-  it("35 videos, each in a tab; every staff role has its own tab; every video has a Khmer and an English title", () => {
-    expect(GUIDE_VIDEOS).toHaveLength(35);
+  it("39 videos (D-163: + the four stock clips), each in a tab; every staff role has its own tab; every video has a Khmer and an English title", () => {
+    expect(GUIDE_VIDEOS).toHaveLength(39);
     const inTabs = new Set(GUIDE_TABS.flatMap((t) => t.videos));
-    expect(inTabs.size).toBe(35);
+    expect(inTabs.size).toBe(39);
     for (const t of GUIDE_TABS) for (const id of t.videos) expect(GUIDE_VIDEOS.some((v) => v.id === id)).toBe(true);
     for (const role of ["tech", "admin", "gm", "ceo", "cfo"]) expect(GUIDE_TABS.some((t) => t.key === GUIDE_ROLE_TAB[role])).toBe(true);
     for (const v of GUIDE_VIDEOS) { expect(v.title).toMatch(/[ក-៿]/); expect(v.title_en).toMatch(/^[A-Z][A-Za-z ,'-]+$/); }
