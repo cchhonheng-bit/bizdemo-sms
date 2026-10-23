@@ -58,7 +58,7 @@ describe("tabs: the CEO's order and videos", () => {
     expect(d.tabs.map((t: any) => t.label)).toEqual(["ជាង", "រដ្ឋបាល", "នាយកប្រតិបត្តិ", "នាយកហិរញ្ញវត្ថុ", "អតិថិជន"]);
     const tab = (k: string) => d.tabs.find((t: any) => t.key === k).videos;
     expect(tab("engineer")).toEqual(["L1-00", "L1-01", "L1-02", "L1-03", "L1-04"]);
-    expect(tab("admin")).toEqual(Array.from({ length: 10 }, (_, i) => `L2-0${i}`));
+    expect(tab("admin")).toEqual(Array.from({ length: 14 }, (_, i) => `L2-${String(i).padStart(2, "0")}`)); // D-163: + L2-10 … L2-13 (stock)
     expect(tab("ceo")).toEqual(["L3-00", "L3-01", "L3-02", "L3-03", "L3-04", "L3-05"]);
     expect(tab("cfo")).toEqual(["L3-00", "L3-01", "L4-00", "L4-01", "L4-02", "L4-03", "L4-04", "L4-05", "L4-06"]);
     expect(tab("customer")).toEqual(["L5-00", "L5-01", "L5-02", "L5-03", "L5-04", "L5-05", "L5-06"]);
