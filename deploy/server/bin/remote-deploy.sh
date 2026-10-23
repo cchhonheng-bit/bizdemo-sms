@@ -21,10 +21,10 @@ FILES=(compose.yml Caddyfile caddy/Dockerfile pg-init.sh bin/dc bin/backup.sh bi
   host/cron.d-hangkh host/hangkh-boot.service host/apt-52hangkh host/docker-daemon.json host/logrotate-hangkh)   # D-162 self-management
 
 # 1) server files: keep the running ones in .prev, install the new ones
-rm -rf "$PREV"; mkdir -p "$PREV/bin" "$PREV/caddy" bin caddy
+rm -rf "$PREV"; mkdir -p "$PREV/bin" "$PREV/caddy" "$PREV/host" bin caddy host
 for f in "${FILES[@]}"; do [ -f "$f" ] && cp -p "$f" "$PREV/$f"; done
 touch images.env; cp images.env "$PREV/images.env"
-for f in "${FILES[@]}"; do cp "$IN/$f" "$f"; done
+for f in "${FILES[@]}"; do mkdir -p "$(dirname "$f")"; cp "$IN/$f" "$f"; done   # D-162: a new folder (host/) is created first
 sed -i 's/\r$//' bin/* pg-init.sh; chmod +x bin/* pg-init.sh
 # D-162: the root parts (cron, boot service, auto-reboot, docker live-restore, rclone, logrotate) — only what differs is touched
 bash bin/setup-host.sh || echo "!! host setup reported a problem (the deploy goes on)"
