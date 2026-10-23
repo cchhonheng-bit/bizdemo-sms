@@ -178,6 +178,10 @@ export default {
       await step("១ · ចេញដំណើរ៖\n«🚐 ចេញពីការិយាល័យឥឡូវ»");
       await step("២ · ដល់ហើយ៖\n«📍 ខ្ញុំដល់ទីតាំងហើយ»");
       await photo("before", "ថតរូបមុនពេលធ្វើការ\nបង្ហាញស្ថានភាពដើម", d.before);
+      // D-144: work found on site — a price-list line + quantity (no price shown to the technician), or a free line with a photo
+      const item = v.app.locator('select[name="extra_item"]'), add = v.app.locator('[data-testid="extra-add"]');
+      await v.caption("ការងារបន្ថែម? «ការងារបន្ថែម»\nជ្រើសពីបញ្ជីតម្លៃ + ចំនួន"); await v.scrollTo(item); await v.tap(item, () => item.selectOption({ index: 1 }), { before: 1200 });
+      await v.caption("ចុច «បន្ថែម» — មិនចុច ផ្ញើមិនបាន\nការិយាល័យដាក់តម្លៃ"); await v.tap(add); await v.idle(); await v.hold(900);
       await step("៣ · «🔧 ចាប់ផ្តើមការងារ»");
       await step("៤ · ធ្វើរួច៖\n«✅ ការងាររួចរាល់»");
       await photo("after", "ថតរូបក្រោយពេលធ្វើការ", d.after);
@@ -193,6 +197,7 @@ export default {
       await v.caption("ឲ្យអតិថិជនចុះហត្ថលេខា\nលើអេក្រង់"); await v.scrollTo(pad); await v.hold(1000); await v.draw(pad, SIGN); await v.hold(1000);
       const send = v.app.locator('[data-testid="report-submit"]');
       await v.caption("ចុច «ផ្ញើរបាយការណ៍»"); await v.scrollTo(send); await v.tap(send); await v.idle(); await v.hold(1000);
+      await v.caption("ភ្លេចអ្វី? កែបាន\nរហូតដល់អ្នកគ្រប់គ្រងពិនិត្យ"); await v.scrollTo(v.app.locator('[data-testid="notes-fix"]')); await v.hold(1600);
       await v.caption("រង់ចាំអ្នកគ្រប់គ្រងពិនិត្យ"); await v.scrollTo(v.app.getByText("រង់ចាំអ្នកគ្រប់គ្រងពិនិត្យ").first()); await v.hold(2600);
       const { step } = steps(v);
       await step("ត្រឡប់ដល់ការិយាល័យ ចុច\n«🏁 ត្រឡប់ / រួចរាល់»");

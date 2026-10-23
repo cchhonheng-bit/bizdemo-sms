@@ -42,20 +42,20 @@ async function seedYear(v, d) {
   // the same opening balances as the opening-balances clip, when that clip did not run before (a single clip re-recorded)
   await cfo.call("POST", "/api/accounting/opening", { date: d.openDate, cash_usd: 250000, cash_khr: 2050000, banks: { aba: 1200000, acleda: 400000 }, retained_earnings: 900000 }).catch(() => {});
   const tx = (date, type, account_code, dollars, pay, memo) => cfo.call("POST", "/api/accounting/transactions", { date, type, account_code, amount: Math.round(dollars * 100), pay, memo });
-  await tx(lastYear(3, 10), "other_income", "4090", 1500, "aba", "ចំណូលផ្សេងៗ");
-  await tx(lastYear(6, 30), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
-  await tx(lastYear(8, 15), "expense", "6030", 120, "cash_usd", "សាំងឡាន");
+  await tx(lastYear(3, 10), "other_income", "40006", 1500, "aba", "ចំណូលផ្សេងៗ");
+  await tx(lastYear(6, 30), "expense", "50006", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
+  await tx(lastYear(8, 15), "expense", "50010", 120, "cash_usd", "សាំងឡាន");
   // last month: inside the Income Statement's previous period (the same days of last month), the rent later in the month
   const early = (day) => lastMonth(Math.min(day, now.getDate()));
-  await tx(early(2), "other_income", "4090", 1200, "aba", "ចំណូលផ្សេងៗ");
-  await tx(early(2), "expense", "6060", 20, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
-  await tx(early(3), "expense", "6050", 85, "cash_usd", "ទឹក ភ្លើង");
-  await tx(lastMonth(28), "expense", "6040", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
+  await tx(early(2), "other_income", "40006", 1200, "aba", "ចំណូលផ្សេងៗ");
+  await tx(early(2), "expense", "50011", 20, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
+  await tx(early(3), "expense", "50007", 85, "cash_usd", "ទឹក ភ្លើង");
+  await tx(lastMonth(28), "expense", "50006", 600, "cash_usd", "ថ្លៃឈ្នួលការិយាល័យ");
   // a job of last month, invoiced with its own date (more than 3 days back: a reason)
   const c0 = await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name: "អតិថិជន គ", phones: ["012000113"], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone: "inside" });
   const i0 = await v.api("POST", "/api/invoices", { customer_id: c0.id, lines: [{ description: "ជួសជុល និងថែទាំ", kind: "service", qty: 1, unit: "unit", unit_price: 18000 }] });
   await v.api("POST", `/api/invoices/${i0.id}/issue`, { date: early(2), reason: "ការងារខែមុន" });
-  await tx(thisMonth(2), "expense", "6060", 25, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
+  await tx(thisMonth(2), "expense", "50011", 25, "aba", "ទូរស័ព្ទ និងអ៊ីនធឺណិត");
   // today's work posts by itself: invoices issued (inside / outside the borey) and paid (in full / in part)
   for (const [name, zone, price, pay] of [["អតិថិជន ក", "inside", 15000, { amount: 15000, currency: "usd", method: "aba" }], ["អតិថិជន ខ", "outside", 9000, { amount: 5000, currency: "usd", method: "cash_usd" }]]) {
     const c = await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name, phones: [`0120001${zone === "inside" ? "11" : "12"}`], address: "ផ្ទះលេខ 8 ផ្លូវសាកល្បង ភ្នំពេញ", zone });
@@ -114,11 +114,12 @@ export default {
     clip("L4-01_chart-of-accounts_v1", async (v, d, u) => {
       const { A, T, dlg } = u;
       await v.caption("ចុច «គណនេយ្យ» ហើយ «ប្លង់គណនី»"); await openAccounting(v, u, "accounts");
+      await v.caption("ប្លង់គណនីរបស់ One Team · កូដ ៥ ខ្ទង់\nក្រុម (10000 …) មិនកត់ត្រាទេ"); await v.hold(1800);
       await v.caption("ទ្រព្យសកម្ម បំណុល មូលធន\nនៅ «តារាងតុល្យការ»"); await v.look(A.getByText("តារាងតុល្យការ", { exact: true }).first(), { zoom: 1.6, after: 1400 });
       await v.caption("ចំណូល និងចំណាយ\nនៅ «របាយការណ៍លទ្ធផល»"); const pl = A.getByText("របាយការណ៍លទ្ធផល", { exact: true }).first(); await v.scrollTo(pl); await v.look(pl, { zoom: 1.6, after: 1400 });
       await v.caption("ប្រភេទគណនី កំណត់កន្លែងនេះឯង\nមិនបាច់ជ្រើសដោយដៃ"); await v.hold(1600);
       await v.caption("ចុច «គណនីថ្មី»"); const add = T("acc-new"); await v.scrollTo(add); await v.tap(add); await v.hold(300);
-      await v.caption("វាយលេខកូដ និងជ្រើសប្រភេទ"); await v.type(T("acc-code"), "6065", { before: 1200 });
+      await v.caption("វាយលេខកូដ ៥ ខ្ទង់ (5xxxx = ចំណាយ)\nហើយជ្រើសប្រភេទ"); await v.type(T("acc-code"), "50014", { before: 1200 });
       const type = dlg().locator("select").first(); await v.tap(type, () => type.selectOption("expense"), { before: 1000 });
       await v.caption("វាយឈ្មោះគណនី ហើយរក្សាទុក"); await v.type(T("acc-name"), "ថ្លៃគេហទំព័រ", { before: 1200 }); await v.tap(T("acc-save"), null, { before: 1000 }); await v.idle(); await v.hold(600);
       await v.caption("គណនីប្រព័ន្ធ ប្ដូរបានតែឈ្មោះ\nគណនីប្រើហើយ មិនអាចលុប"); await v.hold(2000);
@@ -128,7 +129,7 @@ export default {
       await v.caption("ចុច «គណនេយ្យ»\nហើយ «ចំណូល/ចំណាយ»"); await openAccounting(v, u, "money");
       await v.caption("ចុច «ចំណាយ»"); await v.tap(T("tx-expense")); await v.hold(300);
       await v.caption("វាយចំនួនទឹកប្រាក់"); await v.type(T("tx-amount"), "45", { before: 1200 });
-      await v.caption("ជ្រើសគណនីចំណាយ"); const acc = T("tx-account"); await v.tap(acc, () => acc.selectOption("6030"), { before: 1200 });
+      await v.caption("ជ្រើសគណនីចំណាយ"); const acc = T("tx-account"); await v.tap(acc, () => acc.selectOption("50010"), { before: 1200 });
       await v.caption("ជ្រើសរបៀបបង់\nឬ «ជំពាក់» បើមិនទាន់បង់"); await v.tap(T("tx-pay").getByRole("radio", { name: "សាច់ប្រាក់ $" }), null, { before: 1200 });
       await v.caption("សរសេរពិពណ៌នា ហើយរក្សាទុក"); await v.type(T("tx-memo"), "សាំងឡាន ទៅការងារ", { before: 1200 }); await v.tap(T("tx-save"), null, { before: 1000 }); await v.idle(); await v.hold(600);
       await v.caption("ទិនានុប្បវត្តិ៖ ឥណពន្ធ = ឥណទាន\nប្រព័ន្ធធ្វើឲ្យ"); await v.tap(T("tab-journal")); await v.idle();
@@ -142,7 +143,7 @@ export default {
       await v.caption("ចុច «គណនេយ្យ»\nហើយ «តុល្យភាពសាកល្បង»"); await openAccounting(v, u); await v.tap(T("rep-tb"), null, { before: 1000 }); await v.idle();
       await v.caption("៣ គូ៖ ខែនេះ · ដើមឆ្នាំដល់ខែមុន\n· ដើមឆ្នាំដល់ខែនេះ"); await v.look(T("tb-table"), { zoom: 1.25, after: 2000 });
       await v.caption("ឥណពន្ធ = ឥណទាន ✓\nបញ្ជីត្រឹមត្រូវ"); const ok = T("tb-balanced"); await v.scrollTo(ok); await v.look(ok, { zoom: 1.6, after: 1200 });
-      await v.caption("បញ្ជីទូទៅ៖ វាយលេខកូដគណនី"); await v.tap(T("rep-gl")); await v.idle(); await v.type(T("gl-code"), "6040", { before: 1200 }); await v.idle();
+      await v.caption("បញ្ជីទូទៅ៖ វាយលេខកូដគណនី"); await v.tap(T("rep-gl")); await v.idle(); await v.type(T("gl-code"), "50006", { before: 1200 }); await v.idle();
       await v.caption("សមតុល្យដើម · ចលនានីមួយៗ\n· សមតុល្យចុង"); await v.look(T("gl"), { zoom: 1.25, after: 2000 });
       await v.caption("ចុច «ទាញយក Excel»"); const x = T("acct-csv").first(); await v.scrollTo(x); await v.download(x); await v.hold(1400);
     }),
