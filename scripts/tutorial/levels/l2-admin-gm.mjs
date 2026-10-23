@@ -23,7 +23,9 @@ const ui = (v) => {
 };
 const clip = (name, play) => ({
   name, folder: "Admin_GM",
-  async prepare(v) {
+  async prepare(v, d) {
+    const who = /^L2-1[0-3]/.test(name) ? d.admin : d.gm;
+    if (who) who.p = await v.loginStaff(who.username, who.p);
     await v.preloadApp("/app/dashboard");
     await v.app.getByRole("link", { name: "សំណើអតិថិជន", exact: true }).waitFor({ timeout: 20_000 });
     await v.idle(3000);
@@ -73,12 +75,13 @@ export default {
   captionSize: 30,
   tapBefore: 1700, // ~2 s before each click (chained clicks under one caption: 1 s)
   hub: true,       // the promotions clip needs a hub (a throwaway one with fake subscribers)
-  features: "website,subscribe,reminders,inventory", // the stock clips L2-10 … L2-13
+  features: "website,subscribe,reminders,inventory,accounting", // the stock clips L2-10 … L2-13 (the stock accounts come from the chart — as live)
   async setup(v) {
     const user = async (username, full_name, role, phone) => { const p = v.password(); const u = await v.api("POST", "/api/users", { username, full_name, role, phone, password: p }); return { id: u.id, username, p }; };
     const gm = await user("gm_demo", "អ្នកគ្រប់គ្រង សាកល្បង", "gm", "012000100");
+    const adm = await user("admin_demo", "រដ្ឋបាល សាកល្បង", "admin", "012000097"); // the stock clips: an Admin manages the stock (GM only looks)
     const techs = [await user("jang1", "ជាង សាកល្បង ១", "tech", "012000101"), await user("jang2", "ជាង សាកល្បង ២", "tech", "012000102"), await user("jang3", "ជាង សាកល្បង ៣", "tech", "012000103")];
-    await v.loginStaff(gm.username, gm.p); // the browser = the manager
+    gm.p = await v.loginStaff(gm.username, gm.p); // the browser = the manager
     const customer = async (name, phone) => (await v.api("POST", "/api/customers", { province_code: "12", district_code: "1212", commune_code: "121201", name, phones: [phone], address: ADDR, zone: "outside", ...AT })).id;
     const book = async (name, phone, when, svc, tech) => {
       const b = await v.api("POST", "/api/bookings", { customer_id: await customer(name, phone), type: "A", category: "mep", service_text: svc, scheduled_at: when.toISOString(), ends_at: new Date(new Date(when.toISOString()).getTime() + 2 * 3600_000).toISOString(), zone: "outside", ...AT });
@@ -124,7 +127,7 @@ export default {
     await v.sqlhub(`insert into hub_bots (code, kind, shop_code, username, path, token_enc, secret_enc) values ('DEMO', 'shop', 'DEMO', 'Oneteam_app_bot', 'demo', 'demo-no-token', 'demo-no-token');
 insert into hub_subscribers (telegram_user_id, chat_id, first_name) select 900000000 + g, 900000000 + g, 'អតិថិជនសាកល្បង ' || translate(g::text, '0123456789', '០១២៣៤៥៦៧៨៩') from generate_series(1, 24) g;
 insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subscribed_at) select 'DEMO', id, telegram_user_id % 7 <> 0, case when telegram_user_id % 11 = 0 then now() end, now() - (telegram_user_id % 40) * interval '1 day' from hub_subscribers;`);
-    return { ac, depart: () => press(techs[0], jobs[0].id, ["depart"]), web: WEB.map((w) => w[0]), today: TODAY.map((x) => x[0]), move: "អតិថិជនសាកល្បង ង", moveTo: ymd(dayAt(3, 9)), drop: "អតិថិជនសាកល្បង ច", phoneDay: ymd(dayAt(1, 0)) };
+    return { gm, admin: adm, ac, depart: () => press(techs[0], jobs[0].id, ["depart"]), web: WEB.map((w) => w[0]), today: TODAY.map((x) => x[0]), move: "អតិថិជនសាកល្បង ង", moveTo: ymd(dayAt(3, 9)), drop: "អតិថិជនសាកល្បង ច", phoneDay: ymd(dayAt(1, 0)) };
   },
   videos: [
     clip("L2-00_overview_v1", async (v, d, u) => {
@@ -255,22 +258,28 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("ទិញសម្ភារៈមក? ចុច «ទិញចូល»"); await v.tap(T("op-in")); await v.hold(300);
       await v.caption("ទំនិញថ្មី៖ ឈ្មោះ និងគណនីស្តុក\nកូដបំពេញឯង"); await v.tap(T("in-mode-new"));
       await v.type(T("in-name"), "ទុយោស្ពាន់ 1/4", { before: 1000 });
-      const acc = T("in-account"); await v.tap(acc, () => acc.selectOption({ label: /14000/ }), next); await v.type(T("in-unit"), "ម៉ែត្រ", next);
+      const acc = T("in-account"), accVal = await acc.locator("option", { hasText: "14000" }).first().getAttribute("value");
+      await v.tap(acc, () => acc.selectOption(accVal), next); await v.type(T("in-unit"), "ម៉ែត្រ", next);
       await v.caption("ចំនួន និងថ្លៃដើម\nសរុបគិតឯង (ឬវាយសរុប)"); await v.type(T("op-qty"), "12", { before: 1000 }); await v.type(T("op-cost"), "1.5", next);
       await v.look(T("op-total-text"), { zoom: 1.5 });
       await v.caption("បង់ដោយអ្វី អ្នកផ្គត់ផ្គង់ ថ្ងៃ\nហើយចុច «រក្សាទុក»"); await v.type(T("op-supplier"), "ហាងលក់គ្រឿងម៉ាស៊ីនត្រជាក់", { before: 1000 });
       const save = T("op-save"); await v.scrollTo(save); await v.tap(save, null, next); await v.idle(); await v.hold(600);
-      await v.caption("ស្តុកតាមគណនី៖ 14000 ទុយោស្ពាន់\nចំនួន និងតម្លៃស្តុក"); await v.look(T("stock-group").first(), { zoom: 1.3, after: 1800 });
+      const grp = A.locator('[data-testid="stock-group"]', { hasText: "14000" }).first();
+      await v.caption("ស្តុកតាមគណនី៖ 14000 ទុយោស្ពាន់\nចំនួន និងតម្លៃស្តុក"); await v.scrollTo(grp); await v.look(grp, { zoom: 1.3, after: 1800 });
       await v.caption("ជាងមិនដកស្តុកទេ\nរដ្ឋបាលកត់ «ដកស្តុក» ពេលជាងមកយក"); await v.hold(2000);
     }),
     clip("L2-11_stock-out_v1", async (v, d, { A, link, dlg, T, next }) => {
-      await v.caption("ជាងមកយកសម្ភារៈ?\nចុច «ស្តុក» ហើយ «ដកស្តុក»"); await v.tap(link("ស្តុក")); await v.idle(); await v.tap(T("op-out"), null, next); await v.hold(300);
-      await v.caption("ជ្រើសទំនិញ និងចំនួន\nឃើញចំនួនក្នុងស្តុក"); await v.type(T("op-qty"), "6", { before: 1000 });
-      await v.caption("ជ្រើសការងារ — ជាង និងព័ត៌មាន\nការងារ បំពេញឯង"); const job = T("out-job"); await v.tap(job, () => job.selectOption({ label: new RegExp(d.today[1]) }), { before: 1200 }); await v.idle();
+      await v.caption("ជាងមកយកសម្ភារៈ?\nចុច «ស្តុក» ហើយ «ដកស្តុក»"); await v.tap(link("ស្តុក")); await v.idle();
+      await T("stock-group").first().waitFor({ timeout: 20_000 }); // the stock list is loaded (the dialog lists its items)
+      await v.tap(T("op-out"), null, next); await v.hold(300);
+      const item = T("op-item"), itemVal = await item.locator("option", { hasText: "ទុយោស្ពាន់" }).first().getAttribute("value");
+      await v.caption("ជ្រើសទំនិញ និងចំនួន\nឃើញចំនួនក្នុងស្តុក"); await v.tap(item, () => item.selectOption(itemVal), { before: 1000 }); await v.type(T("op-qty"), "6", next);
+      await v.caption("ជ្រើសការងារ — ជាង និងព័ត៌មាន\nការងារ បំពេញឯង"); const job = T("out-job"), jobVal = await job.locator("option", { hasText: d.today[1] }).first().getAttribute("value"); await v.tap(job, () => job.selectOption(jobVal), { before: 1200 }); await v.idle();
       await v.look(T("out-job-info"), { zoom: 1.3, after: 1800 });
       await v.caption("គ្មានការងារ? ទុកទទេ\nហើយសរសេរកន្លែង (បុរី · ផ្ទះលេខ)"); await v.hold(1600);
       await v.caption("«សល់» = ចំនួនក្រោយដក\nចុច «រក្សាទុក»"); await v.look(T("out-left"), { zoom: 1.5 }); await v.tap(T("op-save"), null, next); await v.idle(); await v.hold(600);
-      await v.caption("ចុចទំនិញ — «កាតស្តុក»\nចលនានីមួយៗ៖ ចូល ដក ការងារ"); await v.tap(T("stock-card").first()); await v.hold(300); await v.idle(); await v.hold(2000);
+      const row = A.locator('[data-testid="stock-group"]', { hasText: "14000" }).locator("li button", { hasText: "ទុយោស្ពាន់ 1/4" }).first();
+      await v.caption("ចុចទំនិញ — «កាតស្តុក»\nចលនានីមួយៗ៖ ចូល ដក ការងារ"); await v.scrollTo(row); await v.tap(row); await T("stock-card").waitFor({ timeout: 10_000 }); await v.hold(300); await v.idle(); await v.hold(2000);
     }),
     clip("L2-12_stock-reconcile-month-end_v1", async (v, d, { A, link, dlg, T, next }) => {
       await v.caption("ចុច «ស្តុក» ហើយ «ផ្ទៀងផ្ទាត់សម្ភារៈ»"); await v.tap(link("ស្តុក")); await v.idle(); await v.tap(T("inv-tab-reconcile"), null, next); await v.idle();
@@ -281,8 +290,11 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("ស្តុក = សៀវភៅ ✓\nខុសគ្នា? ពិនិត្យចលនាស្តុក"); await v.hold(2000);
     }),
     clip("L2-13_stock-count_v1", async (v, d, { A, link, dlg, T, next }) => {
-      await v.caption("រាប់ស្តុកពិត ខុសពីកំណត់ត្រា?\nចុច «ស្តុក» ហើយ «កែតម្រូវ»"); await v.tap(link("ស្តុក")); await v.idle(); await v.tap(T("op-adjust"), null, next); await v.hold(300);
-      await v.caption("ជ្រើសទំនិញ\n«− រាប់បានតិចជាង / ខូច» ឬ «+ រាប់បានច្រើនជាង»"); await v.tap(T("adj-minus"), null, { before: 1200 });
+      await v.caption("រាប់ស្តុកពិត ខុសពីកំណត់ត្រា?\nចុច «ស្តុក» ហើយ «កែតម្រូវ»"); await v.tap(link("ស្តុក")); await v.idle();
+      await T("stock-group").first().waitFor({ timeout: 20_000 });
+      await v.tap(T("op-adjust"), null, next); await v.hold(300);
+      const item = T("op-item"), itemVal = await item.locator("option", { hasText: "ទុយោស្ពាន់" }).first().getAttribute("value");
+      await v.caption("ជ្រើសទំនិញ\n«− រាប់បានតិចជាង / ខូច» ឬ «+ រាប់បានច្រើនជាង»"); await v.tap(item, () => item.selectOption(itemVal), { before: 1000 }); await v.tap(T("adj-minus"), null, next);
       await v.caption("ចំនួនខុសគ្នា និងមូលហេតុ"); await v.type(T("op-qty"), "1", { before: 1000 }); await v.type(T("op-reason"), "ទុយោខូច មួយដុំ", next);
       await v.caption("ចុច «រក្សាទុក»\nគណនី «ខាត/ចំណេញ កែតម្រូវស្តុក» កត់ឯង"); await v.tap(T("op-save")); await v.idle(); await v.hold(800);
       await v.caption("ស្តុកត្រឹមត្រូវ = តម្លៃស្តុកត្រឹមត្រូវ\nរាប់ម្ដង ចុងខែ"); await v.hold(2200);

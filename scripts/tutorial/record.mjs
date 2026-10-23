@@ -37,7 +37,9 @@ const WORK = join(tmpdir(), "hangkh-tutorial", level.name);
 rmSync(WORK, { recursive: true, force: true }); mkdirSync(WORK, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(...a);
-const remote = (args, input) => execFileSync("ssh", [SSH, `bash /tmp/tutorial-server.sh ${args}`], { input, maxBuffer: 300e6 }).toString().trim();
+// a dropped SSH link (status 255 / killed, frequent on the office network, 23-10) is retried — the server commands stand a retry
+const sshRetry = (fn, what) => { for (let i = 1; ; i++) { try { return fn(); } catch (e) { const dropped = e?.status === 255 || e?.signal || /EPIPE|Connection|reset|timed out/i.test(String(e?.message)); if (!dropped || i >= 4) throw e; log(`ssh dropped during ${what} (try ${i}) — again in 15 s`); execFileSync(process.platform === "win32" ? "timeout" : "sleep", process.platform === "win32" ? ["/t", "15"] : ["15"], { stdio: "ignore" }); } } };
+const remote = (args, input) => sshRetry(() => execFileSync("ssh", [SSH, `bash /tmp/tutorial-server.sh ${args}`], { input, maxBuffer: 300e6 }).toString().trim(), args.split(" ")[0]);
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 // ---------- the demo instance (server) ----------
@@ -362,16 +364,22 @@ window.tg = {
 
   // ---------- encode on the server, bring the MP4s home, remove the demo instance ----------
   writeFileSync(join(WORK, "music.mjs"), readFileSync(join(HERE, "music.mjs")));
-  await new Promise((res, rej) => {
-    const tar = spawn("tar", ["-cf", "-", "-C", WORK, "music.mjs", ...done.map((d) => d.name)]), ssh = spawn("ssh", [SSH, "tar -xf - -C /tmp/tutorial/work"]);
-    tar.stdout.pipe(ssh.stdin); ssh.on("close", (code) => (code === 0 ? res() : rej(new Error("upload failed"))));
-  });
+  for (let attempt = 1; ; attempt++) { // the upload survives a dropped link too (the frames stay on the PC until they are encoded)
+    try {
+      await new Promise((res, rej) => {
+        const tar = spawn("tar", ["-cf", "-", "-C", WORK, "music.mjs", ...done.map((d) => d.name)]), ssh = spawn("ssh", [SSH, "tar -xf - -C /tmp/tutorial/work"]);
+        ssh.stdin.on("error", () => {}); tar.stdout.on("error", () => {});
+        tar.stdout.pipe(ssh.stdin); ssh.on("close", (code) => (code === 0 ? res() : rej(new Error("upload failed"))));
+      });
+      break;
+    } catch (e) { if (attempt >= 4) throw e; log(`upload failed (try ${attempt}) — again in 15 s`); await sleep(15_000); }
+  }
   for (const d of done) {
     log(`${d.name}: ${remote(`encode ${d.name} ${d.seconds}`)}`);
     d.out = join(ROOT, "Doc_Sup/09_Tutorials", d.folder, `${d.name}.mp4`);
     mkdirSync(dirname(d.out), { recursive: true });
     const tmp = join(WORK, `${d.name}.mp4`);
-    writeFileSync(tmp, execFileSync("ssh", [SSH, `cat /tmp/tutorial/work/${d.name}.mp4`], { maxBuffer: 300e6 }));
+    writeFileSync(tmp, sshRetry(() => execFileSync("ssh", [SSH, `cat /tmp/tutorial/work/${d.name}.mp4`], { maxBuffer: 300e6 }), `download ${d.name}`));
     copyFileSync(tmp, d.out);
     d.size = statSync(d.out).size;
   }
