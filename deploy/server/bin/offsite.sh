@@ -12,9 +12,10 @@ fail() { say "FAILED: $*"; echo "failed $(date '+%F %H:%M') — $*" > logs/offsi
 command -v rclone >/dev/null || fail "rclone is not installed (bin/setup-host.sh)"
 set -a; . ./.r2.env; set +a
 for v in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_BUCKET; do [ -n "${!v:-}" ] || fail "$v missing in .r2.env"; done
-export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID" \
-  RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY" RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-  RCLONE_CONFIG_R2_ACL=private RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+export RCLONE_CONFIG_R2_TYPE=s3 RCLONE_CONFIG_R2_PROVIDER=Cloudflare RCLONE_CONFIG_R2_ACL=private RCLONE_CONFIG_R2_NO_CHECK_BUCKET=true
+export RCLONE_CONFIG_R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+export RCLONE_CONFIG_R2_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+export RCLONE_CONFIG_R2_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"   # secret-scan: allow — a variable read from .r2.env (600), no value here
 dest="r2:${R2_BUCKET}/$(hostname)/backups"
 if [ "${1:-}" = "--test" ]; then
   echo "offsite test $(date '+%F %T')" > logs/.offsite-probe
