@@ -16,7 +16,9 @@ case "$target" in
   all)     services=(app-hub app-oneteam); vars=(IMAGE_HUB IMAGE_ONETEAM) ;;
   *) echo "target must be oneteam | hub | all"; exit 1 ;;
 esac
-FILES=(compose.yml Caddyfile caddy/Dockerfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh bin/set-env.sh bin/set-bot.sh bin/store-pending-bot.sh)
+FILES=(compose.yml Caddyfile caddy/Dockerfile pg-init.sh bin/dc bin/backup.sh bin/restore.sh bin/remote-deploy.sh bin/set-env.sh bin/set-bot.sh bin/store-pending-bot.sh
+  bin/watchdog.sh bin/sysreport.sh bin/prune.sh bin/offsite.sh bin/set-r2.sh bin/boot.sh bin/setup-host.sh
+  host/cron.d-hangkh host/hangkh-boot.service host/apt-52hangkh host/docker-daemon.json host/logrotate-hangkh)   # D-162 self-management
 
 # 1) server files: keep the running ones in .prev, install the new ones
 rm -rf "$PREV"; mkdir -p "$PREV/bin" "$PREV/caddy" bin caddy
@@ -24,6 +26,8 @@ for f in "${FILES[@]}"; do [ -f "$f" ] && cp -p "$f" "$PREV/$f"; done
 touch images.env; cp images.env "$PREV/images.env"
 for f in "${FILES[@]}"; do cp "$IN/$f" "$f"; done
 sed -i 's/\r$//' bin/* pg-init.sh; chmod +x bin/* pg-init.sh
+# D-162: the root parts (cron, boot service, auto-reboot, docker live-restore, rclone, logrotate) — only what differs is touched
+bash bin/setup-host.sh || echo "!! host setup reported a problem (the deploy goes on)"
 
 # 2) image tags (a first deploy of one app still needs a tag for the other: compose validates every service)
 first=0; grep -q "^IMAGE_" images.env || first=1

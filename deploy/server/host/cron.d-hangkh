@@ -1,0 +1,11 @@
+# HangKH server jobs (installed by bin/setup-host.sh on every deploy — edit in Source/deploy/server/host/cron.d-hangkh, D-162)
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# nightly database + uploads backup (30 days local), then the off-site copy to R2 when the keys are set
+0 2 * * * ubuntu [ -x /opt/hangkh/bin/backup.sh ] && /opt/hangkh/bin/backup.sh >> /opt/hangkh/backups/backup.log 2>&1
+# watchdog: start / restart what is down, tell the owner only when something was repaired or could not be
+*/5 * * * * ubuntu [ -x /opt/hangkh/bin/watchdog.sh ] && /opt/hangkh/bin/watchdog.sh
+# daily resource report 07:30 (alert on a threshold; full summary every Monday)
+30 7 * * * ubuntu [ -x /opt/hangkh/bin/sysreport.sh ] && /opt/hangkh/bin/sysreport.sh
+# weekly clean-up of old images / containers / logs
+30 3 * * 0 ubuntu [ -x /opt/hangkh/bin/prune.sh ] && /opt/hangkh/bin/prune.sh >> /opt/hangkh/logs/prune.log 2>&1

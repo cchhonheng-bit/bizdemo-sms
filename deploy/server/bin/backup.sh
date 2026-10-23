@@ -36,6 +36,8 @@ if [ $# -eq 0 ]; then
     tar -tf "$tmp" > /dev/null && mv "$tmp" "$f" && tmp="" && echo "backup: $f ($(du -h "$f" | cut -f1))"
   done
   find backups -name 'uploads_*.tar' -mtime +7 -delete
+  # D-162: off-site copy to Cloudflare R2 (no-op until bin/set-r2.sh stored the keys; a failure alerts by itself, the local backup stands)
+  [ -x bin/offsite.sh ] && bin/offsite.sh || true
 fi
 find backups -name '*.sql.gz' -mtime +30 -delete
 find backups -name '*.tmp' -mmin +60 -delete

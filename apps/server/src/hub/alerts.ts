@@ -12,7 +12,8 @@ const THROTTLE_MS = 30 * 60_000;
 const last = new Map<string, number>();
 export function resetAlertThrottle(): void { last.clear(); }
 
-export const ALERT_KINDS = ["deploy", "backup", "outbox", "error", "test", "review"] as const;
+// D-162: «server» = the watchdog / boot notice / Monday summary, «resource» = a threshold crossed (disk, RAM, backup age, certificate)
+export const ALERT_KINDS = ["deploy", "backup", "outbox", "error", "test", "review", "server", "resource"] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
 /** returns how many admins got it (0 when throttled, no master bot, or nobody linked) */
@@ -24,7 +25,7 @@ export async function sendAlert(kind: AlertKind, text: string, opts: { force?: b
   if (!bot || bot.status !== "active") return 0;
   const admins = await sql<{ telegram_chat_id: string }[]>`select telegram_chat_id from hub_admins where is_active and telegram_chat_id is not null`;
   let n = 0;
-  const icon = { deploy: "🚀", backup: "💾", outbox: "📮", error: "🔥", test: "🧪", review: "✏️" }[kind];
+  const icon = { deploy: "🚀", backup: "💾", outbox: "📮", error: "🔥", test: "🧪", review: "✏️", server: "🖥", resource: "📈" }[kind];
   for (const a of admins) {
     const r = await sendMessage(bot, a.telegram_chat_id, `${icon} HangKH · ${kind}\n${text.slice(0, 3500)}`);
     await logMessage({ direction: "out", bot: bot.code, chatId: a.telegram_chat_id, kind: `alert.${kind}`, text: `[${text.length} chars]`, ok: r.ok, error: r.ok ? null : r.error });

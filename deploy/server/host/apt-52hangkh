@@ -1,0 +1,7 @@
+// HangKH (D-162): security updates install themselves (20auto-upgrades); when one needs a reboot the server reboots at 04:30
+// (after the 02:00 backup, before work) — the containers come back by their restart policy and bin/boot.sh tells the owner.
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";
+Unattended-Upgrade::Remove-Unused-Dependencies "true";
+Unattended-Upgrade::Remove-Unused-Kernel-Packages "true";

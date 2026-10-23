@@ -1,0 +1,10 @@
+/opt/hangkh/logs/*.log /opt/hangkh/backups/backup.log {
+    weekly
+    rotate 8
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su ubuntu ubuntu
+}

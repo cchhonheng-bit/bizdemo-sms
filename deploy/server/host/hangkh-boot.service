@@ -1,0 +1,15 @@
+[Unit]
+Description=HangKH after-boot check (containers back, owner told) — D-162
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/opt/hangkh
+ExecStart=/bin/bash /opt/hangkh/bin/boot.sh
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
