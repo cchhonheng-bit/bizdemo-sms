@@ -199,7 +199,9 @@ export async function updateChartV2(t: Db, companyId: string, apply: boolean): P
   const have = new Map((await t<{ code: string; id: string; name_km: string }[]>`select code, id, name_km from accounts where company_id = ${companyId}`).map((a) => [a.code, a]));
   const rows = new Map(CHART.map((r) => [r[0], r]));
   const plan: UpdatePlan = { renamed: [], added: [], recoded: [], kept: [], already: false };
-  const renames = V1_TO_V2.filter(([from, to]) => have.has(from) && !have.has(to));
+  // in order: 18000 → 14500 first frees 18000 for the 13100 group — a snapshot check would skip that pair
+  const codes = new Set(have.keys()), renames: (readonly [string, string])[] = [];
+  for (const [from, to] of V1_TO_V2) if (codes.has(from) && !codes.has(to)) { renames.push([from, to]); codes.delete(from); codes.add(to); }
   for (const [from, to] of renames) plan.renamed.push({ from, to, name: rows.get(to)![1] });
   for (const r of CHART) if (!have.has(r[0]) && !renames.some(([, to]) => to === r[0])) plan.added.push(r[0]);
   // items under a renamed sub-code account: the old code's number keeps its place (14001 → 1340001)

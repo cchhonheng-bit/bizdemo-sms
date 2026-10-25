@@ -117,7 +117,7 @@ describe("3 · the technician's list has no stock item; «ការងារ/ស
     const list = (await kim.req("GET", "/api/catalog")).json as any[];
     expect(list.some((i) => i.code === "1340001" || i.is_stock)).toBe(false);
     expect(list.some((i) => i.id === copper)).toBe(true);
-    const ac = (await inv(admin, "/in", { name: "Panasonic 1 HP", account_id: (await account("13110")).id, qty: 1, total: 25000, pay: "aba" })).json.item_id;
+    const ac = (await product("Panasonic 1 HP", { code: "1311002", unit: "គ្រឿង", sell_price: 45000, inventory_account_id: (await account("13110")).id })).json.id; // a stock item, no stock yet
     expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: ac, qty: 1 })).json.error).toBe("SERVICE_NOT_FOUND");
     expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: copper, qty: 4 })).status).toBe(200);
     const x = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ" });
@@ -160,7 +160,7 @@ describe("1 · «ចង់ទិញម៉ាស៊ីនត្រជាក់» 
 describe("6 · the accounting view of an invoice — the $500 example", () => {
   let invoiceId: string;
   it("AC $450 (item 1311002 on 13110, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13110 300", async () => {
-    const ac = (await inv(admin, "/in", { name: "Panasonic 1 HP", account_id: (await account("13110")).id, qty: 1, total: 25000, pay: "aba" })).json.item_id;
+    const ac = (await itemByCode("1311002"))!.id;
     expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).status).toBe(200);
     const before = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13110"].map(async (c) => [c, await bal(c)])));
     expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, place: "ក្រៅបុរី ផ្ទះ 7" })).json.balance).toBe(1);

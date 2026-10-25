@@ -59,7 +59,7 @@ beforeAll(async () => {
     ((now() at time zone 'Asia/Phnom_Penh')::date - 3)::text as d3`)[0]!;
   today = d.t; yesterday = d.y; d3 = d.d3;
   a14000 = await account("13400"); a13001 = await account("13110");
-  ac = (await inv(admin, "/in", { name: "Panasonic 1 HP", account_id: a13001, qty: 0.001, total: 1, pay: "aba" })).json.item_id; await sql`delete from stock_moves where item_id = ${ac}`; await sql`update stock_items set qty = 0, value_cents = 0 where item_id = ${ac}`;
+  ac = (await ceo.req("POST", "/api/catalog", { name_km: "Panasonic 1 HP", kind: "product", category: "mep", unit: "គ្រឿង", sell_price: 45000, code: "1311001", inventory_account_id: a13001 })).json.id; // a stock item without stock (D-165: no account is its own item)
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី", phones: ["012 111 222"], zone: "inside" })).json.id;
   outside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្រៅបុរី", phones: ["012 111 333"], zone: "outside" })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 1500, duration_min: 60 })).json.id;
