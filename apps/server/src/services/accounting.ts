@@ -16,7 +16,7 @@ import { audit } from "./audit.js";
 import { saveImage } from "./jobs.js";
 import { registerLedger, type LedgerEvent } from "./ledger-hooks.js";
 import { cell } from "./reports-extra.js";
-import { insertChart, parentOf, type AccType, type Role } from "./chart.js";
+import { insertChart, isGoodsStockCode, parentOf, type AccType, type Role } from "./chart.js";
 
 export type { AccType } from "./chart.js";
 export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing";
@@ -141,9 +141,9 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
     }
     case "stock": {
       const ms = await t<{ id: string; kind: string; value: string; pay: string | null; supplier: string | null; date: string; fx: string; ref_type: string | null; ref_id: string | null;
-          name: string; inv: string | null; inv_code: string | null; okind: string | null; opay: string | null; osupplier: string | null }[]>`
+          name: string; inv: string | null; inv_code: string | null; okind: string | null; opay: string | null; osupplier: string | null; paid: string | null; opaid: string | null }[]>`
         select m.id::text, m.kind::text, m.value_cents::text as value, m.pay, m.supplier, m.move_date::text as date, m.fx_rate_khr::text as fx, m.ref_type, m.ref_id,
-          i.name_km as name, i.inventory_account_id::text as inv, ia.code as inv_code, o.kind::text as okind, o.pay as opay, o.supplier as osupplier
+          i.name_km as name, i.inventory_account_id::text as inv, ia.code as inv_code, o.kind::text as okind, o.pay as opay, o.supplier as osupplier, m.paid_cents::text as paid, o.paid_cents::text as opaid
         from stock_moves m join catalog_items i on i.id = m.item_id left join accounts ia on ia.id = i.inventory_account_id left join stock_moves o on o.id = m.reversal_of
         where m.company_id = ${u.companyId} and m.id = any(${t.array(e.move_ids.map(String))}::bigint[]) order by m.id`;
       const lines: Line[] = [];
@@ -153,9 +153,18 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         const pay = m.kind === "reverse" ? m.opay : m.pay, supplier = m.kind === "reverse" ? m.osupplier : m.supplier;
         // D-143 (CEO): the cost account follows the item's group, on a job or a direct sale alike — appliances 13000 / 13100 → 50001
         // (cost of goods), materials 14000–18000 (and items without an account → 18000) → 50005 (technicians' materials)
-        const cost = m.inv_code?.startsWith("13") ? R.cogs : R.materials;
-        const counter = kind === "opening" ? R.opening : kind === "in" ? R[METHOD_ROLE[pay ?? "credit"]!] : kind === "out" || kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
-        lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name }, { account: counter, amount: -v, memo: m.name, supplier: kind === "in" && pay === "credit" ? supplier : null });
+        const cost = isGoodsStockCode(m.inv_code) ? R.cogs : R.materials; // D-165: by the account's group
+        lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name });
+        if (kind === "in") { // D-167: what was paid now goes by the method, the rest is owed to the supplier (pay «credit» = nothing paid)
+          const raw = m.kind === "reverse" ? m.opaid : m.paid;
+          const paid = pay === "credit" ? 0 : raw == null ? v : Math.round(Math.abs(Number(raw))) * (v < 0 ? -1 : 1);
+          const owed = v - paid;
+          if (paid) lines.push({ account: R[METHOD_ROLE[pay ?? "credit"]!], amount: -paid, memo: m.name });
+          if (owed) lines.push({ account: R.ap, amount: -owed, memo: m.name, supplier });
+        } else {
+          const counter = kind === "opening" ? R.opening : kind === "out" || kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
+          lines.push({ account: counter, amount: -v, memo: m.name });
+        }
       }
       const m0 = ms[0];
       if (!m0) return;
@@ -163,6 +172,11 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         : m0.ref_type === "invoice" ? (await t<{ n: string }[]>`select number as n from invoices where id::text = ${m0.ref_id}`)[0]?.n : null;
       await post(t, u, { date: m0.date, fx: Number(m0.fx), source: "stock", source_id: m0.id, lines,
         memo: [ref, ms.length === 1 ? m0.name : null].filter(Boolean).join(" · ") || "—" });
+      return;
+    }
+    case "supplier_pay": { // D-167: Dr the supplier's payable / Cr the method
+      await post(t, u, { date: e.date, memo: [e.supplier, e.note].filter(Boolean).join(" · "), source: "supplier_pay", source_id: e.id, fx: e.fx, khr_amount: e.khr, lines: [
+        { account: R.ap, amount: e.usd_cents, supplier: e.supplier, memo: e.supplier }, { account: R[METHOD_ROLE[e.method]!], amount: -e.usd_cents, memo: e.supplier }] });
       return;
     }
     case "cash_close": {
@@ -420,7 +434,7 @@ export type OpeningInput = { date: string; cash_usd?: number; cash_khr?: number;
 /** once: cash, banks and payables as entered; stock value, open customer invoices and active deposits taken from the app as they
  *  are now; debts from before the app become opening invoices (collectable like any invoice, never revenue). Books lock before it. */
 export async function saveOpening(user: SessionUser, ip: string | null, v: { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number;
-  retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string | null }[]; payables?: { supplier: string; amount: number }[] }) {
+  retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string | null }[]; payables?: { supplier: string; amount: number }[]; others?: { code: string; amount: number }[] }) {
   return tx(user.id, async (t) => {
     const s = (await t<{ start: string | null }[]>`select books_start::text as start from company_settings where company_id = ${user.companyId} for update`)[0]!;
     if (s.start) throw new AppError("OPENING_DONE", 409);
@@ -452,6 +466,12 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
         where d.company_id = ${user.companyId} and d.status = 'active' and d.paid_on < ${v.date}::date order by d.created_at`)
       add({ account: R.deposits, amount: -d.usd, customer_id: d.customer_id, memo: d.number });
     for (const p of v.payables ?? []) add({ account: R.ap, amount: -p.amount, supplier: p.supplier.trim(), memo: p.supplier.trim() });
+    for (const o of v.others ?? []) { // D-166 (client 25-10): any other balance-sheet account — capital, customer deposits, staff advances, tips …
+      if (!o.amount) continue;
+      const a = (await t<{ id: string; type: string }[]>`select id, type::text as type from accounts where company_id = ${user.companyId} and code = ${o.code} and is_active and not is_group and type in ('asset', 'liability', 'equity')`)[0];
+      if (!a) throw new AppError("NOT_BS_ACCOUNT", 400, { code: o.code });
+      add({ account: a.id, amount: a.type === "asset" ? o.amount : -o.amount, memo: o.code });
+    }
     const mainEquity = equity;
     if (await post(t, user, { date: v.date, memo: v.date, source: "opening", fx, lines: [...main, { account: R.opening, amount: -mainEquity }] })) entries++;
     // open invoices already in the app: one entry each, so a later void reverses exactly it
@@ -572,6 +592,9 @@ export async function postBacklog(t: Db, user: SessionUser, start: string) {
   for (const d of deposits) if (!done.has(`deposit:${d.id}`)) events.push({ date: d.d, order: d.ord, kind: "deposit", run: () => onEvent(t, user, { kind: "deposit", id: d.id, method: d.method, usd_cents: d.usd, fx: Number(d.fx), date: d.d }) });
   const moves = await t<{ id: number; d: string }[]>`select id, move_date::text as d from stock_moves where company_id = ${c} and move_date >= ${start}::date and kind not in ('transfer_in', 'transfer_out') order by id`;
   for (const m of moves) if (!done.has(`stock:${m.id}`)) events.push({ date: m.d, order: m.id, kind: "stock", run: () => onEvent(t, user, { kind: "stock", move_ids: [m.id] }) });
+  const spays = await t<{ id: string; supplier: string; usd: number; method: string; fx: string; d: string; ord: number; khr: string | null; note: string | null }[]>`select id::text, supplier, amount_cents as usd, method, fx_rate_khr::text as fx,
+      paid_on::text as d, extract(epoch from created_at)::int as ord, case when currency = 'khr' then amount_native::text end as khr, note from supplier_payments where company_id = ${c} and reversal_of is null and paid_on >= ${start}::date`;
+  for (const p of spays) if (!done.has(`supplier_pay:${p.id}`)) events.push({ date: p.d, order: p.ord, kind: "supplier_pay", run: () => onEvent(t, user, { kind: "supplier_pay", id: p.id, supplier: p.supplier, usd_cents: p.usd, method: p.method, fx: Number(p.fx), date: p.d, khr: p.khr ? Number(p.khr) : null, note: p.note }) });
   const pending = await t<{ id: string; kind: "other" | "journal"; d: string; memo: string; payload: OtherInput | JournalInput; attachment_id: string | null; ord: number }[]>`select id, kind, entry_date::text as d, memo, payload, attachment_id, extract(epoch from created_at)::int as ord
     from pending_postings where company_id = ${c} and status = 'pending' order by entry_date, created_at`;
   let before_start = 0, failed = 0;
@@ -592,7 +615,7 @@ export async function postBacklog(t: Db, user: SessionUser, start: string) {
   events.sort((x, y) => x.date.localeCompare(y.date) || x.order - y.order);
   const counts: Record<string, number> = {};
   for (const e of events) { await e.run(); counts[e.kind] = (counts[e.kind] ?? 0) + 1; }
-  const report = { start, posted: events.length, invoices: counts.invoice ?? 0, payments: (counts.payment ?? 0) + (counts.deposit_applied ?? 0), deposits: counts.deposit ?? 0, stock: counts.stock ?? 0,
+  const report = { start, posted: events.length, invoices: counts.invoice ?? 0, payments: (counts.payment ?? 0) + (counts.deposit_applied ?? 0), deposits: counts.deposit ?? 0, stock: counts.stock ?? 0, supplier_payments: counts.supplier_pay ?? 0,
     transactions: (counts.other ?? 0) + (counts.journal ?? 0) - failed, before_start, failed, failures };
   await audit(t, { companyId: c, userId: user.id, action: "acct.backlog", table: "company_settings", rowId: c, new: report, ip: null });
   return report;
@@ -646,24 +669,36 @@ export function previousPeriod(from: string, to: string): { from: string; to: st
 export async function incomeStatement(user: SessionUser, from: string, to: string) {
   checkPeriod(from, to);
   const fx = await rateAt(user.companyId, to);
-  // D-126: every line and total also for the previous month, with the variance (as the balance sheet)
-  const p = previousPeriod(from, to);
-  const [cur, prev] = await Promise.all([sums(user.companyId, to, from, "1900-01-01"), sums(user.companyId, p.to, p.from, "1900-01-01")]);
-  const prevOf = new Map(prev.map((x) => [x.id, x]));
-  const val = (x: Sum, t: AccType) => (t === "income" ? x.c - x.d : x.d - x.c);
-  const pick = (t: AccType) => cur.filter((x) => x.type === t).map((x) => {
-    const q = prevOf.get(x.id), amount = val(x, t), previous = q ? val(q, t) : 0;
-    return { ...row(x, amount), previous, variance: amount - previous };
-  }).filter((r) => r.amount !== 0 || r.previous !== 0);
-  const income = pick("income"), expense = pick("expense");
-  const income_total = income.reduce((a, r) => a + r.amount, 0), expense_total = expense.reduce((a, r) => a + r.amount, 0), net = income_total - expense_total;
-  const prevIncome = income.reduce((a, r) => a + r.previous, 0), prevExpense = expense.reduce((a, r) => a + r.previous, 0);
-  const previous = { from: p.from, to: p.to, income_total: prevIncome, expense_total: prevExpense, net: prevIncome - prevExpense };
+  // D-168 (client 25-10): the period, the whole month before it, the fiscal year up to the end of that month, the fiscal year up to the period's end;
+  // revenue − cost of goods (50001) = gross profit, then the other expenses → net
+  const b = await books(sql, user.companyId);
+  const lastTo = dayBefore(to.slice(0, 8) + "01"), lastFrom = lastTo.slice(0, 8) + "01";
+  const fy = fyStart(to, b.fy_month);
+  const cols = { current: { from, to }, last: { from: lastFrom, to: lastTo }, ytd_prev: { from: fy, to: lastTo < fy ? dayBefore(fy) : lastTo }, ytd: { from: fy, to } };
+  const [cur, last, ytdPrev, ytd] = await Promise.all([sums(user.companyId, to, from, "1900-01-01"), sums(user.companyId, cols.last.to, cols.last.from, "1900-01-01"),
+    cols.ytd_prev.to < fy ? Promise.resolve([] as Sum[]) : sums(user.companyId, cols.ytd_prev.to, fy, "1900-01-01"), sums(user.companyId, to, fy, "1900-01-01")]);
+  const by = (xs: Sum[]) => new Map(xs.map((x) => [x.id, x]));
+  const L = by(last), P = by(ytdPrev), Y = by(ytd);
+  const val = (x: Sum | undefined, t: AccType) => (!x ? 0 : t === "income" ? x.c - x.d : x.d - x.c);
+  const cogsRole = (await roleIds(sql, user.companyId)).cogs;
+  const pick = (t: AccType, cogs: boolean | null) => cur.filter((x) => x.type === t && (cogs === null || (x.id === cogsRole) === cogs)).map((x) => {
+    const amount = val(x, t), lastV = val(L.get(x.id), t), ytdPrevV = val(P.get(x.id), t), ytdV = val(Y.get(x.id), t);
+    return { ...row(x, amount), previous: lastV, variance: amount - lastV, last: lastV, ytd_prev: ytdPrevV, ytd: ytdV };
+  }).filter((r) => r.amount || r.last || r.ytd_prev || r.ytd);
+  const income = pick("income", null), cogs = pick("expense", true), expense = pick("expense", false);
+  const tot = (rows: { amount: number; last: number; ytd_prev: number; ytd: number }[]) => ({
+    amount: rows.reduce((a, r) => a + r.amount, 0), last: rows.reduce((a, r) => a + r.last, 0), ytd_prev: rows.reduce((a, r) => a + r.ytd_prev, 0), ytd: rows.reduce((a, r) => a + r.ytd, 0) });
+  const ti = tot(income), tc = tot(cogs), te = tot(expense);
+  const sub = (x: typeof ti, y: typeof ti) => ({ amount: x.amount - y.amount, last: x.last - y.last, ytd_prev: x.ytd_prev - y.ytd_prev, ytd: x.ytd - y.ytd });
+  const gross = sub(ti, tc), netT = sub(gross, te);
+  const income_total = ti.amount, expense_total = tc.amount + te.amount, net = netT.amount;
+  const previous = { from: lastFrom, to: lastTo, income_total: ti.last, expense_total: tc.last + te.last, net: netT.last };
   const z = await sql<{ zone: string | null; amt: string }[]>`select l.zone, sum(l.credit_cents - l.debit_cents)::text as amt from journal_lines l join journal_entries e on e.id = l.entry_id
       join accounts a on a.id = l.account_id where e.company_id = ${user.companyId} and a.type = 'income' and e.source <> 'closing' and e.entry_date between ${from}::date and ${to}::date group by l.zone`;
   const zones = { inside: 0, outside: 0, none: 0 };
   for (const r of z) zones[r.zone === "inside" ? "inside" : r.zone === "outside" ? "outside" : "none"] += Number(r.amt);
-  return { from, to, fx_rate_khr: fx, income, expense, income_total, expense_total, net, income_total_khr: usdToKhr(income_total, fx), expense_total_khr: usdToKhr(expense_total, fx), net_khr: usdToKhr(net, fx), zones, previous };
+  return { from, to, fx_rate_khr: fx, columns: cols, income, cogs, expense, totals: { income: ti, cogs: tc, gross, expense: te, net: netT },
+    income_total, expense_total, net, income_total_khr: usdToKhr(income_total, fx), expense_total_khr: usdToKhr(expense_total, fx), net_khr: usdToKhr(net, fx), zones, previous };
 }
 export const profitLoss = incomeStatement;
 
@@ -804,10 +839,12 @@ export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?
   }
   if (kind === "pl" || kind === "income-statement") {
     const p = await incomeStatement(user, q.from ?? q.to, q.to);
-    return csv([["section", "code", "account", "usd", "khr"], ...p.income.map((r) => ["income", r.code, r.name_km, money(r.amount), usdToKhr(r.amount, p.fx_rate_khr)]),
-      ["income", "", "TOTAL", money(p.income_total), p.income_total_khr], ...p.expense.map((r) => ["expense", r.code, r.name_km, money(r.amount), usdToKhr(r.amount, p.fx_rate_khr)]),
-      ["expense", "", "TOTAL", money(p.expense_total), p.expense_total_khr], ["net", "", "NET PROFIT", money(p.net), p.net_khr],
-      ["zone", "", "INSIDE", money(p.zones.inside), usdToKhr(p.zones.inside, p.fx_rate_khr)], ["zone", "", "OUTSIDE", money(p.zones.outside), usdToKhr(p.zones.outside, p.fx_rate_khr)], [], ["rate_khr", p.fx_rate_khr]]);
+    const c = p.columns, four = (x: { amount: number; last: number; ytd_prev: number; ytd: number }) => [money(x.amount), money(x.last), money(x.ytd_prev), money(x.ytd)];
+    const rows = (name: string, xs: typeof p.income) => xs.map((r) => [name, r.code, r.name_km, ...four(r)]);
+    return csv([["section", "code", "account", `current ${c.current.from}..${c.current.to}`, `last month ${c.last.from}..${c.last.to}`, `year to date ${c.ytd_prev.from}..${c.ytd_prev.to}`, `year to date ${c.ytd.from}..${c.ytd.to}`],
+      ...rows("income", p.income), ["income", "", "TOTAL", ...four(p.totals.income)], ...rows("cost of goods", p.cogs), ["cost of goods", "", "TOTAL", ...four(p.totals.cogs)],
+      ["gross profit", "", "GROSS PROFIT", ...four(p.totals.gross)], ...rows("expense", p.expense), ["expense", "", "TOTAL", ...four(p.totals.expense)], ["net", "", "NET PROFIT", ...four(p.totals.net)],
+      ["zone", "", "INSIDE", money(p.zones.inside)], ["zone", "", "OUTSIDE", money(p.zones.outside)], [], ["rate_khr", p.fx_rate_khr]]);
   }
   if (kind === "balance-sheet") {
     const b = await balanceSheet(user, q.to);

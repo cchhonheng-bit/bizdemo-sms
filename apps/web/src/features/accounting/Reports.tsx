@@ -14,6 +14,7 @@ import { todayLocal } from "@/features/invoices/util";
 import { Amount } from "./common";
 import { signedUsd, useAccName } from "./acct";
 import { LedgerDialog } from "./Accounts";
+import { IncomeStatement as IS } from "./IncomeStatement"; // D-168: four columns + the gross profit (client 25-10)
 
 type View = "pl" | "bs" | "tb" | "gl";
 const monthEnd = (ym: string) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).toISOString().slice(0, 10); };
@@ -56,27 +57,6 @@ const Csv = ({ href }: { href: string }) => {
   const { t } = useTranslation();
   return <a className="btn-secondary w-full sm:w-auto" href={href} download data-testid="acct-csv"><Download size={16} /> {t("acct.excel")}</a>;
 };
-
-/** D-126 (CEO): the income statement shows the previous month and the variance too, like the balance sheet */
-function IS({ from, to, onPick }: { from: string; to: string; onPick: (r: AcctRow) => void }) {
-  const { t } = useTranslation();
-  const q = useQuery({ queryKey: ["acct-pl", from, to], queryFn: () => api.accounting.pl(from, to) });
-  if (q.isLoading || !q.data) return <Skeleton />;
-  const p = q.data;
-  const prev = (cur: number, before: number) => `${t("acct.col.previous")} (${p.previous.from} – ${p.previous.to}) ${signedUsd(before)} · ${t("acct.col.variance")} ${signedUsd(cur - before)}`;
-  return (
-    <>
-      <Card title={t("acct.income")}>{p.income.length ? <BsRows rows={p.income} fx={p.fx_rate_khr} onPick={onPick} /> : <Empty text={t("acct.nothing")} />}
-        <Total label={t("acct.income_total")} cents={p.income_total} khr={p.income_total_khr} sub={prev(p.income_total, p.previous.income_total)} testid="is-income" />
-        <p className="text-xs text-muted mt-2 text-right tabular" data-testid="is-zones">{t("acct.zone.inside")} {formatUsd(p.zones.inside)} · {t("acct.zone.outside")} {formatUsd(p.zones.outside)}{p.zones.none ? ` · ${t("acct.zone.none")} ${formatUsd(p.zones.none)}` : ""}</p></Card>
-      <Card title={t("acct.expense")}>{p.expense.length ? <BsRows rows={p.expense} fx={p.fx_rate_khr} onPick={onPick} /> : <Empty text={t("acct.nothing")} />}
-        <Total label={t("acct.expense_total")} cents={p.expense_total} khr={p.expense_total_khr} sub={prev(p.expense_total, p.previous.expense_total)} /></Card>
-      <Card><Total label={p.net >= 0 ? t("acct.profit") : t("acct.loss")} cents={p.net} khr={p.net_khr} big testid="pl-net" sub={prev(p.net, p.previous.net)} />
-        <p className="text-xs text-muted mt-2">{t("acct.rate_note", { rate: p.fx_rate_khr })}</p></Card>
-      <Csv href={api.accounting.csvUrl("income-statement", from, to)} />
-    </>
-  );
-}
 
 function BsRows({ rows, fx, onPick }: { rows: BsRow[]; fx: number; onPick: (r: AcctRow) => void }) {
   const { t } = useTranslation();

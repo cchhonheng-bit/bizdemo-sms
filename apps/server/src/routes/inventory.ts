@@ -2,7 +2,7 @@
 // Stock in = a direct entry (the item is made on its first entry); stock out = the Admin records what a technician collects.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { adjust, card, items, listLocations, monthEnd, reconcile, setReorder, stockIn, stockOut } from "../services/inventory.js";
+import { adjust, card, items, listLocations, monthEnd, payables, reconcile, setReorder, stockIn, stockOut, supplierPay } from "../services/inventory.js";
 import { featureOn } from "../lib/features.js";
 
 const id = z.string().uuid();
@@ -23,7 +23,12 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   app.post("/in", manage, async (req) => stockIn(req.user!, req.ip, z.object({ item_id: id.nullable().optional(), name: z.string().trim().max(120).nullable().optional(), code: z.string().trim().max(20).nullable().optional(),
     unit: z.string().trim().max(20).nullable().optional(), account_id: id.nullable().optional(), qty, unit_cost: cents.nullable().optional(), total: cents.nullable().optional(),
     pay: z.enum(["cash_usd", "cash_khr", "aba", "acleda", "credit"]).nullable().optional(), supplier: z.string().max(120).nullable().optional(), date: day.nullable().optional(),
-    note: z.string().max(300).nullable().optional(), opening: z.boolean().optional() }).strict().parse(req.body)));
+    note: z.string().max(300).nullable().optional(), opening: z.boolean().optional(),
+    paid: cents.nullable().optional(), supplier_invoice: z.string().trim().max(60).nullable().optional() }).strict().parse(req.body))); // D-167
+  // D-167: what is owed per supplier, and a payment to one (in $ or ៛, any method)
+  app.get("/payables", view, async (req) => payables(req.user!));
+  app.post("/supplier-pay", manage, async (req) => supplierPay(req.user!, req.ip, z.object({ supplier: z.string().trim().min(1).max(120), amount: z.number().positive().max(1_000_000_000_000),
+    currency: z.enum(["usd", "khr"]), method: z.enum(["cash_usd", "cash_khr", "aba", "acleda"]), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
   // D-144 stock out: item · qty · technician · the job (or the project / borey / house no.) · date → the balance left
   app.post("/out", manage, async (req) => stockOut(req.user!, req.ip, z.object({ item_id: id, qty, technician_id: id, booking_id: id.nullable().optional(),
     place: z.string().max(120).nullable().optional(), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));

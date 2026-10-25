@@ -15,9 +15,10 @@ import { toast } from "@/lib/toast";
 import { presetRange, type Range } from "@/features/reports/range";
 import RangePicker from "@/features/reports/RangePicker";
 import { todayLocal } from "@/features/invoices/util";
+import { Payables } from "./Payables"; // D-167
 import MonthEnd from "./MonthEnd";
 
-type Tab = "stock" | "monthend" | "reconcile";
+type Tab = "stock" | "monthend" | "reconcile" | "payables";
 type Op = "in" | "out" | "adjust";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
@@ -26,7 +27,7 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile"] : ["stock", "monthend"];
+  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile", "payables"] : can("inventory.manage") ? ["stock", "monthend", "payables"] : ["stock", "monthend"]; // D-167
   const [sp] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
@@ -35,7 +36,7 @@ export default function InventoryPage() {
       <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
         {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
       </div>
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : <Reconcile />}
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : <Reconcile />}
     </div>
   );
 }
@@ -131,15 +132,18 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
   const [name, setName] = useState(""), [unit, setUnit] = useState(""), [account, setAccount] = useState("");
   const [qty, setQty] = useState(""), [cost, setCost] = useState(""), [totalIn, setTotalIn] = useState("");
   const [pay, setPay] = useState<StockPay>("cash_usd"), [supplier, setSupplier] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
+  const [paidIn, setPaidIn] = useState(""), [invoiceNo, setInvoiceNo] = useState(""); // D-167: paid now (the rest owed) · the supplier's invoice number
   const n = Number(qty);
   let c = NaN, tot = NaN;
   try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
   try { tot = totalIn.trim() === "" ? NaN : toCents(totalIn); } catch { /* invalid */ }
   const total = tot >= 0 ? tot : c >= 0 && n > 0 ? Math.round(n * c) : NaN; // the total follows qty × unit cost, or is typed itself
-  const valid = n > 0 && total >= 0 && (mode === "existing" ? !!item : name.trim().length > 0 && !!account);
+  let paidC = NaN; try { paidC = paidIn.trim() === "" ? total : toCents(paidIn); } catch { /* invalid */ }
+  const paid = pay === "credit" ? 0 : paidC, owed = total >= 0 && paid >= 0 ? total - paid : NaN;
+  const valid = n > 0 && total >= 0 && (mode === "existing" ? !!item : name.trim().length > 0 && !!account) && paid >= 0 && paid <= total && (owed === 0 || supplier.trim().length > 0);
   const save = useMutation({
     mutationFn: () => api.inventory.stockIn({ ...(mode === "existing" ? { item_id: item } : { name: name.trim(), unit: unit.trim() || null, account_id: account }), qty: n,
-      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null }),
+      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null, paid: pay === "credit" ? 0 : paid, supplier_invoice: invoiceNo.trim() || null }),
     onSuccess: (r) => { toast.success(t("inventory.in_done", { total: formatUsd(r.total), balance: qtyFmt(r.balance) })); refresh(); onClose(); }, onError: onErr,
   });
   const pays: StockPay[] = ["cash_usd", "cash_khr", "aba", "acleda", "credit"];
@@ -169,7 +173,11 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
       <p className="text-sm mb-1">{t("inventory.paid_with")}</p>
       <div className="grid grid-cols-3 gap-2 mb-3">{pays.map((p) => <button key={p} type="button" role="radio" aria-checked={pay === p} onClick={() => setPay(p)} data-testid={`pay-${p}`} className={`min-h-[44px] rounded-md border text-xs ${pay === p ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`inventory.pay.${p}`)}</button>)}</div>
       <div className="grid grid-cols-2 gap-2">
-        <Field label={t("inventory.supplier")}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="op-supplier" /></Field>
+        <Field label={t("inventory.supplier")} required={owed > 0}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="op-supplier" /></Field>
+        <Field label={t("inventory.supplier_invoice")} hint={t("inventory.supplier_invoice_hint")}><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} maxLength={60} data-testid="in-invoice" /></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {pay !== "credit" && <Field label={t("inventory.paid_now")} hint={owed > 0 ? t("inventory.owed_rest", { amount: formatUsd(owed) }) : t("inventory.paid_all")}><Input inputMode="decimal" value={paidIn} placeholder={total >= 0 ? (total / 100).toFixed(2) : ""} onChange={(e) => setPaidIn(e.target.value)} data-testid="op-paid" /></Field>}
         <DateField value={date} onChange={setDate} />
       </div>
       <Field label={t("inventory.note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={300} /></Field>
@@ -297,7 +305,7 @@ function CardDialog({ item, manage, onClose }: { item: StockItem; manage: boolea
               <li key={r.id} className="py-2">
                 <div className="flex justify-between gap-2"><span className="min-w-0 break-words">{r.date} · {t(`inventory.kind.${r.kind}`)}{r.ref_label ? ` · ${r.ref_label}` : ""}{r.place ? ` · ${r.place}` : ""}</span>
                   <span className={`tabular whitespace-nowrap ${r.qty < 0 ? "text-danger" : "text-success"}`}>{r.qty > 0 ? "+" : ""}{qtyFmt(r.qty)}{r.value ? ` · ${signed(r.value)}` : ""}</span></div>
-                <div className="flex justify-between text-xs text-muted"><span className="min-w-0 break-words">{r.technician ? `👷 ${r.technician}` : ""}{r.reason ? ` · ${r.reason}` : ""}{r.supplier ? ` · ${r.supplier}` : ""}</span><span className="tabular">= {qtyFmt(r.balance_qty)}{r.balance_value != null ? ` · ${formatUsd(r.balance_value)}` : ""}</span></div>
+                <div className="flex justify-between text-xs text-muted"><span className="min-w-0 break-words">{r.technician ? `👷 ${r.technician}` : ""}{r.reason ? ` · ${r.reason}` : ""}{r.supplier ? ` · ${r.supplier}` : ""}{r.supplier_invoice ? ` · #${r.supplier_invoice}` : ""}{r.kind === "in" && r.paid != null && Number(r.paid) < Math.abs(r.value ?? 0) ? ` · ${t("inventory.owed_rest", { amount: formatUsd(Math.abs(r.value ?? 0) - Number(r.paid)) })}` : ""}</span><span className="tabular">= {qtyFmt(r.balance_qty)}{r.balance_value != null ? ` · ${formatUsd(r.balance_value)}` : ""}</span></div>
               </li>
             ))}
           </ul>

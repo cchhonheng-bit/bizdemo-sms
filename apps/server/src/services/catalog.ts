@@ -48,8 +48,8 @@ export async function assertCodeOnAccount(db: Db, companyId: string, accountId: 
   const a = (await db<{ code: string; sub_codes: boolean }[]>`select code, sub_codes from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
   if (!a) return;
   if (a.sub_codes) {
-    const prefix = a.code.replace(/0+$/, "");
-    if (!code || !new RegExp(`^${prefix}[0-9]{3}$`).test(code)) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix, example: `${prefix}001` });
+    const prefix = a.code; // D-165: the code = the account code + 2 digits (13110 → 1311001)
+    if (!code || !new RegExp(`^${prefix}[0-9]{2}$`).test(code)) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix, example: `${prefix}01` });
   } else {
     if (code !== a.code) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix: a.code, example: a.code });
     if ((await db`select 1 from catalog_items where company_id = ${companyId} and inventory_account_id = ${accountId} ${exceptId ? db`and id <> ${exceptId}` : db``}`).length) throw new AppError("ONE_ITEM_PER_CODE", 409);
@@ -60,9 +60,9 @@ export async function nextItemCode(db: Db, companyId: string, accountId: string)
   const a = (await db<{ code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select code, sub_codes, is_group, type::text as type from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
   if (!a || a.is_group || a.type !== "asset") throw new AppError("NOT_STOCK_ACCOUNT", 400);
   if (!a.sub_codes) return { code: a.code, sub_codes: false, taken: (await db`select 1 from catalog_items where company_id = ${companyId} and code = ${a.code}`).length > 0 };
-  const prefix = a.code.replace(/0+$/, "");
-  const last = (await db<{ n: number }[]>`select coalesce(max(substr(code, ${prefix.length + 1})::int), 0)::int as n from catalog_items where company_id = ${companyId} and code ~ ${`^${prefix}[0-9]{3}$`}`)[0]!.n;
-  return { code: `${prefix}${String(last + 1).padStart(3, "0")}`, sub_codes: true, taken: false };
+  const prefix = a.code; // D-165: the code = the account code + 2 digits (13110 → 1311001)
+  const last = (await db<{ n: number }[]>`select coalesce(max(substr(code, ${prefix.length + 1})::int), 0)::int as n from catalog_items where company_id = ${companyId} and code ~ ${`^${prefix}[0-9]{2}$`}`)[0]!.n;
+  return { code: `${prefix}${String(last + 1).padStart(2, "0")}`, sub_codes: true, taken: false };
 }
 async function codeFree(db: Db, companyId: string, code: string | null, exceptId: string | null) {
   if (!code) return;

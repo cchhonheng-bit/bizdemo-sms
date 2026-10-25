@@ -1264,7 +1264,8 @@
     "tab": {
       "stock": "Stock",
       "monthend": "Month-end stock",
-      "reconcile": "Reconciliation"
+      "reconcile": "Reconciliation",
+      "payables": "Owed to suppliers"
     },
     "op": {
       "in": "Stock in",
@@ -1326,7 +1327,10 @@
       "BAD_DATE": "Invalid date (never in the future)",
       "CODE_TAKEN": "This code exists already",
       "ONE_ITEM_PER_CODE": "This account already has its item (one item only)",
-      "CODE_NOT_IN_ACCOUNT": "The code is outside this account"
+      "CODE_NOT_IN_ACCOUNT": "The code is outside this account",
+      "PAID_OVER_TOTAL": "Paid more than the total",
+      "SUPPLIER_REQUIRED": "Something is owed → the supplier's name is needed",
+      "BAD_METHOD": "The method does not match the currency"
     },
     "cancelled_cost": "Cancelled · job cost",
     "me_date": "As of",
@@ -1367,7 +1371,25 @@
     "rec_totals": "Totals by group",
     "rec_rows": "By job / place",
     "rec_out": "Out",
-    "rec_invoiced": "Invoiced"
+    "rec_invoiced": "Invoiced",
+    "supplier_invoice": "Supplier invoice no.",
+    "supplier_invoice_hint": "Check quantities and amounts against the paper invoice",
+    "paid_now": "Paid now ($)",
+    "paid_all": "Blank = paid in full",
+    "owed_rest": "Still owed {{amount}}",
+    "payables_title": "Owed to suppliers",
+    "payables_none": "Nothing owed to suppliers",
+    "pay_supplier": "Pay",
+    "owed": "Owed",
+    "open_invoices": "Unpaid invoices",
+    "last_purchase": "Last purchase",
+    "last_payment": "Last payment",
+    "pay_done": "Paid · still owed {{owed}}",
+    "amount_usd": "Amount ($)",
+    "amount_khr": "Amount (៛)",
+    "method": "Method",
+    "purchases_n": "{{n}} purchases",
+    "opening_debt": "Opening debt"
   },
   "acct": {
     "title": "Accounting",
@@ -1400,10 +1422,12 @@
     "month": "Month",
     "col": {
       "period": "Current month",
-      "ytd_prev": "YTD to previous month",
-      "ytd": "YTD to current month",
+      "ytd_prev": "Year to date, last month",
+      "ytd": "Year to date",
       "previous": "Previous month",
-      "variance": "Variance"
+      "variance": "Variance",
+      "current": "Current month",
+      "last": "Last month"
     },
     "stmt": {
       "BS": "Balance sheet",
@@ -1621,7 +1645,8 @@
       "IMAGE_TOO_LARGE": "Image too large",
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "Date range too long",
-      "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it"
+      "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it",
+      "NOT_BS_ACCOUNT": "Not an active balance-sheet account"
     },
     "rate_label": "Exchange rate",
     "added_by_system": "Added by the system",
@@ -1635,7 +1660,12 @@
     "pending_badge": "Waiting",
     "pending_before": "Before the start day",
     "backlog_done": "{{n}} waiting transactions posted",
-    "opening_backlog_hint": "{{n}} transactions (invoices, payments, stock, expenses) from the start day on — on confirm they are all posted in date order · nothing to enter again"
+    "opening_backlog_hint": "{{n}} transactions (invoices, payments, stock, expenses) from the start day on — on confirm they are all posted in date order · nothing to enter again",
+    "other_bs": "Other balance-sheet accounts",
+    "other_bs_hint": "Capital · customer deposits · staff advances · tips … — positive amounts",
+    "add_other_bs": "Add an account",
+    "cogs": "Cost of goods (50001)",
+    "gross": "Gross profit"
   },
   "print": {
     "invoice": "INVOICE",

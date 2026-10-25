@@ -9,7 +9,8 @@ import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { assertCodeOnAccount, nextItemCode } from "./catalog.js";
-import { postStock } from "./ledger-hooks.js";
+import { postStock, postSupplierPay } from "./ledger-hooks.js";
+import { khrToCents } from "@sms/shared";
 import { notifyUser } from "./telegram.js";
 
 export type Pay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
@@ -93,7 +94,9 @@ const balanceOf = async (t: Db, item: string, location: string) => Number((await
 export type StockInInput = { item_id?: string | null; name?: string | null; code?: string | null; unit?: string | null; account_id?: string | null;
   qty: number; unit_cost?: number | null; total?: number | null; pay?: Pay | null; supplier?: string | null; date?: string | null; note?: string | null;
   /** the stock the shop already held before the books (no money moves: Dr stock / Cr opening equity) */
-  opening?: boolean };
+  opening?: boolean;
+  /** D-167: what is paid now (cents; the rest is owed to the supplier — pay «credit» = nothing) and the supplier's invoice number */
+  paid?: number | null; supplier_invoice?: string | null };
 
 /** the stock item an entry is about: the one chosen, else the one on that account with that name (a no-sub account IS its one item),
  *  else a new one — code on the client's scheme (D-142), made as the Admin's stock item (never in the price list) */
@@ -138,12 +141,17 @@ export async function stockIn(user: SessionUser, ip: string | null, v: StockInIn
     const item = await stockItemFor(t, user, ip, v);
     if (v.opening && (await t`select 1 from stock_moves where item_id = ${item.id} and company_id = ${user.companyId}`).length) throw new AppError("OPENING_EXISTS", 400);
     const value = await cents(t, v.qty, v.unit_cost, v.total);
+    const paid = v.opening ? null : v.pay === "credit" ? 0 : v.paid == null ? value : v.paid; // D-167
+    if (paid != null && (paid < 0 || paid > value)) throw new AppError("PAID_OVER_TOTAL", 400);
+    if (paid != null && paid !== value && !v.supplier?.trim()) throw new AppError("SUPPLIER_REQUIRED", 400); // the rest is owed to someone
+    const invoice = v.supplier_invoice?.trim().slice(0, 60) || null;
     const id = await move(t, user, { item: item.id, location: loc, kind: v.opening ? "opening" : "in", qty: v.qty, value, ref_type: v.opening ? "opening" : "purchase",
       pay: v.opening ? null : v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null, date: v.date });
+    if (!v.opening) await t`update stock_moves set paid_cents = ${paid}, supplier_invoice = ${invoice} where id = ${id}`;
     await audit(t, { companyId: user.companyId, userId: user.id, action: v.opening ? "stock.opening" : "stock.in", table: "stock_moves", rowId: String(id),
-      new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, supplier: v.supplier ?? null, date: v.date ?? null }, ip });
+      new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, paid, supplier_invoice: invoice, supplier: v.supplier ?? null, date: v.date ?? null }, ip });
     await postStock(t, user, [id]);
-    return { id, item_id: item.id, created: item.created, total: value, balance: await balanceOf(t, item.id, loc) };
+    return { id, item_id: item.id, created: item.created, total: value, paid, owed: paid == null ? 0 : value - paid, balance: await balanceOf(t, item.id, loc) };
   });
 }
 
@@ -299,7 +307,7 @@ export async function card(user: SessionUser, itemId: string, from: string, to: 
   const op = (await sql<{ qty: string; value: string }[]>`select coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value from stock_moves m
     where m.item_id = ${itemId} and m.company_id = ${user.companyId} and m.move_date < ${from}::date ${loc}`)[0]!;
   const moves = await sql<{ id: number; date: string; kind: string; qty: string; value: string; ref_type: string | null; ref_id: string | null; reason: string | null; supplier: string | null; location: string; ref_label: string | null; by_name: string | null; technician: string | null; place: string | null }[]>`
-    select m.id, m.move_date::text as date, m.kind::text, m.qty::text, m.value_cents::text as value, m.ref_type, m.ref_id, m.reason, m.supplier, l.name as location, u.full_name as by_name, tu.full_name as technician, m.place,
+    select m.id, m.move_date::text as date, m.kind::text, m.qty::text, m.value_cents::text as value, m.ref_type, m.ref_id, m.reason, m.supplier, m.supplier_invoice, m.paid_cents::text as paid, l.name as location, u.full_name as by_name, tu.full_name as technician, m.place,
       case m.ref_type when 'booking' then (select number from bookings where id::text = m.ref_id) when 'invoice' then (select number from invoices where id::text = m.ref_id) end as ref_label
     from stock_moves m join stock_locations l on l.id = m.location_id left join users u on u.id = m.created_by left join users tu on tu.id = m.technician_id
     where m.item_id = ${itemId} and m.company_id = ${user.companyId} and m.move_date between ${from}::date and ${to}::date ${loc} order by m.move_date, m.id`;
@@ -310,4 +318,41 @@ export async function card(user: SessionUser, itemId: string, from: string, to: 
     return { ...m, qty: Number(m.qty), value: locationId ? null : Number(m.value), balance_qty: q, balance_value: locationId ? null : v };
   });
   return { opening, rows, ending: { qty: q, value: locationId ? null : v } };
+}
+
+// ---------- D-167 (client 25-10): what the shop owes its suppliers, and paying them later in $ or ៛ by any method ----------
+export type SupplierPayInput = { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date?: string | null; note?: string | null };
+export async function supplierPay(user: SessionUser, ip: string | null, v: SupplierPayInput) {
+  if ((v.method === "cash_usd" && v.currency !== "usd") || (v.method === "cash_khr" && v.currency !== "khr")) throw new AppError("BAD_METHOD", 400);
+  return tx(user.id, async (t) => {
+    const s = (await t<{ fx: string; today: string }[]>`select s.fx_rate_khr::text as fx, (now() at time zone c.timezone)::date::text as today from company_settings s join companies c on c.id = s.company_id where s.company_id = ${user.companyId}`)[0]!;
+    const fx = Number(s.fx), date = v.date ?? s.today;
+    if (date > s.today) throw new AppError("BAD_DATE", 400);
+    const cents = v.currency === "usd" ? Math.round(v.amount) : khrToCents(v.amount, fx);
+    if (cents <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
+    const supplier = v.supplier.trim().slice(0, 120);
+    const id = (await t<{ id: string }[]>`insert into supplier_payments (company_id, supplier, amount_cents, currency, amount_native, fx_rate_khr, method, paid_on, note, created_by)
+      values (${user.companyId}, ${supplier}, ${cents}, ${v.currency}, ${v.currency === "usd" ? cents / 100 : v.amount}, ${fx}, ${v.method}, ${date}::date, ${v.note?.trim() || null}, ${user.id}) returning id::text`)[0]!.id;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.supplier_pay", table: "supplier_payments", rowId: id, new: { supplier, amount: v.amount, currency: v.currency, usd_cents: cents, method: v.method, date, note: v.note ?? null }, ip });
+    await postSupplierPay(t, user, { id, supplier, usd_cents: cents, method: v.method, fx, date, khr: v.currency === "khr" ? v.amount : null, note: v.note?.trim() || null });
+    const owed = (await payables(user)).find((p) => p.supplier === supplier)?.owed ?? 0;
+    return { id, usd_cents: cents, owed };
+  });
+}
+/** per supplier: purchases not paid (value − paid now), + the opening debt entered with the balances, − the payments made; the open
+ *  supplier invoice numbers and the last purchase — the same whether the books are started or not */
+export async function payables(user: SessionUser) {
+  const buys = await sql<{ supplier: string; owed: string; invoices: string[] | null; last: string | null; purchases: string }[]>`
+    select m.supplier, sum(case when m.kind = 'in' then m.value_cents - coalesce(m.paid_cents, case when m.pay = 'credit' then 0 else m.value_cents end)
+                              when m.kind = 'reverse' and o.kind = 'in' then -(o.value_cents - coalesce(o.paid_cents, case when o.pay = 'credit' then 0 else o.value_cents end)) else 0 end)::text as owed,
+      array_remove(array_agg(distinct m.supplier_invoice) filter (where m.kind = 'in' and m.supplier_invoice is not null and m.value_cents > coalesce(m.paid_cents, case when m.pay = 'credit' then 0 else m.value_cents end)), null) as invoices,
+      max(m.move_date)::text as last, count(*) filter (where m.kind = 'in')::text as purchases
+    from stock_moves m left join stock_moves o on o.id = m.reversal_of where m.company_id = ${user.companyId} and m.supplier is not null and m.supplier <> '' group by m.supplier`;
+  const opening = ((await sql<{ d: { payables?: { supplier: string; amount: number }[] } | null }[]>`select opening_draft as d from company_settings where company_id = ${user.companyId}`)[0]?.d?.payables ?? []);
+  const paid = await sql<{ supplier: string; paid: string; last: string | null }[]>`select supplier, sum(amount_cents)::text as paid, max(paid_on)::text as last from supplier_payments where company_id = ${user.companyId} and reversal_of is null group by supplier`;
+  const names = new Set([...buys.map((b) => b.supplier), ...opening.map((o) => o.supplier.trim()), ...paid.map((p) => p.supplier)]);
+  return [...names].map((supplier) => {
+    const b = buys.find((x) => x.supplier === supplier), o = opening.filter((x) => x.supplier.trim() === supplier).reduce((a, x) => a + x.amount, 0), p = paid.find((x) => x.supplier === supplier);
+    return { supplier, owed: Number(b?.owed ?? 0) + o - Number(p?.paid ?? 0), purchases: Number(b?.purchases ?? 0), opening: o, paid: Number(p?.paid ?? 0), invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null };
+  }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
 }

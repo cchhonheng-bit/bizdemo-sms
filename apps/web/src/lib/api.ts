@@ -164,12 +164,13 @@ export type MonthEnd = { to: string; stock_total: number; books_total: number | 
   accounts: { code: string; name_km: string; name_en: string | null; qty: number; value: number; balance: number | null; difference: number | null; items: { item_id: string; code: string | null; name: string; unit: string; qty: number; value: number }[] }[] };
 /** D-142 «ការកត់ត្រាគណនេយ្យ»: the entries of one invoice, line by line */
 export type InvoiceJournal = { id: string; number: string; date: string; memo: string; source: string; status: "posted" | "reversed"; lines: { code: string; name_km: string; name_en: string | null; debit: number; credit: number }[] };
-export type StockCardRow = { id: number; date: string; kind: string; qty: number; value: number | null; balance_qty: number; balance_value: number | null; ref_label: string | null; reason: string | null; supplier: string | null; location: string; by_name: string | null; technician?: string | null; place?: string | null; };
+export type StockCardRow = { id: number; date: string; kind: string; qty: number; value: number | null; balance_qty: number; balance_value: number | null; ref_label: string | null; reason: string | null; supplier: string | null; supplier_invoice?: string | null; paid?: string | null; location: string; by_name: string | null; technician?: string | null; place?: string | null; };
 export type StockCard = { opening: { qty: number; value: number | null }; rows: StockCardRow[]; ending: { qty: number; value: number | null } };
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 /** D-144 stock in: an item in stock, or a new one made on the way (name · unit · stock account → code on the client's scheme) */
 export type StockInInput = { item_id?: string | null; name?: string | null; code?: string | null; unit?: string | null; account_id?: string | null; qty: number; unit_cost?: number | null; total?: number | null;
-  pay?: StockPay | null; supplier?: string | null; date?: string | null; note?: string | null; opening?: boolean };
+  pay?: StockPay | null; supplier?: string | null; date?: string | null; note?: string | null; opening?: boolean; paid?: number | null; supplier_invoice?: string | null };
+export type Payable = { supplier: string; owed: number; purchases: number; opening: number; paid: number; invoices: string[]; last_purchase: string | null; last_payment: string | null };
 /** D-144 «ផ្ទៀងផ្ទាត់សម្ភារៈ»: stock out vs invoiced through the linked price-list lines, per job (or place) and stock group */
 export type ReconcileRow = { key: string; booking_id: string | null; booking_number: string | null; customer_name: string | null; borey_name: string | null; place: string | null; technician: string | null;
   group_code: string; group_name: string; out_qty: number; invoiced_qty: number; difference: number };
@@ -195,9 +196,13 @@ export type AcctRow = { account_id: string; code: string; name_km: string; name_
 export type TrialBalance = { from: string | null; to: string; fx_rate_khr: number; rows: (AcctRow & { debit: number; credit: number; balance: number })[]; total_debit: number; total_credit: number;
   total_debit_khr: number; total_credit_khr: number; balanced: boolean };
 export type IsRow = AcctRow & { previous: number; variance: number };
-export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; income: IsRow[]; expense: IsRow[]; income_total: number; expense_total: number; net: number;
-  previous: { from: string; to: string; income_total: number; expense_total: number; net: number };
-  income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number } };
+export type IsCol = { amount: number; last: number; ytd_prev: number; ytd: number };
+export type IsRow = AcctRow & IsCol & { previous: number; variance: number };
+/** D-168: four columns (the period · the month before · the fiscal year to the end of that month · the fiscal year to the period's end) and the gross profit */
+export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; columns: { current: { from: string; to: string }; last: { from: string; to: string }; ytd_prev: { from: string; to: string }; ytd: { from: string; to: string } };
+  income: IsRow[]; cogs: IsRow[]; expense: IsRow[]; totals: { income: IsCol; cogs: IsCol; gross: IsCol; expense: IsCol; net: IsCol };
+  income_total: number; expense_total: number; net: number; income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number };
+  previous: { from: string; to: string; income_total: number; expense_total: number; net: number } };
 export type BsRow = AcctRow & { previous: number; variance: number };
 export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
   equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number };
@@ -216,7 +221,7 @@ export type BooksInfo = { books_start: string | null; lock_date: string | null; 
   planned_start?: string | null; pending?: { transactions: number; invoices: number; payments: number; deposits: number; stock: number; total: number } | null;
   next_year_end: string | null; can_close: boolean; opening_draft: OpeningValues | null };
 export type OpeningValues = { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number;
-  receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number }[] };
+  receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number }[]; others?: { code: string; amount: number }[] };
 export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
 export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
@@ -403,7 +408,9 @@ export const api = {
     locations: () => get<StockLocation[]>("/api/inventory/locations"),
     items: () => get<StockItem[]>("/api/inventory/items"),
     reorder: (itemId: string, reorder_level: number | null) => post(`/api/inventory/items/${itemId}/reorder`, { reorder_level }),
-    stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; balance: number }>("/api/inventory/in", v),
+    stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; paid: number | null; owed: number; balance: number }>("/api/inventory/in", v),
+    payables: () => get<Payable[]>("/api/inventory/payables"),
+    supplierPay: (v: { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date: string; note: string | null }) => post<{ id: string; usd_cents: number; owed: number }>("/api/inventory/supplier-pay", v),
     stockOut: (v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string | null; note?: string | null }) => post<{ id: number; balance: number }>("/api/inventory/out", v),
     adjust: (v: { item_id: string; qty: number; reason: string; unit_cost?: number | null; date?: string | null }) => post<{ id: number; balance: number }>("/api/inventory/adjust", v),
     card: (item: string, from: string, to: string, location?: string) => get<StockCard>(`/api/inventory/card?item=${item}&from=${from}&to=${to}${location ? `&location=${location}` : ""}`),

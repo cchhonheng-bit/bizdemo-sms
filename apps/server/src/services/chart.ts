@@ -26,22 +26,34 @@ export const CHART: ChartRow[] = [
   ["12001", "បុគ្គលិកជំពាក់", "Staff advances", "asset", "staff_advance"],
   ["12002", "អតិថិជនជំពាក់", "Customers owe us", "asset", "ar"],
   ["12003", "គណនីត្រូវទទូលផ្សេងៗ", "Other receivables", "asset", null],
+  // D-165 (client 25-10, COA (4).xlsx): stock by product and brand — every stock account carries its own sub codes (13110 → 1311001 …)
   ["13000", "ស្តុកថ្មី", "New stock", "asset", null, "group"],
-  ["13001", "ម៉ាស៊ីនត្រជាក់", "Air conditioners", "asset", null],
-  ["13002", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines", "asset", null],
-  ["13003", "ទូទឹកកក", "Refrigerators", "asset", null],
-  ["13004", "ម៉ូទ័រជុំរុញទឹក", "Water pumps", "asset", null],
-  ["13005", "(ឆ្នាំងបាយ,កង្ហា,ម៉ាស៊ីនទឹកក្តៅទឹកត្រជាក់....)", "Small appliances (rice cookers, fans, water dispensers…)", "asset", null],
-  ["13100", "ស្តុក Second hand", "Second-hand stock", "asset", null, "group"],
-  ["13101", "ម៉ាស៊ីនត្រជាក់", "Air conditioners (second hand)", "asset", null],
-  ["13102", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines (second hand)", "asset", null],
-  ["13103", "ទូទឹកកក", "Refrigerators (second hand)", "asset", null],
-  ["13104", "ម៉ូទ័រជុំរុញទឹក", "Water pumps (second hand)", "asset", null],
-  ["14000", "ទុយោស្ពាន់", "Copper pipe", "asset", null],
-  ["15000", "ហ្គេនទុយោស្ពាន់", "Copper pipe insulation", "asset", null],
-  ["16000", "ប្រអប់ខ្សែភ្លើង", "Electrical boxes", "asset", null],
-  ["17000", "ខ្សែភ្លើង", "Electric wire", "asset", null],
-  ["18000", "សម្ភារះសម្រាប់ជាងប្រប្រាស់", "Technicians' materials", "asset", "inventory"],
+  ["13110", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង Panasonic", "Wall AC Panasonic", "asset", null],
+  ["13120", "ម៉ាស៊ីនត្រជាក់ជាប់ពិដាន Panasonic", "Ceiling AC Panasonic", "asset", null],
+  ["13130", "ម៉ាស៊ីនត្រជាក់បញ្ឈរ Panasonic", "Floor-standing AC Panasonic", "asset", null],
+  ["13210", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង Daikin", "Wall AC Daikin", "asset", null],
+  ["13220", "ម៉ាស៊ីនត្រជាក់ជាប់ពិដាន Daikin", "Ceiling AC Daikin", "asset", null],
+  ["13230", "ម៉ាស៊ីនត្រជាក់បញ្ឈរ Daikin", "Floor-standing AC Daikin", "asset", null],
+  ["13310", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង LG", "Wall AC LG", "asset", null],
+  ["13320", "ម៉ាស៊ីនត្រជាក់ជាប់ពិដាន LG", "Ceiling AC LG", "asset", null],
+  ["13330", "ម៉ាស៊ីនត្រជាក់បញ្ឈរ LG", "Floor-standing AC LG", "asset", null],
+  ["13810", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង Gree", "Wall AC Gree", "asset", null], // the client's sheet repeats LG's 13310–13330 for Gree → 138x0
+  ["13820", "ម៉ាស៊ីនត្រជាក់ជាប់ពិដាន Gree", "Ceiling AC Gree", "asset", null],
+  ["13830", "ម៉ាស៊ីនត្រជាក់បញ្ឈរ Gree", "Floor-standing AC Gree", "asset", null],
+  ["13400", "ទុយោស្ពាន់", "Copper pipe", "asset", null],
+  ["13500", "ហ្គេនទុយោស្ពាន់", "Copper pipe insulation", "asset", null],
+  ["13600", "ប្រអប់ខ្សែភ្លើង", "Electrical boxes", "asset", null],
+  ["13700", "ខ្សែភ្លើង", "Electric wire", "asset", null],
+  ["14100", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines", "asset", null],
+  ["14200", "ទូទឹកកក", "Refrigerators", "asset", null],
+  ["14300", "ម៉ូទ័រជុំរុញទឹក", "Water pumps", "asset", null],
+  ["14400", "(ឆ្នាំងបាយ,កង្ហា,ម៉ាស៊ីនទឹកក្តៅទឹកត្រជាក់....)", "Small appliances (rice cookers, fans, water dispensers…)", "asset", null],
+  ["14500", "សម្ភារះសម្រាប់ជាងប្រប្រាស់", "Technicians' materials", "asset", "inventory"],
+  ["18000", "ស្តុក Second hand", "Second-hand stock", "asset", null, "group"],
+  ["18100", "ម៉ាស៊ីនត្រជាក់", "Air conditioners (second hand)", "asset", null],
+  ["18200", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines (second hand)", "asset", null],
+  ["18300", "ទូទឹកកក", "Refrigerators (second hand)", "asset", null],
+  ["18400", "ម៉ូទ័រជុំរុញទឹក", "Water pumps (second hand)", "asset", null],
   ["20000", "បំណុល", "Liabilities", "liability", null, "group"],
   ["20001", "ជំពាក់ថ្លៃម៉ាស៊ីនត្រជាក់", "Payable for air conditioners", "liability", null],
   ["20002", "ជំពាក់ម៉ាស៊ីនបោកក់", "Payable for washing machines", "liability", null],
@@ -80,22 +92,22 @@ export const CHART: ChartRow[] = [
   ["50013", "ខ្វះ/លើស សាច់ប្រាក់", "Cash over / short", "expense", "cash_diff", "added"],
 ];
 
-/** Sheet2 of the client's COA.xlsx: copper pipe and pipe insulation sizes — stock items (not accounts) under 14000 / 15000 */
+/** Sheet2 of the client's COA.xlsx: copper pipe and pipe insulation sizes — stock items (not accounts) under 13400 / 13500 (codes = account + 2 digits, D-165) */
 export const STOCK_ITEMS: [string, string, string][] = [
-  ["14001", "ទុយោស្ពាន់ 16mm (16*0.72)", "14000"],
-  ["14002", "ទុយោស្ពាន់ 12mm (12*0.72)", "14000"],
-  ["14003", "ទុយោស្ពាន់ 10mm (10*0.72)", "14000"],
-  ["14004", "ទុយោស្ពាន់ 6mm (6*0.72)", "14000"],
-  ["15001", "ហ្គេនទុយោស្ពាន់ (6*13)", "15000"],
-  ["15002", "ហ្គេនទុយោស្ពាន់ (6*19)", "15000"],
-  ["15003", "ហ្គេនទុយោស្ពាន់ (10*13)", "15000"],
-  ["15004", "ហ្គេនទុយោស្ពាន់ (10*19)", "15000"],
-  ["15005", "ហ្គេនទុយោស្ពាន់ (12*13)", "15000"],
-  ["15006", "ហ្គេនទុយោស្ពាន់ (13*13)", "15000"],
-  ["15007", "ហ្គេនទុយោស្ពាន់ (16*13)", "15000"],
-  ["15008", "ហ្គេនទុយោស្ពាន់ (16*19)", "15000"],
-  ["15009", "ហ្គេនទុយោស្ពាន់ (22*10)", "15000"],
-  ["15010", "ហ្គេនទុយោស្ពាន់ (28*10)", "15000"],
+  ["1340001", "ទុយោស្ពាន់ 16mm (16*0.72)", "13400"],
+  ["1340002", "ទុយោស្ពាន់ 12mm (12*0.72)", "13400"],
+  ["1340003", "ទុយោស្ពាន់ 10mm (10*0.72)", "13400"],
+  ["1340004", "ទុយោស្ពាន់ 6mm (6*0.72)", "13400"],
+  ["1350001", "ហ្គេនទុយោស្ពាន់ (6*13)", "13500"],
+  ["1350002", "ហ្គេនទុយោស្ពាន់ (6*19)", "13500"],
+  ["1350003", "ហ្គេនទុយោស្ពាន់ (10*13)", "13500"],
+  ["1350004", "ហ្គេនទុយោស្ពាន់ (10*19)", "13500"],
+  ["1350005", "ហ្គេនទុយោស្ពាន់ (12*13)", "13500"],
+  ["1350006", "ហ្គេនទុយោស្ពាន់ (13*13)", "13500"],
+  ["1350007", "ហ្គេនទុយោស្ពាន់ (16*13)", "13500"],
+  ["1350008", "ហ្គេនទុយោស្ពាន់ (16*19)", "13500"],
+  ["1350009", "ហ្គេនទុយោស្ពាន់ (22*10)", "13500"],
+  ["1350010", "ហ្គេនទុយោស្ពាន់ (28*10)", "13500"],
 ];
 
 const GROUPS = CHART.filter((r) => r[5] === "group").map((r) => r[0]);
@@ -112,9 +124,13 @@ export function parentOf(code: string, groups: string[] = GROUPS): string | null
 /** the type follows the code's first digit (1 asset · 2 liability · 3 equity · 4 income · 5 expense) */
 export const typeOfCode = (code: string): AccType | null => (({ 1: "asset", 2: "liability", 3: "equity", 4: "income", 5: "expense" }) as Record<string, AccType>)[code[0]!] ?? null;
 
-/** D-142 (the client's scheme): stock accounts whose items carry sub codes (14000 → 14001, 14002 …); every other stock account
- *  (13001 ម៉ាស៊ីនត្រជាក់ …) IS its item — one stock item per account, its code = the account code */
-export const SUB_CODE_ACCOUNTS = ["14000", "15000", "16000", "17000", "18000"];
+/** D-142 → D-165 (the client 25-10): EVERY stock posting account carries sub codes — an item's code = the account code + 2 digits
+ *  (13110 → 1311001, 1311002 …; 13400 → 1340001 …). An account switched to «no sub codes» IS its one item (code = the account code). */
+export const isSubCodeAccount = (code: string, group = false): boolean => !group && /^1[348][0-9]{3}$/.test(code);
+export const SUB_CODE_ACCOUNTS = CHART.filter((r) => isSubCodeAccount(r[0], r[5] === "group")).map((r) => r[0]);
+/** D-143 → D-165: goods sold (air conditioners, appliances, second hand, the kept 13001) cost 50001; materials (copper, insulation, boxes, wire,
+ *  technicians' materials, items without an account) cost 50005 */
+export const isGoodsStockCode = (code: string | null | undefined): boolean => !!code && /^(130|13[1-3]|138|14[1-4]|18)/.test(code);
 /** one stock item for every no-sub stock account (13001 … 13199) that has none yet: code = the account code, the account's name, tracked */
 export async function ensureNoSubItems(db: Db, companyId: string): Promise<number> {
   const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, is_stock, inventory_account_id)
@@ -129,7 +145,7 @@ export async function ensureNoSubItems(db: Db, companyId: string): Promise<numbe
 export async function insertChart(db: Db, companyId: string): Promise<void> {
   for (const [code, km, en, type, role, flag] of CHART)
     await db`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system, sub_codes)
-      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role}, ${flag === "group"}, ${parentOf(code)}, ${flag === "added"}, ${SUB_CODE_ACCOUNTS.includes(code)}) on conflict do nothing`;
+      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role}, ${flag === "group"}, ${parentOf(code)}, ${flag === "added"}, ${isSubCodeAccount(code, flag === "group")}) on conflict do nothing`;
   await ensureNoSubItems(db, companyId);
 }
 
@@ -169,5 +185,43 @@ export async function replaceChart(t: Db, companyId: string, apply: boolean): Pr
     else await t`insert into catalog_items (company_id, code, name_km, kind, category, unit, track_stock, is_stock, inventory_account_id)
       values (${companyId}, ${code}, ${name}, 'product', 'mep', 'ម៉ែត្រ', true, true, ${acc.get(account)!})`;
   }
+  return plan;
+}
+
+/** D-165 (client 25-10): the 23-10 stock codes → the client's new ones. Accounts keep their id (items, links, moves and history stay);
+ *  only the code / name / place change. Order matters: 18000 (technicians' materials) moves to 14500 before second hand takes 18000. */
+export const V1_TO_V2: [string, string][] = [["18000", "14500"], ["13100", "18000"], ["13101", "18100"], ["13102", "18200"], ["13103", "18300"], ["13104", "18400"],
+  ["14000", "13400"], ["15000", "13500"], ["16000", "13600"], ["17000", "13700"], ["13002", "14100"], ["13003", "14200"], ["13004", "14300"], ["13005", "14400"]];
+export type UpdatePlan = { renamed: { from: string; to: string; name: string }[]; added: string[]; recoded: { from: string; to: string }[]; kept: string[]; already: boolean };
+/** rename the accounts the client re-coded, add the ones the new sheet has, re-code the items under renamed sub-code accounts
+ *  (14001 → 1340001 …), keep 13001 (the old generic air-conditioner stock, movements) switched off; idempotent */
+export async function updateChartV2(t: Db, companyId: string, apply: boolean): Promise<UpdatePlan> {
+  const have = new Map((await t<{ code: string; id: string; name_km: string }[]>`select code, id, name_km from accounts where company_id = ${companyId}`).map((a) => [a.code, a]));
+  const rows = new Map(CHART.map((r) => [r[0], r]));
+  const plan: UpdatePlan = { renamed: [], added: [], recoded: [], kept: [], already: false };
+  const renames = V1_TO_V2.filter(([from, to]) => have.has(from) && !have.has(to));
+  for (const [from, to] of renames) plan.renamed.push({ from, to, name: rows.get(to)![1] });
+  for (const r of CHART) if (!have.has(r[0]) && !renames.some(([, to]) => to === r[0])) plan.added.push(r[0]);
+  // items under a renamed sub-code account: the old code's number keeps its place (14001 → 1340001)
+  for (const [from, to] of renames) {
+    if (!isSubCodeAccount(to)) continue;
+    const items = await t<{ id: string; code: string | null }[]>`select ci.id, ci.code from catalog_items ci join accounts a on a.id = ci.inventory_account_id where a.company_id = ${companyId} and a.code = ${from} order by ci.code`;
+    items.forEach((it, i) => { const n = it.code && /^[0-9]+$/.test(it.code) ? Number(it.code.slice(from.replace(/0+$/, "").length)) || i + 1 : i + 1; plan.recoded.push({ from: it.code ?? "", to: `${to}${String(n).padStart(2, "0")}` }); });
+  }
+  if (have.has("13001") && !rows.has("13001")) plan.kept.push("13001");
+  plan.already = !plan.renamed.length && !plan.added.length && !plan.recoded.length && !plan.kept.length;
+  if (!apply || plan.already) return plan;
+  for (const [from, to] of renames) {
+    const r = rows.get(to)!;
+    await t`update accounts set code = ${to}, name_km = ${r[1]}, name_en = ${r[2]}, type = ${r[3]}::account_type, role = ${r[4]}, is_group = ${r[5] === "group"}, added_by_system = ${r[5] === "added"},
+      sub_codes = ${isSubCodeAccount(to, r[5] === "group")}, is_active = true where company_id = ${companyId} and code = ${from}`;
+  }
+  for (const code of plan.added) { const r = rows.get(code)!;
+    await t`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system, sub_codes)
+      values (${companyId}, ${code}, ${r[1]}, ${r[2]}, ${r[3]}::account_type, ${r[4]}, ${r[5] === "group"}, ${parentOf(code)}, ${r[5] === "added"}, ${isSubCodeAccount(code, r[5] === "group")}) on conflict do nothing`; }
+  for (const a of await t<{ id: string; code: string }[]>`select id, code from accounts where company_id = ${companyId}`) await t`update accounts set parent_code = ${parentOf(a.code)} where id = ${a.id}`;
+  await t`update accounts set sub_codes = true where company_id = ${companyId} and type = 'asset' and not is_group and code ~ '^1[348][0-9]{3}$' and code <> '13001'`;
+  for (const x of plan.recoded) if (x.from) await t`update catalog_items set code = ${x.to} where company_id = ${companyId} and code = ${x.from}`;
+  if (plan.kept.length) await t`update accounts set is_active = false, name_km = name_km || ' (មុន ២៥-១០)', name_en = coalesce(name_en, '') || ' (before 25-10)' where company_id = ${companyId} and code = '13001'`;
   return plan;
 }

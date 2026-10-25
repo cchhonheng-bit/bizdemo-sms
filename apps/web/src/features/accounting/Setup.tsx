@@ -99,6 +99,7 @@ function CloseYear({ info }: { info: BooksInfo }) {
 type Recv = { customer_id: string; amount: string; note: string };
 type Pay = { supplier: string; amount: string };
 type Bank = { code: string; amount: string };
+type Other = { code: string; amount: string }; // D-166: any other balance-sheet account (capital, customer deposits, staff advances, tips …)
 /** D-126 (CEO): «រក្សាទុក» keeps the opening balances as a draft — change them as often as needed (each change is logged) — and
  *  «បញ្ជាក់សមតុល្យដើម» posts them and starts the books; after that only a journal entry corrects them */
 function Opening({ today, draft, planned, pending }: { today: string; draft: OpeningValues | null; planned: string | null; pending: number }) {
@@ -115,15 +116,20 @@ function Opening({ today, draft, planned, pending }: { today: string; draft: Ope
   const [banks, setBanks] = useState<Bank[]>(Object.entries(draft?.banks ?? {}).filter(([k]) => k !== "aba" && k !== "acleda").map(([code, v]) => ({ code, amount: dollars(v) })));
   const [recv, setRecv] = useState<Recv[]>((draft?.receivables ?? []).map((r) => ({ customer_id: r.customer_id, amount: dollars(r.amount), note: r.note ?? "" })));
   const [pays, setPays] = useState<Pay[]>((draft?.payables ?? []).map((p) => ({ supplier: p.supplier, amount: dollars(p.amount) })));
+  const [others, setOthers] = useState<Other[]>((draft?.others ?? []).map((o) => ({ code: o.code, amount: dollars(o.amount) })));
+  const HANDLED = ["cash_usd", "cash_khr", "bank_aba", "bank_acleda", "ar", "ap", "deposits", "retained", "opening", "inventory", "current_profit"];
+  const otherBs = (accounts.data ?? []).filter((a) => !a.is_group && a.is_active && /^[123]/.test(a.code) && !a.code.startsWith("11") && !/^1[348]/.test(a.code) && !HANDLED.includes(a.role ?? ""));
   const [confirm, setConfirm] = useState(false);
   const c = (v: string) => (v.trim() === "" ? 0 : cents(v));
   const riels = riel.trim() === "" ? 0 : /^\d+$/.test(riel.replace(/[,\s]/g, "")) ? Number(riel.replace(/[,\s]/g, "")) : NaN;
   const otherAssets = (accounts.data ?? []).filter((a) => a.type === "asset" && !a.role && a.is_active && !a.is_group && a.code.startsWith("11"));
-  const nums = [c(usd), c(aba), c(acleda), c(stock), c(retained), riels, ...banks.map((b) => c(b.amount)), ...recv.map((r) => c(r.amount)), ...pays.map((p) => c(p.amount))];
-  const valid = nums.every((n) => Number.isFinite(n) && n >= 0) && banks.every((b) => b.code && c(b.amount) > 0) && recv.every((r) => r.customer_id && c(r.amount) > 0) && pays.every((p) => p.supplier.trim() && c(p.amount) > 0);
+  const nums = [c(usd), c(aba), c(acleda), c(stock), c(retained), riels, ...banks.map((b) => c(b.amount)), ...recv.map((r) => c(r.amount)), ...pays.map((p) => c(p.amount)), ...others.map((o) => c(o.amount))];
+  const valid = nums.every((n) => Number.isFinite(n) && n >= 0) && banks.every((b) => b.code && c(b.amount) > 0) && recv.every((r) => r.customer_id && c(r.amount) > 0) && pays.every((p) => p.supplier.trim() && c(p.amount) > 0)
+    && others.every((o) => o.code && c(o.amount) > 0);
   const body = (): OpeningValues => ({ date, cash_usd: c(usd), cash_khr: riels, banks: { aba: c(aba), acleda: c(acleda), ...Object.fromEntries(banks.map((b) => [b.code, c(b.amount)])) },
     stock: c(stock), retained_earnings: c(retained),
-    receivables: recv.map((r) => ({ customer_id: r.customer_id, amount: c(r.amount), note: r.note || undefined })), payables: pays.map((p) => ({ supplier: p.supplier.trim(), amount: c(p.amount) })) });
+    receivables: recv.map((r) => ({ customer_id: r.customer_id, amount: c(r.amount), note: r.note || undefined })), payables: pays.map((p) => ({ supplier: p.supplier.trim(), amount: c(p.amount) })),
+    others: others.map((o) => ({ code: o.code, amount: c(o.amount) })) });
   const keep = useMutation({ mutationFn: () => api.accounting.openingDraft(body()), onSuccess: () => { toast.success(t("acct.opening_draft_saved")); void qc.invalidateQueries({ queryKey: ["acct-lock"] }); }, onError: onErr });
   const save = useMutation({
     mutationFn: () => api.accounting.opening(body()),
@@ -177,6 +183,18 @@ function Opening({ today, draft, planned, pending }: { today: string; draft: Ope
         </div>
       ))}
       <Button className="mt-2" onClick={() => setPays((x) => [...x, { supplier: "", amount: "" }])} data-testid="op-add-pay"><Plus size={16} /> {t("acct.add_supplier_debt")}</Button>
+      <h3 className="text-sm font-semibold mt-4">{t("acct.other_bs")}</h3>
+      <p className="text-xs text-muted">{t("acct.other_bs_hint")}</p>
+      {others.map((o, i) => (
+        <div key={i} className="grid grid-cols-[1fr_6rem_auto] gap-2 my-2" data-testid="op-other">
+          <Select value={o.code} onChange={(e) => setOthers((x) => x.map((y, j) => (j === i ? { ...y, code: e.target.value } : y)))} aria-label={t("acct.account")}>
+            <option value="">—</option>{otherBs.map((a) => <option key={a.id} value={a.code}>{a.code} · {a.name_km}</option>)}
+          </Select>
+          <Input inputMode="decimal" value={o.amount} placeholder="$0.00" onChange={(e) => setOthers((x) => x.map((y, j) => (j === i ? { ...y, amount: e.target.value } : y)))} />
+          <button type="button" className="min-h-[44px] min-w-[44px] grid place-items-center text-muted" aria-label={t("app.delete")} onClick={() => setOthers((x) => x.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
+        </div>
+      ))}
+      <Button className="mt-2" onClick={() => setOthers((x) => [...x, { code: "", amount: "" }])} data-testid="op-add-other"><Plus size={16} /> {t("acct.add_other_bs")}</Button>
       {draft && <p className="text-xs text-muted mt-4" data-testid="op-draft-note">{t("acct.opening_draft_note")}</p>}
       <div className="grid sm:grid-cols-2 gap-2 mt-4">
         <Button disabled={!valid} loading={keep.isPending} onClick={() => keep.mutate()} data-testid="op-draft">{t("acct.opening_keep")}</Button>
