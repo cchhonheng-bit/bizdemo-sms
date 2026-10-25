@@ -58,7 +58,7 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
     retained_earnings: z.number().int().min(-10_000_000_000).max(10_000_000_000).optional(),
     receivables: z.array(z.object({ customer_id: id, amount: positive, note: z.string().max(200).nullable().optional() }).strict()).max(500).optional(),
     payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive }).strict()).max(200).optional(),
-    others: z.array(z.object({ code: z.string().regex(/^[123][0-9]{4}$/), amount: z.number().int().min(-10_000_000_000).max(10_000_000_000) }).strict()).max(100).optional() }).strict(); // D-166
+    others: z.array(z.object({ code: z.string().regex(/^[0-9]{5}$/), amount: z.number().int().min(-10_000_000_000).max(10_000_000_000) }).strict()).max(100).optional() }).strict(); // D-166
   app.post("/opening", close, async (req) => saveOpening(req.user!, req.ip, openingBody.parse(req.body)));            // «បញ្ជាក់សមតុល្យដើម»: posts + locks
   app.put("/opening/draft", close, async (req) => saveOpeningDraft(req.user!, req.ip, openingBody.parse(req.body))); // D-126: changeable until then
 

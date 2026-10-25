@@ -32,7 +32,7 @@ export async function listLocations(user: SessionUser) {
 
 // ---------- the one place that moves stock ----------
 type MoveIn = { item: string; location: string; kind: Kind; qty: number; value?: number | null; ref_type?: string; ref_id?: string | null;
-  pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null; date?: string | null;
+  pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null; date?: string | null; paid?: number | null; supplier_invoice?: string | null;
   technician?: string | null; place?: string | null };
 
 async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
@@ -66,10 +66,10 @@ async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
     from companies c join company_settings s on s.company_id = c.id where c.id = ${user.companyId}`)[0]!;
   if (m.date && (Number.isNaN(Date.parse(m.date)) || m.date > tz.today)) throw new AppError("BAD_DATE", 400); // a date of choice, never in the future
   const id = (await t<{ id: number }[]>`insert into stock_moves (company_id, item_id, location_id, kind, qty, value_cents, fx_rate_khr, move_date, ref_type, ref_id, pay, supplier, reason, transfer_group, reversal_of,
-      technician_id, place, created_by)
+      technician_id, place, created_by, paid_cents, supplier_invoice)
     values (${user.companyId}, ${m.item}, ${m.location}, ${m.kind}::stock_move_kind, ${q}, ${value}, ${tz.fx}::numeric, ${m.date ?? tz.today}::date,
       ${m.ref_type ?? "manual"}, ${m.ref_id ?? null}, ${m.pay ?? null}, ${m.supplier ?? null}, ${m.reason ?? null}, ${m.group ?? null}, ${m.reversal_of ?? null},
-      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}) returning id`)[0]!.id;
+      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}, ${m.paid ?? null}, ${m.supplier_invoice ?? null}) returning id`)[0]!.id; // D-167: the ledger is append-only — the paid part and the supplier's invoice number go in with the row
   await t`update stock_items set qty = qty + ${q}, value_cents = value_cents + ${value} where item_id = ${m.item}`;
   await t`update stock_balances set qty = qty + ${q} where location_id = ${m.location} and item_id = ${m.item}`;
   if (q < 0 && it.reorder != null) await lowStock(t, user, m.item, it.name, Number(it.reorder), tz.tz);
@@ -146,8 +146,7 @@ export async function stockIn(user: SessionUser, ip: string | null, v: StockInIn
     if (paid != null && paid !== value && !v.supplier?.trim()) throw new AppError("SUPPLIER_REQUIRED", 400); // the rest is owed to someone
     const invoice = v.supplier_invoice?.trim().slice(0, 60) || null;
     const id = await move(t, user, { item: item.id, location: loc, kind: v.opening ? "opening" : "in", qty: v.qty, value, ref_type: v.opening ? "opening" : "purchase",
-      pay: v.opening ? null : v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null, date: v.date });
-    if (!v.opening) await t`update stock_moves set paid_cents = ${paid}, supplier_invoice = ${invoice} where id = ${id}`;
+      pay: v.opening ? null : v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null, date: v.date, paid, supplier_invoice: v.opening ? null : invoice });
     await audit(t, { companyId: user.companyId, userId: user.id, action: v.opening ? "stock.opening" : "stock.in", table: "stock_moves", rowId: String(id),
       new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, paid, supplier_invoice: invoice, supplier: v.supplier ?? null, date: v.date ?? null }, ip });
     await postStock(t, user, [id]);

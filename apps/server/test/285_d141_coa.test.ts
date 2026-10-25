@@ -40,7 +40,7 @@ describe("D-141 the chart", () => {
   it("One Team's chart: 10 group headers, posting accounts, the client's Khmer names exactly, nameless rows skipped, BS / P&L by the code", async () => {
     const list = (await acc(cfo, "/accounts")).json as any[];
     expect(list.filter((a) => a.is_group).map((a) => a.code)).toEqual(["10000", "11000", "12000", "13000", "18000", "20000", "21000", "30000", "40000", "50000"]);
-    expect(list.map((a) => a.code)).toEqual(CHART.map((r) => r[0]));
+    expect(list.map((a) => a.code)).toEqual([...CHART.map((r) => r[0])].sort());
     for (const skipped of ["13006", "13007", "13008", "13105", "13106", "16001", "14001", "40003"]) expect(list.find((a) => a.code === skipped)).toBeUndefined();
     expect(list.find((a) => a.code === "11001").name_km).toBe("សាច់ប្រាក់នៅបេលា");
     expect(list.find((a) => a.code === "12000").name_km).toBe(CHART.find((r) => r[0] === "12000")![1]); // as in the file (a zero-width space inside)
@@ -134,7 +134,7 @@ describe("D-141 chart-replace", () => {
     expect((await sql`select count(*)::int as n from accounts where company_id = ${s.b}`)[0]!.n).toBe(3); // a dry run writes nothing
     await tx(null, (t) => replaceChart(t, s.b, true));
     const codes = (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.b} order by code`).map((x) => x.code);
-    expect(codes).toEqual(CHART.map((r) => r[0]));
+    expect(codes).toEqual([...CHART.map((r) => r[0])].sort());
     expect((await sql`select income_account_id from catalog_items where id = ${svcB}`)[0]!.income_account_id).toBeNull();
     const items = await sql<{ code: string; name_km: string; track_stock: boolean; acc: string }[]>`select ci.code, ci.name_km, ci.track_stock, a.code as acc
       from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.b} order by ci.code`;

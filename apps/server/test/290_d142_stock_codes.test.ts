@@ -159,10 +159,10 @@ describe("1 · «ចង់ទិញម៉ាស៊ីនត្រជាក់» 
 
 describe("6 · the accounting view of an invoice — the $500 example", () => {
   let invoiceId: string;
-  it("AC $450 (item 13001, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13001 300", async () => {
+  it("AC $450 (item 1311002 on 13110, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13110 300", async () => {
     const ac = (await inv(admin, "/in", { name: "Panasonic 1 HP", account_id: (await account("13110")).id, qty: 1, total: 25000, pay: "aba" })).json.item_id;
     expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).status).toBe(200);
-    const before = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13001"].map(async (c) => [c, await bal(c)])));
+    const before = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13110"].map(async (c) => [c, await bal(c)])));
     expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, place: "ក្រៅបុរី ផ្ទះ 7" })).json.balance).toBe(1);
     const r = await admin.req("POST", "/api/invoices", { customer_id: outside, lines: [
       { description: "ម៉ាស៊ីនត្រជាក់ 1HP", kind: "product", qty: 1, unit: "គ្រឿង", unit_price: 45000 },
@@ -171,9 +171,9 @@ describe("6 · the accounting view of an invoice — the $500 example", () => {
     invoiceId = r.json.id;
     expect((await admin.req("POST", `/api/invoices/${invoiceId}/issue`, {})).status).toBe(200);
     expect((await admin.req("POST", `/api/invoices/${invoiceId}/payments`, { amount: 45000, currency: "usd", method: "acleda" })).status).toBe(200);
-    const after = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13001"].map(async (c) => [c, await bal(c)])));
+    const after = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13110"].map(async (c) => [c, await bal(c)])));
     const delta = Object.fromEntries(Object.keys(after).map((c) => [c, after[c]! - before[c]!]));
-    expect(delta).toEqual({ "11002": 45000, "12002": 5000, "40001": -45000, "40002": -5000, "50001": 30000, "13001": -30000 });
+    expect(delta).toEqual({ "11002": 45000, "12002": 5000, "40001": -45000, "40002": -5000, "50001": 30000, "13110": -30000 });
     expect((await stockOf(ac))).toMatchObject({ qty: 1, value: 30000 });
   });
 
@@ -189,26 +189,26 @@ describe("6 · the accounting view of an invoice — the $500 example", () => {
     expect((await kim.req("GET", `/api/invoices/${invoiceId}/journal`)).status).toBe(403);
   });
 
-  it("trial balance / balance sheet: the stock accounts only (14000 as the sum of its items, 13001 as itself) — never an item code", async () => {
+  it("trial balance / balance sheet: the stock accounts only (13400 and 13110 as the sum of their items) — never an item code", async () => {
     const tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;
     expect(tb.balanced).toBe(true);
-    expect(tb.rows.find((r: any) => r.code === "13001").balance).toBe(30000); // 2 in − 1 out, at cost
-    expect(tb.rows.find((r: any) => r.code === "14000").balance).toBe(1000); // 14001: 10 in @ $2, 3 for the job + 2 sold
-    expect(tb.rows.some((r: any) => /^14[0-9]{3}$/.test(r.code) && r.code !== "14000")).toBe(false);
+    expect(tb.rows.find((r: any) => r.code === "13110").balance).toBe(30000); // 2 in − 1 out, at cost
+    expect(tb.rows.find((r: any) => r.code === "13400").balance).toBe(1000); // 14001: 10 in @ $2, 3 for the job + 2 sold
+    expect(tb.rows.some((r: any) => /^13400[0-9]{2}$/.test(r.code))).toBe(false);
     expect(tb.rows.find((r: any) => r.code === "50005").balance).toBe(1000); // the copper that left
   });
 });
 
 describe("D-143 · the cost account follows the item's group", () => {
-  it("job BK: AC 13001 + copper 14001 handed out → Dr 50001 (AC cost) + Dr 50005 (copper cost); the job's invoice with both lines moves nothing", async () => {
-    const ac = (await itemByCode("13001"))!.id, pipe = (await itemByCode("1340001"))!.id;
-    const b0 = Object.fromEntries(await Promise.all(["50001", "50005", "13001", "14000"].map(async (c) => [c, await bal(c)])));
+  it("job BK: AC 1311002 + copper 1340001 handed out → Dr 50001 (AC cost) + Dr 50005 (copper cost); the job's invoice with both lines moves nothing", async () => {
+    const ac = (await itemByCode("1311002"))!.id, pipe = (await itemByCode("1340001"))!.id;
+    const b0 = Object.fromEntries(await Promise.all(["50001", "50005", "13110", "13400"].map(async (c) => [c, await bal(c)])));
     const job = await jobFor(outside, "ដំឡើងម៉ាស៊ីនត្រជាក់", 80);
     expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, booking_id: job })).json.balance).toBe(0);
     expect((await inv(admin, "/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, booking_id: job })).json.balance).toBe(3);
-    const b1 = Object.fromEntries(await Promise.all(["50001", "50005", "13001", "14000"].map(async (c) => [c, await bal(c)])));
-    expect({ "50001": b1["50001"]! - b0["50001"]!, "50005": b1["50005"]! - b0["50005"]!, "13001": b1["13001"]! - b0["13001"]!, "14000": b1["14000"]! - b0["14000"]! })
-      .toEqual({ "50001": 30000, "50005": 400, "13001": -30000, "14000": -400 }); // AC at its $300 cost, 2 m of copper at $2
+    const b1 = Object.fromEntries(await Promise.all(["50001", "50005", "13110", "13400"].map(async (c) => [c, await bal(c)])));
+    expect({ "50001": b1["50001"]! - b0["50001"]!, "50005": b1["50005"]! - b0["50005"]!, "13110": b1["13110"]! - b0["13110"]!, "13400": b1["13400"]! - b0["13400"]! })
+      .toEqual({ "50001": 30000, "50005": 400, "13110": -30000, "13400": -400 }); // AC at its $300 cost, 2 m of copper at $2
     const moves = (await sql`select count(*)::int as n from stock_moves where company_id = ${s.a}`)[0]!.n;
     for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${job}`;
     const r = await admin.req("POST", "/api/invoices", { booking_id: job, lines: [
@@ -221,7 +221,7 @@ describe("D-143 · the cost account follows the item's group", () => {
     expect(b2).toEqual({ "50001": b1["50001"], "50005": b1["50005"] });
     // «ផ្ទៀងផ្ទាត់សម្ភារៈ»: 2 m out, 2 m invoiced → nothing to look at
     const rec = (await inv(admin, `/reconcile?from=${today}&to=${today}`)).json;
-    expect(rec.rows.find((x: any) => x.booking_id === job && x.group_code === "14000")).toMatchObject({ out_qty: 2, invoiced_qty: 2, difference: 0 });
+    expect(rec.rows.find((x: any) => x.booking_id === job && x.group_code === "13400")).toMatchObject({ out_qty: 2, invoiced_qty: 2, difference: 0 });
   });
 });
 
@@ -230,16 +230,16 @@ describe("7 · month-end stock check", () => {
     const r = await inv(admin, `/month-end?to=${today}`);
     expect(r.status).toBe(200);
     const by = Object.fromEntries(r.json.accounts.map((a: any) => [a.code, a]));
-    expect(by["13001"]).toMatchObject({ qty: 0, value: 0, balance: 0, difference: 0 }); // after D-143's job took the last AC
-    expect(by["14000"]).toMatchObject({ qty: 3, value: 600, balance: 600, difference: 0 });
-    expect(by["14000"].items.map((i: any) => i.code)).toContain("14001");
+    expect(by["13110"]).toMatchObject({ qty: 0, value: 0, balance: 0, difference: 0 }); // after D-143's job took the last AC
+    expect(by["13400"]).toMatchObject({ qty: 3, value: 600, balance: 600, difference: 0 });
+    expect(by["13400"].items.map((i: any) => i.code)).toContain("1340001");
     expect(r.json.difference).toBe(0);
     expect(r.json.stock_total).toBe(r.json.books_total);
     // a hand entry on 13001 without stock behind it → the check shows the gap
-    const [a13001, a11001] = [await account("13001"), await account("11001")];
-    expect((await acc(cfo, "/journal", { date: today, memo: "QA កែដោយដៃ", lines: [{ account_id: a13001.id, debit: 1000 }, { account_id: a11001.id, credit: 1000 }] })).status).toBe(200);
+    const [a13110, a11001] = [await account("13110"), await account("11001")];
+    expect((await acc(cfo, "/journal", { date: today, memo: "QA កែដោយដៃ", lines: [{ account_id: a13110.id, debit: 1000 }, { account_id: a11001.id, credit: 1000 }] })).status).toBe(200);
     const r2 = (await inv(admin, `/month-end?to=${today}`)).json;
-    expect(r2.accounts.find((a: any) => a.code === "13001")).toMatchObject({ value: 0, balance: 1000, difference: -1000 });
+    expect(r2.accounts.find((a: any) => a.code === "13110")).toMatchObject({ value: 0, balance: 1000, difference: -1000 });
     expect(r2.difference).toBe(-1000);
     const g = (await inv(gm, `/month-end?to=${today}`)).json;
     expect(g.books_total).toBeNull(); expect(g.difference).toBeNull(); expect(g.stock_total).toBe(r2.stock_total);
