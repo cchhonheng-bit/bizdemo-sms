@@ -33,7 +33,7 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("D-165 the chart of 25-10", () => {
   it("a shop still on the 23-10 codes is moved in place: accounts keep their ids and movements, items are re-coded, the generic 13001 is kept switched off", async () => {
     // put the shop back on the 23-10 codes (as One Team's live shop is): the reverse of the map, plus the old generic AC account with a movement
-    for (const [code, acc] of [["1340001", "13400"], ["1350003", "13500"]]) expect((await ceo.req("POST", "/api/catalog", { name_km: `item ${code}`, kind: "product", category: "mep", unit: "m", sell_price: 100, code, inventory_account_id: (await account(acc)).id })).status).toBe(200);
+    for (const [code, acc] of [["1340001", "13400"], ["1350003", "13500"]] as const) expect((await ceo.req("POST", "/api/catalog", { name_km: `item ${code}`, kind: "product", category: "mep", unit: "m", sell_price: 100, code, inventory_account_id: (await account(acc)).id })).status).toBe(200);
     await tx(null, async (t) => {
       for (const [v1, v2] of [...V1_TO_V2].reverse()) await t`update accounts set code = ${v1} where company_id = ${s.a} and code = ${v2}`;
       await t`update catalog_items set code = '14001' where company_id = ${s.a} and code = '1340001'`;
