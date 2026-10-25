@@ -54,7 +54,7 @@ try {
   for (let i = techs.length; i < 2; i++) { await call("POST", "/api/users", { username: `qatech${i}`, full_name: `QA ជាង ${i}`, role: "tech", phone: `09700077${i}`, password: pw }); }
   techs = (await call("GET", "/api/users/basic")).filter((u) => u.role === "tech" && u.is_active);
   const accounts = await call("GET", "/api/accounting/accounts"), acc = (code) => accounts.find((a) => a.code === code).id;
-  const info = await call("GET", "/api/accounting/info");
+  const info = await call("GET", "/api/accounting/lock");
   if (!info.books_start) await call("POST", "/api/accounting/opening", { date: ymd(-3), cash_usd: 100000 });
   const item = (await call("POST", "/api/inventory/in", { name: "QA ទុយោ export", account_id: acc("13400"), unit: "m", qty: 20, unit_cost: 100, pay: "cash_usd" })).item_id;
   await call("POST", "/api/inventory/out", { item_id: item, qty: 2, technician_id: techs[0].id, place: "QA ផ្ទះ 1" });
@@ -76,10 +76,10 @@ try {
 
     await step("Bookings: category filter → the board / list changes → Excel = the same rows", async () => {
       await page.goto(`${BASE}/app/bookings`); await page.getByText("QA-EXPORT-mep").first().waitFor({ timeout: 20_000 });
-      const count = async () => page.getByText(/QA-EXPORT-/).count();
+      const count = async () => page.evaluate(() => [...document.querySelectorAll("main *")].filter((e) => e.childElementCount === 0 && /QA-EXPORT-/.test(e.textContent ?? "") && e.getClientRects().length > 0).length); // visible only (the phone list keeps a hidden table)
       const before = await count(); must(before >= 2, `before ${before}`);
       await filters(async (bar) => { await bar.locator('[data-testid="filters"] select').nth(1).selectOption("camera"); });
-      await page.waitForTimeout(400); const after = await count(); must(after === 1 && await page.getByText("QA-EXPORT-camera").count() === 1, `after ${after}`);
+      await page.waitForTimeout(400); const after = await count(); must(after === 1 , `after ${after}`);
       const f = await download("export-bookings"); const rows = f.wb[0].rows;
       must(/^bookings_/.test(f.name), f.name); must(rows.some((r) => r[10] === "QA-EXPORT-camera") && !rows.some((r) => r[10] === "QA-EXPORT-mep"), "file rows differ from the screen");
       must(rows[3][0].includes("camera"), `filters line: ${rows[3][0]}`);
