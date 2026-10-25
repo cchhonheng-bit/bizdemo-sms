@@ -108,12 +108,12 @@ describe("ជាងដក (technician withdrawals) — the owner's sample", () =
     expect(r.rows[3]![0]).toContain("ជាង: ទាំងអស់"); expect(r.rowsHeader).toBe(2);
   });
   it("filters: technician (multi) and booker (multi) and the date range each change the rows", async () => {
-    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: s.users.kim })).rowsHeader).toBe(1);
-    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: `${s.users.kim},${s.users.dara}` })).rowsHeader).toBe(2);
-    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, booker: s.users.admin })).rowsHeader).toBe(1); // the job's booker
-    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, booker: s.users.gm01 })).rowsHeader).toBe(0);
+    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: s.users.kim! })).rowsHeader).toBe(1);
+    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: `${s.users.kim!},${s.users.dara!}` })).rowsHeader).toBe(2);
+    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, booker: s.users.admin! })).rowsHeader).toBe(1); // the job's booker
+    expect((await xl(admin, "tech-withdrawals", { from: d(-7), to: today, booker: s.users.gm01! })).rowsHeader).toBe(0);
     expect((await xl(admin, "tech-withdrawals", { from: d(-3), to: d(-3) })).rowsHeader).toBe(1);
-    const r = await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: s.users.kim });
+    const r = await xl(admin, "tech-withdrawals", { from: d(-7), to: today, technician: s.users.kim! });
     expect(r.rows[3]![0]).toContain("ជាង: Kim");
   });
   it("permission: a technician gets 403; another company sees none of our data", async () => {
@@ -171,7 +171,7 @@ describe("COA — the owner's sample (three sheets)", () => {
     expect([num(a[4]), num(a[5]), num(a[6]), num(a[7]), num(a[8]), num(a[9])]).toEqual([100, 60, 0, 0, 40, 0]); // 10 m in (d-6) · 6 m out (d-3) · opening before d-7 = 0 · closing 40
     const total = findRow(r.rows, (x) => x[3] === "Total")!, check = findRow(r.rows, (x) => x[3] === "Debit − Credit")!;
     expect(num(total[4])).toBe(num(total[5])); expect(num(total[8])).toBe(num(total[9])); expect([num(check[4]), num(check[6]), num(check[8])]).toEqual([0, 0, 0]);
-    expect(r.rows.some((x) => x[0]?.startsWith("⚠"))).toBe(false);
+    expect(r.rows.some((x) => !!x[0]?.startsWith("⚠"))).toBe(false);
   });
   it("as-of rule: only As-of → the fiscal year to that day; only a range → As-of = To; the opening column = everything before From", async () => {
     const r = await xl(cfo, "coa", { asof: d(-3) });
@@ -191,7 +191,7 @@ describe("COA — the owner's sample (three sheets)", () => {
     const tot = findRow(tbx.rows, (x) => x[0]?.startsWith("ឥណពន្ធ"))!; expect(num(tot[3])).toBe(tb.total_debit / 100); expect(num(tot[4])).toBe(tb.total_credit / 100);
     const isx = await xl(cfo, "income-statement", { from: d(-7), to: today }); expect(num(findRow(isx.rows, (x) => x[1] === "ចំណូលសរុប")![2])).toBe(is.totals.income.amount / 100);
     const bsx = await xl(cfo, "balance-sheet", { asof: today }); expect(num(findRow(bsx.rows, (x) => x[1] === "បំណុល + មូលធន")![2])).toBe((bs.liabilities_total + bs.equity_total + bs.current_earnings) / 100);
-    expect(bsx.rows.some((x) => x[0]?.includes("✓"))).toBe(true);
+    expect(bsx.rows.some((x) => !!x[0]?.includes("✓"))).toBe(true);
   });
   it("permission: an Admin without accounting.view → 403 on COA; Khmer text round-trips", async () => {
     const gm = await loginAs(app, "gm01");
@@ -210,8 +210,8 @@ describe("the other reports (smoke)", () => {
   it("payables (owed $400 to ហាង A) · reconcile · bookings (technician filter) · invoices · payments · receivables as-of · technician performance · attendance · expenses · journal", async () => {
     const p = await xl(admin, "payables"); expect(num(findRow(p.rows, (x) => x[0] === "ហាង A")![1])).toBe(400);
     expect((await xl(cfo, "stock-reconcile", { from: d(-7), to: today })).status).toBe(200);
-    expect((await xl(admin, "bookings", { from: d(-1), to: d(1), technician: s.users.kim })).rowsHeader).toBe(1);
-    expect((await xl(admin, "bookings", { from: d(-1), to: d(1), technician: s.users.dara })).rowsHeader).toBe(0);
+    expect((await xl(admin, "bookings", { from: d(-1), to: d(1), technician: s.users.kim! })).rowsHeader).toBe(1);
+    expect((await xl(admin, "bookings", { from: d(-1), to: d(1), technician: s.users.dara! })).rowsHeader).toBe(0);
     const inv1 = await xl(ceo, "invoices", { from: d(-1), to: today }); const row = inv1.rows[HEAD + 1]!; expect(num(row[10])).toBe(50); expect(num(row[11])).toBe(20); expect(num(row[12])).toBe(30);
     expect((await xl(ceo, "payments", { from: d(-1), to: today, method: "acleda" })).rowsHeader).toBe(1); expect((await xl(ceo, "payments", { from: d(-1), to: today, method: "aba" })).rowsHeader).toBe(0);
     const ar = await xl(ceo, "receivables", { asof: today }); expect(num(findRow(ar.rows, (x) => x[0] === "ក្នុងបុរី ខ្មែរ")![8])).toBe(30);

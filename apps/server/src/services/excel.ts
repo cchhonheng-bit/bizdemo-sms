@@ -229,7 +229,7 @@ async function coa(ctx: Ctx, q: Q): Promise<Built> {
 
 // ---------- accounting ----------
 async function trialBalanceSheet(ctx: Ctx, q: Q): Promise<Built> {
-  const { from, to, asof } = await resolveDates(ctx.user.companyId, q);
+  const { from, asof } = await resolveDates(ctx.user.companyId, q);
   const tb = await trialBalance(ctx.user, asof, q.from ? from : undefined);
   const [km, en] = TITLES["trial-balance"];
   const filters = [...rangeText(q.from ? { from, to: asof } : { asof })];

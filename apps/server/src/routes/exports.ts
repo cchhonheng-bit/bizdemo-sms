@@ -21,7 +21,7 @@ const PERM: Record<Report, string | string[]> = {
 export const exportsRoutes: FastifyPluginAsync = async (app) => {
   app.get("/:report.xlsx", { preHandler: app.requireAuth }, async (req, reply) => {
     const { report } = z.object({ report: z.enum(REPORTS) }).parse(req.params);
-    const need = PERM[report], perms = req.perms;
+    const need = PERM[report], perms = req.perms as string[];
     if (!(Array.isArray(need) ? need.some((p) => perms.includes(p)) : perms.includes(need))) throw new AppError("FORBIDDEN", 403);
     const q = query.parse(req.query ?? {});
     const file = await exportReport(req.user!, req.ip, report, q);
