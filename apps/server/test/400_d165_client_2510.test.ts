@@ -87,7 +87,7 @@ describe("D-167 suppliers: paid in part, the invoice number, paying later, what 
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "credit", supplier: "ហាង A", supplier_invoice: "INV-A-78" })).json).toMatchObject({ paid: 0, owed: 5000 });
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "aba", paid: 6000, supplier: "ហាង A" })).json.error).toBe("PAID_OVER_TOTAL");
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "aba", paid: 1000 })).json.error).toBe("SUPPLIER_REQUIRED");
-    const card = (await inv(admin, `/card/${r.json.item_id}?from=${today}&to=${today}`)).json;
+    const card = (await inv(admin, `/card?item=${r.json.item_id}&from=${today}&to=${today}`)).json;
     expect(card.rows.find((x: any) => x.supplier_invoice === "INV-A-77")).toMatchObject({ paid: "3000" });
     const list = (await inv(admin, "/payables")).json as any[];
     expect(list.find((p) => p.supplier === "ហាង A")).toMatchObject({ owed: 12000, purchases: 2, invoices: expect.arrayContaining(["INV-A-77", "INV-A-78"]) });
