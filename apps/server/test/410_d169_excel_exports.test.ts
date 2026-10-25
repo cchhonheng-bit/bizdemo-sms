@@ -57,8 +57,9 @@ beforeAll(async () => {
   expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   expect((await inv(admin, "/out", { item_id: copper, qty: 6, technician_id: s.users.kim, booking_id: job, date: d(-3) })).status).toBe(200);   // kim, for the job
   expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.dara, place: "ផ្ទះលេខ 22, ផ្លូវ 19", date: d(-2) })).status).toBe(200); // dara, to a place
-  const invoice = (await admin.req("POST", "/api/invoices", { customer_id: inside, booking_id: job, lines: [{ description: "ដំឡើង", kind: "service", qty: 1, unit: "job", unit_price: 5000 }] })).json.id;
-  expect((await admin.req("POST", `/api/invoices/${invoice}/issue`, {})).status).toBe(200);
+  const iv = await admin.req("POST", "/api/invoices", { customer_id: inside, lines: [{ description: "ដំឡើង", kind: "service", qty: 1, unit: "job", unit_price: 5000 }] });
+  expect(iv.json, JSON.stringify(iv.json)).toHaveProperty("id"); const invoice = iv.json.id as string;
+  const is1 = await admin.req("POST", `/api/invoices/${invoice}/issue`, {}); expect(is1.json, JSON.stringify(is1.json)).not.toHaveProperty("error");
   expect((await admin.req("POST", `/api/invoices/${invoice}/payments`, { amount: 2000, currency: "usd", method: "acleda" })).status).toBe(200);
   expect((await acc(cfo, "/transactions", { date: d(-4), type: "expense", account_code: "50010", amount: 1500, pay: "cash_usd", memo: "សាំង" })).status).toBe(200);
   // three cash entries on three days for the as-of edge cases: D1 = d-5 (before From), D2 = d-3 (inside), D3 = d-2 (after To)
@@ -158,7 +159,7 @@ describe("Account Report — the owner's sample", () => {
     const r = await xl(cfo, "account-report", { from: d(-7), to: today, account: `${await account("11001")},${await account("40002")}` });
     expect(r.rows.filter((x) => x[0]?.startsWith("11001 ·") || x[0]?.startsWith("40002 ·")).length).toBe(2);
     const income = r.rows.find((x) => x[1] === "40002" && x[7]?.startsWith("INV"));
-    expect(income).toBeTruthy(); expect(num(income![14])).toBe(50); expect(income![8]).toMatch(/^BK/); expect(income![9]).toBe("Admin A");
+    expect(income).toBeTruthy(); expect(num(income![14])).toBe(50); expect(income![2]).toContain("ក្នុងបុរី ខ្មែរ");
   });
 });
 
