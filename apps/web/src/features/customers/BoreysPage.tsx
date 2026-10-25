@@ -1,9 +1,11 @@
 // «គម្រោងបុរី» (CEO 12-10, D-137): the shop's own borey list — name + province / khan / sangkat (official gazetteer). CEO / GM /
 // Admin add and edit; a borey is turned off, never deleted (its customers keep it). Choosing it on a customer fills the area.
 import { useState } from "react";
+import { filterList, geoLabel, LIST_SPECS } from "@sms/shared";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { geoLabel } from "@sms/shared";
 import { ArrowLeft, Pencil, Plus, Power } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { api, errCode, type Borey } from "@/lib/api";
@@ -19,6 +21,8 @@ export default function BoreysPage() {
   const [editing, setEditing] = useState<Borey | "new" | null>(null);
   const [toggle, setToggle] = useState<Borey | null>(null);
   const list = useQuery({ queryKey: ["boreys", all ? "all" : "active"], queryFn: () => api.boreys.list(all) });
+  const ls = useListState();
+  const rows = filterList(list.data ?? [], LIST_SPECS.boreys, ls.params); // D-172: the screen's rows = the file's
   const act = useMutation({
     mutationFn: (b: Borey) => api.boreys.active(b.id, !b.is_active),
     onSuccess: () => { void qc.invalidateQueries({ queryKey: ["boreys"] }); toast.success(t("app.saved")); setToggle(null); },
@@ -32,13 +36,16 @@ export default function BoreysPage() {
         <Button variant="primary" onClick={() => setEditing("new")} data-testid="borey-new"><Plus size={16} /> {t("boreys.new")}</Button>
       </div>
       <p className="text-sm text-muted mb-4">{t("boreys.hint")}</p>
+      <ReportToolbar report="boreys" params={{ ...ls.params, all: all ? "1" : "0" }} active={ls.active + (all ? 1 : 0)}>
+        <ListFilters s={ls} />
+        <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t("boreys.show_off")}</label>
+      </ReportToolbar>
       <Card>
-        <label className="flex items-center gap-2 text-sm !mb-3 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={all} onChange={(e) => setAll(e.target.checked)} /> {t("boreys.show_off")}</label>
-        {list.isLoading ? <Skeleton /> : list.isError ? <ErrorState text={t("app.error")} onRetry={() => void list.refetch()} /> : !list.data?.length ? <Empty text={t("boreys.empty")} /> : (
+        {list.isLoading ? <Skeleton /> : list.isError ? <ErrorState text={t("app.error")} onRetry={() => void list.refetch()} /> : !rows.length ? <Empty text={t("boreys.empty")} /> : (
           <table className="table table-stack" data-testid="borey-table">
             <thead><tr><th>{t("boreys.name")}</th><th>{t("customers.area")}</th><th>{t("boreys.customers")}</th><th className="text-right">{t("app.actions")}</th></tr></thead>
             <tbody>
-              {list.data.map((b) => (
+              {rows.map((b) => (
                 <tr key={b.id} className={b.is_active ? "" : "opacity-60"} data-testid="borey-row">
                   <td className="font-semibold">{b.name}{!b.is_active && <Badge tone="danger">{t("boreys.off_badge")}</Badge>}</td>
                   <td className="text-sm">{en ? b.area_en : b.area_km}</td>

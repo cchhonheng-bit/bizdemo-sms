@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { SlidersHorizontal } from "lucide-react";
 import { Button, Dialog } from "@/components/ui";
+import { useAuth } from "@/lib/auth";
 import { ExportExcel, type ExportParams, type ExportReport } from "./ExportExcel";
 
 const PHONE = "(max-width: 639px)";
@@ -18,7 +19,9 @@ export function ReportToolbar({ report, params, exports, active = 0, children, e
   const { t } = useTranslation();
   const phone = useIsPhone();
   const [open, setOpen] = useState(false);
-  const list: ToolbarExport[] = [...(report ? [{ report, params: params ?? {} }] : []), ...(exports ?? [])];
+  const { me } = useAuth();
+  // technicians never export (D-171 fixed rule): they keep the filters, never the button
+  const list: ToolbarExport[] = me?.role === "tech" ? [] : [...(report ? [{ report, params: params ?? {} }] : []), ...(exports ?? [])];
   const buttons = list.map((b) => <ExportExcel key={b.report} report={b.report} params={b.params} label={b.label ?? (list.length === 1 ? t("export.title") : undefined)} className={phone ? "flex-1" : ""} />);
   const hasFilters = !!children && (!Array.isArray(children) || children.some(Boolean));
   if (!hasFilters && !buttons.length && !extra) return null;

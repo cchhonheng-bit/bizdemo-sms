@@ -21,11 +21,17 @@ export type Report = (typeof REPORTS)[number];
 export type Q = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[];
   customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
   /** the screens' own filters (D-171): month (trial balance) · zone · search text · closed / cancelled bookings · inactive customers · the invoice list tab */
-  month?: string; zone?: string; q?: string; closed?: string; cancelled?: string; inactive?: string; list?: string };
+  month?: string; zone?: string; q?: string; closed?: string; cancelled?: string; inactive?: string; list?: string;
+  /** the list screens (D-172): role · all (inactive too) · the reminders window · the audit person / group · verification open only */
+  role?: string; all?: string; days?: string; user?: string; type?: string; open?: string };
 type Col = { h: string; w?: number; s?: StyleName; sum?: boolean };
 type Ctx = { user: SessionUser; company: string; slug: string; tz: string; today: string; now: string };
 type Built = { title_km: string; title_en: string; filters: string[]; sheets: SheetSpec[]; rows: number; stamp: string };
 export type ExportFile = { name: string; buf: Buffer; rows: number };
+/** a list screen's column (D-172): header, width, style, totals, the value of a row */
+export type ListCol = Col & { v: (r: Record<string, unknown>) => XCell };
+/** a list screen's column (D-172): header, width, style, totals, the value of a row */
+export type ListCol = Col & { v: (r: Record<string, unknown>) => XCell };
 export type Preview = { title_km: string; title_en: string; filters: string[]; rows: number; sheets: { name: string; rows: XCell[][]; merges?: string[]; truncated: number }[] };
 
 const TITLES: Record<Report, [string, string]> = {
@@ -487,16 +493,34 @@ async function build(ctx: Ctx, report: Report, q: Q): Promise<Built> {
 }
 export async function exportReport(user: SessionUser, ip: string | null, report: Report, q: Q): Promise<ExportFile> {
   const ctx = await ctxOf(user);
-  const built = await build(ctx, report, q);
+  return fileOf(ctx, ip, report, await build(ctx, report, q));
+}
+async function fileOf(ctx: Ctx, ip: string | null, report: string, built: Built): Promise<ExportFile> {
   const buf = writeWorkbook(built.sheets);
   const name = `${report}_${built.stamp}_${ctx.slug}.xlsx`.replace(/[^A-Za-z0-9._-]/g, "-");
-  await audit(sql, { companyId: user.companyId, userId: user.id, action: "report.export", table: "export", rowId: report, new: { report, filters: built.filters, rows: built.rows, file: name }, ip });
+  await audit(sql, { companyId: ctx.user.companyId, userId: ctx.user.id, action: "report.export", table: "export", rowId: report, new: { report, filters: built.filters, rows: built.rows, file: name }, ip });
   return { name, buf, rows: built.rows };
 }
 /** D-171: the on-screen table of a report = the file's sheets without the header block (the screen shows the filters itself); at most 1500 rows a sheet */
 export async function previewReport(user: SessionUser, report: Report, q: Q): Promise<Preview> {
   const ctx = await ctxOf(user);
-  const built = await build(ctx, report, q), LIMIT = 1500;
+  return previewOf(await build(ctx, report, q));
+}
+function previewOf(built: Built): Preview {
+  const LIMIT = 1500;
   return { title_km: built.title_km, title_en: built.title_en, filters: built.filters, rows: built.rows,
     sheets: built.sheets.map((s) => { const body = s.rows.slice(HEAD); return { name: s.name, rows: body.slice(0, LIMIT), merges: s.merges, truncated: Math.max(0, body.length - LIMIT) }; }) };
 }
+/** D-172: a list screen's rows (already read through the screen's API and filtered like the screen) as the D-169 standard file / preview */
+export async function listExport(user: SessionUser, ip: string | null, report: string, def: { title: [string, string]; sheet: string; cols: ListCol[] }, rows: Record<string, unknown>[], q: Q, preview: boolean): Promise<ExportFile | Preview> {
+  const ctx = await ctxOf(user);
+  const [km, en] = def.title;
+  const filters = [...(q.from || q.to ? rangeText({ from: q.from, to: q.to }) : ["គ្រប់ថ្ងៃ"]), f("ស្ថានភាព", q.status?.join(", ")), f("ប្រភេទ", q.kind), f("តួនាទី", q.role), f("ក្រុម", q.category),
+    q.all === "1" ? "រួមទាំងមិនសកម្ម" : "", f("រយៈពេល", q.days ? `${q.days} ថ្ងៃ` : undefined), f("ស្វែងរក", q.q)].filter(Boolean);
+  const body = rows.map((r) => def.cols.map((c) => c.v(r)));
+  const built: Built = { title_km: km, title_en: en, filters, rows: rows.length, stamp: q.from || q.to ? `${q.from ?? ""}_${q.to ?? ""}`.replace(/^_|_$/g, "") : `all_${ctx.today}`,
+    sheets: [table(ctx, def.sheet, { title_km: km, title_en: en, filters }, def.cols, body)] };
+  return preview ? previewOf(built) : fileOf(ctx, ip, report, built);
+}
+/** the cell helpers for the list definitions */
+export const X = { D, M, K, QTY, INT, B };

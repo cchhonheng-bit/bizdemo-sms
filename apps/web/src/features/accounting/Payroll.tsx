@@ -1,9 +1,11 @@
 // C6 payroll: base salary per staff → a run per month → bonus / deduction lines with a reason → CEO approves (posts to the books)
 // → paid by cash / bank. Approved = fixed (void + new run to correct, CEO). Everything audited.
 import { useState } from "react";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { formatUsd } from "@sms/shared";
+import { filterList, formatUsd, LIST_SPECS } from "@sms/shared";
 import { Check, Plus, Trash2, Wallet, X } from "lucide-react";
 import { api, type PayrollRun, type Salary } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -24,12 +26,17 @@ export default function Payroll() {
   const runs = useQuery({ queryKey: ["payroll-runs"], queryFn: api.accounting.payroll.runs });
   const [open, setOpen] = useState<string | null>(null);
   const [period, setPeriod] = useState(todayLocal().slice(0, 7));
+  const ls = useListState();
+  const rows = filterList(runs.data ?? [], LIST_SPECS["payroll-runs"], ls.params); // D-172: by month
   const create = useMutation({
     mutationFn: () => api.accounting.payroll.create(period),
     onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["payroll-runs"] }); setOpen(r.id); }, onError: onErr,
   });
   return (
     <>
+      <ReportToolbar exports={[{ report: "payroll-runs", params: ls.params }, { report: "payroll-salaries", params: {} }]} active={ls.active}>
+        <ListFilters s={ls} search={false} statuses={(Object.keys(TONE) as PayrollRun["status"][]).map((k) => ({ value: k, label: t(`acct.payroll.status.${k}`) }))} />
+      </ReportToolbar>
       {manage && (
         <Card title={t("acct.payroll.new")}>
           <div className="grid grid-cols-[1fr_auto] gap-2 items-end">
@@ -39,9 +46,9 @@ export default function Payroll() {
         </Card>
       )}
       <Card title={t("acct.payroll.runs")}>
-        {runs.isLoading ? <Skeleton /> : !runs.data?.length ? <Empty text={t("acct.nothing")} /> : (
+        {runs.isLoading ? <Skeleton /> : !rows.length ? <Empty text={t("acct.nothing")} /> : (
           <ul className="divide-y divide-grey-line -my-2" data-testid="pr-list">
-            {runs.data.map((r) => (
+            {rows.map((r) => (
               <li key={r.id}><button className="w-full text-left py-2 min-h-[52px] flex justify-between gap-2 items-center" onClick={() => setOpen(r.id)}>
                 <span><span className="font-semibold">{r.period}</span> <Badge tone={TONE[r.status]}>{t(`acct.payroll.status.${r.status}`)}</Badge><span className="block text-xs text-muted">{t("acct.payroll.people", { n: r.people })}</span></span>
                 <span className="tabular font-semibold">{formatUsd(r.net)}</span>

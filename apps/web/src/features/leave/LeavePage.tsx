@@ -1,6 +1,9 @@
 // Leave + absence (owner D3, FR-903): request own leave · approve/reject (BR-24 chain, server-checked) · mark someone absent.
 // Approved leave/absence removes the person from the technician picker; the server rejects them too.
 import { useState } from "react";
+import { filterList, LIST_SPECS } from "@sms/shared";
+import { ListFilters, useListState, type ListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,12 +23,16 @@ export default function LeavePage() {
   const approver = can("leave.approve.tech") || can("leave.approve.admin") || can("leave.approve.gm");
   const requester = !!me && ATTENDANCE_ROLES.includes(me.role);
   const [affected, setAffected] = useState<Affected | null>(null);
+  const ls = useListState();
   return (
     <div className="max-w-3xl space-y-4">
       <h1>{t("leave.title")}</h1>
+      {(requester || approver) && <ReportToolbar exports={[...(requester ? [{ report: "leave-mine" as const, params: ls.params }] : []), ...(approver ? [{ report: "leave-approve" as const, params: ls.params }] : [])]} active={ls.active}>
+        <ListFilters s={ls} statuses={(["pending", "approved", "rejected", "cancelled"] as const).map((k) => ({ value: k, label: t(`leave.status.${k}`) }))} kinds={[{ value: "leave", label: t("export.st.leave") }, { value: "absent", label: t("leave.absent") }]} />
+      </ReportToolbar>}
       {requester && <RequestCard />}
-      {requester && <MyList />}
-      {approver && <ApproveList onAffected={setAffected} />}
+      {requester && <MyList ls={ls} />}
+      {approver && <ApproveList ls={ls} onAffected={setAffected} />}
       {approver && <AbsentCard onAffected={setAffected} />}
       {affected && (
         <Dialog open onClose={() => setAffected(null)} title={t("leave.affected_title")} footer={<Button variant="primary" onClick={() => setAffected(null)}>{t("app.close")}</Button>}>
@@ -83,16 +90,17 @@ function when(r: LeaveRow, t: (k: string) => string) {
   return `${fmtDate(r.date_from)}${r.date_to !== r.date_from ? ` → ${fmtDate(r.date_to)}` : ""} · ${t(`leave.part.${r.part}`)}`;
 }
 
-function MyList() {
+function MyList({ ls }: { ls: ListState }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["leave", "mine"], queryFn: () => api.leave.list("mine") });
+  const rows = filterList(q.data ?? [], LIST_SPECS["leave-mine"], ls.params);
   const cancel = useMutation({ mutationFn: (id: string) => api.leave.cancel(id), onSuccess: () => void qc.invalidateQueries({ queryKey: ["leave"] }), onError: (e) => toast.error(t(`leave.err.${errCode(e)}`, { defaultValue: t("app.error") })) });
   return (
     <Card title={t("leave.mine")}>
-      {q.isLoading ? <Skeleton rows={3} /> : !q.data?.length ? <Empty text={t("leave.none")} /> : (
+      {q.isLoading ? <Skeleton rows={3} /> : !rows.length ? <Empty text={t("leave.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2">
-          {q.data.map((r) => (
+          {rows.map((r) => (
             <li key={r.id} className="py-3 flex items-start gap-2">
               <div className="flex-1 min-w-0">
                 <div className="font-semibold tabular">{when(r, t)}</div>
@@ -109,10 +117,11 @@ function MyList() {
   );
 }
 
-function ApproveList({ onAffected }: { onAffected: (a: Affected) => void }) {
+function ApproveList({ ls, onAffected }: { ls: ListState; onAffected: (a: Affected) => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["leave", "approve"], queryFn: () => api.leave.list("approve") });
+  const rows = filterList(q.data ?? [], LIST_SPECS["leave-approve"], ls.params);
   const [rejecting, setRejecting] = useState<LeaveRow | null>(null);
   const [note, setNote] = useState("");
   const approve = useMutation({ mutationFn: (id: string) => api.leave.approve(id), onSuccess: (r) => { void qc.invalidateQueries({ queryKey: ["leave"] }); toast.success(t("leave.approved_ok")); if (r.affected.length) onAffected(r.affected); },
@@ -121,9 +130,9 @@ function ApproveList({ onAffected }: { onAffected: (a: Affected) => void }) {
     onError: (e) => toast.error(t(`leave.err.${errCode(e)}`, { defaultValue: t("app.error") })) });
   return (
     <Card title={t("leave.approvals")}>
-      {q.isLoading ? <Skeleton rows={3} /> : !q.data?.length ? <Empty text={t("leave.none")} /> : (
+      {q.isLoading ? <Skeleton rows={3} /> : !rows.length ? <Empty text={t("leave.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2">
-          {q.data.map((r) => (
+          {rows.map((r) => (
             <li key={r.id} className="py-3">
               <div className="flex items-start gap-2">
                 <div className="flex-1 min-w-0">

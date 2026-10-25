@@ -2,7 +2,9 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
-import { exportReport, previewReport, REPORTS, type Report } from "../services/excel.js";
+import { filterList, LIST_REPORTS, LIST_SPECS, type ListReport } from "@sms/shared";
+import { exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
+import { LIST_DEFS } from "../services/list-exports.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const ids = z.string().transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)).pipe(z.array(z.string().uuid()).max(200)).optional();
@@ -11,7 +13,9 @@ const query = z.object({ from: day.optional(), to: day.optional(), asof: day.opt
   customer: z.string().uuid().optional(), method: z.string().regex(/^[a-z_]{2,20}$/).optional(), item: z.string().uuid().optional(), location: z.string().uuid().optional(),
   category: z.string().regex(/^[a-z_]{2,30}$/).optional(), source: z.string().regex(/^[a-z_]{2,30}$/).optional(), kind: z.string().regex(/^[a-z_]{2,30}$/).optional(),
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(), zone: z.enum(["inside", "outside"]).optional(), q: z.string().max(120).optional(), closed: z.enum(["0", "1"]).optional(),
-  cancelled: z.enum(["0", "1"]).optional(), inactive: z.enum(["0", "1"]).optional(), list: z.enum(["draft", "unpaid", "paid", "void", "approval"]).optional() }).strict();
+  cancelled: z.enum(["0", "1"]).optional(), inactive: z.enum(["0", "1"]).optional(), list: z.enum(["draft", "unpaid", "paid", "void", "approval"]).optional(),
+  role: z.string().regex(/^[a-z_]{2,20}$/).optional(), all: z.enum(["0", "1"]).optional(), days: z.string().regex(/^\d{1,2}$/).optional(), user: z.string().uuid().optional(),
+  type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional() }).strict();
 
 /** the permission of the screen that shows the report */
 const PERM: Record<Report, string | string[]> = {
@@ -28,12 +32,31 @@ function allowed(req: FastifyRequest): Report {
   return report;
 }
 export const exportsRoutes: FastifyPluginAsync = async (app) => {
+  /** D-172: a list screen's rows — its own API read as this user (same rows, same permission), filtered with the screen's filter */
+  const listRows = async (req: FastifyRequest, report: ListReport, q: Q) => {
+    const def = LIST_DEFS[report];
+    const r = await app.inject({ method: "GET", url: def.path(q), headers: { cookie: req.headers.cookie ?? "" } });
+    const json = r.json() as Record<string, unknown> | Record<string, unknown>[];
+    if (r.statusCode !== 200) throw new AppError(String((json as { error?: string }).error ?? "FORBIDDEN"), r.statusCode);
+    const rows = def.pick ? def.pick(json as Record<string, unknown>) : (json as Record<string, unknown>[]);
+    return filterList(rows, LIST_SPECS[report], q);
+  };
+  const isList = (r: string): r is ListReport => (LIST_REPORTS as string[]).includes(r);
+  const listOf = (req: FastifyRequest): ListReport | null => {
+    const r = String((req.params as { report?: string }).report ?? "");
+    if (!isList(r)) return null;
+    if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403); // technicians never export (D-171)
+    return r;
+  };
   // the on-screen table of a report: the same builder as the file (D-171: file = screen)
-  app.get("/:report.json", { preHandler: app.requireAuth }, async (req) => previewReport(req.user!, allowed(req), query.parse(req.query ?? {})));
+  app.get("/:report.json", { preHandler: app.requireAuth }, async (req) => {
+    const q = query.parse(req.query ?? {}), list = listOf(req);
+    if (list) return listExport(req.user!, null, list, LIST_DEFS[list], await listRows(req, list, q), q, true);
+    return previewReport(req.user!, allowed(req), q);
+  });
   app.get("/:report.xlsx", { preHandler: app.requireAuth }, async (req, reply) => {
-    const report = allowed(req);
-    const q = query.parse(req.query ?? {});
-    const file = await exportReport(req.user!, req.ip, report, q);
+    const q = query.parse(req.query ?? {}), list = listOf(req);
+    const file = list ? await listExport(req.user!, req.ip, list, LIST_DEFS[list], await listRows(req, list, q), q, false) as Awaited<ReturnType<typeof exportReport>> : await exportReport(req.user!, req.ip, allowed(req), q);
     return reply.type("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").header("Content-Disposition", `attachment; filename="${file.name}"`)
       .header("Cache-Control", "no-store").header("X-Rows", String(file.rows)).send(file.buf);
   });

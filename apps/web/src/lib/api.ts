@@ -375,7 +375,7 @@ export const api = {
     verifyCash: (day: string) => post(`/api/reports/cash-close/${day}/verify`, {}),
     exportUrl: (kind: "invoices" | "payments" | "jobs" | "attendance", from: string, to: string) => `/api/reports/export?kind=${kind}&from=${from}&to=${to}`,
     /** CEO 04-10: filter by person and by type (a group of actions) — no codes to type */
-    audit: (f: { user?: string; type?: string }, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${f.user ? `&user=${f.user}` : ""}${f.type ? `&type=${f.type}` : ""}`),
+    audit: (f: { user?: string; type?: string; from?: string; to?: string }, limit = 200) => get<AuditRow[]>(`/api/reports/audit?limit=${limit}${f.user ? `&user=${f.user}` : ""}${f.type ? `&type=${f.type}` : ""}${f.from ? `&from=${f.from}` : ""}${f.to ? `&to=${f.to}` : ""}`),
     auditPeople: () => get<{ id: string; full_name: string }[]>("/api/reports/audit/people"),
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),

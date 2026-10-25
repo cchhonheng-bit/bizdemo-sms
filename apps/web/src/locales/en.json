@@ -1103,7 +1103,8 @@
     "today": "Today",
     "week": "This week",
     "month": "This month",
-    "last": "Last month"
+    "last": "Last month",
+    "all": "All dates"
   },
   "reports": {
     "title": "Reports",
@@ -1816,11 +1817,38 @@
       "receivables": "Receivables aging",
       "tech-performance": "Technician performance",
       "customers": "Customers",
-      "attendance": "Attendance"
+      "attendance": "Attendance",
+      "boreys": "Borey projects",
+      "requests": "Customer requests",
+      "catalog": "Services and prices",
+      "broadcasts": "Broadcast history",
+      "subscribers": "Subscribers",
+      "notifications": "Notifications",
+      "leave-mine": "My leave",
+      "leave-approve": "Leave to approve",
+      "payroll-runs": "Payroll runs",
+      "payroll-salaries": "Base salaries",
+      "reminders": "Service reminders",
+      "cash-close": "Cash close",
+      "verification": "Verification",
+      "audit": "Audit log",
+      "quotes": "Quotes",
+      "uninvoiced": "Not invoiced",
+      "users": "Users"
     },
     "filter": "Filter",
     "done_btn": "Done",
     "truncated": "Showing the first rows only · {{n}} more in the Excel file",
-    "rows_n": "{{n}} rows"
+    "rows_n": "{{n}} rows",
+    "status": "Status",
+    "kind": "Kind",
+    "role": "Role",
+    "st": {
+      "new": "New",
+      "done": "Done",
+      "overdue": "Overdue",
+      "due": "Due",
+      "leave": "Leave"
+    }
   }
 }

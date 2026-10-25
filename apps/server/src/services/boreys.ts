@@ -13,7 +13,7 @@ const area = (r: { province_code: string; district_code: string; commune_code: s
   [r.commune_code, r.district_code, r.province_code].map((c) => geoName(c, lang)).filter(Boolean).join(", ");
 
 export async function listBoreys(user: SessionUser, all = false) {
-  const rows = await sql<Row[]>`select b.id, b.name, b.province_code, b.district_code, b.commune_code, b.is_active,
+  const rows = await sql<Row[]>`select b.id, b.name, b.province_code, b.district_code, b.commune_code, b.is_active, b.created_at,
       (select count(*)::int from customers c where c.borey_id = b.id and not c.is_test) as customers
     from boreys b where b.company_id = ${user.companyId} ${all ? sql`` : sql`and b.is_active`} order by b.is_active desc, b.name`;
   return rows.map((r) => ({ ...r, area_km: area(r, "km"), area_en: area(r, "en") }));

@@ -27,6 +27,7 @@ export default function ReportsPage() {
   const tabs: Tab[] = ["summary", ...(can("payment.record") || can("report.verify") ? ["cash" as const] : []), ...(can("report.verify") ? ["verify" as const] : []), ...(can("audit.read") ? ["audit" as const] : [])];
   const [tab, setTab] = useState<Tab>("summary");
   const [range, setRange] = useState<Range>(() => sp.get("from") && sp.get("to") ? [sp.get("from")!, sp.get("to")!] : presetRange("today", todayLocal()));
+  const [vOpen, setVOpen] = useState(true); // verification: open items only
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("reports.title")}</h1>
@@ -35,8 +36,8 @@ export default function ReportsPage() {
           {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`reports.tab.${k}`)}</button>)}
         </div>
       )}
-      {tab !== "audit" && <ReportToolbar exports={[...(can("report.finance") ? [{ report: "payments" as const, params: { from: range[0], to: range[1] } }] : []), { report: "tech-performance", params: { from: range[0], to: range[1] } }, { report: "attendance", params: { from: range[0], to: range[1] } }]}><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></ReportToolbar>}
-      {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} /> : <AuditLog />}
+      {tab !== "audit" && <ReportToolbar exports={tab === "cash" ? [{ report: "cash-close", params: { from: range[0], to: range[1] } }] : tab === "verify" ? [{ report: "verification", params: { from: range[0], to: range[1], open: vOpen ? "1" : "0" } }] : [...(can("report.finance") ? [{ report: "payments" as const, params: { from: range[0], to: range[1] } }] : []), { report: "tech-performance", params: { from: range[0], to: range[1] } }, { report: "attendance", params: { from: range[0], to: range[1] } }]}><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></ReportToolbar>}
+      {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} open={vOpen} setOpen={setVOpen} /> : <AuditLog />}
     </div>
   );
 }
@@ -130,10 +131,9 @@ function Summary({ range }: { range: Range }) {
 }
 
 const TYPE_TONE: Record<VerifyItem["type"], "danger" | "warning" | "grey" | "green"> = { void: "danger", discount: "warning", cancel: "grey", payment: "green" };
-function Verification({ range }: { range: Range }) {
+function Verification({ range, open, setOpen }: { range: Range; open: boolean; setOpen: (v: boolean) => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const [open, setOpen] = useState(true);
   const q = useQuery({ queryKey: ["verification", ...range, open], queryFn: () => api.reports.verification(range[0], range[1], open), enabled: range[0] <= range[1] });
   const mark = useMutation({ mutationFn: (i: VerifyItem) => api.reports.verify(i.type, i.id), onSuccess: () => { void qc.invalidateQueries({ queryKey: ["verification"] }); void qc.invalidateQueries({ queryKey: ["dashboard"] }); },
     onError: (e) => toast.error(t(`reports.err.${errCode(e)}`, { defaultValue: t("app.error") })) });

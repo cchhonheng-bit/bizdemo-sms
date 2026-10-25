@@ -3,11 +3,13 @@
 // Excel: download the template (the services as they are now) → upload → preview (new / changed / errors) → apply. Matched by
 // code; nothing is deleted. Over the list: who changed it last, and when.
 import { useMemo, useRef, useState } from "react";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { catalogItemSchema, formatUsd, fromCents, matchesSearch, SERVICE_CATEGORIES, toCents, WEB_CATEGORIES, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
+import { catalogItemSchema, filterList, formatUsd, fromCents, LIST_SPECS, SERVICE_CATEGORIES, toCents, WEB_CATEGORIES, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
 import { Download, Pencil, Plus, Power, Upload } from "lucide-react";
 import { api, errCode, type CatalogItem, type CatalogPreview } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -33,9 +35,9 @@ export default function CatalogPage() {
   const items = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
   const meta = useQuery({ queryKey: ["catalog", "meta"], queryFn: api.catalogMeta });
   const edit = meta.data?.can_edit === true;
-  const filtered = useMemo(() => {
-    return (items.data ?? []).filter((i) => (!cat || i.category === cat) && matchesSearch(q, [i.name_km, i.name_en, i.code])); // D-140: Khmer keyboard
-  }, [items.data, q, cat]);
+  const ls = useListState();
+  const filters = { ...ls.params, ...(q.trim() ? { q: q.trim() } : {}), ...(cat ? { category: cat } : {}) };
+  const filtered = useMemo(() => filterList(items.data ?? [], LIST_SPECS.catalog, filters), [items.data, q, cat, ls.params]); // eslint-disable-line react-hooks/exhaustive-deps
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["catalog"] }); };
   const act = useMutation({
     mutationFn: (i: CatalogItem) => api.setCatalogActive(i.id, !i.is_active),
@@ -69,6 +71,7 @@ export default function CatalogPage() {
         <input ref={fileRef} type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" className="sr-only" onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = ""; }} />
       </div>
       {meta.data?.last && <p className="text-xs text-muted mb-3" data-testid="cat-last">{t("catalog.last_change", { name: meta.data.last.name, at: when(meta.data.last.at) })}</p>}
+      <ReportToolbar report="catalog" params={filters} active={ls.active}><ListFilters s={ls} search={false} /></ReportToolbar>
       <Card>
         <div className="flex flex-wrap gap-3 mb-3">
           <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />

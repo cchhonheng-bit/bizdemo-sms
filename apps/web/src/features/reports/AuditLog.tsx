@@ -2,6 +2,9 @@
 // «សុខា · កែតម្លៃ លាងម៉ាស៊ីនត្រជាក់ · តម្លៃចាប់ពី: $18.00 → $20.00 · 04/10 13:08». Codes and field names become words (labels in
 // @sms/shared audit-text); the raw data only behind a small «លម្អិត» per row (never anything secret). Filters: person and type.
 import { useState } from "react";
+import type { Range } from "./range";
+import RangePicker from "./RangePicker";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { AUDIT_ACTION, AUDIT_ACTION_EXTRA, AUDIT_FIELD, AUDIT_GROUPS, AUDIT_SECRET, AUDIT_VALUE, formatKhr, formatUsd, type AuditText } from "@sms/shared";
@@ -65,9 +68,14 @@ export default function AuditLog() {
   const [type, setType] = useState("");
   const [open, setOpen] = useState<number | null>(null);
   const people = useQuery({ queryKey: ["audit-people"], queryFn: api.reports.auditPeople });
-  const q = useQuery({ queryKey: ["audit", person, type], queryFn: () => api.reports.audit({ user: person, type }) });
+  const [range, setRange] = useState<Range>(["", ""]);
+  const q = useQuery({ queryKey: ["audit", person, type, range], queryFn: () => api.reports.audit({ user: person, type, from: range[0] || undefined, to: range[1] || undefined }) });
   const raw = (v: Obj | null) => JSON.stringify(Object.fromEntries(Object.entries(v ?? {}).filter(([k]) => !AUDIT_SECRET.test(k))), null, 1);
   return (
+    <>
+    <ReportToolbar report="audit" params={{ user: person || undefined, type: type || undefined, from: range[0] || undefined, to: range[1] || undefined }} active={(person ? 1 : 0) + (type ? 1 : 0) + (range[0] || range[1] ? 1 : 0)}>
+      <RangePicker value={range} onChange={setRange} presets={["all", "today", "week", "month", "last"]} />
+    </ReportToolbar>
     <Card>
       <div className="grid sm:grid-cols-2 gap-3 mb-3">
         <Select value={person} onChange={(e) => setPerson(e.target.value)} aria-label={t("reports.audit_person")} data-testid="audit-person">
@@ -103,5 +111,6 @@ export default function AuditLog() {
         </ul>
       )}
     </Card>
+    </>
   );
 }

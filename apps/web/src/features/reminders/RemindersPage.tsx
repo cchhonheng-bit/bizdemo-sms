@@ -1,7 +1,9 @@
 // A2 service reminders (flag "reminders"): overdue / due soon per unit or per customer · one-tap call · contacted / snooze / dismiss ·
 // book the job · optional Telegram reminder to customers who subscribed through their own link (once per due date, daily limit).
 import { useMemo, useState } from "react";
-import { formatKhPhone } from "@sms/shared";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
+import { filterList, formatKhPhone, LIST_SPECS } from "@sms/shared";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -30,7 +32,8 @@ export default function RemindersPage() {
     mutationFn: (rows: Reminder[]) => api.reminders.telegram(rows.map((r) => ({ customer_id: r.customer_id, unit_id: r.unit_id, service_item_id: r.service_item_id, due_on: r.due_on }))),
     onSuccess: (x) => { toast.info(t("reminders.sent", x)); setPicked(new Set()); refresh(); }, onError: onErr,
   });
-  const rows = useMemo(() => q.data ?? [], [q.data]);
+  const ls = useListState();
+  const rows = useMemo(() => filterList(q.data ?? [], LIST_SPECS.reminders, ls.params), [q.data, ls.params]); // D-172
   const overdue = rows.filter((r) => r.status === "overdue").length;
   const pickedRows = useMemo(() => rows.filter((r) => picked.has(key(r)) && r.telegram), [rows, picked]);
   const toggle = (r: Reminder) => setPicked((s) => { const n = new Set(s); if (n.has(key(r))) n.delete(key(r)); else n.add(key(r)); return n; });
@@ -43,6 +46,9 @@ export default function RemindersPage() {
       <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
         {[7, 14, 30].map((d) => <button key={d} role="tab" aria-selected={days === d} className={`flex-1 px-3 min-h-[44px] ${days === d ? "bg-navy text-white" : "bg-white"}`} onClick={() => setDays(d)}>{t("reminders.window", { n: d })}</button>)}
       </div>
+      <ReportToolbar report="reminders" params={{ ...ls.params, days: String(days) }} active={ls.active}>
+        <ListFilters s={ls} statuses={[{ value: "overdue", label: t("export.st.overdue") }, { value: "due", label: t("export.st.due") }]} />
+      </ReportToolbar>
       {pickedRows.length > 0 && (
         <div className="sticky top-2 z-10"><Button variant="primary" className="w-full" loading={send.isPending} onClick={() => send.mutate(pickedRows)} data-testid="rem-send"><Send size={16} /> {t("reminders.send_n", { n: pickedRows.length })}</Button></div>
       )}

@@ -1,17 +1,22 @@
 // A1 «done but not invoiced»: finished jobs without an invoice — age since the work finished, estimated amount, open the job to invoice.
 import { useTranslation } from "react-i18next";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatUsd } from "@sms/shared";
+import { filterList, formatUsd, LIST_SPECS } from "@sms/shared";
 import { api } from "@/lib/api";
 import { Badge, Card, Empty, Skeleton } from "@/components/ui";
 
 export default function UninvoicedList() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["uninvoiced"], queryFn: api.uninvoiced });
-  const rows = q.data ?? [];
+  const ls = useListState();
+  const rows = filterList(q.data ?? [], LIST_SPECS.uninvoiced, ls.params); // D-172
   const total = rows.reduce((s, r) => s + r.estimate, 0);
   return (
+    <>
+    <ReportToolbar report="uninvoiced" params={ls.params} active={ls.active}><ListFilters s={ls} /></ReportToolbar>
     <Card title={rows.length ? t("uninvoiced.summary", { n: rows.length, amount: formatUsd(total) }) : undefined}>
       {q.isLoading ? <Skeleton /> : rows.length === 0 ? <Empty text={t("uninvoiced.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2" data-testid="uninvoiced">
@@ -32,5 +37,6 @@ export default function UninvoicedList() {
         </ul>
       )}
     </Card>
+    </>
   );
 }

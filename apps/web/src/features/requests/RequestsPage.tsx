@@ -6,6 +6,9 @@
 // one dialog — job length + crew picker — and confirming assigns the technicians (they and the customer are told); the bot's ✅
 // opens it here (?confirm=<request id>).
 import { useEffect, useState } from "react";
+import { filterList, formatKhPhone, LIST_SPECS } from "@sms/shared";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,7 +16,6 @@ import { Check, MapPin, Phone, Plus, X } from "lucide-react";
 import { api, errCode, fmtDate, type ServiceRequest } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, ErrorState, Field, Input, Select, Skeleton } from "@/components/ui";
-import { formatKhPhone } from "@sms/shared";
 import { toast } from "@/lib/toast";
 import { CrewList } from "@/features/bookings/CrewPicker";
 import { crewOf, overridesFor, setOverride, useCrewAvailability } from "@/features/bookings/crew";
@@ -39,6 +41,8 @@ export default function RequestsPage() {
   const [confirming, setConfirming] = useState<ServiceRequest | null>(null);
   const [sp, setSp] = useSearchParams();
   const q = useQuery({ queryKey: ["requests", all], queryFn: () => api.requests.list(all), refetchInterval: 60_000 });
+  const ls = useListState();
+  const rows = filterList(q.data ?? [], LIST_SPECS.requests, ls.params); // D-172
   const act = useMutation({
     mutationFn: (v: { id: string; action: Action; reason?: string }) => api.requests.act(v.id, v.action, v.reason),
     onSuccess: (_r, v) => { toast.success(t(`requests.ok.${v.action}`)); setAsking(null); setReason(""); void qc.invalidateQueries({ queryKey: ["requests"] }); void qc.invalidateQueries({ queryKey: ["bookings"] }); },
@@ -60,9 +64,12 @@ export default function RequestsPage() {
       <h1>{t("requests.title")}</h1>
       <p className="text-sm text-muted">{t("requests.hint")} {t("requests.hint_web")}</p>
       <p className="text-xs text-muted">{t("requests.escalation")}</p>
-      <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={all} onChange={(e) => setAll(e.target.checked)} data-testid="req-all" /> {t("requests.show_done")}</label>
-      {q.isLoading ? <Skeleton rows={3} /> : q.isError ? <ErrorState text={t("app.error")} onRetry={() => void q.refetch()} /> : (q.data ?? []).length === 0 ? <Card><Empty text={t("requests.empty")} /></Card> : (
-        (q.data ?? []).map((r) => {
+      <ReportToolbar report="requests" params={{ ...ls.params, all: all ? "1" : "0" }} active={ls.active + (all ? 1 : 0)}>
+        <ListFilters s={ls} statuses={[{ value: "new", label: t("export.st.new") }, { value: "done", label: t("export.st.done") }]} kinds={(["request", "booking", "quote", "reschedule"] as const).map((k) => ({ value: k, label: t(`requests.kind.${k}`) }))} />
+        <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={all} onChange={(e) => setAll(e.target.checked)} data-testid="req-all" /> {t("requests.show_done")}</label>
+      </ReportToolbar>
+      {q.isLoading ? <Skeleton rows={3} /> : q.isError ? <ErrorState text={t("app.error")} onRetry={() => void q.refetch()} /> : rows.length === 0 ? <Card><Empty text={t("requests.empty")} /></Card> : (
+        rows.map((r) => {
           const waiting = r.kind === "booking" && r.web_status === "pending";
           const decision: ["confirm", "decline"] | ["approve", "reject"] | null = waiting ? ["confirm", "decline"] : r.kind === "reschedule" ? ["approve", "reject"] : null;
           const no = decision ? decision[1] : null;

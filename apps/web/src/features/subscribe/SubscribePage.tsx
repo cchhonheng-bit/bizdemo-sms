@@ -2,12 +2,14 @@
 // (service messages are about the customer's own bookings) — written by the CEO / GM, previewed first, at most 4 lines; the hub
 // sends one per customer every N days (Settings → Website) and never 20:00–08:00, with a «stop promotions» button.
 import { useEffect, useState } from "react";
+import { filterList, LIST_SPECS, PROMO_ROLES } from "@sms/shared";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "qrcode";
 import { Eye, Megaphone, Printer } from "lucide-react";
-import { PROMO_ROLES } from "@sms/shared";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { toast } from "@/lib/toast";
@@ -22,6 +24,8 @@ export default function SubscribePage() {
   const mayPromo = !!me && PROMO_ROLES.includes(me.role);
   const info = useQuery({ queryKey: ["subscribe"], queryFn: api.subscribe.info });
   const history = useQuery({ queryKey: ["subscribe", "broadcasts"], queryFn: api.subscribe.broadcasts });
+  const ls = useListState();
+  const sent = filterList(history.data ?? [], LIST_SPECS.broadcasts, ls.params); // D-172
   const [qr, setQr] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [days, setDays] = useState("30");
@@ -89,11 +93,12 @@ export default function SubscribePage() {
         </>)}
       </Card>
 
+      <ReportToolbar exports={[{ report: "broadcasts", params: ls.params }, { report: "subscribers", params: ls.params }]} active={ls.active}><ListFilters s={ls} /></ReportToolbar>
       <Card title={t("subscribe.history")}>
-        {!history.data?.length ? <Empty text="—" /> : (
+        {!sent.length ? <Empty text="—" /> : (
           <table className="table table-stack">
             <thead><tr><th>{t("subscribe.when")}</th><th>{t("subscribe.kind")}</th><th>{t("subscribe.text")}</th><th>{t("subscribe.by")}</th><th>{t("subscribe.result")}</th></tr></thead>
-            <tbody>{history.data.map((b) => (
+            <tbody>{sent.map((b) => (
               <tr key={b.id}><td className="whitespace-nowrap">{fmt(b.created_at)}</td><td><Badge tone={b.kind === "promo" ? "purple" : "blue"}>{b.kind === "promo" ? t("subscribe.promo_kind") : t("subscribe.service")}</Badge></td>
                 <td className="md:max-w-[340px] md:truncate" title={b.text}>{b.text}</td><td>{b.created_by_name ?? "—"}</td>
                 <td className="whitespace-nowrap">✅ {b.sent} / {b.recipients}{b.failed ? <span className="text-danger"> · ❌ {b.failed}</span> : null}{b.pending ? <span className="text-muted"> · ⏳ {b.pending}</span> : null}</td></tr>))}
@@ -103,10 +108,10 @@ export default function SubscribePage() {
       </Card>
 
       <Card title={t("subscribe.list")}>
-        {d.subscribers.length === 0 ? <Empty text={t("subscribe.empty")} /> : (
+        {filterList(d.subscribers, LIST_SPECS.subscribers, ls.params).length === 0 ? <Empty text={t("subscribe.empty")} /> : (
           <table className="table table-stack" data-testid="sub-list">
             <thead><tr><th>{t("subscribe.name")}</th><th>{t("subscribe.since")}</th><th>{t("subscribe.status")}</th></tr></thead>
-            <tbody>{d.subscribers.map((x, i) => (
+            <tbody>{filterList(d.subscribers, LIST_SPECS.subscribers, ls.params).map((x, i) => (
               <tr key={i}><td>{x.first_name ?? "—"}{x.username ? <span className="text-muted"> @{x.username}</span> : null}</td><td>{fmt(x.subscribed_at)}</td>
                 <td>{x.stopped ? <Badge>{t("subscribe.stopped")}</Badge> : x.promo ? <Badge tone="green">{t("subscribe.promo")}</Badge> : <Badge tone="blue">{t("subscribe.service")}</Badge>}</td></tr>))}
             </tbody>

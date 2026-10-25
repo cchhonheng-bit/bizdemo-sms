@@ -1,5 +1,10 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { localDay } from "@sms/shared";
+import { todayLocal } from "@/features/invoices/util";
+import { presetRange, type Range } from "@/features/reports/range";
+import RangePicker from "@/features/reports/RangePicker";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
@@ -20,13 +25,13 @@ export default function DashboardPage() {
   // managers: wait for the KPI panel too, so the page does not jump when it arrives (CLS)
   const panel = useQuery({ queryKey: ["dashboard"], queryFn: api.reports.dashboard, refetchInterval: 60_000, enabled: can("report.ops") });
   const att = useQuery({ queryKey: ["attendance-today"], queryFn: api.attendance.today, refetchInterval: 5 * 60_000 }); // same query as the check-in card
+  const [range, setRange] = useState<Range>(presetRange("today", todayLocal())); // D-172
   const { today, counts } = useMemo(() => {
     const all = bookings.data ?? [];
-    const d = fmtDate(new Date().toISOString());
-    const today = all.filter((b) => fmtDate(b.scheduled_at) === d && !["closed", "cancelled"].includes(b.status));
+    const today = all.filter((b) => { const d = localDay(b.scheduled_at); return !!d && d >= range[0] && d <= range[1] && !["closed", "cancelled"].includes(b.status); });
     const counts = { new: all.filter((b) => b.status === "new").length, survey: all.filter((b) => ["survey", "quoted"].includes(b.status)).length, assigned: all.filter((b) => b.status === "assigned").length, in_progress: all.filter((b) => ["en_route", "on_site", "working"].includes(b.status)).length };
     return { today, counts };
-  }, [bookings.data]);
+  }, [bookings.data, range]);
   if ((can("report.ops") && panel.isLoading) || att.isLoading) return <Skeleton rows={8} />;
   return (
     <div className="space-y-4">
@@ -41,7 +46,8 @@ export default function DashboardPage() {
           <Link key={k} to="/bookings" className="card p-4 hover:border-blue"><div className="text-xs text-muted">{t(`board.${k}`)}</div><div className="text-2xl font-bold tabular">{counts[k]}</div></Link>
         ))}
       </div>
-      <Card title={`${t("tech.today")} · ${fmtDate(new Date().toISOString())}`}>
+      <ReportToolbar report={can("report.ops") ? "bookings" : undefined} params={{ from: range[0], to: range[1], closed: "0", cancelled: "0" }}><RangePicker value={range} onChange={setRange} presets={["today", "week", "month"]} /></ReportToolbar>
+      <Card title={range[0] === range[1] && range[0] === todayLocal() ? `${t("tech.today")} · ${fmtDate(new Date().toISOString())}` : `${range[0]} – ${range[1]}`}>
         {bookings.isLoading ? <Skeleton rows={3} /> : today.length === 0 ? <Empty text={t("tech.no_jobs")} /> : (
           <ul className="divide-y divide-grey-line">
             {today.map((b) => (

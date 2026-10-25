@@ -1,9 +1,11 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ListFilters, useListState } from "@/components/ListFilters";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type CreateUserInput, createUserSchema, formatKhPhone, matchesSearch, ROLES } from "@sms/shared";
+import { type CreateUserInput, createUserSchema, filterList, formatKhPhone, LIST_SPECS, ROLES } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -26,10 +28,9 @@ export default function UsersPage() {
     queryFn: async () => (await api.users()) as Profile[],
   });
 
-  const filtered = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (users.data ?? []).filter((u) => matchesSearch(s, [u.full_name, u.username], u.phone ? [u.phone] : []));
-  }, [users.data, q]);
+  const ls = useListState();
+  const filters = { ...ls.params, ...(q.trim() ? { q: q.trim() } : {}) };
+  const filtered = useMemo(() => filterList(users.data ?? [], LIST_SPECS.users, filters), [users.data, q, ls.params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const errText = (code: string) => t(`users.err.${code}`, { defaultValue: t("app.error") });
 
@@ -54,6 +55,7 @@ export default function UsersPage() {
         <h1>{t("users.title")}</h1>
         <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("users.new")}</Button>
       </div>
+      <ReportToolbar report="users" params={filters} active={ls.active}><ListFilters s={ls} search={false} roles={ROLES.map((r) => ({ value: r, label: t(`roles.${r}`) }))} /></ReportToolbar>
       <Card>
         <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="mb-3 w-full sm:max-w-xs" />
         {users.isLoading ? <Skeleton /> : users.isError ? <ErrorState text={t("app.error")} onRetry={() => void users.refetch()} /> : filtered.length === 0 ? <Empty text={t("app.empty")} /> : (
