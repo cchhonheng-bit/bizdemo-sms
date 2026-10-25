@@ -39,22 +39,22 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("D-141 the chart", () => {
   it("One Team's chart: 10 group headers, posting accounts, the client's Khmer names exactly, nameless rows skipped, BS / P&L by the code", async () => {
     const list = (await acc(cfo, "/accounts")).json as any[];
-    expect(list.filter((a) => a.is_group).map((a) => a.code)).toEqual(["10000", "11000", "12000", "13000", "13100", "20000", "21000", "30000", "40000", "50000"]);
+    expect(list.filter((a) => a.is_group).map((a) => a.code)).toEqual(["10000", "11000", "12000", "13000", "18000", "20000", "21000", "30000", "40000", "50000"]);
     expect(list.map((a) => a.code)).toEqual(CHART.map((r) => r[0]));
     for (const skipped of ["13006", "13007", "13008", "13105", "13106", "16001", "14001", "40003"]) expect(list.find((a) => a.code === skipped)).toBeUndefined();
     expect(list.find((a) => a.code === "11001").name_km).toBe("សាច់ប្រាក់នៅបេលា");
     expect(list.find((a) => a.code === "12000").name_km).toBe(CHART.find((r) => r[0] === "12000")![1]); // as in the file (a zero-width space inside)
     expect(list.find((a) => a.code === "12000").name_km).toContain("គេជំពាក់យើង");
     expect(list.find((a) => a.code === "40005").name_km).toBe("ចំណូលពីការសេវាកម្ម (ក្នុងបូរី)");
-    expect(list.find((a) => a.code === "18000").name_km).toBe("សម្ភារះសម្រាប់ជាងប្រប្រាស់");
+    expect(list.find((a) => a.code === "14500").name_km).toBe("សម្ភារះសម្រាប់ជាងប្រប្រាស់"); expect(list.find((a) => a.code === "13810").name_km).toContain("Gree");
     for (const a of list) expect(a.statement).toBe(Number(a.code[0]) <= 3 ? "BS" : "PL");
-    expect(Object.fromEntries(list.filter((a) => ["11001", "13101", "14000", "21001", "50005"].includes(a.code)).map((a) => [a.code, a.parent_code])))
-      .toEqual({ "11001": "11000", "13101": "13100", "14000": "10000", "21001": "21000", "50005": "50000" });
+    expect(Object.fromEntries(list.filter((a) => ["11001", "18100", "13400", "14100", "21001", "50005"].includes(a.code)).map((a) => [a.code, a.parent_code])))
+      .toEqual({ "11001": "11000", "18100": "18000", "13400": "13000", "14100": "10000", "21001": "21000", "50005": "50000" });
   });
 
   it("system accounts on the client's codes; what the client's chart lacks is added with a free code and flagged «បន្ថែមដោយប្រព័ន្ធ»", async () => {
     const role = async (r: string) => (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.a} and role = ${r}`)[0]?.code;
-    const want: Record<string, string> = { cash_usd: "11001", bank_aba: "11003", bank_acleda: "11002", ar: "12002", staff_advance: "12001", inventory: "18000", deposits: "20004", tips: "20005",
+    const want: Record<string, string> = { cash_usd: "11001", bank_aba: "11003", bank_acleda: "11002", ar: "12002", staff_advance: "12001", inventory: "14500", deposits: "20004", tips: "20005",
       current_profit: "30002", retained: "30003", cogs: "50001", salaries: "50002", materials: "50005", rev_sales: "40001", rev_service: "40002", rev_sales_inside: "40004",
       rev_service_inside: "40005", rev_other: "40006", ap: "20003", capital: "30001",
       cash_khr: "11004", payroll: "21002", opening: "30004", drawings: "30005", discount: "40007", stock_adjust: "50012", cash_diff: "50013" };
@@ -90,14 +90,14 @@ describe("D-141 postings on the new codes", () => {
   });
 
   it("each stock item on its own stock account: stock in → 14000; materials (14000–18000) cost 50005 for a job AND for a sale (D-143); a new name on 18000", async () => {
-    const pipeAcc = await code("14000");
+    const pipeAcc = await code("13400");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
-    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "14001", inventory_account_id: pipeAcc.id })).json.id;
-    const b0 = await Promise.all(["14000", "18000", "50005", "50001", "11001"].map(bal));
+    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "1340001", inventory_account_id: pipeAcc.id })).json.id;
+    const b0 = await Promise.all(["13400", "14500", "50005", "50001", "11001"].map(bal));
     expect((await admin.req("POST", "/api/inventory/in", { item_id: pipe, qty: 20, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
-    expect((await admin.req("POST", "/api/inventory/in", { name: "ស្កុតបិទ", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).status).toBe(200); // D-144: made on its first entry
+    expect((await admin.req("POST", "/api/inventory/in", { name: "ស្កុតបិទ", account_id: (await code("14500")).id, unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).status).toBe(200); // D-144: made on its first entry
     // the technician collects 3 m of pipe for a job (the Admin records it)
     const job = (await admin.req("POST", "/api/bookings", { customer_id: inside, type: "A", category: "mep", service_text: "ដំឡើង", zone: "inside", ...span(new Date(Date.now() + 50 * 3600_000).toISOString()) })).json.id;
     expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
@@ -105,7 +105,7 @@ describe("D-141 postings on the new codes", () => {
     // 2 m sold over the counter: the Admin records the stock out by the place; the invoice itself moves nothing (D-144)
     expect((await admin.req("POST", "/api/inventory/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
     await invoice(outside, [{ kind: "product", qty: 2, unit_price: 500 }]);
-    const b1 = await Promise.all(["14000", "18000", "50005", "50001", "11001"].map(bal));
+    const b1 = await Promise.all(["13400", "14500", "50005", "50001", "11001"].map(bal));
     expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 600 + 400, 0, -4500]); // D-143: copper pipe → 50005 wherever it leaves
   });
 
@@ -138,11 +138,11 @@ describe("D-141 chart-replace", () => {
     expect((await sql`select income_account_id from catalog_items where id = ${svcB}`)[0]!.income_account_id).toBeNull();
     const items = await sql<{ code: string; name_km: string; track_stock: boolean; acc: string }[]>`select ci.code, ci.name_km, ci.track_stock, a.code as acc
       from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.b} order by ci.code`;
-    expect(items.filter((i) => /^1[45]/.test(i.code)).map((i) => [i.code, i.name_km, i.acc])).toEqual(STOCK_ITEMS.map(([c, n, a]) => [c, n, a]));
-    expect(items.filter((i) => /^13/.test(i.code)).map((i) => i.code)).toEqual(["13001", "13002", "13003", "13004", "13005", "13101", "13102", "13103", "13104"]); // D-142: the account IS the item
-    expect(items.every((i) => i.track_stock && i.acc === (i.code.startsWith("13") ? i.code : i.code.slice(0, 2) + "000"))).toBe(true);
-    expect(items.find((i) => i.code === "14001")!.name_km).toBe("ទុយោស្ពាន់ 16mm (16*0.72)");
+    expect(items.filter((i) => /^13[45]/.test(i.code)).map((i) => [i.code, i.name_km, i.acc])).toEqual(STOCK_ITEMS.map(([c, n, a]) => [c, n, a]));
+    expect(items.filter((i) => i.code.length === 5).map((i) => i.code)).toEqual([]); // D-165: no account IS its item any more
+    expect(items.every((i) => i.track_stock && i.acc === i.code.slice(0, 5))).toBe(true);
+    expect(items.find((i) => i.code === "1340001")!.name_km).toBe("ទុយោស្ពាន់ 16mm (16*0.72)");
     await tx(null, (t) => replaceChart(t, s.b, true)); // again: idempotent (items linked, not doubled)
-    expect((await sql`select count(*)::int as n from catalog_items where company_id = ${s.b} and code like '1%'`)[0]!.n).toBe(23);
+    expect((await sql`select count(*)::int as n from catalog_items where company_id = ${s.b} and code like '1%'`)[0]!.n).toBe(14);
   });
 });

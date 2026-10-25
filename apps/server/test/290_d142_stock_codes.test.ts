@@ -47,17 +47,17 @@ beforeAll(async () => {
 afterAll(async () => { config.shop.features = ""; await app.close(); });
 
 describe("5 · item codes on the client's scheme (D-165: the account code + 2 digits)", () => {
-  it("every stock account carries sub codes; the copper / insulation items of the sheet exist (1340001 …); the AC accounts are by brand and type", async () => {
+  it("every stock account carries sub codes; the AC accounts are by brand and type; no account is its own item any more", async () => {
     for (const code of ["13110", "13230", "13330", "13830", "13400", "13500", "14100", "14500", "18100"]) expect((await account(code)).sub_codes, code).toBe(true);
-    expect(await itemByCode("1340001")).toMatchObject({ is_stock: true, acc: "13400" });
-    expect(await itemByCode("1350010")).toMatchObject({ is_stock: true, acc: "13500" });
-    expect(await itemByCode("13001")).toBeUndefined(); // no generic air-conditioner stock any more
+    expect(await itemByCode("13001")).toBeUndefined();
+    expect((await sql<{ n: number }[]>`select count(*)::int as n from catalog_items where company_id = ${s.a} and is_stock`)[0]!.n).toBe(0);
   });
 
-  it("sub codes: 13110 → 1311001, then 1311002; 13400 holds the sheet's 1340001–1340004 → 1340005; the code is editable inside the parent's range, unique; outside is refused", async () => {
+  it("sub codes: 13110 → 1311001, then 1311002; 13400 → 1340001; the code is editable inside the parent's range, unique; outside is refused", async () => {
     const a1 = await account("13110"), a4 = await account("13400");
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json).toEqual({ code: "1311001", sub_codes: true, taken: false });
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a4.id}`)).json).toEqual({ code: "1340005", sub_codes: true, taken: false });
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a4.id}`)).json).toEqual({ code: "1340001", sub_codes: true, taken: false });
+    expect((await product("ទុយោស្ពាន់ 16mm", { code: "1340001", inventory_account_id: a4.id, unit: "m" })).status).toBe(200); // the copper the later tests use
     expect((await product("Panasonic 1.5 HP", { code: "1311001", inventory_account_id: a1.id })).status).toBe(200);
     expect(await itemByCode("1311001")).toMatchObject({ is_stock: true, acc: "13110" }); // D-144: never in the price list
     expect(((await ceo.req("GET", "/api/catalog")).json as any[]).some((i) => i.code === "1311001")).toBe(false);
@@ -84,8 +84,8 @@ describe("4 · stock in as a direct entry, stock out to a technician (D-144: the
   it("a new name on 18000 → item 18001 made on the way; a service is never stock; the only location is the warehouse", async () => {
     const a18 = await account("14500");
     const r = await inv(admin, "/in", { name: "ស្កុតបិទ", account_id: a18.id, unit: "pcs", qty: 7.5, unit_cost: 40, pay: "cash_usd" });
+    expect(r.json).toMatchObject({ created: true, total: 300, balance: 7.5 }); // (a 500 prints its message here)
     expect(r.status).toBe(200);
-    expect(r.json).toMatchObject({ created: true, total: 300, balance: 7.5 });
     expect(await itemByCode("1450001")).toMatchObject({ is_stock: true, track_stock: true, acc: "14500" });
     expect(await stockOf(r.json.item_id)).toMatchObject({ qty: 7.5, value: 300, account_code: "14500" });
     const svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុល", kind: "service", category: "mep", unit: "job", sell_price: 3000 })).json.id;

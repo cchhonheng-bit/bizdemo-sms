@@ -4,7 +4,7 @@
 // in four columns with the gross profit.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, PW, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { sql, tx } from "../src/db.js";
 import { config } from "../src/config.js";
 import { hashPassword } from "../src/lib/password.js";
@@ -22,7 +22,7 @@ beforeAll(async () => {
   config.shop.features = "website,subscribe,reminders,inventory,accounting";
   await resetDb(); s = await seed(); app = await makeApp();
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-    values (${s.a}, 'cfo', 'CFO', 'cfo', '+85512000900', ${await hashPassword("Cfo-pass-2026!")}, false, false) returning id`)[0]!.id;
+    values (${s.a}, 'cfo', 'CFO', 'cfo', '+85512000900', ${await hashPassword(PW)}, false, false) returning id`)[0]!.id;
   ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin"); cfo = await loginAs(app, "cfo");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
   expect((await acc(cfo, "/accounts")).status).toBe(200); // the chart
@@ -33,6 +33,7 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("D-165 the chart of 25-10", () => {
   it("a shop still on the 23-10 codes is moved in place: accounts keep their ids and movements, items are re-coded, the generic 13001 is kept switched off", async () => {
     // put the shop back on the 23-10 codes (as One Team's live shop is): the reverse of the map, plus the old generic AC account with a movement
+    for (const [code, acc] of [["1340001", "13400"], ["1350003", "13500"]]) expect((await ceo.req("POST", "/api/catalog", { name_km: `item ${code}`, kind: "product", category: "mep", unit: "m", sell_price: 100, code, inventory_account_id: (await account(acc)).id })).status).toBe(200);
     await tx(null, async (t) => {
       for (const [v1, v2] of [...V1_TO_V2].reverse()) await t`update accounts set code = ${v1} where company_id = ${s.a} and code = ${v2}`;
       await t`update catalog_items set code = '14001' where company_id = ${s.a} and code = '1340001'`;
@@ -125,7 +126,7 @@ describe("D-166 opening balances on any other balance-sheet account", () => {
   it("a second shop: capital 30001, customer deposits 20004 and staff advances 12001 enter with the balances; a P&L account or a group is refused", async () => {
     const ceoB = await loginAs(app, "ceo_b");
     const cfoB = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
-      values (${s.b}, 'cfo_b', 'CFO B', 'cfo', '+85512000901', ${await hashPassword("Cfo-pass-2026!")}, false, false) returning id`)[0]!.id;
+      values (${s.b}, 'cfo_b', 'CFO B', 'cfo', '+85512000901', ${await hashPassword(PW)}, false, false) returning id`)[0]!.id;
     expect(cfoB).toBeTruthy();
     const c = await loginAs(app, "cfo_b");
     expect((await acc(c, "/accounts")).status).toBe(200);

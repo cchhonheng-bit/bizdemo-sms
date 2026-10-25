@@ -40,7 +40,7 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("C1 chart of accounts", () => {
   it("Cambodian SME template; permitted staff add / edit; unused non-system account can be deleted; GM / technician have no access", async () => {
     const list = (await acc(cfo, "/accounts")).json as any[];
-    for (const c of ["11001", "11002", "11003", "11004", "12001", "12002", "18000", "20003", "20004", "20005", "21002", "30001", "30002", "30003", "30004", "30005", "40001", "40002", "40004", "40005", "40006", "40007", "50001", "50002", "50003", "50005", "50010", "50012", "50013"])
+    for (const c of ["11001", "11002", "11003", "11004", "12001", "12002", "14500", "20003", "20004", "20005", "21002", "30001", "30002", "30003", "30004", "30005", "40001", "40002", "40004", "40005", "40006", "40007", "50001", "50002", "50003", "50005", "50010", "50012", "50013"])
       expect(list.map((a) => a.code)).toContain(c);
     expect((await acc(admin, "/accounts", { code: "50020", name_km: "ថ្លៃសម្អាត", name_en: "Cleaning", type: "expense" })).status).toBe(200);
     expect((await acc(admin, "/accounts", { code: "50020", name_km: "x", type: "expense" })).json.error).toBe("CODE_EXISTS");
@@ -64,7 +64,7 @@ describe("C1 chart of accounts", () => {
     const i = await invoice([{ kind: "service", qty: 1, unit_price: 5000 }]);
     await admin.req("POST", `/api/invoices/${i}/issue`);
     await admin.req("POST", `/api/invoices/${i}/payments`, { amount: 1000, currency: "usd", method: "cash_usd" });
-    expect((await admin.req("POST", "/api/inventory/in", { name: "បំពង់", account_id: (await code("18000")).id, unit: "pcs", qty: 10, unit_cost: 150, opening: true })).json).toMatchObject({ created: true, total: 1500 });
+    expect((await admin.req("POST", "/api/inventory/in", { name: "បំពង់", account_id: (await code("14500")).id, unit: "pcs", qty: 10, unit_cost: 150, opening: true })).json).toMatchObject({ created: true, total: 1500 });
     expect(await entries()).toBe(0);
   });
 });
@@ -81,7 +81,7 @@ describe("opening balances (go-live)", () => {
     expect(r.json.opening_equity).toBe(20000 + 10000 + 150000 + 50000 + 12000 - 8000);
     expect(r.json.backlog).toMatchObject({ invoices: 1, payments: 1, stock: 1, transactions: 1, before_start: 0, failed: 0 });
     expect(await bal("11001")).toBe(20000 + 1000 - 100); expect(await bal("11004")).toBe(10000); expect(await bal("11003")).toBe(150000); expect(await bal("11002")).toBe(50000);
-    expect(await bal("12002")).toBe(16000); expect(await bal("18000")).toBe(1500); expect(await bal("20003")).toBe(-8000); expect(await bal("50010")).toBe(100);
+    expect(await bal("12002")).toBe(16000); expect(await bal("14500")).toBe(1500); expect(await bal("20003")).toBe(-8000); expect(await bal("50010")).toBe(100);
     expect(await bal("30004")).toBe(-r.json.opening_equity - 1500); // the opening stock move posts Dr stock / Cr opening equity
     const debt = ((await admin.req("GET", "/api/invoices/debts")).json as any[]).find((d) => d.customer_id === cust);
     expect(debt.total).toBe(16000); // the old paper debt is collectable like any invoice
@@ -200,12 +200,12 @@ describe("C3 automatic postings from the app", () => {
   });
 
   it("stock in on credit: Dr inventory / Cr payable; loss adjustment at average cost; handed to a technician for a job: Dr cost / Cr inventory; inventory account = stock value", async () => {
-    const [inv0, ap0, adj0, cogs0] = await Promise.all(["18000", "20003", "50012", "50005"].map(bal));
-    prod = (await admin.req("POST", "/api/inventory/in", { name: "ខ្សែភ្លើង", account_id: (await code("18000")).id, unit: "m", qty: 10, unit_cost: 150, pay: "credit", supplier: "ហាងអគ្គិសនី" })).json.item_id;
-    expect(await bal("18000")).toBe(inv0 + 1500);
+    const [inv0, ap0, adj0, cogs0] = await Promise.all(["14500", "20003", "50012", "50005"].map(bal));
+    prod = (await admin.req("POST", "/api/inventory/in", { name: "ខ្សែភ្លើង", account_id: (await code("14500")).id, unit: "m", qty: 10, unit_cost: 150, pay: "credit", supplier: "ហាងអគ្គិសនី" })).json.item_id;
+    expect(await bal("14500")).toBe(inv0 + 1500);
     expect(await bal("20003")).toBe(ap0 - 1500);
     await admin.req("POST", "/api/inventory/adjust", { item_id: prod, qty: -2, reason: "ខូច" });
-    expect(await bal("18000")).toBe(inv0 + 1200);
+    expect(await bal("14500")).toBe(inv0 + 1200);
     expect(await bal("50012")).toBe(adj0 + 300);
     // the technician collects 3 m for a job (the Admin records it)
     const b = (await admin.req("POST", "/api/bookings", { customer_id: cust, type: "A", category: "mep", service_text: "ភ្លើង", zone: "inside", ...span(when()) })).json.id;
@@ -213,7 +213,7 @@ describe("C3 automatic postings from the app", () => {
     expect((await admin.req("POST", "/api/inventory/out", { item_id: prod, qty: 3, technician_id: s.users.kim, booking_id: b })).status).toBe(200);
     expect(await bal("50005")).toBe(cogs0 + 450);
     const items = (await admin.req("GET", "/api/inventory/items")).json as any[];
-    expect(await bal("18000")).toBe(items.reduce((x, i) => x + i.value, 0)); // books = stock value
+    expect(await bal("14500")).toBe(items.reduce((x, i) => x + i.value, 0)); // books = stock value
     await tbOk();
   });
 
@@ -255,7 +255,7 @@ describe("C4 other transactions", () => {
     expect((await app.inject({ method: "GET", url: `/api/accounting/files/${withPhoto.attachment_id}`, headers: { cookie: cfo.cookie! } })).statusCode).toBe(200);
     expect((await app.inject({ method: "GET", url: `/api/files/${withPhoto.attachment_id}`, headers: { cookie: gm.cookie! } })).statusCode).toBe(404); // receipts: accounting only
     expect((await t({ type: "expense", account_code: "50010", amount: 50000, currency: "khr", pay: "cash_khr", memo: "សាំង" })).status).toBe(200); // 50,000៛ = $12.50
-    expect((await t({ type: "purchase", account_code: "13001", amount: 20000, pay: "credit", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
+    expect((await t({ type: "purchase", account_code: "13110", amount: 20000, pay: "credit", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
     expect((await t({ type: "supplier_payment", amount: 5000, pay: "aba", supplier: "ហាងឧបករណ៍" })).status).toBe(200);
     expect((await t({ type: "other_income", amount: 700, pay: "aba", memo: "លក់ក្រដាសចាស់" })).status).toBe(200);
     expect((await t({ type: "owner_contribution", amount: 50000, pay: "aba", memo: "ដាក់ដើមទុន" })).status).toBe(200);
@@ -269,7 +269,7 @@ describe("C4 other transactions", () => {
     expect(await bal("11001")).toBe(cash - 1500 - 2000 - 3000);
     expect(await bal("11004")).toBe(cashKhr - 1250);
     expect(await bal("11003")).toBe(bank - 5000 + 700 + 50000 + 3000);
-    expect(await bal("13001")).toBe(equip + 20000);
+    expect(await bal("13110")).toBe(equip + 20000);
     expect(await bal("20003")).toBe(ap - 20000 + 5000);
     expect(await bal("30001")).toBe(cap - 50000);
     expect(await bal("30005")).toBe(draw + 2000);
@@ -427,7 +427,7 @@ describe("C7 client update (D-92): statement flag, GL by code, income statement 
     const op = await accB("/opening", { date: "2025-01-15", cash_usd: 100000, banks: { aba: 50000, "11005": 30000 }, stock: 20000, retained_earnings: 70000 });
     expect(op.status).toBe(200); expect(op.json.retained_earnings).toBe(70000);
     const b = async (c: string) => ((await accB("/trial-balance?to=2026-12-31")).json.rows as any[]).find((r) => r.code === c)?.balance ?? 0;
-    expect(await b("11005")).toBe(30000); expect(await b("18000")).toBe(20000); expect(await b("30003")).toBe(-70000); expect(await b("30004")).toBe(-(100000 + 50000 + 30000 + 20000 - 70000));
+    expect(await b("11005")).toBe(30000); expect(await b("14500")).toBe(20000); expect(await b("30003")).toBe(-70000); expect(await b("30004")).toBe(-(100000 + 50000 + 30000 + 20000 - 70000));
     const cash = (await code("11001", ceoB)).id, rev = (await code("40005", ceoB)).id, fuel = (await code("50010", ceoB)).id;
     expect((await accB("/journal", { date: "2025-06-30", memo: "ចំណូល", lines: [{ account_id: cash, debit: 100000 }, { account_id: rev, credit: 100000 }] })).status).toBe(200);
     expect((await accB("/journal", { date: "2025-07-31", memo: "សាំង", lines: [{ account_id: fuel, debit: 30000 }, { account_id: cash, credit: 30000 }] })).status).toBe(200);

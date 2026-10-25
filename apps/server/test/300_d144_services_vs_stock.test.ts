@@ -272,7 +272,7 @@ describe("C · the books start later than the work: nothing is refused, everythi
 
 describe("D · One Team's set-up by HangKH Support (shop-setup)", () => {
   it("a new price-list line by code with its stock link (never stock) and the planned books start (01-10-2026); dry run writes nothing", async () => {
-    const input = { books_start: "2026-10-01", catalog: [{ code: "CU-M", name_km: "ទុយោស្ពាន់ (ម៉ែត្រ) B", kind: "product" as const, unit: "ម៉ែត្រ", sell_price: 1500, stock_link: "14000" }] };
+    const input = { books_start: "2026-10-01", catalog: [{ code: "CU-M", name_km: "ទុយោស្ពាន់ (ម៉ែត្រ) B", kind: "product" as const, unit: "ម៉ែត្រ", sell_price: 1500, stock_link: "13400" }] };
     const plan = await shopSetup("oneteam", input, false);
     expect(plan.some((l) => /CU-M new: .* stock link 14000/.test(l))).toBe(true);
     expect(plan.some((l) => /books start \(planned\): 2026-10-01/.test(l))).toBe(true);

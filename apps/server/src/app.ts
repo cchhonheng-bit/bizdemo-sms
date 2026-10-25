@@ -107,7 +107,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     if (e.statusCode && e.statusCode < 500) return reply.status(e.statusCode).send({ error: e.code ?? "BAD_REQUEST" });
     req.log.error(err);
     hubAlert("error", `${req.method} ${req.url.split("?")[0]}: ${(err as Error)?.message ?? "error"}`);
-    return reply.status(500).send({ error: "INTERNAL" });
+    return reply.status(500).send({ error: "INTERNAL", ...(process.env.NODE_ENV === "test" ? { message: String((err as Error)?.message), where: (err as Error)?.stack?.split("\n").slice(1, 4) } : {}) });
   });
   const hasWeb = existsSync(join(config.webDist, "index.html"));
   // D-96: "/" is the public website, the staff app lives under /app. Pages of the app as they were addressed before
