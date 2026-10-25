@@ -816,6 +816,9 @@ const gmDev = await device({ desktop: true });
   });
   await step(A, "Income Statement (inside / outside the borey, last month) · Balance Sheet (assets = liabilities + equity)", page, async () => {
     await page.locator('[data-testid="rep-pl"]').click(); await page.locator('[data-testid="is-zones"]').waitFor({ timeout: 10_000 });
+    await page.locator('[data-testid="is-gross"]').waitFor({ timeout: 5_000 }); // D-168: revenue − cost of goods = gross profit
+    must(await page.locator('[data-testid="is-table"] thead th').count() === 5, `income statement columns ${await page.locator('[data-testid="is-table"] thead th').count()} (want account + 4)`);
+    must(/ដើមឆ្នាំដល់ខែមុន/.test(await page.locator('[data-testid="is-table"] thead').innerText()), "the YTD-to-last-month column is missing");
     await page.locator('[data-testid="rep-bs"]').click(); await page.getByText(/ទ្រព្យសកម្ម = បំណុល \+ មូលធន/).first().waitFor({ timeout: 10_000 });
     await page.setViewportSize({ width: 360, height: 780 }); await fits(page, "accounting-360"); await page.setViewportSize({ width: 1280, height: 800 });
   });
