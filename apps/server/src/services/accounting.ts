@@ -707,7 +707,9 @@ export const profitLoss = incomeStatement;
 export async function balanceSheet(user: SessionUser, to: string) {
   const fx = await rateAt(user.companyId, to);
   const prevEnd = dayBefore(to.slice(0, 8) + "01");
-  const [cur, prev] = await Promise.all([sums(user.companyId, to), sums(user.companyId, prevEnd)]);
+  const bk = await books(sql, user.companyId), fy = fyStart(to, bk.fy_month), fyPrev = fyStart(prevEnd, bk.fy_month);
+  // D-171: this year's result runs from the fiscal-year start; what earlier years left open (not closed) is shown apart — the total is the same
+  const [cur, prev, curYear, prevYear] = await Promise.all([sums(user.companyId, to), sums(user.companyId, prevEnd), sums(user.companyId, to, fy), sums(user.companyId, prevEnd, fyPrev)]);
   const prevOf = new Map(prev.map((x) => [x.id, x]));
   const s = cur.filter((x) => x.d || x.c || prevOf.get(x.id)?.d || prevOf.get(x.id)?.c);
   const pick = (t: AccType, sign: 1 | -1) => s.filter((x) => x.type === t).map((x) => {
@@ -717,12 +719,15 @@ export async function balanceSheet(user: SessionUser, to: string) {
   const assets = pick("asset", 1), liabilities = pick("liability", -1), equity = pick("equity", -1);
   const tot = (r: { amount: number }[]) => r.reduce((a, x) => a + x.amount, 0), totPrev = (r: { previous: number }[]) => r.reduce((a, x) => a + x.previous, 0);
   const earnings = (xs: Sum[]) => xs.filter((x) => x.type === "income" || x.type === "expense").reduce((a, x) => a + x.c - x.d, 0);
-  const current_earnings = earnings(cur);
+  const current_earnings = earnings(curYear), prior_earnings = earnings(cur) - current_earnings;
+  const prev_current = earnings(prevYear), prev_prior = earnings(prev) - prev_current;
   const assets_total = tot(assets), liabilities_total = tot(liabilities), equity_total = tot(equity);
   // D-141: the year's profit not closed yet is shown on the client's account 30002 «ចំណេញ/ខាត (-) ក្នុងឆ្នាំ»
   const current_earnings_account = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select code, name_km, name_en from accounts where company_id = ${user.companyId} and role = 'current_profit'`)[0] ?? null;
-  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, current_earnings_account, assets_total, liabilities_total, equity_total,
-    previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: earnings(prev) },
+  const prior_earnings_account = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select code, name_km, name_en from accounts where company_id = ${user.companyId} and role = 'retained'`)[0] ?? null;
+  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, current_earnings_account, prior_earnings, prior_earnings_account, assets_total, liabilities_total, equity_total,
+    previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: prev_current, prior_earnings: prev_prior },
+    prior_earnings_khr: usdToKhr(prior_earnings, fx),
     assets_total_khr: usdToKhr(assets_total, fx), liabilities_total_khr: usdToKhr(liabilities_total, fx), equity_total_khr: usdToKhr(equity_total, fx), current_earnings_khr: usdToKhr(current_earnings, fx) };
 }
 
@@ -851,7 +856,7 @@ export async function exportAcct(user: SessionUser, kind: AcctExport, q: { from?
     const sec = (name: string, rows: { code: string; name_km: string; amount: number }[]) => rows.map((r) => [name, r.code, r.name_km, money(r.amount), usdToKhr(r.amount, b.fx_rate_khr)]);
     return csv([["section", "code", "account", "usd", "khr"], ...sec("asset", b.assets), ["asset", "", "TOTAL", money(b.assets_total), b.assets_total_khr],
       ...sec("liability", b.liabilities), ["liability", "", "TOTAL", money(b.liabilities_total), b.liabilities_total_khr], ...sec("equity", b.equity),
-      ["equity", b.current_earnings_account?.code ?? "", b.current_earnings_account?.name_km ?? "PROFIT NOT YET CLOSED", money(b.current_earnings), b.current_earnings_khr], ["equity", "", "TOTAL", money(b.equity_total + b.current_earnings), usdToKhr(b.equity_total + b.current_earnings, b.fx_rate_khr)],
+      ["equity", b.current_earnings_account?.code ?? "", b.current_earnings_account?.name_km ?? "PROFIT NOT YET CLOSED", money(b.current_earnings), b.current_earnings_khr], ["equity", b.prior_earnings_account?.code ?? "", "EARLIER YEARS NOT CLOSED", money(b.prior_earnings), b.prior_earnings_khr], ["equity", "", "TOTAL", money(b.equity_total + b.current_earnings), usdToKhr(b.equity_total + b.current_earnings, b.fx_rate_khr)],
       [], ["rate_khr", b.fx_rate_khr]]);
   }
   if (kind === "ledger") {
