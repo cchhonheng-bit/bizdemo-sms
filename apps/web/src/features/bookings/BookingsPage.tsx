@@ -35,7 +35,7 @@ export default function BookingsPage() {
   const active = [day, cat, zone, tech].filter(Boolean).length;
 
   const dayRange = useMemo(() => { const today = todayLocal(), monday = presetRange("week", today)[0];
-    return day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : null; }, [day, pickDate]);
+    return (day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : null) as [string, string] | null; }, [day, pickDate]);
   // D-171: the same filters drive the board and the Excel file
   const exportParams = { ...(dayRange ? { from: dayRange[0], to: dayRange[1] } : {}), category: cat || undefined, zone: zone || undefined, technician: tech ? [tech] : [],
     closed: hideClosed ? "0" as const : "1" as const, cancelled: showCancelled ? "1" as const : "0" as const, q: q.trim() || undefined };
