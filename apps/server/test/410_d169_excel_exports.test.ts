@@ -235,12 +235,13 @@ describe("the other reports (smoke)", () => {
 
 describe("D-171 the on-screen table is the file", () => {
   it("GET .json = the file's sheet without the header block (same header row, same rows, same count)", async () => {
+    const audited0 = Number((await sql<{ n: string }[]>`select count(*)::text as n from audit_log where action = 'report.export' and row_id = 'tech-withdrawals'`)[0]!.n);
     const p = await app.inject({ method: "GET", url: `/api/export/tech-withdrawals.json?from=${d(-7)}&to=${today}`, headers: { cookie: admin.cookie! } });
     expect(p.statusCode).toBe(200);
     const j = p.json(), f = await xl(admin, "tech-withdrawals", { from: d(-7), to: today });
     const text = (x: unknown) => (x === null || x === undefined ? "" : typeof x === "object" ? String((x as { v: unknown }).v ?? "") : String(x));
     expect(j.sheets[0].rows[0].map(text)).toEqual(f.rows[HEAD]); expect(j.sheets[0].rows.length).toBe(f.rows.length - HEAD); expect(j.rows).toBe(f.rowsHeader);
-    expect(Number((await sql<{ n: string }[]>`select count(*)::text as n from audit_log where action = 'report.export' and row_id = 'tech-withdrawals' and created_at > now() - interval '2 seconds'`)[0]!.n)).toBe(1); // only the file is audited
+    expect(Number((await sql<{ n: string }[]>`select count(*)::text as n from audit_log where action = 'report.export' and row_id = 'tech-withdrawals'`)[0]!.n) - audited0).toBe(1); // only the file is audited, not the screen table
   });
 });
 
