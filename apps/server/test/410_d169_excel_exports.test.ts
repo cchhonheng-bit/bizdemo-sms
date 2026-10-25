@@ -47,9 +47,12 @@ beforeAll(async () => {
   d = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
   expect((await acc(cfo, "/opening", { date: d(-10), cash_usd: 500000 })).status).toBe(200); // the books start 10 days ago → dated entries below
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី ខ្មែរ", phones: ["012 111 222"], zone: "inside" })).json.id;
-  copper = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 16mm (16*0.72)", kind: "product", category: "mep", unit: "ម៉ែត្រ", sell_price: 1500, code: "1340001", inventory_account_id: await account("13400") })).json.id;
-  expect((await inv(admin, "/in", { item_id: copper, qty: 10, unit_cost: 1000, pay: "cash_usd", date: d(-6) })).status).toBe(200); // 10 m @ $10
-  ac = (await inv(admin, "/in", { name: "ម៉ាស៊ីនត្រជាក់ Panasonic 1.5HP", account_id: await account("13110"), qty: 2, total: 90000, pay: "aba", paid: 50000, supplier: "ហាង A", supplier_invoice: "INV-A-1", date: d(-6) })).json.item_id;
+  const cp = await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 16mm (16*0.72)", kind: "product", category: "mep", unit: "ម៉ែត្រ", sell_price: 1500, code: "1340001", inventory_account_id: await account("13400") });
+  expect(cp.json, JSON.stringify(cp.json)).toHaveProperty("id"); copper = cp.json.id;
+  const in1 = await inv(admin, "/in", { item_id: copper, qty: 10, unit_cost: 1000, pay: "cash_usd", date: d(-6) }); // 10 m @ $10
+  expect(in1.json, JSON.stringify(in1.json)).toMatchObject({ created: false });
+  const in2 = await inv(admin, "/in", { name: "ម៉ាស៊ីនត្រជាក់ Panasonic 1.5HP", account_id: await account("13110"), qty: 2, total: 90000, pay: "aba", paid: 50000, supplier: "ហាង A", supplier_invoice: "INV-A-1", date: d(-6) });
+  expect(in2.json, JSON.stringify(in2.json)).toHaveProperty("item_id"); ac = in2.json.item_id;
   job = (await admin.req("POST", "/api/bookings", { customer_id: inside, type: "A", category: "mep", service_text: "ដំឡើងម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(new Date(Date.now() + 3600e3)) })).json.id;
   expect((await admin.req("POST", `/api/bookings/${job}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   expect((await inv(admin, "/out", { item_id: copper, qty: 6, technician_id: s.users.kim, booking_id: job, date: d(-3) })).status).toBe(200);   // kim, for the job
