@@ -43,7 +43,7 @@ export function Payables({ manage }: { manage: boolean }) {
 function PayDialog({ p, onClose }: { p: Payable; onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
-  const fxq = useQuery({ queryKey: ["acct-lock"], queryFn: api.accounting.lock });
+  const fxq = useQuery({ queryKey: ["acct-info"], queryFn: api.accounting.info });
   const fx = fxq.data?.fx_rate_khr ?? 4100;
   const [currency, setCurrency] = useState<"usd" | "khr">("usd");
   const [method, setMethod] = useState<Method>("cash_usd");

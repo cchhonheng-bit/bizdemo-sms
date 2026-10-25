@@ -25,7 +25,7 @@ export function IncomeStatement({ from, to, onPick }: { from: string; to: string
   const Row = ({ r }: { r: IsRow }) => (
     <tr className="border-t border-grey-line">
       <td className="py-2 pr-2"><button className="text-left min-h-[36px]" onClick={() => onPick(r)}>{name(r)}</button></td>
-      {cols.map((col) => <td key={col.key} className="py-2 px-2 text-right tabular whitespace-nowrap">{signedUsd(r[col.key])}</td>)}
+      {cols.map((col) => <td key={col.key} className="py-2 px-2 text-right tabular whitespace-nowrap">{signedUsd((r as IsCol)[col.key])}</td>)}
     </tr>
   );
   const TotalRow = ({ label, x, strong, testid }: { label: string; x: IsCol; strong?: boolean; testid?: string }) => (

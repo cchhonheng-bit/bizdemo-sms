@@ -195,7 +195,6 @@ export type JournalEntry = { id: string; number: string; date: string; memo: str
 export type AcctRow = { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; amount: number };
 export type TrialBalance = { from: string | null; to: string; fx_rate_khr: number; rows: (AcctRow & { debit: number; credit: number; balance: number })[]; total_debit: number; total_credit: number;
   total_debit_khr: number; total_credit_khr: number; balanced: boolean };
-export type IsRow = AcctRow & { previous: number; variance: number };
 export type IsCol = { amount: number; last: number; ytd_prev: number; ytd: number };
 export type IsRow = AcctRow & IsCol & { previous: number; variance: number };
 /** D-168: four columns (the period · the month before · the fiscal year to the end of that month · the fiscal year to the period's end) and the gross profit */
