@@ -31,7 +31,7 @@ const xl = async (c: Client, report: string, q: Record<string, string> = {}) => 
 };
 const HEAD = 6;
 const num = (v: string | undefined) => Number(v ?? 0);
-const findRow = (rows: string[][], pred: (r: string[]) => boolean) => rows.find(pred);
+const findRow = (rows: string[][], pred: (r: string[]) => unknown) => rows.find((r) => !!pred(r));
 const span = (start: Date) => ({ scheduled_at: start.toISOString(), ends_at: new Date(start.getTime() + 2 * 3600e3).toISOString() });
 
 beforeAll(async () => {
