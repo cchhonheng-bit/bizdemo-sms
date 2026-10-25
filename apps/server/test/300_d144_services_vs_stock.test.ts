@@ -147,7 +147,7 @@ describe("A · the price list and the stock are separate", () => {
     const row = r.json.rows.find((x: any) => x.booking_id === job && x.group_code === "13400");
     expect(row).toMatchObject({ out_qty: 6, invoiced_qty: 5, difference: 1, technician: "Kim", customer_name: "ក្នុងបុរី", group_name: expect.any(String) });
     expect(row.booking_number).toMatch(/^BK-/);
-    expect(r.json.rows.find((x: any) => x.place === "បុរីពិភពថ្មី ផ្ទះ 12")).toMatchObject({ booking_id: null, group_code: "13001", out_qty: 1, invoiced_qty: 0, difference: 1 });
+    expect(r.json.rows.find((x: any) => x.place === "បុរីពិភពថ្មី ផ្ទះ 12")).toMatchObject({ booking_id: null, group_code: "13110", out_qty: 1, invoiced_qty: 0, difference: 1 });
     expect(r.json.totals.find((t: any) => t.group_code === "13400")).toMatchObject({ out_qty: 6, invoiced_qty: 5, difference: 1 });
     expect((await inv(admin, `/reconcile?from=${today}&to=${today}&technician=${s.users.kim}`)).json.rows.length).toBe(r.json.rows.length);
     expect((await inv(admin, `/reconcile?from=${today}&to=${today}&technician=${s.users.dara}`)).json.rows.length).toBe(0);
@@ -240,8 +240,8 @@ describe("C · the books start later than the work: nothing is refused, everythi
     expect(await entries()).toBe(12); // the opening + 11
     const tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;
     expect(tb.balanced).toBe(true);
-    expect(await bal("14000")).toBe(3000 - 1200);         // 15 m in at $2 − 6 m out at cost
-    expect(await bal("13001")).toBe(85000 - 28333);       // 3 in ($600 + $250) − 1 out at the average
+    expect(await bal("13400")).toBe(3000 - 1200);         // 15 m in at $2 − 6 m out at cost
+    expect(await bal("13110")).toBe(85000 - 28333);       // 3 in ($600 + $250) − 1 out at the average
     expect(await bal("50001")).toBe(28333);               // 13xxx → goods sold
     expect(await bal("50005")).toBe(1200);                // 14000 → technicians' materials
     expect(await bal("20003")).toBe(-60000);              // on credit
@@ -265,8 +265,8 @@ describe("C · the books start later than the work: nothing is refused, everythi
     expect(await bal("50010")).toBe(3500);
     const m = (await inv(admin, `/month-end?to=${today}`)).json;
     expect(m.difference).toBe(0);
-    expect(m.accounts.find((a: any) => a.code === "14000")).toMatchObject({ qty: 9, value: 1800, balance: 1800, difference: 0 });
-    expect(m.accounts.find((a: any) => a.code === "13001")).toMatchObject({ qty: 2, value: 56667, balance: 56667, difference: 0 });
+    expect(m.accounts.find((a: any) => a.code === "13400")).toMatchObject({ qty: 9, value: 1800, balance: 1800, difference: 0 });
+    expect(m.accounts.find((a: any) => a.code === "13110")).toMatchObject({ qty: 2, value: 56667, balance: 56667, difference: 0 });
   });
 });
 
@@ -274,7 +274,7 @@ describe("D · One Team's set-up by HangKH Support (shop-setup)", () => {
   it("a new price-list line by code with its stock link (never stock) and the planned books start (01-10-2026); dry run writes nothing", async () => {
     const input = { books_start: "2026-10-01", catalog: [{ code: "CU-M", name_km: "ទុយោស្ពាន់ (ម៉ែត្រ) B", kind: "product" as const, unit: "ម៉ែត្រ", sell_price: 1500, stock_link: "13400" }] };
     const plan = await shopSetup("oneteam", input, false);
-    expect(plan.some((l) => /CU-M new: .* stock link 14000/.test(l))).toBe(true);
+    expect(plan.some((l) => /CU-M new: .* stock link 13400/.test(l))).toBe(true);
     expect(plan.some((l) => /books start \(planned\): 2026-10-01/.test(l))).toBe(true);
     expect(await itemByCode("CU-M")).toBeUndefined();
     await shopSetup("oneteam", input, true);

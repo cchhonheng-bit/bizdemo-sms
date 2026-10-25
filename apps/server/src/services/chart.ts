@@ -196,7 +196,7 @@ export type UpdatePlan = { renamed: { from: string; to: string; name: string }[]
 /** rename the accounts the client re-coded, add the ones the new sheet has, re-code the items under renamed sub-code accounts
  *  (14001 → 1340001 …), keep 13001 (the old generic air-conditioner stock, movements) switched off; idempotent */
 export async function updateChartV2(t: Db, companyId: string, apply: boolean): Promise<UpdatePlan> {
-  const have = new Map((await t<{ code: string; id: string; name_km: string }[]>`select code, id, name_km from accounts where company_id = ${companyId}`).map((a) => [a.code, a]));
+  const have = new Map((await t<{ code: string; id: string; name_km: string; is_active: boolean }[]>`select code, id, name_km, is_active from accounts where company_id = ${companyId}`).map((a) => [a.code, a]));
   const rows = new Map(CHART.map((r) => [r[0], r]));
   const plan: UpdatePlan = { renamed: [], added: [], recoded: [], kept: [], already: false };
   // in order: 18000 → 14500 first frees 18000 for the 13100 group — a snapshot check would skip that pair
@@ -210,7 +210,7 @@ export async function updateChartV2(t: Db, companyId: string, apply: boolean): P
     const items = await t<{ id: string; code: string | null }[]>`select ci.id, ci.code from catalog_items ci join accounts a on a.id = ci.inventory_account_id where a.company_id = ${companyId} and a.code = ${from} order by ci.code`;
     items.forEach((it, i) => { const n = it.code && /^[0-9]+$/.test(it.code) ? Number(it.code.slice(from.replace(/0+$/, "").length)) || i + 1 : i + 1; plan.recoded.push({ from: it.code ?? "", to: `${to}${String(n).padStart(2, "0")}` }); });
   }
-  if (have.has("13001") && !rows.has("13001")) plan.kept.push("13001");
+  if (have.get("13001")?.is_active && !rows.has("13001")) plan.kept.push("13001"); // once switched off the plan has nothing left to do
   plan.already = !plan.renamed.length && !plan.added.length && !plan.recoded.length && !plan.kept.length;
   if (!apply || plan.already) return plan;
   for (const [from, to] of renames) {

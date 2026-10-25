@@ -334,21 +334,21 @@ export async function supplierPay(user: SessionUser, ip: string | null, v: Suppl
       values (${user.companyId}, ${supplier}, ${cents}, ${v.currency}, ${v.currency === "usd" ? cents / 100 : v.amount}, ${fx}, ${v.method}, ${date}::date, ${v.note?.trim() || null}, ${user.id}) returning id::text`)[0]!.id;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.supplier_pay", table: "supplier_payments", rowId: id, new: { supplier, amount: v.amount, currency: v.currency, usd_cents: cents, method: v.method, date, note: v.note ?? null }, ip });
     await postSupplierPay(t, user, { id, supplier, usd_cents: cents, method: v.method, fx, date, khr: v.currency === "khr" ? v.amount : null, note: v.note?.trim() || null });
-    const owed = (await payables(user)).find((p) => p.supplier === supplier)?.owed ?? 0;
+    const owed = (await payables(user, t)).find((p) => p.supplier === supplier)?.owed ?? 0;
     return { id, usd_cents: cents, owed };
   });
 }
 /** per supplier: purchases not paid (value − paid now), + the opening debt entered with the balances, − the payments made; the open
  *  supplier invoice numbers and the last purchase — the same whether the books are started or not */
-export async function payables(user: SessionUser) {
-  const buys = await sql<{ supplier: string; owed: string; invoices: string[] | null; last: string | null; purchases: string }[]>`
+export async function payables(user: SessionUser, db: Db = sql) {
+  const buys = await db<{ supplier: string; owed: string; invoices: string[] | null; last: string | null; purchases: string }[]>`
     select m.supplier, sum(case when m.kind = 'in' then m.value_cents - coalesce(m.paid_cents, case when m.pay = 'credit' then 0 else m.value_cents end)
                               when m.kind = 'reverse' and o.kind = 'in' then -(o.value_cents - coalesce(o.paid_cents, case when o.pay = 'credit' then 0 else o.value_cents end)) else 0 end)::text as owed,
       array_remove(array_agg(distinct m.supplier_invoice) filter (where m.kind = 'in' and m.supplier_invoice is not null and m.value_cents > coalesce(m.paid_cents, case when m.pay = 'credit' then 0 else m.value_cents end)), null) as invoices,
       max(m.move_date)::text as last, count(*) filter (where m.kind = 'in')::text as purchases
     from stock_moves m left join stock_moves o on o.id = m.reversal_of where m.company_id = ${user.companyId} and m.supplier is not null and m.supplier <> '' group by m.supplier`;
-  const opening = ((await sql<{ d: { payables?: { supplier: string; amount: number }[] } | null }[]>`select opening_draft as d from company_settings where company_id = ${user.companyId}`)[0]?.d?.payables ?? []);
-  const paid = await sql<{ supplier: string; paid: string; last: string | null }[]>`select supplier, sum(amount_cents)::text as paid, max(paid_on)::text as last from supplier_payments where company_id = ${user.companyId} and reversal_of is null group by supplier`;
+  const opening = ((await db<{ d: { payables?: { supplier: string; amount: number }[] } | null }[]>`select opening_draft as d from company_settings where company_id = ${user.companyId}`)[0]?.d?.payables ?? []);
+  const paid = await db<{ supplier: string; paid: string; last: string | null }[]>`select supplier, sum(amount_cents)::text as paid, max(paid_on)::text as last from supplier_payments where company_id = ${user.companyId} and reversal_of is null group by supplier`;
   const names = new Set([...buys.map((b) => b.supplier), ...opening.map((o) => o.supplier.trim()), ...paid.map((p) => p.supplier)]);
   return [...names].map((supplier) => {
     const b = buys.find((x) => x.supplier === supplier), o = opening.filter((x) => x.supplier.trim() === supplier).reduce((a, x) => a + x.amount, 0), p = paid.find((x) => x.supplier === supplier);
