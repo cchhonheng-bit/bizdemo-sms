@@ -19,7 +19,7 @@ import { cell } from "./reports-extra.js";
 import { insertChart, isGoodsStockCode, parentOf, type AccType, type Role } from "./chart.js";
 
 export type { AccType } from "./chart.js";
-export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing";
+export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing" | "supplier_pay";
 export const METHODS = ["cash_usd", "cash_khr", "aba", "acleda"] as const;
 const METHOD_ROLE: Record<string, Role> = { cash_usd: "cash_usd", cash_khr: "cash_khr", aba: "bank_aba", acleda: "bank_acleda", credit: "ap" };
 const REVERSIBLE: Source[] = ["manual", "other"];

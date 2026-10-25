@@ -4,7 +4,7 @@
 // in four columns with the gross profit.
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
-import { loginAs, makeApp, PLACE, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { loginAs, makeApp, resetDb, seed, type Client, type Seed } from "./helpers.js";
 import { sql, tx } from "../src/db.js";
 import { config } from "../src/config.js";
 import { hashPassword } from "../src/lib/password.js";
@@ -15,7 +15,7 @@ let ceo: Client, admin: Client, cfo: Client;
 let today: string;
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
 const inv = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/inventory${path}`, body);
-const account = async (code: string) => (await sql<{ id: string; sub_codes: boolean; is_active: boolean; name_km: string }[]>`select id, sub_codes, is_active, name_km from accounts where company_id = ${s.a} and code = ${code}`)[0];
+const account = async (code: string) => (await sql<{ id: string; sub_codes: boolean; is_active: boolean; name_km: string }[]>`select id, sub_codes, is_active, name_km from accounts where company_id = ${s.a} and code = ${code}`)[0]!;
 const bal = async (code: string) => Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b from journal_lines l join accounts a on a.id = l.account_id where a.company_id = ${s.a} and a.code = ${code}`)[0]!.b);
 
 beforeAll(async () => {
@@ -52,7 +52,7 @@ describe("D-165 the chart of 25-10", () => {
     expect((await account("14000")).id).toBe(copperId); // nothing written by a dry run
     await tx(null, (t) => updateChartV2(t, s.a, true));
     expect((await account("13400")).id).toBe(copperId); // the same row, a new code
-    expect(await account("14000")).toBeUndefined();
+    expect(await account("14000")).toBeUndefined(); // eslint-disable-line
     expect((await account("14500")).sub_codes).toBe(true); expect((await account("18000")).name_km).toContain("Second hand");
     expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac}`)[0]!.c).toBe("13001");
     expect(await account("13001")).toMatchObject({ is_active: false }); expect((await account("13001")).name_km).toContain("មុន ២៥-១០");
