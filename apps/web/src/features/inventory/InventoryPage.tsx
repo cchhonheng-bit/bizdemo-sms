@@ -3,6 +3,7 @@
 // collects (item · qty · technician · job or place · date → the balance left). «កែតម្រូវ» = a count. Stock card per item,
 // «តម្លៃស្តុកចុងខែ» against the books, «ផ្ទៀងផ្ទាត់សម្ភារំ» = stock out vs invoiced per job and group. Cards on phones.
 import { useMemo, useState } from "react";
+import { ExportPanel } from "@/features/reports/ExportPanel";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -18,7 +19,7 @@ import { todayLocal } from "@/features/invoices/util";
 import { Payables } from "./Payables"; // D-167
 import MonthEnd from "./MonthEnd";
 
-type Tab = "stock" | "monthend" | "reconcile" | "payables";
+type Tab = "stock" | "monthend" | "reconcile" | "payables" | "excel";
 type Op = "in" | "out" | "adjust";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
@@ -27,7 +28,7 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile", "payables"] : can("inventory.manage") ? ["stock", "monthend", "payables"] : ["stock", "monthend"]; // D-167
+  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile", "payables", "excel"] : can("inventory.manage") ? ["stock", "monthend", "payables", "excel"] : ["stock", "monthend", "excel"]; // D-167 · D-169
   const [sp] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
@@ -36,7 +37,9 @@ export default function InventoryPage() {
       <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
         {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
       </div>
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : <Reconcile />}
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : tab === "excel" ? <ExportPanel items={can("cost.read")
+        ? [{ report: "tech-withdrawals", needs: ["range", "technician", "booker"] }, { report: "stock-balance", needs: ["asof"] }, { report: "stock-moves", needs: ["range"] }, { report: "payables", needs: [] }, { report: "stock-reconcile", needs: ["range", "technician"] }]
+        : [{ report: "tech-withdrawals", needs: ["range", "technician", "booker"] }, { report: "stock-balance", needs: ["asof"] }, { report: "stock-moves", needs: ["range"] }, { report: "payables", needs: [] }]} /> : <Reconcile />}
     </div>
   );
 }

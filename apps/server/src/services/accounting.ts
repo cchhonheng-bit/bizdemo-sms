@@ -631,10 +631,10 @@ async function rateAt(companyId: string, day: string): Promise<number> {
   return (await sql<{ fx: number }[]>`select coalesce((select r.rate from fx_rates r where r.company_id = s.company_id and (r.set_at at time zone c.timezone)::date <= ${day}::date
       order by r.set_at desc limit 1), s.fx_rate_khr)::float as fx from company_settings s join companies c on c.id = s.company_id where s.company_id = ${companyId}`)[0]!.fx;
 }
-type Sum = { id: string; code: string; name_km: string; name_en: string | null; type: AccType; d: number; c: number };
+export type Sum = { id: string; code: string; name_km: string; name_en: string | null; type: AccType; d: number; c: number };
 /** debit / credit sums per account up to `to` (from `from`); `noClosingFrom`: leave out year-end closing entries dated on or after that day
  *  (the fiscal year's own closing, so income and expense accounts still show the year; "1900-01-01" = all closings) */
-async function sums(companyId: string, to: string, from?: string, noClosingFrom?: string): Promise<Sum[]> {
+export async function sums(companyId: string, to: string, from?: string, noClosingFrom?: string): Promise<Sum[]> {
   await ensureChart(sql, companyId);
   return (await sql<{ id: string; code: string; name_km: string; name_en: string | null; type: AccType; d: string; c: string }[]>`
     with m as (select l.account_id, sum(l.debit_cents) as d, sum(l.credit_cents) as c from journal_lines l join journal_entries e on e.id = l.entry_id

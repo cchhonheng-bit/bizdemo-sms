@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd } from "@sms/shared";
-import { CheckCircle2, Download } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { api, errCode, type VerifyItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
@@ -15,6 +15,7 @@ import RangePicker from "./RangePicker";
 import CashClose from "./CashClose";
 import AuditLog from "./AuditLog";
 import { presetRange, type Range } from "./range";
+import { ExportPanel } from "./ExportPanel";
 
 type Tab = "summary" | "cash" | "verify" | "audit";
 const dt = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Phnom_Penh" });
@@ -115,13 +116,10 @@ function Summary({ range }: { range: Range }) {
           </div>
         </Card>
       )}
-      <Card title={t("reports.excel")}>
-        <div className="flex flex-wrap gap-2">
-          {(s.revenue ? (["invoices", "payments", "jobs", "attendance"] as const) : (["jobs", "attendance"] as const)).map((k) => (
-            <a key={k} className="btn-secondary" href={api.reports.exportUrl(k, range[0], range[1])} download data-testid={`export-${k}`}><Download size={16} /> {t(`reports.export.${k}`)}</a>
-          ))}
-        </div>
-      </Card>
+      <ExportPanel items={s.revenue
+        ? [{ report: "bookings", needs: ["range", "technician", "booker"] }, { report: "invoices", needs: ["range"] }, { report: "payments", needs: ["range"] }, { report: "receivables", needs: ["asof"] },
+          { report: "tech-performance", needs: ["range", "technician"] }, { report: "attendance", needs: ["range"] }, { report: "customers", needs: [] }]
+        : [{ report: "bookings", needs: ["range", "technician", "booker"] }, { report: "tech-performance", needs: ["range", "technician"] }, { report: "attendance", needs: ["range"] }, { report: "customers", needs: [] }]} />
       {s.attendance && (
         <Card title={t("attendance.title")}>
           <Row label={t("attendance.s.present")} value={`${s.attendance.present}/${s.attendance.people}`} />

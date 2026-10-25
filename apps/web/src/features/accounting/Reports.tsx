@@ -2,6 +2,7 @@
 // trial balance by month (movement · YTD to the previous month · YTD to this month), general ledger by account code —
 // USD with KHR at the rate of that date, Excel (CSV) download; tap an account → its general ledger.
 import { Fragment, useState } from "react";
+import { ExportPanel } from "@/features/reports/ExportPanel";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { formatKhr, formatUsd } from "@sms/shared";
@@ -16,7 +17,7 @@ import { signedUsd, useAccName } from "./acct";
 import { LedgerDialog } from "./Accounts";
 import { IncomeStatement as IS } from "./IncomeStatement"; // D-168: four columns + the gross profit (client 25-10)
 
-type View = "pl" | "bs" | "tb" | "gl";
+type View = "pl" | "bs" | "tb" | "gl" | "xl";
 const monthEnd = (ym: string) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).toISOString().slice(0, 10); };
 
 export default function Reports() {
@@ -28,17 +29,17 @@ export default function Reports() {
   const [ledgerOf, setLedgerOf] = useState<AcctRow | null>(null);
   return (
     <>
-      <div className="grid grid-cols-4 rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
-        {(["pl", "bs", "tb", "gl"] as View[]).map((k) => <button key={k} role="tab" aria-selected={view === k} data-testid={`rep-${k}`} className={`px-1 min-h-[44px] ${view === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(k)}>{t(`acct.rep.${k}`)}</button>)}
+      <div className="grid grid-cols-5 rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
+        {(["pl", "bs", "tb", "gl", "xl"] as View[]).map((k) => <button key={k} role="tab" aria-selected={view === k} data-testid={`rep-${k}`} className={`px-1 min-h-[44px] ${view === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(k)}>{t(`acct.rep.${k}`)}</button>)}
       </div>
-      {view !== "gl" && (
+      {view !== "gl" && view !== "xl" && (
         <Card>
           {view === "pl" ? <RangePicker value={range} onChange={setRange} presets={["month", "last", "week", "today"]} />
             : view === "tb" ? <Field label={t("acct.month")}><Input type="month" value={month} max={todayLocal().slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} data-testid="tb-month" /></Field>
               : <Field label={t("acct.as_of")}><Input type="date" value={asOf} max={todayLocal()} onChange={(e) => e.target.value && setAsOf(e.target.value)} /></Field>}
         </Card>
       )}
-      {view === "pl" ? <IS from={range[0]} to={range[1]} onPick={setLedgerOf} /> : view === "bs" ? <BS to={asOf} onPick={setLedgerOf} /> : view === "tb" ? <TB month={month} onPick={setLedgerOf} /> : <GL />}
+      {view === "pl" ? <IS from={range[0]} to={range[1]} onPick={setLedgerOf} /> : view === "bs" ? <BS to={asOf} onPick={setLedgerOf} /> : view === "tb" ? <TB month={month} onPick={setLedgerOf} /> : view === "xl" ? <ExportPanel items={[{ report: "coa", needs: ["range", "asof"] }, { report: "account-report", needs: ["range", "asof", "account"] }, { report: "trial-balance", needs: ["asof"] }, { report: "income-statement", needs: ["range"] }, { report: "balance-sheet", needs: ["asof"] }, { report: "journal", needs: ["range"] }, { report: "expenses", needs: ["range", "account"] }]} /> : <GL />}
       {ledgerOf && <LedgerDialog account={{ id: ledgerOf.account_id, code: ledgerOf.code, name_km: ledgerOf.name_km, name_en: ledgerOf.name_en }}
         range={view === "pl" ? range : view === "tb" ? [`${month}-01`, monthEnd(month)] : [asOf.slice(0, 8) + "01", asOf]} onClose={() => setLedgerOf(null)} />}
     </>

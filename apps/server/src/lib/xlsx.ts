@@ -82,65 +82,134 @@ const colIndex = (ref: string) => { const letters = /^[A-Z]+/i.exec(ref)?.[0]?.t
 
 // ---------- writer ----------
 export type Cell = string | number | null | undefined;
-export function writeXlsx(sheetName: string, rows: Cell[][], widths: number[] = []): Buffer {
-  const cell = (v: Cell, r: number, c: number) => {
-    if (v === null || v === undefined || v === "") return "";
-    const ref = `${colName(c)}${r + 1}`, s = r === 0 ? ' s="1"' : "";
-    if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}"${s}><v>${v}</v></c>`;
-    const text = String(v);
-    return `<c r="${ref}" t="inlineStr"${s}><is><t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ""}>${escXml(text)}</t></is></c>`;
-  };
-  const cols = widths.length ? `<cols>${widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>` : "";
-  const sheet = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
-    + `<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>${cols}`
-    + `<sheetData>${rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => cell(v, r, c)).join("")}</row>`).join("")}</sheetData></worksheet>`;
+/** named cell styles of the shared workbook stylesheet (D-169: one look for every Excel export) */
+export type StyleName = "text" | "bold" | "title" | "sub" | "muted" | "head" | "money" | "moneyB" | "khr" | "khrB" | "date" | "qty" | "qtyB" | "int" | "intB" | "center" | "warn" | "section";
+export type XCell = Cell | { v: Cell; s?: StyleName; f?: string };
+export type SheetSpec = { name: string; rows: XCell[][]; widths?: number[]; freeze?: number; autoFilter?: { row: number; cols: number }; merges?: string[]; landscape?: boolean };
+const STYLES: StyleName[] = ["text", "bold", "title", "sub", "muted", "head", "money", "moneyB", "khr", "khrB", "date", "qty", "qtyB", "int", "intB", "center", "warn", "section"];
+const STYLE_XF: Record<StyleName, string> = {
+  text: '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment vertical="top" wrapText="1"/></xf>',
+  bold: '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"><alignment vertical="top" wrapText="1"/></xf>',
+  title: '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
+  sub: '<xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
+  muted: '<xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/>',
+  head: '<xf numFmtId="0" fontId="1" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>',
+  money: '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>',
+  moneyB: '<xf numFmtId="164" fontId="1" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>',
+  khr: '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>',
+  khrB: '<xf numFmtId="165" fontId="1" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>',
+  date: '<xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="center"/></xf>',
+  qty: '<xf numFmtId="167" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>',
+  qtyB: '<xf numFmtId="167" fontId="1" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>',
+  int: '<xf numFmtId="168" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>',
+  intB: '<xf numFmtId="168" fontId="1" fillId="0" borderId="2" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/>',
+  center: '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf>',
+  warn: '<xf numFmtId="0" fontId="5" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>',
+  section: '<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>',
+};
+const STYLE_SHEET = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+  + `<numFmts count="5"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00;(&quot;$&quot;#,##0.00)"/><numFmt numFmtId="165" formatCode="&quot;៛&quot;#,##0;(&quot;៛&quot;#,##0)"/>`
+  + `<numFmt numFmtId="166" formatCode="dd/mm/yyyy"/><numFmt numFmtId="167" formatCode="#,##0.###;(#,##0.###)"/><numFmt numFmtId="168" formatCode="#,##0;(#,##0)"/></numFmts>`
+  + `<fonts count="6"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><name val="Calibri"/></font>`
+  + `<font><b/><sz val="12"/><name val="Calibri"/></font><font><i/><sz val="9"/><color rgb="FF666666"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFB00020"/><name val="Calibri"/></font></fonts>`
+  + `<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7EAF0"/><bgColor indexed="64"/></patternFill></fill>`
+  + `<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4D6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/><bgColor indexed="64"/></patternFill></fill></fills>`
+  + `<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>`
+  + `<border><left/><right/><top style="thin"/><bottom style="double"/><diagonal/></border></borders>`
+  + `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${STYLES.length}">${STYLES.map((s) => STYLE_XF[s]).join("")}</cellXfs>`
+  + `<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+const EXCEL_EPOCH = Date.UTC(1899, 11, 30);
+/** an ISO day → Excel's serial day number (the date styles show it as dd/mm/yyyy) */
+export const excelDay = (iso: string): number | null => (/^\d{4}-\d{2}-\d{2}$/.test(iso) ? Math.round((Date.parse(`${iso}T00:00:00Z`) - EXCEL_EPOCH) / 86_400_000) : null);
+export const sheetName = (s: string) => (s.replace(/[\\/*?:[\]]/g, " ").trim() || "Sheet").slice(0, 31);
+
+/** a workbook of one or more sheets with the shared styles; strings inline (Khmer round-trips), numbers as numbers, dates as serials */
+export function writeWorkbook(sheets: SheetSpec[]): Buffer {
   const rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+  const names = new Set<string>();
+  const specs = sheets.map((s) => { let n = sheetName(s.name), k = 2; while (names.has(n.toLowerCase())) n = `${sheetName(s.name).slice(0, 28)} ${k++}`; names.add(n.toLowerCase()); return { ...s, name: n }; });
+  const xml = (s: SheetSpec, idx: number) => {
+    const cell = (x: XCell, r: number, c: number): string => {
+      const o = x !== null && typeof x === "object" ? x : { v: x };
+      const style = o.s ? STYLES.indexOf(o.s) : 0, sAttr = style > 0 ? ` s="${style}"` : "", ref = `${colName(c)}${r + 1}`;
+      let v = o.v;
+      if (o.s === "date" && typeof v === "string") { const d = excelDay(v); if (d !== null) v = d; }
+      if (v === null || v === undefined || v === "") return o.f ? `<c r="${ref}"${sAttr}><f>${escXml(o.f)}</f></c>` : sAttr ? `<c r="${ref}"${sAttr}/>` : "";
+      if (typeof v === "number" && Number.isFinite(v)) return `<c r="${ref}"${sAttr}>${o.f ? `<f>${escXml(o.f)}</f>` : ""}<v>${v}</v></c>`;
+      const text = String(v);
+      return `<c r="${ref}" t="inlineStr"${sAttr}><is><t${/^\s|\s$/.test(text) ? ' xml:space="preserve"' : ""}>${escXml(text)}</t></is></c>`;
+    };
+    const cols = s.widths?.length ? `<cols>${s.widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join("")}</cols>` : "";
+    const freeze = s.freeze ? `<pane ySplit="${s.freeze}" topLeftCell="A${s.freeze + 1}" activePane="bottomLeft" state="frozen"/>` : "";
+    const filter = s.autoFilter ? `<autoFilter ref="A${s.autoFilter.row}:${colName(s.autoFilter.cols - 1)}${s.autoFilter.row}"/>` : "";
+    const merges = s.merges?.length ? `<mergeCells count="${s.merges.length}">${s.merges.map((m) => `<mergeCell ref="${m}"/>`).join("")}</mergeCells>` : "";
+    const body = s.rows.map((row, r) => { const cs = row.map((v, c) => cell(v, r, c)).join(""); return cs ? `<row r="${r + 1}">${cs}</row>` : ""; }).join("");
+    return { name: `xl/worksheets/sheet${idx + 1}.xml`, data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
+      + `<sheetViews><sheetView workbookViewId="0"${idx === 0 ? ' tabSelected="1"' : ""}>${freeze}</sheetView></sheetViews><sheetFormatPr defaultRowHeight="15"/>${cols}<sheetData>${body}</sheetData>${filter}${merges}`
+      + `<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="${s.landscape ? "landscape" : "portrait"}" fitToWidth="1" fitToHeight="0"/></worksheet>` };
+  };
+  const sheetFiles = specs.map(xml);
+  const definedNames = specs.map((s, i) => (s.autoFilter ? `<definedName name="_xlnm._FilterDatabase" localSheetId="${i}" hidden="1">'${escXml(s.name).replace(/'/g, "''")}'!$A$${s.autoFilter.row}:$${colName(s.autoFilter.cols - 1)}$${s.autoFilter.row}</definedName>` : "")).join("");
   const files = [
-    { name: "[Content_Types].xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>` },
+    { name: "[Content_Types].xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>`
+      + `<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>`
+      + specs.map((_s, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join("") + `</Types>` },
     { name: "_rels/.rels", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/officeDocument" Target="xl/workbook.xml"/></Relationships>` },
-    { name: "xl/workbook.xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${rel}"><sheets><sheet name="${escXml(sheetName.slice(0, 31))}" sheetId="1" r:id="rId1"/></sheets></workbook>` },
-    { name: "xl/_rels/workbook.xml.rels", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="${rel}/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="${rel}/styles" Target="styles.xml"/></Relationships>` },
-    { name: "xl/styles.xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>` },
-    { name: "xl/worksheets/sheet1.xml", data: sheet },
+    { name: "xl/workbook.xml", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="${rel}"><sheets>`
+      + specs.map((s, i) => `<sheet name="${escXml(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join("") + `</sheets>${definedNames ? `<definedNames>${definedNames}</definedNames>` : ""}</workbook>` },
+    { name: "xl/_rels/workbook.xml.rels", data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+      + specs.map((_s, i) => `<Relationship Id="rId${i + 1}" Type="${rel}/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join("") + `<Relationship Id="rId${specs.length + 1}" Type="${rel}/styles" Target="styles.xml"/></Relationships>` },
+    { name: "xl/styles.xml", data: STYLE_SHEET },
+    ...sheetFiles,
   ];
   return zip(files.map((f) => ({ name: f.name, data: Buffer.from(f.data, "utf8") })));
+}
+/** one sheet, a bold frozen header row — the catalog / customers templates (D-106, D-156) */
+export function writeXlsx(name: string, rows: Cell[][], widths: number[] = []): Buffer {
+  return writeWorkbook([{ name, widths, freeze: 1, rows: rows.map((row, r) => (r === 0 ? row.map((v) => ({ v, s: "bold" as const })) : row)) }]);
 }
 
 // ---------- reader ----------
 const textOf = (xml: string) => [...xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, "").matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map((m) => unescXml(m[1]!)).join("");
-/** every row of the first sheet as strings (empty cells are ""); throws "BAD_FILE" */
-export function readXlsx(buf: Buffer): string[][] {
+/** every sheet of a workbook: name + rows as strings (numbers as their text, empty cells ""); throws "BAD_FILE" */
+export function readWorkbook(buf: Buffer, maxRows = 60_000): { name: string; rows: string[][] }[] {
   const files = unzip(buf);
   const wb = files.get("xl/workbook.xml")?.toString("utf8");
   if (!wb) throw new Error("BAD_FILE");
-  const rid = /<sheet\b[^>]*\br:id="([^"]+)"/.exec(wb)?.[1];
   const rels = files.get("xl/_rels/workbook.xml.rels")?.toString("utf8") ?? "";
-  const target = rid ? new RegExp(`<Relationship\\b[^>]*\\bId="${rid}"[^>]*\\bTarget="([^"]+)"`).exec(rels)?.[1] ?? new RegExp(`<Relationship\\b[^>]*\\bTarget="([^"]+)"[^>]*\\bId="${rid}"`).exec(rels)?.[1] : undefined;
-  const path = target ? (target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`) : "xl/worksheets/sheet1.xml";
-  const sheet = (files.get(path) ?? files.get("xl/worksheets/sheet1.xml"))?.toString("utf8");
-  if (!sheet) throw new Error("BAD_FILE");
   const shared = [...(files.get("xl/sharedStrings.xml")?.toString("utf8") ?? "").matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)].map((m) => textOf(m[1]!));
-  const rows: string[][] = [];
-  for (const rm of sheet.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>|<row\b([^>]*)\/>/g)) {
-    const attrs = rm[1] ?? rm[3] ?? "", body = rm[2] ?? "";
-    const r = Number(/\br="(\d+)"/.exec(attrs)?.[1] ?? rows.length + 1) - 1;
-    if (r > 5000) break;
-    const row: string[] = [];
-    let next = 0;
-    for (const cm of body.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const a = cm[1] ?? "", inner = cm[2] ?? "";
-      const ref = /\br="([A-Z]+)\d*"/i.exec(a)?.[1];
-      const c = ref ? colIndex(ref) : next;
-      next = c + 1;
-      if (c > 50) continue;
-      const t = /\bt="([^"]+)"/.exec(a)?.[1] ?? "n";
-      const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1];
-      const value = t === "s" ? shared[Number(v)] ?? "" : t === "inlineStr" ? textOf(inner) : t === "b" ? (v === "1" ? "TRUE" : "FALSE") : v !== undefined ? unescXml(v) : "";
-      row[c] = value;
+  const sheets = [...wb.matchAll(/<sheet\b([^>]*)\/?>/g)].map((m) => ({ name: unescXml(/\bname="([^"]*)"/.exec(m[1]!)?.[1] ?? ""), rid: /\br:id="([^"]+)"/.exec(m[1]!)?.[1] }));
+  if (!sheets.length) throw new Error("BAD_FILE");
+  return sheets.map((sh, i) => {
+    const target = sh.rid ? new RegExp(`<Relationship\\b[^>]*\\bId="${sh.rid}"[^>]*\\bTarget="([^"]+)"`).exec(rels)?.[1] ?? new RegExp(`<Relationship\\b[^>]*\\bTarget="([^"]+)"[^>]*\\bId="${sh.rid}"`).exec(rels)?.[1] : undefined;
+    const path = target ? (target.startsWith("/") ? target.slice(1) : `xl/${target.replace(/^\.\//, "")}`) : `xl/worksheets/sheet${i + 1}.xml`;
+    const sheet = (files.get(path) ?? files.get(`xl/worksheets/sheet${i + 1}.xml`))?.toString("utf8");
+    if (!sheet) throw new Error("BAD_FILE");
+    const rows: string[][] = [];
+    for (const rm of sheet.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>|<row\b([^>]*)\/>/g)) {
+      const attrs = rm[1] ?? rm[3] ?? "", body = rm[2] ?? "";
+      const r = Number(/\br="(\d+)"/.exec(attrs)?.[1] ?? rows.length + 1) - 1;
+      if (r >= maxRows) break;
+      const row: string[] = [];
+      let next = 0;
+      for (const cm of body.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const a = cm[1] ?? "", inner = cm[2] ?? "";
+        const ref = /\br="([A-Z]+)\d*"/i.exec(a)?.[1];
+        const c = ref ? colIndex(ref) : next;
+        next = c + 1;
+        if (c > 50) continue;
+        const t = /\bt="([^"]+)"/.exec(a)?.[1] ?? "n";
+        const v = /<v>([\s\S]*?)<\/v>/.exec(inner)?.[1];
+        row[c] = t === "s" ? shared[Number(v)] ?? "" : t === "inlineStr" ? textOf(inner) : t === "b" ? (v === "1" ? "TRUE" : "FALSE") : v !== undefined ? unescXml(v) : "";
+      }
+      rows[r] = Array.from({ length: row.length }, (_x, i2) => row[i2] ?? "");
     }
-    rows[r] = Array.from({ length: row.length }, (_x, i) => row[i] ?? "");
-  }
-  return Array.from({ length: rows.length }, (_x, i) => rows[i] ?? []);
+    return { name: sh.name, rows: Array.from({ length: rows.length }, (_x, i2) => rows[i2] ?? []) };
+  });
+}
+/** every row of the first sheet as strings (empty cells are ""); throws "BAD_FILE" */
+export function readXlsx(buf: Buffer): string[][] {
+  return readWorkbook(buf, 5001)[0]!.rows;
 }
 
 /** a CSV file (UTF-8, optional BOM; the separator is guessed from the first line) */

@@ -1265,7 +1265,8 @@
       "stock": "Stock",
       "monthend": "Month-end stock",
       "reconcile": "Reconciliation",
-      "payables": "Owed to suppliers"
+      "payables": "Owed to suppliers",
+      "excel": "Excel"
     },
     "op": {
       "in": "Stock in",
@@ -1417,7 +1418,8 @@
       "pl": "Income statement",
       "bs": "Balance sheet",
       "tb": "Trial balance",
-      "gl": "General ledger"
+      "gl": "General ledger",
+      "xl": "Excel"
     },
     "month": "Month",
     "col": {
@@ -1771,5 +1773,47 @@
     "list_price": "List price {{price}} — tap to use",
     "not_added_yet": "Not added yet — press «Add» to keep this line",
     "queued": "waiting to send"
+  },
+  "export": {
+    "title": "Export Excel",
+    "failed": "Excel export failed",
+    "done": "Downloaded ({{rows}} rows)",
+    "all": "all",
+    "selected_n": "{{n}} selected",
+    "pick_all": "Select all",
+    "search": "Search…",
+    "asof": "As of",
+    "asof_hint": "Date range = movement · As of = balances (opening = before From · closing = up to As of)",
+    "technician": "Technician",
+    "booker": "Booker",
+    "account": "Account",
+    "note": "The Excel file carries the shop name, the title, the filters and who exported it · negatives in brackets · dates dd/mm/yyyy",
+    "err": {
+      "BAD_RANGE": "Invalid date range",
+      "BAD_ASOF": "As-of must not be before From",
+      "RANGE_TOO_LONG": "Date range too long",
+      "FORBIDDEN": "No permission"
+    },
+    "r": {
+      "tech-withdrawals": "Technician withdrawals",
+      "account-report": "Account report",
+      "coa": "Chart of accounts (balances)",
+      "trial-balance": "Trial balance",
+      "income-statement": "Income statement",
+      "balance-sheet": "Balance sheet",
+      "journal": "Journal",
+      "expenses": "Expenses",
+      "stock-balance": "Stock balance",
+      "stock-moves": "Stock movements",
+      "payables": "Supplier payables",
+      "stock-reconcile": "Stock reconciliation",
+      "bookings": "Bookings",
+      "invoices": "Invoices",
+      "payments": "Payments",
+      "receivables": "Receivables aging",
+      "tech-performance": "Technician performance",
+      "customers": "Customers",
+      "attendance": "Attendance"
+    }
   }
 }
