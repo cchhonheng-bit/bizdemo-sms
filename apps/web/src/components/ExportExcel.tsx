@@ -7,7 +7,8 @@ import { toast } from "@/lib/toast";
 
 export type ExportReport = "tech-withdrawals" | "account-report" | "coa" | "trial-balance" | "income-statement" | "balance-sheet" | "journal" | "expenses" | "stock-balance" | "stock-moves" | "payables"
   | "stock-reconcile" | "bookings" | "invoices" | "payments" | "receivables" | "tech-performance" | "customers" | "attendance";
-export type ExportParams = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[]; customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string };
+export type ExportParams = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[]; customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
+  month?: string; zone?: string; q?: string; closed?: "0" | "1"; cancelled?: "0" | "1"; inactive?: "0" | "1"; list?: string };
 export const exportUrl = (report: ExportReport, p: ExportParams = {}): string => {
   const qs = Object.entries(p).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`).join("&");
   return `/api/export/${report}.xlsx${qs ? `?${qs}` : ""}`;

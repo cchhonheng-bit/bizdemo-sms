@@ -15,7 +15,7 @@ import RangePicker from "./RangePicker";
 import CashClose from "./CashClose";
 import AuditLog from "./AuditLog";
 import { presetRange, type Range } from "./range";
-import { ExportPanel } from "./ExportPanel";
+import { ReportToolbar } from "@/components/ReportToolbar";
 
 type Tab = "summary" | "cash" | "verify" | "audit";
 const dt = (iso: string) => new Date(iso).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Phnom_Penh" });
@@ -35,7 +35,7 @@ export default function ReportsPage() {
           {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`reports.tab.${k}`)}</button>)}
         </div>
       )}
-      {tab !== "audit" && <Card><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></Card>}
+      {tab !== "audit" && <ReportToolbar exports={[...(can("report.finance") ? [{ report: "payments" as const, params: { from: range[0], to: range[1] } }] : []), { report: "tech-performance", params: { from: range[0], to: range[1] } }, { report: "attendance", params: { from: range[0], to: range[1] } }]}><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></ReportToolbar>}
       {tab === "summary" ? <Summary range={range} /> : tab === "cash" ? <CashClose range={range} /> : tab === "verify" ? <Verification range={range} /> : <AuditLog />}
     </div>
   );
@@ -116,10 +116,6 @@ function Summary({ range }: { range: Range }) {
           </div>
         </Card>
       )}
-      <ExportPanel items={s.revenue
-        ? [{ report: "bookings", needs: ["range", "technician", "booker"] }, { report: "invoices", needs: ["range"] }, { report: "payments", needs: ["range"] }, { report: "receivables", needs: ["asof"] },
-          { report: "tech-performance", needs: ["range", "technician"] }, { report: "attendance", needs: ["range"] }, { report: "customers", needs: [] }]
-        : [{ report: "bookings", needs: ["range", "technician", "booker"] }, { report: "tech-performance", needs: ["range", "technician"] }, { report: "attendance", needs: ["range"] }, { report: "customers", needs: [] }]} />
       {s.attendance && (
         <Card title={t("attendance.title")}>
           <Row label={t("attendance.s.present")} value={`${s.attendance.present}/${s.attendance.people}`} />

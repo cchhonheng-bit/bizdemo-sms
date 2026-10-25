@@ -4,7 +4,6 @@
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { formatKhr, formatUsd } from "@sms/shared";
-import { Download } from "lucide-react";
 import { api, type AcctRow, type IsCol, type IsRow } from "@/lib/api";
 import { Card, Empty, Skeleton } from "@/components/ui";
 import { signedUsd, useAccName } from "./acct";
@@ -61,7 +60,6 @@ export function IncomeStatement({ from, to, onPick }: { from: string; to: string
         <p className="text-xs text-muted mt-2 text-right tabular" data-testid="is-zones">{t("acct.zone.inside")} {formatUsd(p.zones.inside)} · {t("acct.zone.outside")} {formatUsd(p.zones.outside)}{p.zones.none ? ` · ${t("acct.zone.none")} ${formatUsd(p.zones.none)}` : ""}</p>
         <p className="text-xs text-muted mt-1">{t("acct.rate_note", { rate: p.fx_rate_khr })} · {formatKhr(p.net_khr)}</p>
       </Card>
-      <a className="btn-secondary w-full sm:w-auto" href={api.accounting.csvUrl("income-statement", from, to)} download data-testid="acct-csv"><Download size={16} /> {t("acct.excel")}</a>
     </>
   );
 }

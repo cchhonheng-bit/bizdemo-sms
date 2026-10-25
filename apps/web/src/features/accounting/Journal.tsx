@@ -1,11 +1,12 @@
 // C2 journal: every entry (automatic ones link to their invoice / payment / job …), manual entries that must balance
 // (lines, note, receipt photo), correction only by reversal with a reason.
 import { useMemo, useState } from "react";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@sms/shared";
-import { Download, Image as ImageIcon, Plus, Trash2, Undo2 } from "lucide-react";
+import { Image as ImageIcon, Plus, Trash2, Undo2 } from "lucide-react";
 import { api, type Account } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
@@ -26,7 +27,7 @@ export default function Journal() {
   return (
     <>
       {can("accounting.post") && <Button variant="primary" className="w-full sm:w-auto" onClick={() => setCreating(true)} data-testid="je-new"><Plus size={16} /> {t("acct.new_entry")}</Button>}
-      <Card><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></Card>
+      <ReportToolbar report="journal" params={{ from: range[0], to: range[1] }}><RangePicker value={range} onChange={setRange} presets={["today", "week", "month", "last"]} /></ReportToolbar>
       <Card>
         {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("acct.nothing")} /> : (
           <ul className="divide-y divide-grey-line -my-2" data-testid="je-list">
@@ -47,7 +48,6 @@ export default function Journal() {
           </ul>
         )}
       </Card>
-      <a className="btn-secondary w-full sm:w-auto" href={api.accounting.csvUrl("journal", range[0], range[1])} download><Download size={16} /> {t("acct.excel")}</a>
       {open && <EntryDialog id={open} onClose={() => setOpen(null)} onOpen={setOpen} />}
       {creating && <NewEntryDialog onClose={() => setCreating(false)} />}
     </>

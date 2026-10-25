@@ -204,7 +204,9 @@ export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; column
   previous: { from: string; to: string; income_total: number; expense_total: number; net: number } };
 export type BsRow = AcctRow & { previous: number; variance: number };
 export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
-  equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number };
+  equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number; prior_earnings: number };
+  /** D-171: earlier years' result not closed yet (this year's runs from the fiscal-year start) */
+  prior_earnings: number; prior_earnings_khr: number; prior_earnings_account?: { code: string; name_km: string; name_en: string | null } | null;
   assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number;
   /** D-141: the client's account for the year's profit not closed yet (30002) */
   current_earnings_account?: { code: string; name_km: string; name_en: string | null } | null };

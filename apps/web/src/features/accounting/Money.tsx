@@ -1,6 +1,7 @@
 // C4 other transactions in plain words: expense · purchase (asset or expense, cash / bank / on credit) · pay a supplier ·
 // other income · owner puts money in / takes it out · move money between cash and banks. $ or ៛ (today's rate), receipt photo.
 import { useEffect, useMemo, useState } from "react";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, khrToCents } from "@sms/shared";
@@ -29,6 +30,7 @@ export default function Money() {
   const pending = useQuery({ queryKey: ["acct-pending"], queryFn: api.accounting.pending, enabled: !!info.data && !info.data.books_start });
   return (
     <>
+      <ReportToolbar report="journal" params={{ from: shiftDay(today, -30), to: today, source: "other" }} />
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {KINDS.map(({ type, icon: Icon }) => (
           <button key={type} className="card p-3 min-h-[72px] flex flex-col items-center justify-center gap-1 text-sm text-center" onClick={() => setKind(type)} data-testid={`tx-${type}`}>

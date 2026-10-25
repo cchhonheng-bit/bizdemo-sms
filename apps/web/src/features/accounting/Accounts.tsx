@@ -1,6 +1,8 @@
 // C1 chart of accounts: grouped by type with balances; add / rename / switch off (system accounts stay; a used account keeps its
 // code and type; only a never-used one can be deleted). Tap → general ledger with running balance (+ Excel).
 import { useState } from "react";
+import { todayLocal } from "@/features/invoices/util";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@sms/shared";
@@ -24,6 +26,7 @@ export default function Accounts() {
   if (q.isLoading) return <Skeleton />;
   return (
     <>
+      <ReportToolbar report="coa" params={{ asof: todayLocal() }} />
       {can("accounting.post") && <Button onClick={() => setEdit("new")} data-testid="acc-new"><Plus size={16} /> {t("acct.new_account")}</Button>}
       {TYPES.map((ty) => {
         const rows = (q.data ?? []).filter((a) => a.type === ty);

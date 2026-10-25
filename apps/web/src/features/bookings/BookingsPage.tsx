@@ -1,9 +1,10 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { BOARD_COLUMNS, matchesSearch, SERVICE_CATEGORIES, ZONES, type BookingStatus } from "@sms/shared";
-import { Clock, Filter, MapPin, Plus, Users } from "lucide-react";
+import { Clock, MapPin, Plus, Users } from "lucide-react";
 import { api, fmtDate, type Booking } from "@/lib/api";
 import { timeRange } from "./time";
 import { useAuth } from "@/lib/auth";
@@ -24,7 +25,6 @@ export default function BookingsPage() {
   // CEO 04-10: the board follows the technicians' steps within 15 s (cards move column by themselves)
   const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 15_000 });
   // FR-403: filters — day, category, inside/outside borey, technician
-  const [showFilters, setShowFilters] = useState(false);
   const [day, setDay] = useState<"" | "today" | "week" | "date">("");
   const [pickDate, setPickDate] = useState(todayLocal());
   const [cat, setCat] = useState("");
@@ -34,17 +34,20 @@ export default function BookingsPage() {
   const techs = (users.data ?? []).filter((u) => u.role === "tech");
   const active = [day, cat, zone, tech].filter(Boolean).length;
 
+  const dayRange = useMemo(() => { const today = todayLocal(), monday = presetRange("week", today)[0];
+    return day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : null; }, [day, pickDate]);
+  // D-171: the same filters drive the board and the Excel file
+  const exportParams = { ...(dayRange ? { from: dayRange[0], to: dayRange[1] } : {}), category: cat || undefined, zone: zone || undefined, technician: tech ? [tech] : [],
+    closed: hideClosed ? "0" as const : "1" as const, cancelled: showCancelled ? "1" as const : "0" as const, q: q.trim() || undefined };
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
-    const today = todayLocal();
-    const monday = presetRange("week", today)[0];
-    const [from, to] = day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : ["", ""];
+    const [from, to] = dayRange ?? ["", ""];
     const localDay = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-CA", { timeZone: "Asia/Phnom_Penh" }) : "");
     return (bookings.data ?? []).filter((b) => (b.status === "cancelled" ? showCancelled : !hideClosed || b.status !== "closed") &&
       matchesSearch(s, [b.number, b.customer_name, b.service_text, b.address, ...(b.technicians ?? []).map((x) => x.full_name)], b.customer_phones ?? []) && // D-137: Khmer keyboard + phones
       (!day || (localDay(b.scheduled_at) >= from && localDay(b.scheduled_at) <= to)) && (!cat || b.category === cat) && (!zone || b.zone === zone) &&
       (!tech || (b.technicians ?? []).some((x) => x.user_id === tech)));
-  }, [bookings.data, q, hideClosed, showCancelled, day, pickDate, cat, zone, tech]);
+  }, [bookings.data, q, hideClosed, showCancelled, day, dayRange, cat, zone, tech]);
 
   return (
     <div>
@@ -56,14 +59,13 @@ export default function BookingsPage() {
         <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-xs" />
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={hideClosed} onChange={(e) => setHideClosed(e.target.checked)} /> {t("booking.hide_closed")}</label>
         <label className="flex items-center gap-2 text-sm !mb-0 !text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={showCancelled} onChange={(e) => setShowCancelled(e.target.checked)} data-testid="show-cancelled" /> {t("booking.show_cancelled")}</label>
-        <Button type="button" onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters} data-testid="filters-toggle"><Filter size={16} /> {t("booking.filters")}{active ? ` (${active})` : ""}</Button>
         <div className="ml-auto flex rounded-md border border-grey-line overflow-hidden text-sm">
           <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "board" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("board")}>{t("booking.view_board")}</button>
           <button className={`px-4 min-h-[44px] md:min-h-[36px] ${view === "list" ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView("list")}>{t("booking.view_list")}</button>
         </div>
       </div>
-      {showFilters && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-3" data-testid="filters">
+      <ReportToolbar report={can("report.ops") ? "bookings" : undefined} params={exportParams} active={active}>
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 w-full" data-testid="filters">
           <Select value={day} onChange={(e) => setDay(e.target.value as typeof day)} aria-label={t("booking.f_day")}>
             <option value="">{t("booking.f_day_all")}</option><option value="today">{t("range.today")}</option><option value="week">{t("range.week")}</option><option value="date">{t("booking.f_day_pick")}</option>
           </Select>
@@ -73,7 +75,7 @@ export default function BookingsPage() {
           <Select value={tech} onChange={(e) => setTech(e.target.value)} aria-label={t("booking.team")}><option value="">{t("booking.f_tech_all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
           {active > 0 && <Button type="button" onClick={() => { setDay(""); setCat(""); setZone(""); setTech(""); }}>{t("booking.f_clear")}</Button>}
         </div>
-      )}
+      </ReportToolbar>
       {bookings.isLoading ? <Skeleton /> : bookings.isError ? <ErrorState text={t("app.error")} onRetry={() => void bookings.refetch()} /> : rows.length === 0 ? (
         <Card><Empty text={t("booking.empty")} action={can("booking.create") ? <Button variant="primary" onClick={() => nav("/bookings/new")}>{t("booking.new")}</Button> : undefined} /></Card>
       ) : view === "board" ? <Board rows={rows} /> : <List rows={rows} />}

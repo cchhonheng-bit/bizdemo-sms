@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
@@ -71,6 +72,7 @@ export default function CustomersPage() {
           <Button variant="primary" onClick={() => setEditing("new")}><Plus size={16} /> {t("customers.new")}</Button>
         </div>
       </div>
+      <ReportToolbar report="customers" params={{ q: q.trim() || undefined, inactive: showInactive ? "1" : "0" }} />
       <Card>
         <div className="flex flex-wrap gap-3 items-center mb-3">
           <Input type="search" autoComplete="off" placeholder={t("app.search")} value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" name="customer_filter" />

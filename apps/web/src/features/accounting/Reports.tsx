@@ -2,11 +2,12 @@
 // trial balance by month (movement · YTD to the previous month · YTD to this month), general ledger by account code —
 // USD with KHR at the rate of that date, Excel (CSV) download; tap an account → its general ledger.
 import { Fragment, useState } from "react";
-import { ExportPanel } from "@/features/reports/ExportPanel";
+import { ReportToolbar } from "@/components/ReportToolbar";
+import { ReportScreen } from "@/features/reports/ReportScreen";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { formatKhr, formatUsd } from "@sms/shared";
-import { CheckCircle2, Download, XCircle } from "lucide-react";
+import { CheckCircle2, XCircle } from "lucide-react";
 import { api, type AcctRow, type BsRow, type DrCr } from "@/lib/api";
 import { Card, Empty, Field, Input, Skeleton } from "@/components/ui";
 import RangePicker from "@/features/reports/RangePicker";
@@ -17,7 +18,7 @@ import { signedUsd, useAccName } from "./acct";
 import { LedgerDialog } from "./Accounts";
 import { IncomeStatement as IS } from "./IncomeStatement"; // D-168: four columns + the gross profit (client 25-10)
 
-type View = "pl" | "bs" | "tb" | "gl" | "xl";
+type View = "pl" | "bs" | "tb" | "gl" | "coa" | "acc";
 const monthEnd = (ym: string) => { const [y, m] = ym.split("-").map(Number); return new Date(Date.UTC(y ?? 1970, m ?? 1, 0)).toISOString().slice(0, 10); };
 
 export default function Reports() {
@@ -29,17 +30,17 @@ export default function Reports() {
   const [ledgerOf, setLedgerOf] = useState<AcctRow | null>(null);
   return (
     <>
-      <div className="grid grid-cols-5 rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
-        {(["pl", "bs", "tb", "gl", "xl"] as View[]).map((k) => <button key={k} role="tab" aria-selected={view === k} data-testid={`rep-${k}`} className={`px-1 min-h-[44px] ${view === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(k)}>{t(`acct.rep.${k}`)}</button>)}
+      <div className="flex overflow-x-auto rounded-md border border-grey-line text-sm" role="tablist">
+        {(["pl", "bs", "tb", "gl", "coa", "acc"] as View[]).map((k) => <button key={k} role="tab" aria-selected={view === k} data-testid={`rep-${k}`} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${view === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(k)}>{t(`acct.rep.${k}`)}</button>)}
       </div>
-      {view !== "gl" && view !== "xl" && (
-        <Card>
+      {(view === "pl" || view === "bs" || view === "tb") && (
+        <ReportToolbar report={view === "pl" ? "income-statement" : view === "bs" ? "balance-sheet" : "trial-balance"} params={view === "pl" ? { from: range[0], to: range[1] } : view === "bs" ? { asof: asOf } : { month }}>
           {view === "pl" ? <RangePicker value={range} onChange={setRange} presets={["month", "last", "week", "today"]} />
             : view === "tb" ? <Field label={t("acct.month")}><Input type="month" value={month} max={todayLocal().slice(0, 7)} onChange={(e) => e.target.value && setMonth(e.target.value)} data-testid="tb-month" /></Field>
               : <Field label={t("acct.as_of")}><Input type="date" value={asOf} max={todayLocal()} onChange={(e) => e.target.value && setAsOf(e.target.value)} /></Field>}
-        </Card>
+        </ReportToolbar>
       )}
-      {view === "pl" ? <IS from={range[0]} to={range[1]} onPick={setLedgerOf} /> : view === "bs" ? <BS to={asOf} onPick={setLedgerOf} /> : view === "tb" ? <TB month={month} onPick={setLedgerOf} /> : view === "xl" ? <ExportPanel items={[{ report: "coa", needs: ["range", "asof"] }, { report: "account-report", needs: ["range", "asof", "account"] }, { report: "trial-balance", needs: ["asof"] }, { report: "income-statement", needs: ["range"] }, { report: "balance-sheet", needs: ["asof"] }, { report: "journal", needs: ["range"] }, { report: "expenses", needs: ["range", "account"] }]} /> : <GL />}
+      {view === "pl" ? <IS from={range[0]} to={range[1]} onPick={setLedgerOf} /> : view === "bs" ? <BS to={asOf} onPick={setLedgerOf} /> : view === "tb" ? <TB month={month} onPick={setLedgerOf} /> : view === "coa" ? <ReportScreen report="coa" needs={["range", "asof"]} /> : view === "acc" ? <ReportScreen report="account-report" needs={["range", "asof", "account"]} /> : <GL />}
       {ledgerOf && <LedgerDialog account={{ id: ledgerOf.account_id, code: ledgerOf.code, name_km: ledgerOf.name_km, name_en: ledgerOf.name_en }}
         range={view === "pl" ? range : view === "tb" ? [`${month}-01`, monthEnd(month)] : [asOf.slice(0, 8) + "01", asOf]} onClose={() => setLedgerOf(null)} />}
     </>
@@ -54,10 +55,6 @@ function Total({ label, cents, khr, big, testid, sub }: { label: string; cents: 
     </div>
   );
 }
-const Csv = ({ href }: { href: string }) => {
-  const { t } = useTranslation();
-  return <a className="btn-secondary w-full sm:w-auto" href={href} download data-testid="acct-csv"><Download size={16} /> {t("acct.excel")}</a>;
-};
 
 function BsRows({ rows, fx, onPick }: { rows: BsRow[]; fx: number; onPick: (r: AcctRow) => void }) {
   const { t } = useTranslation();
@@ -80,9 +77,9 @@ function BS({ to, onPick }: { to: string; onPick: (r: AcctRow) => void }) {
   const q = useQuery({ queryKey: ["acct-bs", to], queryFn: () => api.accounting.bs(to) });
   if (q.isLoading || !q.data) return <Skeleton />;
   const b = q.data;
-  const ok = b.assets_total === b.liabilities_total + b.equity_total + b.current_earnings;
+  const ok = b.assets_total === b.liabilities_total + b.equity_total + b.current_earnings + b.prior_earnings; // D-171: earlier years' result not closed
   const prev = (cur: number, before: number) => `${t("acct.col.previous")} (${b.previous_to}) ${signedUsd(before)} · ${t("acct.col.variance")} ${signedUsd(cur - before)}`;
-  const le = b.liabilities_total + b.equity_total + b.current_earnings, lePrev = b.previous.liabilities_total + b.previous.equity_total + b.previous.current_earnings;
+  const le = b.liabilities_total + b.equity_total + b.current_earnings + b.prior_earnings, lePrev = b.previous.liabilities_total + b.previous.equity_total + b.previous.current_earnings + b.previous.prior_earnings;
   return (
     <>
       <Card title={t("acct.type.asset")}><BsRows rows={b.assets} fx={b.fx_rate_khr} onPick={onPick} />
@@ -91,9 +88,9 @@ function BS({ to, onPick }: { to: string; onPick: (r: AcctRow) => void }) {
         <Total label={t("acct.liabilities_total")} cents={b.liabilities_total} khr={b.liabilities_total_khr} sub={prev(b.liabilities_total, b.previous.liabilities_total)} /></Card>
       <Card title={t("acct.type.equity")}><BsRows rows={b.equity} fx={b.fx_rate_khr} onPick={onPick} />
         <div className="flex justify-between gap-3 py-2 text-sm"><span>{b.current_earnings_account ? `${b.current_earnings_account.code} · ${(i18n.language === "en" && b.current_earnings_account.name_en) || b.current_earnings_account.name_km}` : t("acct.current_earnings")}</span><Amount cents={b.current_earnings} fx={b.fx_rate_khr} /></div>
-        <Total label={t("acct.le_total")} cents={le} khr={b.liabilities_total_khr + b.equity_total_khr + b.current_earnings_khr} sub={prev(le, lePrev)} /></Card>
+        {(b.prior_earnings !== 0 || b.previous.prior_earnings !== 0) && <div className="flex justify-between gap-3 py-2 text-sm" data-testid="bs-prior"><span>{b.prior_earnings_account ? `${b.prior_earnings_account.code} · ` : ""}{t("acct.prior_earnings")}</span><span className="tabular">{signedUsd(b.prior_earnings)}</span></div>}
+        <Total label={t("acct.le_total")} cents={le} khr={b.liabilities_total_khr + b.equity_total_khr + b.current_earnings_khr + b.prior_earnings_khr} sub={prev(le, lePrev)} /></Card>
       <p className={`flex items-center gap-2 text-sm ${ok ? "text-success" : "text-danger"}`}>{ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />} {ok ? t("acct.bs_ok") : t("acct.bs_bad")}</p>
-      <Csv href={api.accounting.csvUrl("balance-sheet", null, to)} />
     </>
   );
 }
@@ -133,7 +130,6 @@ function TB({ month, onPick }: { month: string; onPick: (r: AcctRow) => void }) 
         <p className="text-xs text-muted mt-2">{tb.from} → {tb.to} · {t("acct.fy")} {tb.fiscal_year_start}</p>
       </Card>
       <p className={`flex items-center gap-2 text-sm ${tb.balanced ? "text-success" : "text-danger"}`} data-testid="tb-balanced">{tb.balanced ? <CheckCircle2 size={16} /> : <XCircle size={16} />} {tb.balanced ? t("acct.tb_ok") : t("acct.tb_bad")}</p>
-      <Csv href={api.accounting.csvUrl("trial-balance", null, tb.to, undefined, month)} />
     </>
   );
 }
@@ -148,10 +144,10 @@ function GL() {
   const q = useQuery({ queryKey: ["acct-gl", code, range], queryFn: () => api.accounting.ledgerByCode(code, range[0], range[1]), enabled: ok, retry: false });
   return (
     <>
-      <Card>
+      <ReportToolbar report={q.data ? "account-report" : undefined} params={{ from: range[0], to: range[1], account: q.data ? [q.data.account.id] : [] }}>
         <Field label={t("acct.gl_code")} hint={t("acct.gl_hint")}><Input inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} maxLength={6} data-testid="gl-code" /></Field>
         <RangePicker value={range} onChange={setRange} presets={["month", "last"]} />
-      </Card>
+      </ReportToolbar>
       {!ok ? null : q.isLoading ? <Skeleton /> : q.isError || !q.data ? <Card><Empty text={t("acct.err.ACCOUNT_NOT_FOUND")} /></Card> : (
         <Card title={name(q.data.account)}>
           <div data-testid="gl">
@@ -170,7 +166,6 @@ function GL() {
             )}
             <div className="flex justify-between text-sm pt-2 border-t-2 border-grey-line font-bold"><span>{t("acct.closing")}</span><span className="tabular">{signedUsd(q.data.closing)}</span></div>
           </div>
-          <div className="mt-3"><Csv href={api.accounting.csvUrl("ledger", range[0], range[1], q.data.account.id)} /></div>
         </Card>
       )}
     </>

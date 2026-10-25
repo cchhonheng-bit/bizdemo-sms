@@ -1266,7 +1266,8 @@
       "monthend": "Month-end stock",
       "reconcile": "Reconciliation",
       "payables": "Owed to suppliers",
-      "excel": "Excel"
+      "withdrawals": "Withdrawals",
+      "moves": "Stock moves"
     },
     "op": {
       "in": "Stock in",
@@ -1419,7 +1420,8 @@
       "bs": "Balance sheet",
       "tb": "Trial balance",
       "gl": "General ledger",
-      "xl": "Excel"
+      "coa": "Chart (COA)",
+      "acc": "By account"
     },
     "month": "Month",
     "col": {
@@ -1667,7 +1669,8 @@
     "other_bs_hint": "Capital · customer deposits · staff advances · tips … — positive amounts",
     "add_other_bs": "Add an account",
     "cogs": "Cost of goods (50001)",
-    "gross": "Gross profit"
+    "gross": "Gross profit",
+    "prior_earnings": "Earlier years' result (not closed)"
   },
   "print": {
     "invoice": "INVOICE",
@@ -1814,6 +1817,10 @@
       "tech-performance": "Technician performance",
       "customers": "Customers",
       "attendance": "Attendance"
-    }
+    },
+    "filter": "Filter",
+    "done_btn": "Done",
+    "truncated": "Showing the first rows only · {{n}} more in the Excel file",
+    "rows_n": "{{n}} rows"
   }
 }

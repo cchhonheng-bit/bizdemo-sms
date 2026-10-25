@@ -1,6 +1,7 @@
 // Attendance report (Flow 5 · FR-904): present, late (minutes), absent, leave, minutes after work end, «out of range» flags (AC-12).
 // Team view for report.ops (GM, Admin, CEO, CFO); «mine» for everyone who records attendance. Sundays / holidays never count as absent.
 import { useState } from "react";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp, MapPin } from "lucide-react";
@@ -35,7 +36,7 @@ export default function AttendancePage() {
           {(["team", "mine"] as const).map((v) => <button key={v} role="tab" aria-selected={view === v} className={`flex-1 px-3 min-h-[44px] ${view === v ? "bg-navy text-white" : "bg-white"}`} onClick={() => setView(v)}>{t(`attendance.view_${v}`)}</button>)}
         </div>
       )}
-      <Card><RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} /></Card>
+      <ReportToolbar report={team && view === "team" ? "attendance" : undefined} params={{ from: range[0], to: range[1] }}><RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} /></ReportToolbar>
       {q.isLoading ? <Skeleton /> : q.isError ? <ErrorState text={t("attendance.err.range")} onRetry={() => void q.refetch()} /> : !q.data?.length ? <Card><Empty text={t("attendance.none")} /></Card>
         : q.data.map((u) => <PersonCard key={u.user_id} u={u} open={view === "mine" || q.data.length === 1} />)}
     </div>

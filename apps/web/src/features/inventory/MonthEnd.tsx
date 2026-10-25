@@ -1,6 +1,7 @@
 // D-142 «តម្លៃស្តុកចុងខែ» — stock on a day by account (quantity + value, the items under each), beside the books' balance of the stock
 // accounts (13000–18999): stock = books ✓, or the difference per account and in total (the books side needs accounting.view)
 import { useState } from "react";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight } from "lucide-react";
@@ -20,7 +21,7 @@ export default function MonthEnd() {
   const d = q.data;
   return (
     <Card title={t("inventory.tab.monthend")}>
-      <Field label={t("inventory.me_date")}><Input type="date" value={to} max={todayLocal()} onChange={(e) => e.target.value && setTo(e.target.value)} data-testid="me-date" /></Field>
+      <ReportToolbar report="stock-balance" params={{ asof: to }}><Field label={t("inventory.me_date")}><Input type="date" value={to} max={todayLocal()} onChange={(e) => e.target.value && setTo(e.target.value)} data-testid="me-date" /></Field></ReportToolbar>
       {!d ? <Skeleton /> : (
         <div data-testid="month-end">
           <table className="w-full text-sm tabular">

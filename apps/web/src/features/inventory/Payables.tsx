@@ -1,6 +1,7 @@
 // D-167 (client 25-10): what the shop owes each supplier (purchases paid in part, opening debts, minus the payments) and «បង់» —
 // a payment in $ or ៛ by cash / ABA / ACLEDA, dated, posted Dr the supplier's payable / Cr the method.
 import { useState } from "react";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd, toCents, usdToKhr } from "@sms/shared";
@@ -20,6 +21,7 @@ export function Payables({ manage }: { manage: boolean }) {
   const rows = q.data;
   return (
     <Card title={t("inventory.payables_title")}>
+      <ReportToolbar report="payables" params={{}} />
       {!rows.length ? <Empty text={t("inventory.payables_none")} /> : (
         <ul className="divide-y divide-grey-line" data-testid="payables">
           {rows.map((p) => (

@@ -3,7 +3,8 @@
 // collects (item · qty · technician · job or place · date → the balance left). «កែតម្រូវ» = a count. Stock card per item,
 // «តម្លៃស្តុកចុងខែ» against the books, «ផ្ទៀងផ្ទាត់សម្ភារំ» = stock out vs invoiced per job and group. Cards on phones.
 import { useMemo, useState } from "react";
-import { ExportPanel } from "@/features/reports/ExportPanel";
+import { ReportToolbar } from "@/components/ReportToolbar";
+import { ReportScreen } from "@/features/reports/ReportScreen";
 import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -19,7 +20,7 @@ import { todayLocal } from "@/features/invoices/util";
 import { Payables } from "./Payables"; // D-167
 import MonthEnd from "./MonthEnd";
 
-type Tab = "stock" | "monthend" | "reconcile" | "payables" | "excel";
+type Tab = "stock" | "withdrawals" | "moves" | "monthend" | "reconcile" | "payables";
 type Op = "in" | "out" | "adjust";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
@@ -28,18 +29,16 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = can("cost.read") ? ["stock", "monthend", "reconcile", "payables", "excel"] : can("inventory.manage") ? ["stock", "monthend", "payables", "excel"] : ["stock", "monthend", "excel"]; // D-167 · D-169
+  const tabs: Tab[] = can("cost.read") ? ["stock", "withdrawals", "moves", "monthend", "reconcile", "payables"] : can("inventory.manage") ? ["stock", "withdrawals", "moves", "monthend", "payables"] : ["stock", "withdrawals", "moves", "monthend"]; // D-167 · D-171
   const [sp] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
     <div className="max-w-3xl space-y-3">
       <h1>{t("inventory.title")}</h1>
-      <div className="flex rounded-md border border-grey-line overflow-hidden text-sm" role="tablist">
-        {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
+      <div className="flex rounded-md border border-grey-line overflow-x-auto text-sm" role="tablist">
+        {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
       </div>
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : tab === "excel" ? <ExportPanel items={can("cost.read")
-        ? [{ report: "tech-withdrawals", needs: ["range", "technician", "booker"] }, { report: "stock-balance", needs: ["asof"] }, { report: "stock-moves", needs: ["range"] }, { report: "payables", needs: [] }, { report: "stock-reconcile", needs: ["range", "technician"] }]
-        : [{ report: "tech-withdrawals", needs: ["range", "technician", "booker"] }, { report: "stock-balance", needs: ["asof"] }, { report: "stock-moves", needs: ["range"] }, { report: "payables", needs: [] }]} /> : <Reconcile />}
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : tab === "withdrawals" ? <ReportScreen report="tech-withdrawals" needs={["range", "technician", "booker"]} /> : tab === "moves" ? <ReportScreen report="stock-moves" needs={["range"]} /> : <Reconcile />}
     </div>
   );
 }
@@ -62,6 +61,7 @@ function Stock({ manage }: { manage: boolean }) {
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   return (
     <>
+      <ReportToolbar report="stock-balance" params={{ asof: todayLocal() }} />
       {manage && (
         <div className="grid grid-cols-3 gap-2">
           <Button variant="primary" onClick={() => setOp("in")} data-testid="op-in"><PackagePlus size={16} /> {t("inventory.op.in")}</Button>
@@ -337,8 +337,10 @@ function Reconcile() {
   const d = q.data;
   return (
     <>
-      <RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} />
-      <Field label={t("inventory.technician")}><Select value={tech} onChange={(e) => setTech(e.target.value)} data-testid="rec-tech"><option value="">{t("app.all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
+      <ReportToolbar report="stock-reconcile" params={{ from: range[0], to: range[1], technician: tech ? [tech] : [] }} active={tech ? 1 : 0}>
+        <RangePicker value={range} onChange={setRange} presets={["week", "month", "last"]} />
+        <Field label={t("inventory.technician")}><Select value={tech} onChange={(e) => setTech(e.target.value)} data-testid="rec-tech"><option value="">{t("app.all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
+      </ReportToolbar>
       <p className="text-xs text-muted">{t("inventory.rec_hint")}</p>
       {!d ? <Skeleton /> : !d.rows.length ? <Card><Empty text={t("inventory.rec_none")} /></Card> : (<>
         <Card title={t("inventory.rec_totals")}>

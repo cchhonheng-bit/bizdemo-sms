@@ -1,5 +1,7 @@
 // Invoices list (M8): approvals · drafts · unpaid · paid · void, plus debts by customer and age (FR-807). Cards on phones.
 import { useState } from "react";
+import { todayLocal } from "@/features/invoices/util";
+import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -40,10 +42,12 @@ export default function InvoicesPage() {
 function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["invoices", status], queryFn: () => api.invoices.list(status) });
+  const { can } = useAuth();
   const [s, setS] = useState(""); // D-140: number, customer, phone in any form
   const rows = (q.data ?? []).filter((r) => matchesSearch(s, [r.number, r.booking_number, r.customer_name], r.customer_phones ?? []));
   return (
     <Card>
+      <ReportToolbar report={can("report.finance") ? "invoices" : undefined} params={{ list: status, q: s.trim() || undefined }} />
       <Input type="search" autoComplete="off" placeholder={t("app.search")} value={s} onChange={(e) => setS(e.target.value)} className="mb-3 w-full sm:max-w-xs" name="invoice_filter" />
       {q.isLoading ? <Skeleton /> : !rows.length ? <Empty text={t("invoice.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2">
@@ -73,9 +77,11 @@ function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
 function Debts() {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["invoices", "debts"], queryFn: api.invoices.debts });
+  const { can } = useAuth();
   const sum = (k: "d0_30" | "d31_60" | "d60_plus" | "total") => (q.data ?? []).reduce((s, r) => s + r[k], 0);
   return (
     <>
+      <ReportToolbar report={can("report.finance") ? "receivables" : undefined} params={{ asof: todayLocal() }} />
       <div className="grid grid-cols-3 gap-2 text-center">
         {([["d0_30", "0–30"], ["d31_60", "31–60"], ["d60_plus", "> 60"]] as const).map(([k, label]) => (
           <div key={k} className={`card p-2 ${k === "d60_plus" && sum(k) > 0 ? "border-danger" : ""}`}><div className="text-xs text-muted">{label} {t("invoice.days")}</div><div className="font-bold tabular">{formatUsd(sum(k))}</div></div>
