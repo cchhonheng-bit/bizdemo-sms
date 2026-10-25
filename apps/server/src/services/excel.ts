@@ -30,8 +30,6 @@ type Built = { title_km: string; title_en: string; filters: string[]; sheets: Sh
 export type ExportFile = { name: string; buf: Buffer; rows: number };
 /** a list screen's column (D-172): header, width, style, totals, the value of a row */
 export type ListCol = Col & { v: (r: Record<string, unknown>) => XCell };
-/** a list screen's column (D-172): header, width, style, totals, the value of a row */
-export type ListCol = Col & { v: (r: Record<string, unknown>) => XCell };
 export type Preview = { title_km: string; title_en: string; filters: string[]; rows: number; sheets: { name: string; rows: XCell[][]; merges?: string[]; truncated: number }[] };
 
 const TITLES: Record<Report, [string, string]> = {
