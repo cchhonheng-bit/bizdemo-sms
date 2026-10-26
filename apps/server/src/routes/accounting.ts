@@ -1,5 +1,6 @@
 // Accounting (D-88 · flag "accounting"): read with accounting.view, post with accounting.post, lock / opening with accounting.close;
 // payroll with payroll.manage, approval / void with payroll.approve. Technicians never (fixed rule).
+import { getMapping, setMapping } from "../services/account-map.js";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
@@ -33,6 +34,9 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
 
   // C1 chart of accounts
   app.get("/accounts", view, async (req) => listAccounts(req.user!));
+  // D-178: the account map — read with accounting.view, changed by the CEO / CFO only (the service checks the role)
+  app.get("/mapping", view, async (req) => getMapping(req.user!));
+  app.put("/mapping", view, async (req) => { const b = z.object({ key: z.string().regex(/^[a-z_]{2,30}$/), account_id: id }).strict().parse(req.body); return setMapping(req.user!, req.ip, b.key, b.account_id); });
   app.post("/accounts", postP, async (req) => saveAccount(req.user!, req.ip, z.object({ id: id.optional(), code: z.string().regex(/^[1-9][0-9]{3,5}$/),
     name_km: z.string().trim().min(1).max(80), name_en: z.string().trim().max(80).nullable().optional(), type: z.enum(["asset", "liability", "equity", "income", "expense"]),
     is_active: z.boolean().optional(), sub_codes: z.boolean().optional() }).strict().parse(req.body)));

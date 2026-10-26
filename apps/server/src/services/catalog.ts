@@ -3,6 +3,7 @@
 // audit log with old → new. Excel: download the template (the services as they are now) → upload → preview (new / changed /
 // errors) → apply. Rows are matched by code; nothing is ever deleted (an item is switched off with «active»). Sample items for a
 // new shop are seeded with is_sample = true (prices only in demo / test data — never on the live shop).
+import { isStockAccount } from "./account-map.js";
 import { CATALOG_CODE_RE, CATALOG_EDIT_ROLES, WEB_CATEGORIES, WEB_CATEGORY_GROUP, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
@@ -58,7 +59,7 @@ export async function assertCodeOnAccount(db: Db, companyId: string, accountId: 
 /** D-142: what the catalog form fills in when a stock account is chosen — the next free sub code, or the account's own code (and whether an item has it) */
 export async function nextItemCode(db: Db, companyId: string, accountId: string): Promise<{ code: string; sub_codes: boolean; taken: boolean }> {
   const a = (await db<{ code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select code, sub_codes, is_group, type::text as type from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
-  if (!a || a.is_group || a.type !== "asset") throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  if (!a || a.is_group || a.type !== "asset" || !(await isStockAccount(db, companyId, accountId))) throw new AppError("NOT_STOCK_ACCOUNT", 400); // D-178: under a mapped stock header
   if (!a.sub_codes) return { code: a.code, sub_codes: false, taken: (await db`select 1 from catalog_items where company_id = ${companyId} and code = ${a.code}`).length > 0 };
   const prefix = a.code; // D-165: the code = the account code + 2 digits (13110 → 1311001)
   const last = (await db<{ n: number }[]>`select coalesce(max(substr(code, ${prefix.length + 1})::int), 0)::int as n from catalog_items where company_id = ${companyId} and code ~ ${`^${prefix}[0-9]{2}$`}`)[0]!.n;
@@ -74,12 +75,17 @@ export async function upsertItem(user: SessionUser, ip: string | null, b: Catalo
   assertCatalogEditor(user);
   if (b.cost_price != null && !withCost) throw new AppError("FORBIDDEN_COST", 403);
   if (b.income_account_id && !(await sql`select 1 from accounts where id = ${b.income_account_id} and company_id = ${user.companyId} and type = 'income' and not is_group`).length) throw new AppError("NOT_INCOME_ACCOUNT", 400);
-  // D-141: a stock item's own stock account — an asset posting account (13001 …, 14000 copper pipe …)
-  if (b.inventory_account_id && (b.kind !== "product" || !(await sql`select 1 from accounts where id = ${b.inventory_account_id} and company_id = ${user.companyId} and type = 'asset' and not is_group`).length)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
-  if (b.inventory_account_id) await assertCodeOnAccount(sql, user.companyId, b.inventory_account_id, b.code || null, b.id ?? null); // D-142
-  // D-144 «ភ្ជាប់កូដស្តុក»: a price-list line's stock group (14000 copper …) — only the reconciliation report reads it
-  if (b.stock_link_account_id && !(await sql`select 1 from accounts where id = ${b.stock_link_account_id} and company_id = ${user.companyId} and type = 'asset' and not is_group and code ~ '^1[3-8]'`).length) throw new AppError("NOT_STOCK_ACCOUNT", 400);
-  const code = b.code ? b.code : null;
+  // D-141 → D-178: a stock item's own stock account — a posting account under a mapped stock header (One Team: 13xxx / 14xxx new, 18xxx second hand)
+  if (b.inventory_account_id && (b.kind !== "product" || !(await isStockAccount(sql, user.companyId, b.inventory_account_id)))) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  // D-178: the item code = the account code + 2 digits — none given: kept when it already belongs to that account, else the next free one
+  let code = b.code ? b.code : null;
+  if (b.inventory_account_id && !code) {
+    const kept = b.id ? (await sql<{ code: string | null }[]>`select code from catalog_items where id = ${b.id} and company_id = ${user.companyId} and inventory_account_id = ${b.inventory_account_id}`)[0]?.code ?? null : null;
+    code = kept ?? (await nextItemCode(sql, user.companyId, b.inventory_account_id)).code;
+  }
+  if (b.inventory_account_id) await assertCodeOnAccount(sql, user.companyId, b.inventory_account_id, code, b.id ?? null); // D-142
+  // D-144 «ភ្ជាប់កូដស្តុក»: a price-list line's stock group (13400 copper …) — only the reconciliation report reads it
+  if (b.stock_link_account_id && !(await isStockAccount(sql, user.companyId, b.stock_link_account_id))) throw new AppError("NOT_STOCK_ACCOUNT", 400);
   return tx(user.id, async (t) => {
     const old = b.id ? (await t<Item[]>`select ${COLS(t)} from catalog_items where id = ${b.id} and company_id = ${user.companyId} for update`)[0] ?? null : null;
     if (b.id && !old) throw notFound();

@@ -5,15 +5,17 @@
 // Accounts the system needs that the client's chart lacks are added with a free code in the right range and marked «បន្ថែមដោយប្រព័ន្ធ».
 // Revenue: inside a borey → 40004 sales / 40005 service, else 40001 / 40002; other income 40006. Stock: each item has its own stock
 // account (13001 …, 14000 copper pipe, 15000 insulation …; 18000 when none); job materials used → 50005, goods sold → 50001.
+// D-178: this file is the TEMPLATE chart of a new shop and the one-off chart conversions (they name codes as data); nothing at run time
+// decides by a code — the postings read the account map (account-map.ts), the stock accounts are the ones under the mapped stock headers.
+import type { AccountMapKey } from "@sms/shared";
 import type { Db } from "../db.js";
 import { AppError } from "../lib/errors.js";
 
 export type AccType = "asset" | "liability" | "equity" | "income" | "expense";
-export type Role = "cash_usd" | "cash_khr" | "bank_aba" | "bank_acleda" | "ar" | "staff_advance" | "inventory" | "ap" | "ap_ac" | "ap_washing" | "deposits" | "tips" | "payroll"
-  | "capital" | "drawings" | "retained" | "current_profit" | "opening" | "rev_service" | "rev_sales" | "rev_service_inside" | "rev_sales_inside" | "rev_other"
-  | "discount" | "cogs" | "materials" | "stock_adjust" | "salaries" | "bonus" | "cash_diff";
-/** [code, Khmer name (the client's), English name, type, role, "group" | "added"] */
-export type ChartRow = [string, string, string, AccType, Role | null, ("group" | "added")?];
+/** D-178: an automatic posting's key in the account map — a template row's «role» = the account that key starts on */
+export type Role = AccountMapKey;
+/** [code, Khmer name (the client's), English name, type, role (the map key it starts as), "group" | "added", its group when the numbering does not say it] */
+export type ChartRow = [string, string, string, AccType, Role | null, ("group" | "added" | null)?, string?];
 
 export const CHART: ChartRow[] = [
   ["10000", "ទ្រព្យ", "Assets", "asset", null, "group"],
@@ -27,7 +29,7 @@ export const CHART: ChartRow[] = [
   ["12002", "អតិថិជនជំពាក់", "Customers owe us", "asset", "ar"],
   ["12003", "គណនីត្រូវទទូលផ្សេងៗ", "Other receivables", "asset", null],
   // D-165 (client 25-10, COA (4).xlsx): stock by product and brand — every stock account carries its own sub codes (13110 → 1311001 …)
-  ["13000", "ស្តុកថ្មី", "New stock", "asset", null, "group"],
+  ["13000", "ស្តុកថ្មី", "New stock", "asset", "stock_new", "group"],
   ["13110", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង Panasonic", "Wall AC Panasonic", "asset", null],
   ["13120", "ម៉ាស៊ីនត្រជាក់ជាប់ពិដាន Panasonic", "Ceiling AC Panasonic", "asset", null],
   ["13130", "ម៉ាស៊ីនត្រជាក់បញ្ឈរ Panasonic", "Floor-standing AC Panasonic", "asset", null],
@@ -44,12 +46,12 @@ export const CHART: ChartRow[] = [
   ["13500", "ហ្គេនទុយោស្ពាន់", "Copper pipe insulation", "asset", null],
   ["13600", "ប្រអប់ខ្សែភ្លើង", "Electrical boxes", "asset", null],
   ["13700", "ខ្សែភ្លើង", "Electric wire", "asset", null],
-  ["14100", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines", "asset", null],
-  ["14200", "ទូទឹកកក", "Refrigerators", "asset", null],
-  ["14300", "ម៉ូទ័រជុំរុញទឹក", "Water pumps", "asset", null],
-  ["14400", "(ឆ្នាំងបាយ,កង្ហា,ម៉ាស៊ីនទឹកក្តៅទឹកត្រជាក់....)", "Small appliances (rice cookers, fans, water dispensers…)", "asset", null],
-  ["14500", "សម្ភារះសម្រាប់ជាងប្រប្រាស់", "Technicians' materials", "asset", "inventory"],
-  ["18000", "ស្តុក Second hand", "Second-hand stock", "asset", null, "group"],
+  ["14100", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines", "asset", null, null, "13000"], // the client lists 14100–14500 under «ស្តុកថ្មី» (D-175)
+  ["14200", "ទូទឹកកក", "Refrigerators", "asset", null, null, "13000"],
+  ["14300", "ម៉ូទ័រជុំរុញទឹក", "Water pumps", "asset", null, null, "13000"],
+  ["14400", "(ឆ្នាំងបាយ,កង្ហា,ម៉ាស៊ីនទឹកក្តៅទឹកត្រជាក់....)", "Small appliances (rice cookers, fans, water dispensers…)", "asset", null, null, "13000"],
+  ["14500", "សម្ភារះសម្រាប់ជាងប្រប្រាស់", "Technicians' materials", "asset", "inventory", null, "13000"],
+  ["18000", "ស្តុក Second hand", "Second-hand stock", "asset", "stock_second_hand", "group"],
   ["18100", "ម៉ាស៊ីនត្រជាក់", "Air conditioners (second hand)", "asset", null],
   ["18200", "ម៉ាស៊ីនបោកខោអាវ", "Washing machines (second hand)", "asset", null],
   ["18300", "ទូទឹកកក", "Refrigerators (second hand)", "asset", null],
@@ -113,7 +115,6 @@ export const STOCK_ITEMS: [string, string, string][] = [
 const GROUPS = CHART.filter((r) => r[5] === "group").map((r) => r[0]);
 /** the group an account belongs to: the group whose code (without its trailing zeros) is the longest start of this code */
 export function parentOf(code: string, groups: string[] = GROUPS): string | null {
-  if (/^14[0-9]{3}$/.test(code) && groups.includes("13000")) return "13000"; // D-175 (client 26-10): appliances and technicians' materials are «ស្តុកថ្មី» too
   let best: string | null = null;
   for (const g of groups) {
     if (g === code) continue;
@@ -122,35 +123,22 @@ export function parentOf(code: string, groups: string[] = GROUPS): string | null
   }
   return best;
 }
+/** a template account's group: its own row says it (14100–14500 → 13000), else the numbering */
+export const seedParent = (code: string): string | null => CHART.find((r) => r[0] === code)?.[6] ?? parentOf(code);
 /** the type follows the code's first digit (1 asset · 2 liability · 3 equity · 4 income · 5 expense) */
 export const typeOfCode = (code: string): AccType | null => (({ 1: "asset", 2: "liability", 3: "equity", 4: "income", 5: "expense" }) as Record<string, AccType>)[code[0]!] ?? null;
 
 /** D-142 → D-165 (the client 25-10): EVERY stock posting account carries sub codes — an item's code = the account code + 2 digits
  *  (13110 → 1311001, 1311002 …; 13400 → 1340001 …). An account switched to «no sub codes» IS its one item (code = the account code). */
 export const isSubCodeAccount = (code: string, group = false): boolean => !group && /^1[348][0-9]{3}$/.test(code);
-export const SUB_CODE_ACCOUNTS = CHART.filter((r) => isSubCodeAccount(r[0], r[5] === "group")).map((r) => r[0]);
-/** D-143 → D-175 (client 26-10): everything that leaves stock costs 50001 (cost of goods) — ACs, copper, wire, appliances, second hand —
- *  except the technicians' consumables of 14500 (and items without an account) → 50005 */
-export const isGoodsStockCode = (code: string | null | undefined): boolean => !!code && !/^145/.test(code);
-/** D-175 (client 26-10): what a stock receipt still owes goes to the payable of what was bought — ACs (new 131x0–133x0 / 138x0, second
- *  hand 18100) → 20001, washing machines (14100 / 18200) → 20002, everything else → 20003 */
-export const payableRole = (code: string | null | undefined): Role => (!code ? "ap" : /^1(3[1-3]|38|81)/.test(code) ? "ap_ac" : /^1(41|82)/.test(code) ? "ap_washing" : "ap");
-/** one stock item for every no-sub stock account (13001 … 13199) that has none yet: code = the account code, the account's name, tracked */
-export async function ensureNoSubItems(db: Db, companyId: string): Promise<number> {
-  const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, is_stock, inventory_account_id)
-    select a.company_id, a.code, a.name_km, a.name_en, 'product', 'mep', 'គ្រឿង', true, true, a.id
-    from accounts a where a.company_id = ${companyId} and a.type = 'asset' and not a.is_group and not a.sub_codes and a.code ~ '^13[01][0-9]{2}$' and a.code !~ '00$'
-      and not exists (select 1 from catalog_items ci where ci.company_id = a.company_id and ci.code = a.code) returning id`;
-  await db`insert into stock_items (company_id, item_id) select ci.company_id, ci.id from catalog_items ci where ci.company_id = ${companyId} and ci.track_stock on conflict do nothing`;
-  return made.length;
-}
 
-/** a new company gets the chart; a company that already has one keeps it (chart-replace swaps it while the books are empty) */
+/** a new company gets the template chart and its account map (D-178); a company that already has one keeps it (chart-replace swaps it while the books are empty) */
 export async function insertChart(db: Db, companyId: string): Promise<void> {
-  for (const [code, km, en, type, role, flag] of CHART)
-    await db`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system, sub_codes)
-      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${role}, ${flag === "group"}, ${parentOf(code)}, ${flag === "added"}, ${isSubCodeAccount(code, flag === "group")}) on conflict do nothing`;
-  await ensureNoSubItems(db, companyId);
+  for (const [code, km, en, type, role, flag] of CHART) {
+    const id = (await db<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type, is_group, parent_code, added_by_system, sub_codes)
+      values (${companyId}, ${code}, ${km}, ${en}, ${type}::account_type, ${flag === "group"}, ${seedParent(code)}, ${flag === "added"}, ${isSubCodeAccount(code, flag === "group")}) on conflict do nothing returning id`)[0]?.id;
+    if (id && role) await db`insert into account_map (company_id, key, account_id) values (${companyId}, ${role}, ${id}) on conflict do nothing`;
+  }
 }
 
 /** the old chart's codes (D-88 template) → the new ones, by role — the mapping shown before a replace */
@@ -219,13 +207,14 @@ export async function updateChartV2(t: Db, companyId: string, apply: boolean): P
   if (!apply || plan.already) return plan;
   for (const [from, to] of renames) {
     const r = rows.get(to)!;
-    await t`update accounts set code = ${to}, name_km = ${r[1]}, name_en = ${r[2]}, type = ${r[3]}::account_type, role = ${r[4]}, is_group = ${r[5] === "group"}, added_by_system = ${r[5] === "added"},
+    await t`update accounts set code = ${to}, name_km = ${r[1]}, name_en = ${r[2]}, type = ${r[3]}::account_type, is_group = ${r[5] === "group"}, added_by_system = ${r[5] === "added"},
       sub_codes = ${isSubCodeAccount(to, r[5] === "group")}, is_active = true where company_id = ${companyId} and code = ${from}`;
   }
   for (const code of plan.added) { const r = rows.get(code)!;
-    await t`insert into accounts (company_id, code, name_km, name_en, type, role, is_group, parent_code, added_by_system, sub_codes)
-      values (${companyId}, ${code}, ${r[1]}, ${r[2]}, ${r[3]}::account_type, ${r[4]}, ${r[5] === "group"}, ${parentOf(code)}, ${r[5] === "added"}, ${isSubCodeAccount(code, r[5] === "group")}) on conflict do nothing`; }
-  for (const a of await t<{ id: string; code: string }[]>`select id, code from accounts where company_id = ${companyId}`) await t`update accounts set parent_code = ${parentOf(a.code)} where id = ${a.id}`;
+    const id = (await t<{ id: string }[]>`insert into accounts (company_id, code, name_km, name_en, type, is_group, parent_code, added_by_system, sub_codes)
+      values (${companyId}, ${code}, ${r[1]}, ${r[2]}, ${r[3]}::account_type, ${r[5] === "group"}, ${seedParent(code)}, ${r[5] === "added"}, ${isSubCodeAccount(code, r[5] === "group")}) on conflict do nothing returning id`)[0]?.id;
+    if (id && r[4]) await t`insert into account_map (company_id, key, account_id) values (${companyId}, ${r[4]}, ${id}) on conflict do nothing`; }
+  for (const a of await t<{ id: string; code: string }[]>`select id, code from accounts where company_id = ${companyId}`) await t`update accounts set parent_code = ${seedParent(a.code)} where id = ${a.id}`;
   await t`update accounts set sub_codes = true where company_id = ${companyId} and type = 'asset' and not is_group and code ~ '^1[348][0-9]{3}$' and code <> '13001'`;
   for (const x of plan.recoded) if (x.from) await t`update catalog_items set code = ${x.to} where company_id = ${companyId} and code = ${x.from}`;
   if (plan.kept.length) await t`update accounts set is_active = false, name_km = name_km || ' (មុន ២៥-១០)', name_en = coalesce(name_en, '') || ' (before 25-10)' where company_id = ${companyId} and code = '13001'`;

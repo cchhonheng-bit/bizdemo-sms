@@ -5,7 +5,7 @@ import { sql, tx, type Db } from "../db.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { books, post } from "./accounting.js";
-import { CHART, OLD_TO_NEW, isSubCodeAccount, parentOf, replaceChart, typeOfCode, updateChartV2, type Role } from "./chart.js";
+import { CHART, OLD_TO_NEW, isSubCodeAccount, replaceChart, seedParent, typeOfCode, updateChartV2, type Role } from "./chart.js";
 
 export async function chartReplaceCli(slug: string, apply: boolean): Promise<string[]> {
   const c = (await sql<{ id: string; name: string }[]>`select id, name from companies where slug = ${slug}`)[0];
@@ -56,9 +56,9 @@ export const CLIENT_V3: [string, string, boolean][] = [...CHART.filter((r) => r[
   ["50012", "ចំណាយបញ្ចុះតម្លៃ", false]];
 /** an account off the list → where its balance, its items and its catalog links go */
 export const V3_MOVE: Record<string, string> = { "11004": "11001", "13001": "13110", "21002": "21001", "30004": "30001", "30005": "30001", "40007": "50012", "50013": "50011", "50014": "50012" };
-/** the automatic postings: [role, account] — null = the role's fallback (roleIds: KHR cash → 11001, opening / drawings → 30001, cash over / short → 50011) */
-export const V3_ROLES: [Role, string | null][] = [["discount", "50012"], ["stock_adjust", "50011"], ["payroll", "21001"], ["ap_ac", "20001"], ["ap_washing", "20002"],
-  ["cash_khr", null], ["opening", null], ["drawings", null], ["cash_diff", null]];
+/** the automatic postings: [map key, account] (D-178: the account map) — KHR cash on 11001, opening / drawings on the capital, cash over / short with other expenses */
+export const V3_ROLES: [Role, string][] = [["discount", "50012"], ["stock_adjust", "50011"], ["payroll", "21001"], ["ap_ac", "20001"], ["ap_washing", "20002"],
+  ["cash_khr", "11001"], ["opening", "30001"], ["drawings", "30001"], ["cash_diff", "50011"]];
 export type V3Plan = { created: string[]; renamed: { code: string; from: string; to: string }[]; reactivated: string[]; roles: { role: string; from: string | null; to: string | null }[];
   off: { code: string; name: string; to: string | null; balance: number }[]; items: { id: string; code: string; to_code: string; name: string; from: string; account: string; qty: number; value: number }[];
   parents: { code: string; from: string | null; to: string | null }[]; links: number; unmapped: string[]; reclass: string | null; already: boolean };
@@ -67,7 +67,8 @@ export type V3Plan = { created: string[]; renamed: { code: string; from: string;
  *  untouched), roles re-pointed, a stock item on an account off the list moved to the closest one with a new sub code; idempotent */
 export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): Promise<V3Plan> {
   const c = user.companyId;
-  const have = await t<{ id: string; code: string; name_km: string; role: string | null; is_active: boolean; parent: string | null; bal: string }[]>`select a.id, a.code, a.name_km, a.role, a.is_active, a.parent_code as parent,
+  const have = await t<{ id: string; code: string; name_km: string; mapped: boolean; is_active: boolean; parent: string | null; bal: string }[]>`select a.id, a.code, a.name_km,
+      exists (select 1 from account_map m where m.account_id = a.id) as mapped, a.is_active, a.parent_code as parent,
       coalesce((select sum(l.debit_cents - l.credit_cents) from journal_lines l where l.account_id = a.id), 0)::text as bal from accounts a where a.company_id = ${c} order by a.code`;
   const byCode = new Map(have.map((a) => [a.code, a]));
   const list = new Map(CLIENT_V3.map(([code, km, group]) => [code, { km, group }]));
@@ -75,15 +76,15 @@ export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): P
   for (const [code, { km }] of list) {
     const a = byCode.get(code);
     if (!a) plan.created.push(code);
-    else { if (a.name_km !== km) plan.renamed.push({ code, from: a.name_km, to: km }); if (!a.is_active) plan.reactivated.push(code); if (a.parent !== parentOf(code)) plan.parents.push({ code, from: a.parent, to: parentOf(code) }); }
+    else { if (a.name_km !== km) plan.renamed.push({ code, from: a.name_km, to: km }); if (!a.is_active) plan.reactivated.push(code); if (a.parent !== seedParent(code)) plan.parents.push({ code, from: a.parent, to: seedParent(code) }); }
   }
   for (const a of have) {
-    if (list.has(a.code) || (!a.is_active && !a.role && Number(a.bal) === 0)) continue;
+    if (list.has(a.code) || (!a.is_active && !a.mapped && Number(a.bal) === 0)) continue;
     const to = V3_MOVE[a.code] ?? null;
     if (!to && Number(a.bal) !== 0) { plan.unmapped.push(`${a.code} ${a.name_km} (balance ${a.bal}) — kept active`); continue; }
     plan.off.push({ code: a.code, name: a.name_km, to, balance: Number(a.bal) });
   }
-  const roleNow = new Map(have.filter((a) => a.role).map((a) => [a.role!, a.code]));
+  const roleNow = new Map((await t<{ key: string; code: string }[]>`select m.key, a.code from account_map m join accounts a on a.id = m.account_id where m.company_id = ${c}`).map((r) => [r.key, r.code]));
   for (const [role, to] of V3_ROLES) if ((roleNow.get(role) ?? null) !== to) plan.roles.push({ role, from: roleNow.get(role) ?? null, to });
   const items = await t<{ id: string; code: string | null; name: string; acct: string; qty: string; value: string }[]>`select ci.id, ci.code, ci.name_km as name, a.code as acct,
       coalesce(s.qty, 0)::text as qty, coalesce(s.value_cents, 0)::text as value from catalog_items ci join accounts a on a.id = ci.inventory_account_id
@@ -105,7 +106,7 @@ export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): P
 
   for (const code of plan.created) {
     const { km, group } = list.get(code)!;
-    await t`insert into accounts (company_id, code, name_km, type, is_group, parent_code, sub_codes) values (${c}, ${code}, ${km}, ${typeOfCode(code)!}::account_type, ${group}, ${parentOf(code)}, ${isSubCodeAccount(code, group)})`;
+    await t`insert into accounts (company_id, code, name_km, type, is_group, parent_code, sub_codes) values (${c}, ${code}, ${km}, ${typeOfCode(code)!}::account_type, ${group}, ${seedParent(code)}, ${isSubCodeAccount(code, group)})`;
   }
   for (const [code, { km }] of list) await t`update accounts set name_km = ${km}, is_active = true, added_by_system = false where company_id = ${c} and code = ${code} and (name_km <> ${km} or not is_active or added_by_system)`;
   await t`update accounts set name_en = 'Discounts given' where company_id = ${c} and code = '50012'`;
@@ -116,11 +117,12 @@ export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): P
       lines: moving.flatMap((o) => [{ account: id.get(o.to!)!, amount: o.balance, memo: o.code }, { account: id.get(o.code)!, amount: -o.balance, memo: o.to }]) });
     plan.reclass = e?.number ?? null;
   }
-  await t`update accounts set role = null where company_id = ${c} and role = any(${t.array(V3_ROLES.map(([r]) => r))})`;
-  for (const [role, code] of V3_ROLES) if (code) await t`update accounts set role = ${role} where company_id = ${c} and code = ${code}`;
+  for (const o of plan.off) if (o.to) await t`update account_map set account_id = ${id.get(o.to)!}, updated_at = now() where company_id = ${c} and account_id = ${id.get(o.code)!}`; // nothing points at an account switched off
+  for (const [key, code] of V3_ROLES) await t`insert into account_map (company_id, key, account_id) values (${c}, ${key}, ${id.get(code)!})
+    on conflict (company_id, key) do update set account_id = excluded.account_id, updated_at = now()`;
   for (const o of plan.off) if (o.to) await t`update catalog_items set income_account_id = case when income_account_id = ${id.get(o.code)!} then ${id.get(o.to)!}::uuid else income_account_id end,
       stock_link_account_id = case when stock_link_account_id = ${id.get(o.code)!} then ${id.get(o.to)!}::uuid else stock_link_account_id end where company_id = ${c}`;
-  if (offCodes.length) await t`update accounts set is_active = false, role = null where company_id = ${c} and code = any(${t.array(offCodes)})`;
+  if (offCodes.length) await t`update accounts set is_active = false where company_id = ${c} and code = any(${t.array(offCodes)})`;
   for (const x of plan.items) await t`update catalog_items set code = ${x.to_code || null}, inventory_account_id = ${id.get(x.account)!} where id = ${x.id}`;
   return plan;
 }

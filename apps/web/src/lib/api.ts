@@ -171,7 +171,9 @@ export type StockCard = { opening: { qty: number; value: number | null }; rows: 
 export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 /** D-144 stock in: an item in stock, or a new one made on the way (name · unit · stock account → code on the client's scheme) */
 export type StockInInput = { item_id?: string | null; name?: string | null; code?: string | null; unit?: string | null; account_id?: string | null; qty: number; unit_cost?: number | null; total?: number | null;
-  pay?: StockPay | null; supplier?: string | null; date?: string | null; note?: string | null; opening?: boolean; paid?: number | null; supplier_invoice?: string | null };
+  pay?: StockPay | null; supplier?: string | null; date?: string | null; note?: string | null; opening?: boolean; paid?: number | null; supplier_invoice?: string | null;
+  /** D-178: the supplier's type → its payable (none → as last time, else other) */
+  supplier_kind?: "ac" | "washing" | "other" | null };
 export type Payable = { supplier: string; owed: number; purchases: number; opening: number; paid: number; invoices: string[]; last_purchase: string | null; last_payment: string | null };
 /** D-144 «ផ្ទៀងផ្ទាត់សម្ភារៈ»: stock out vs invoiced through the linked price-list lines, per job (or place) and stock group */
 export type ReconcileRow = { key: string; booking_id: string | null; booking_number: string | null; customer_name: string | null; borey_name: string | null; place: string | null; technician: string | null;
@@ -182,11 +184,16 @@ export type PendingPosting = { id: string; kind: "other" | "journal"; date: stri
 export type BacklogReport = { start: string; posted: number; invoices: number; payments: number; deposits: number; stock: number; transactions: number; before_start: number; failed: number };
 // ---------- accounting (D-88) ----------
 export type AcctType = "asset" | "liability" | "equity" | "income" | "expense";
-export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; role: string | null; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL";
+export type Account = { id: string; code: string; name_km: string; name_en: string | null; type: AcctType; is_active: boolean; used: boolean; balance: number; statement: "BS" | "PL";
+  /** D-178: the account-map keys that point at it; a stock account (under a mapped stock header); a cash / bank account (beside the mapped cash) */
+  mapped: string[]; is_stock?: boolean; is_cash?: boolean;
   /** D-141: a group header (never posted to), its group, an account the system added («បន្ថែមដោយប្រព័ន្ធ») */
   is_group?: boolean; parent_code?: string | null; added_by_system?: boolean;
-  /** D-142: the stock account's items carry sub codes (14001 …); off = the account is its one item (13001) */
+  /** D-142: the stock account's items carry sub codes (account code + 2 digits); off = the account is its one item */
   sub_codes?: boolean };
+/** D-178: one key of the account map — its section, the account types it takes, the account it points at */
+export type AccountMapRow = { key: string; section: string; types: readonly string[]; group?: boolean;
+  account: { account_id: string; code: string; name_km: string; name_en: string | null; updated_at: string; updated_by: string | null } | null };
 export type JournalRow = { id: string; number: string; date: string; memo: string; source: string; source_id: string | null; reversal_of: string | null; amount: number;
   status: "posted" | "reversed"; created_by_name: string | null; attachment_id: string | null };
 export type JournalLine = { id: number; account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; debit: number; credit: number; memo: string | null;
@@ -448,7 +455,9 @@ export const api = {
     setFiscalYear: (start_month: number) => post<{ start_month: number }>("/api/accounting/fiscal-year", { start_month }),
     closeYear: (year_end: string) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end }),
     accounts: () => get<Account[]>("/api/accounting/accounts"),
-    saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean; sub_codes?: boolean }) => post<{ id: string }>("/api/accounting/accounts", v),
+    mapping: () => get<{ can_edit: boolean; keys: AccountMapRow[] }>("/api/accounting/mapping"), // D-178
+    setMapping: (key: string, account_id: string) => put<{ ok: true }>("/api/accounting/mapping", { key, account_id }),
+    saveAccount: (v: { id?: string; code: string; name_km: string; name_en?: string | null; type: AcctType; is_active?: boolean; sub_codes?: boolean }) => post<{ id: string; recoded_items?: number }>("/api/accounting/accounts", v),
     deleteAccount: (id: string) => del(`/api/accounting/accounts/${id}`),
     journal: (from: string, to: string, source?: string) => get<JournalRow[]>(`/api/accounting/journal?from=${from}&to=${to}${source ? `&source=${source}` : ""}`),
     entry: (id: string) => get<JournalEntry>(`/api/accounting/journal/${id}`),

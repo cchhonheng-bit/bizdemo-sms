@@ -75,12 +75,12 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   const name = useAccName();
   const info = useQuery({ queryKey: ["books"], queryFn: api.accounting.info });
   const accs = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: !!ACCOUNT_TYPES[type] });
-  const choices = useMemo(() => (accs.data ?? []).filter((a) => a.is_active && !a.is_group && ACCOUNT_TYPES[type]?.includes(a.type) && a.role !== "inventory"), [accs.data, type]);
+  const choices = useMemo(() => (accs.data ?? []).filter((a) => a.is_active && !a.is_group && ACCOUNT_TYPES[type]?.includes(a.type) && !a.mapped.includes("inventory")), [accs.data, type]);
   const [date, setDate] = useState(todayLocal());
   const [amount, setAmount] = useState(""); const [khr, setKhr] = useState(false);
   // D-141: other income defaults to the client's 40006 (the account that carries the role)
   const [code, setCode] = useState("");
-  const otherIncome = (accs.data ?? []).find((a) => a.role === "rev_other")?.code ?? "";
+  const otherIncome = (accs.data ?? []).find((a) => a.mapped.includes("rev_other"))?.code ?? "";
   useEffect(() => { if (type === "other_income" && !code && otherIncome) setCode(otherIncome); }, [type, code, otherIncome]);
   const [pay, setPay] = useState("cash_usd"); const [from, setFrom] = useState("cash_usd"); const [to, setTo] = useState("aba");
   const [supplier, setSupplier] = useState(""); const [memo, setMemo] = useState(""); const [photo, setPhoto] = useState<string | null>(null);

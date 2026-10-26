@@ -13,3 +13,4 @@ export * from "./guide";
 export * from "./phone";
 export * from "./address";
 export * from "./list-filter";
+export * from "./account-map";

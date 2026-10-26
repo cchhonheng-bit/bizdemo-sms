@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
 import { adjust, card, items, listLocations, monthEnd, payables, reconcile, setReorder, stockAccounts, stockIn, stockOut, supplierPay } from "../services/inventory.js";
 import { featureOn } from "../lib/features.js";
+import { SUPPLIER_KINDS } from "@sms/shared";
 
 const id = z.string().uuid();
 const qty = z.number().positive().max(1_000_000).multipleOf(0.001);
@@ -25,7 +26,8 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     unit: z.string().trim().max(20).nullable().optional(), account_id: id.nullable().optional(), qty, unit_cost: cents.nullable().optional(), total: cents.nullable().optional(),
     pay: z.enum(["cash_usd", "cash_khr", "aba", "acleda", "credit"]).nullable().optional(), supplier: z.string().max(120).nullable().optional(), date: day.nullable().optional(),
     note: z.string().max(300).nullable().optional(), opening: z.boolean().optional(),
-    paid: cents.nullable().optional(), supplier_invoice: z.string().trim().max(60).nullable().optional() }).strict().parse(req.body))); // D-167
+    paid: cents.nullable().optional(), supplier_invoice: z.string().trim().max(60).nullable().optional(),
+    supplier_kind: z.enum(SUPPLIER_KINDS).nullable().optional() }).strict().parse(req.body))); // D-167 · D-178 the supplier's type
   // D-167: what is owed per supplier, and a payment to one (in $ or ៛, any method)
   app.get("/payables", view, async (req) => payables(req.user!));
   app.post("/supplier-pay", manage, async (req) => supplierPay(req.user!, req.ip, z.object({ supplier: z.string().trim().min(1).max(120), amount: z.number().positive().max(1_000_000_000_000),

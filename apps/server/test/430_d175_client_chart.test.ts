@@ -19,7 +19,7 @@ let today: string;
 const inv = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/inventory${path}`, body);
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
 const account = async (code: string, company = s.a) => (await sql<{ id: string; is_active: boolean; role: string | null; parent_code: string | null }[]>`
-  select id, is_active, role, parent_code from accounts where company_id = ${company} and code = ${code}`)[0]!;
+  select a.id, a.is_active, (select min(m.key) from account_map m where m.account_id = a.id and m.key = 'discount') as role, a.parent_code from accounts a where a.company_id = ${company} and a.code = ${code}`)[0]!;
 const bal = async (code: string, company = s.a) => Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b
   from journal_lines l join accounts a on a.id = l.account_id where a.company_id = ${company} and a.code = ${code}`)[0]!.b);
 const tbDiff = async (company = s.a) => Number((await sql<{ d: string }[]>`select (coalesce(sum(debit_cents), 0) - coalesce(sum(credit_cents), 0))::text as d from journal_lines where company_id = ${company}`)[0]!.d);
@@ -58,7 +58,7 @@ describe("D-175 the client's chart of 26-10", () => {
     expect(dry.renamed.map((r) => r.code)).toEqual(["12000", "50012"]);
     expect(dry.off.map((o) => `${o.code}>${o.to}`)).toEqual(["11004>11001", "21002>21001", "30004>30001", "30005>30001", "40007>50012", "50013>50011", "50014>50012"]);
     expect(dry.items).toEqual([expect.objectContaining({ code: "13001", to_code: "1311001", from: "13001", account: "13110", qty: 2, value: 95000 })]);
-    expect(dry.roles.map((r) => `${r.role}:${r.from}>${r.to}`)).toEqual(expect.arrayContaining(["discount:40007>50012", "stock_adjust:50012>50011", "payroll:21002>21001", "cash_khr:11004>null"]));
+    expect(dry.roles.map((r) => `${r.role}:${r.from}>${r.to}`)).toEqual(expect.arrayContaining(["discount:40007>50012", "stock_adjust:50012>50011", "payroll:21002>21001", "cash_khr:11004>11001"]));
     expect(dry.reclass).toBeNull(); // no entry anywhere — nothing to move
     expect((await account("40007")).role).toBe("discount"); // a dry run writes nothing
 
@@ -83,7 +83,8 @@ describe("D-175 the client's chart of 26-10", () => {
     expect(Object.fromEntries(Object.entries(R).map(([r, id]) => [r, code.get(id)]))).toEqual({ cash_usd: "11001", cash_khr: "11001", bank_acleda: "11002", bank_aba: "11003",
       ar: "12002", staff_advance: "12001", inventory: "14500", ap_ac: "20001", ap_washing: "20002", ap: "20003", deposits: "20004", tips: "20005", payroll: "21001",
       capital: "30001", opening: "30001", drawings: "30001", current_profit: "30002", retained: "30003", rev_sales: "40001", rev_service: "40002", rev_sales_inside: "40004",
-      rev_service_inside: "40005", rev_other: "40006", cogs: "50001", salaries: "50002", bonus: "50003", materials: "50005", stock_adjust: "50011", cash_diff: "50011", discount: "50012" });
+      rev_service_inside: "40005", rev_other: "40006", cogs: "50001", salaries: "50002", bonus: "50003", materials: "50005", stock_adjust: "50011", cash_diff: "50011", discount: "50012",
+      stock_new: "13000", stock_second_hand: "18000" }); // D-178: the map, incl. the stock headers
     expect((await sql<{ code: string; acct: string; qty: string }[]>`select ci.code, a.code as acct, st.qty::text as qty from catalog_items ci join accounts a on a.id = ci.inventory_account_id
       join stock_items st on st.item_id = ci.id where ci.id = ${old}`)[0]).toMatchObject({ code: "1311001", acct: "13110", qty: "2.000" });
     expect((await sql<{ n: number }[]>`select count(*)::int as n from stock_moves where item_id = ${old}`)[0]!.n).toBe(2); // the receipts stay
@@ -92,10 +93,10 @@ describe("D-175 the client's chart of 26-10", () => {
 
   it("the books start on it (the live path): receipts and supplier payments saved before post on the right accounts — AC owed 20001 cleared by its 3 payments, washing machine 20002, copper 20003; copper → 50001, 14500 → 50005; trial balance 0; stock value = the stock accounts", async () => {
     const id = async (c: string) => (await account(c)).id;
-    const ac = (await inv(admin, "/in", { name: "Gree 1.5 HP", account_id: await id("13820"), qty: 10, total: 100000, pay: "cash_usd", paid: 10000, supplier: "ABC", supplier_invoice: "ABC-1" })).json;
+    const ac = (await inv(admin, "/in", { name: "Gree 1.5 HP", account_id: await id("13820"), qty: 10, total: 100000, pay: "cash_usd", paid: 10000, supplier: "ABC", supplier_invoice: "ABC-1", supplier_kind: "ac" })).json; // D-178: an AC supplier
     expect(ac).toMatchObject({ total: 100000, paid: 10000, owed: 90000 });
     expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac.item_id}`)[0]!.c).toBe("1382001");
-    expect((await inv(admin, "/in", { name: "LG 8 kg", account_id: await id("14100"), qty: 1, total: 30000, pay: "credit", supplier: "WM Co" })).status).toBe(200);
+    expect((await inv(admin, "/in", { name: "LG 8 kg", account_id: await id("14100"), qty: 1, total: 30000, pay: "credit", supplier: "WM Co", supplier_kind: "washing" })).status).toBe(200);
     const pipe = (await inv(admin, "/in", { name: "ទុយោស្ពាន់ 10mm", account_id: await id("13400"), unit: "m", qty: 10, unit_cost: 200, pay: "credit", supplier: "Copper Co" })).json.item_id;
     const tape = (await inv(admin, "/in", { name: "ស្កុតបិទ", account_id: await id("14500"), unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).json.item_id;
     expect((await inv(admin, "/out", { item_id: pipe, qty: 4, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);

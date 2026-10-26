@@ -34,7 +34,7 @@ export const shopSetupInput = z.object({
     from_price: z.number().int().min(0).max(100_000_000).nullable().optional(), sell_price: z.number().int().min(0).max(100_000_000).optional(),
     cost_price: z.number().int().min(0).max(100_000_000).nullable().optional(), is_active: z.boolean().optional(),
     /** D-144: a line the shop does not have yet (made with these; a price-list line, never stock) + its stock group for the reconciliation («ភ្ជាប់កូដស្តុក», an account code) */
-    name_km: z.string().trim().min(1).max(120).optional(), kind: z.enum(["service", "product"]).optional(), unit: z.string().trim().max(20).optional(), stock_link: z.string().regex(/^1[3-8][0-9]{3}$/).nullable().optional(),
+    name_km: z.string().trim().min(1).max(120).optional(), kind: z.enum(["service", "product"]).optional(), unit: z.string().trim().max(20).optional(), stock_link: z.string().regex(/^[1-9][0-9]{3,5}$/).nullable().optional(),
     show_on_website: z.boolean().optional() }).strict()).max(500).optional(),
   /** D-144: the day the books are meant to start (the CFO's form opens on it) */
   books_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),

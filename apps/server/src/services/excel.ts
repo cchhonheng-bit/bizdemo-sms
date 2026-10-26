@@ -11,7 +11,6 @@ import { audit } from "./audit.js";
 import { matchesSearch } from "@sms/shared";
 import { balanceSheet, books, checkPeriod, dayBefore, fyStart, incomeStatement, roleIds, statementOf, sums, trialBalanceMonth, type Sum } from "./accounting.js";
 import { listInvoices, type ListFilter } from "./invoices.js";
-import { parentOf } from "./chart.js";
 import { report as attendanceReport } from "./attendance.js";
 import { payables, reconcile } from "./inventory.js";
 import { techPerformance } from "./reports-extra.js";
@@ -113,7 +112,7 @@ async function techWithdrawals(ctx: Ctx, q: Q): Promise<Built> {
   const rows = await sql<{ date: string; account: string | null; item: string; qty: string; unit: string | null; value: string; bk: string | null; technician: string | null; booker: string | null; address: string | null; place: string | null }[]>`
     select m.move_date::text as date, a.code as account, i.name_km as item, m.qty::text as qty, i.unit, m.value_cents::text as value, b.number as bk, tu.full_name as technician,
       bu.full_name as booker, cu.address, m.place
-    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = i.inventory_account_id
+    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id)
       left join bookings b on m.ref_type = 'booking' and b.id::text = m.ref_id left join users bu on bu.id = b.created_by left join customers cu on cu.id = b.customer_id
       left join users tu on tu.id = m.technician_id
     where m.company_id = ${c} and m.kind = 'out' and m.move_date between ${from}::date and ${to}::date
@@ -218,7 +217,7 @@ async function coa(ctx: Ctx, q: Q): Promise<Built> {
   const priorOpen = plNet(beforeCut ?? beforeFy), priorClose = plNet(beforeFy);
   const map = (xs: Sum[]) => new Map(xs.map((x) => [x.id, x.d - x.c]));
   const mvOf = new Map(mv.map((x) => [x.id, x])), bo = map(bsOpen), bc = map(bsClose), po = map(plOpen), pc = map(plClose);
-  const all = await sql<{ id: string; code: string; name_km: string; type: string; is_group: boolean }[]>`select id, code, name_km, type::text as type, is_group from accounts
+  const all = await sql<{ id: string; code: string; name_km: string; type: string; is_group: boolean; parent_code: string | null }[]>`select id, code, name_km, type::text as type, is_group, parent_code from accounts
     where company_id = ${c} and (is_active or exists (select 1 from journal_lines l where l.account_id = accounts.id)) order by code`;
   const side = (net: number) => [Math.max(net, 0), Math.max(-net, 0)];
   const [km, en] = TITLES.coa;
@@ -232,13 +231,13 @@ async function coa(ctx: Ctx, q: Q): Promise<Built> {
   rows.push([h(""), h(""), h(""), h(""), h(""), h(""), h("Debit"), h("Credit"), h("Debit"), h("Credit")]);
   const tot = [0, 0, 0, 0, 0, 0];
   // D-175: each group header rolls up the accounts under it (every level) — the period's debit / credit, each balance net on its side
-  const groups = all.filter((a) => a.is_group).map((a) => a.code), roll = new Map<string, number[]>();
+  const up = new Map(all.map((a) => [a.code, a.parent_code])), roll = new Map<string, number[]>(); // D-178: the chart's own groups, no code rule
   const own = new Map(all.filter((a) => !a.is_group).map((a) => {
     const m = mvOf.get(a.id), retained = a.id === roles.retained;
     const open = isPL(a.type) ? po.get(a.id) ?? 0 : (bo.get(a.id) ?? 0) - (retained ? priorOpen : 0);
     const close = isPL(a.type) ? pc.get(a.id) ?? 0 : (bc.get(a.id) ?? 0) - (retained ? priorClose : 0);
     const v = [m?.d ?? 0, m?.c ?? 0, open, close];
-    for (let g = parentOf(a.code, groups); g; g = parentOf(g, groups)) { const s = roll.get(g) ?? [0, 0, 0, 0]; v.forEach((x, i) => { s[i]! += x; }); roll.set(g, s); }
+    for (let g = up.get(a.code) ?? null, depth = 0; g && depth < 10; g = up.get(g) ?? null, depth++) { const s = roll.get(g) ?? [0, 0, 0, 0]; v.forEach((x, i) => { s[i]! += x; }); roll.set(g, s); }
     return [a.id, v] as const;
   }));
   let prevGroup = false;
@@ -359,7 +358,7 @@ async function stockMovesSheet(ctx: Ctx, q: Q): Promise<Built> {
     select m.move_date::text as date, m.kind::text as kind, i.code, i.name_km as item, a.code as account, m.qty::text as qty, i.unit, m.value_cents::text as value, l.name as location,
       case m.ref_type when 'booking' then (select number from bookings where id::text = m.ref_id) when 'invoice' then (select number from invoices where id::text = m.ref_id) end as ref,
       m.place, tu.full_name as technician, m.supplier, m.supplier_invoice as sinv, m.paid_cents::text as paid, m.pay, u.full_name as by, m.reason
-    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = i.inventory_account_id join stock_locations l on l.id = m.location_id
+    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id) join stock_locations l on l.id = m.location_id
       left join users tu on tu.id = m.technician_id left join users u on u.id = m.created_by
     where m.company_id = ${ctx.user.companyId} and m.move_date between ${from}::date and ${to}::date
       ${q.item ? sql`and m.item_id = ${q.item}` : sql``} ${q.account?.length ? sql`and a.id = any(${sql.array(q.account)}::uuid[])` : sql``}

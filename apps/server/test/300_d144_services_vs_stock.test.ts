@@ -93,7 +93,7 @@ describe("A · the price list and the stock are separate", () => {
     expect(await stockOf(pipe)).toMatchObject({ code: "1340001", qty: 10, value: 2000, avg_cost: 200, account_code: "13400", unit: "ម៉ែត្រ" });
     const again = await inv(admin, "/in", { name: "ទុយោស្ពាន់ 6mm", account_id: a14000, qty: 5, unit_cost: 200, pay: "cash_usd" });
     expect(again.json).toMatchObject({ created: false, item_id: pipe, total: 1000, balance: 15 });
-    expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).json).toMatchObject({ created: false, total: 60000, balance: 2 });
+    expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់", supplier_kind: "ac" })).json).toMatchObject({ created: false, total: 60000, balance: 2 });
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, total: 25000, pay: "aba" })).json).toMatchObject({ item_id: ac, total: 25000, balance: 3 }); // the account alone names its one item; a total typed instead of a unit cost
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, pay: "aba" })).json.error).toBe("COST_REQUIRED");
     expect((await inv(admin, "/in", { item_id: ac, qty: 1, unit_cost: 1 })).json.error).toBe("PAY_REQUIRED");

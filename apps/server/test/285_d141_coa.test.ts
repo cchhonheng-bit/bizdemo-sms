@@ -13,8 +13,8 @@ let app: FastifyInstance; let s: Seed;
 let ceo: Client, admin: Client, cfo: Client;
 let inside: string, outside: string, today: string;
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
-const code = async (c: string, company = s.a) => (await sql<{ id: string; name_km: string; role: string | null; is_group: boolean; parent_code: string | null; added_by_system: boolean; type: string }[]>`
-  select id, name_km, role, is_group, parent_code, added_by_system, type::text as type from accounts where company_id = ${company} and code = ${c}`)[0]!;
+const code = async (c: string, company = s.a) => (await sql<{ id: string; name_km: string; is_group: boolean; parent_code: string | null; added_by_system: boolean; type: string }[]>`
+  select id, name_km, is_group, parent_code, added_by_system, type::text as type from accounts where company_id = ${company} and code = ${c}`)[0]!;
 const bal = async (c: string) => Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b from journal_lines l join accounts a on a.id = l.account_id
   where a.company_id = ${s.a} and a.code = ${c}`)[0]!.b);
 const invoice = async (customer: string, lines: { kind: "service" | "product"; qty: number; unit_price: number; catalog_item_id?: string }[]) => {
@@ -53,7 +53,7 @@ describe("D-141 the chart", () => {
   });
 
   it("system accounts on the client's codes; what the client's chart lacks is added with a free code and flagged «បន្ថែមដោយប្រព័ន្ធ»", async () => {
-    const role = async (r: string) => (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.a} and role = ${r}`)[0]?.code;
+    const role = async (r: string) => (await sql<{ code: string }[]>`select a.code from account_map m join accounts a on a.id = m.account_id where m.company_id = ${s.a} and m.key = ${r}`)[0]?.code; // D-178: the map
     const want: Record<string, string> = { cash_usd: "11001", bank_aba: "11003", bank_acleda: "11002", ar: "12002", staff_advance: "12001", inventory: "14500", deposits: "20004", tips: "20005",
       current_profit: "30002", retained: "30003", cogs: "50001", salaries: "50002", materials: "50005", rev_sales: "40001", rev_service: "40002", rev_sales_inside: "40004",
       rev_service_inside: "40005", rev_other: "40006", ap: "20003", ap_ac: "20001", ap_washing: "20002", capital: "30001",
@@ -93,7 +93,7 @@ describe("D-141 postings on the new codes", () => {
     const pipeAcc = await code("13400");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
-    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, code: "1350001", inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
     const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "1340001", inventory_account_id: pipeAcc.id })).json.id;
     const b0 = await Promise.all(["13400", "14500", "50005", "50001", "11001"].map(bal));
     expect((await admin.req("POST", "/api/inventory/in", { item_id: pipe, qty: 20, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
@@ -125,7 +125,10 @@ describe("D-141 chart-replace", () => {
     await expect(tx(null, (t) => replaceChart(t, s.a, false))).rejects.toThrow(/BOOKS_IN_USE/);
     // company B still has the old template (D-88) and no entry
     const old = [["1010", "សាច់ប្រាក់ក្នុងដៃ (ដុល្លារ)", "asset", "cash_usd"], ["4010", "ចំណូលសេវាកម្ម", "income", "rev_service"], ["6030", "សាំង", "expense", null]] as const;
-    for (const [c, n, t, r] of old) await sql`insert into accounts (company_id, code, name_km, type, role) values (${s.b}, ${c}, ${n}, ${t}::account_type, ${r})`;
+    for (const [c, n, t, r] of old) {
+      const id = (await sql<{ id: string }[]>`insert into accounts (company_id, code, name_km, type) values (${s.b}, ${c}, ${n}, ${t}::account_type) returning id`)[0]!.id;
+      if (r) await sql`insert into account_map (company_id, key, account_id) values (${s.b}, ${r}, ${id})`; // D-178: the map
+    }
     const svcB = (await sql<{ id: string }[]>`insert into catalog_items (company_id, name_km, kind, category, unit, income_account_id) values (${s.b}, 'សេវា', 'service', 'mep', 'unit',
       (select id from accounts where company_id = ${s.b} and code = '4010')) returning id`)[0]!.id;
     const plan = await tx(null, (t) => replaceChart(t, s.b, false));
@@ -135,6 +138,7 @@ describe("D-141 chart-replace", () => {
     await tx(null, (t) => replaceChart(t, s.b, true));
     const codes = (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.b} order by code`).map((x) => x.code);
     expect(codes).toEqual([...CHART.map((r) => r[0])].sort());
+    expect((await sql<{ code: string }[]>`select a.code from account_map m join accounts a on a.id = m.account_id where m.company_id = ${s.b} and m.key = cash_usd`)[0]?.code).toBe("11001"); // the map follows the new chart
     expect((await sql`select income_account_id from catalog_items where id = ${svcB}`)[0]!.income_account_id).toBeNull();
     const items = await sql<{ code: string; name_km: string; track_stock: boolean; acc: string }[]>`select ci.code, ci.name_km, ci.track_stock, a.code as acc
       from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.b} order by ci.code`;

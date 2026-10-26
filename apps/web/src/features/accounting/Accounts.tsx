@@ -40,7 +40,7 @@ export default function Accounts() {
                   <li key={a.id} className="flex items-center gap-2">
                     <button className="flex-1 min-w-0 text-left py-2 min-h-[48px]" onClick={() => setLedgerOf(a)}>
                       <span className={`block break-words text-sm ${a.is_active ? "" : "text-muted line-through"}`}>{name(a)}</span>
-                      <Badge tone={a.statement === "PL" ? "green" : "purple"}>{t(`acct.stmt.${a.statement}`)}</Badge>{a.role && <> <Badge tone="navy">{t("acct.system")}</Badge></>}{a.added_by_system && <> <Badge tone="warning">{t("acct.added_by_system")}</Badge></>}
+                      <Badge tone={a.statement === "PL" ? "green" : "purple"}>{t(`acct.stmt.${a.statement}`)}</Badge>{a.mapped.length > 0 && <> <Badge tone="navy">{t("acct.system")}</Badge></>}{a.added_by_system && <> <Badge tone="warning">{t("acct.added_by_system")}</Badge></>}
                     </button>
                     <span className="tabular text-sm whitespace-nowrap">{signedUsd(a.balance)}</span>
                     {can("accounting.post") && <button className="min-h-[44px] min-w-[44px] grid place-items-center text-muted" aria-label={t("app.edit")} onClick={() => setEdit(a)}><Pencil size={16} /></button>}
@@ -66,28 +66,29 @@ function AccountDialog({ account, onClose }: { account: Account | null; onClose:
   const [type, setType] = useState<AcctType>(account?.type ?? "expense");
   const [active, setActive] = useState(account?.is_active ?? true);
   const [sub, setSub] = useState(account?.sub_codes ?? false); // D-142
-  const locked = !!account && (account.used || !!account.role);
-  const done = () => { toast.success(t("app.saved")); void qc.invalidateQueries({ queryKey: ["acct-accounts"] }); onClose(); };
+  // D-178: the code and the name may change (everything points at the account's id); the type stays once it is used or mapped
+  const typeLocked = !!account && (account.used || account.mapped.length > 0);
+  const done = () => { toast.success(t("app.saved")); for (const k of ["acct-accounts", "acct-mapping", "stock-items", "stock-accounts", "catalog"]) void qc.invalidateQueries({ queryKey: [k] }); onClose(); };
   const save = useMutation({ mutationFn: () => api.accounting.saveAccount({ id: account?.id, code, name_km: km, name_en: en || null, type, is_active: active, sub_codes: sub }), onSuccess: done, onError: onErr });
   const remove = useMutation({ mutationFn: () => api.accounting.deleteAccount(account!.id), onSuccess: done, onError: onErr });
   return (
     <Dialog open onClose={onClose} title={account ? t("acct.edit_account") : t("acct.new_account")} footer={<>
-      {account && !account.used && !account.role && <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>{t("app.delete")}</Button>}
+      {account && !account.used && !account.mapped.length && <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>{t("app.delete")}</Button>}
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" className="flex-1 sm:flex-none" disabled={!/^[1-9]\d{3,5}$/.test(code) || !km.trim()} loading={save.isPending} onClick={() => save.mutate()} data-testid="acc-save">{t("app.save")}</Button>
     </>}>
       <div className="grid grid-cols-2 gap-2">
-        <Field label={t("acct.code")} hint={t("acct.code_hint")}><Input inputMode="numeric" value={code} disabled={locked} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} maxLength={6} data-testid="acc-code" /></Field>
-        <Field label={t("acct.acc_type")}><Select value={type} disabled={locked} onChange={(e) => setType(e.target.value as AcctType)}>{TYPES.map((x) => <option key={x} value={x}>{t(`acct.type.${x}`)}</option>)}</Select></Field>
+        <Field label={t("acct.code")} hint={t("acct.code_hint")}><Input inputMode="numeric" value={code} disabled={!!account?.is_group} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} maxLength={6} data-testid="acc-code" /></Field>
+        <Field label={t("acct.acc_type")}><Select value={type} disabled={typeLocked} onChange={(e) => setType(e.target.value as AcctType)}>{TYPES.map((x) => <option key={x} value={x}>{t(`acct.type.${x}`)}</option>)}</Select></Field>
       </div>
       <Field label={t("acct.name_km")} required><Input value={km} onChange={(e) => setKm(e.target.value)} maxLength={80} data-testid="acc-name" /></Field>
       <Field label={t("acct.name_en")}><Input value={en} onChange={(e) => setEn(e.target.value)} maxLength={80} /></Field>
-      {account && !account.role && <label className="flex items-center gap-2 min-h-[44px] text-sm"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t("acct.active")}</label>}
-      {type === "asset" && /^1[3-8]\d{3}$/.test(code) && !account?.is_group && (
+      {account && !account.is_group && <label className="flex items-center gap-2 min-h-[44px] text-sm"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /> {t("acct.active")}</label>}
+      {type === "asset" && !account?.is_group && (!account || account.is_stock) && (
         <label className="flex items-start gap-2 min-h-[44px] text-sm"><input type="checkbox" className="mt-1" checked={sub} onChange={(e) => setSub(e.target.checked)} data-testid="acc-sub" />
           <span>{t("acct.sub_codes")}<span className="block text-xs text-muted">{t("acct.sub_codes_hint")}</span></span></label>
       )}
-      {locked && <p className="text-xs text-muted">{account?.role ? t("acct.system_hint") : t("acct.used_hint")}</p>}
+      {typeLocked && <p className="text-xs text-muted">{account?.mapped.length ? t("acct.system_hint") : t("acct.used_hint")}</p>}
     </Dialog>
   );
 }

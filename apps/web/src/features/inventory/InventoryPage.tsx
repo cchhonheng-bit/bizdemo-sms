@@ -154,14 +154,15 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
   const onErr = useErr();
   const refresh = useRefresh();
   const accName = useAccName();
-  const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts });
-  const stockAccounts = useMemo(() => (accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)), [accounts.data]);
+  const accounts = useQuery({ queryKey: ["stock-accounts"], queryFn: api.inventory.accounts }); // D-178: the accounts under the mapped stock headers
+  const stockAccounts = useMemo(() => (accounts.data ?? []).filter((a) => !a.is_group), [accounts.data]);
   const [mode, setMode] = useState<"existing" | "new">(items.length ? "existing" : "new");
   const [item, setItem] = useState(items[0]?.item_id ?? "");
   const [name, setName] = useState(""), [unit, setUnit] = useState(""), [account, setAccount] = useState("");
   const [qty, setQty] = useState(""), [cost, setCost] = useState(""), [totalIn, setTotalIn] = useState("");
   const [pay, setPay] = useState<StockPay>("cash_usd"), [supplier, setSupplier] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
   const [paidIn, setPaidIn] = useState(""), [invoiceNo, setInvoiceNo] = useState(""); // D-167: paid now (the rest owed) · the supplier's invoice number
+  const [kind, setKind] = useState<"" | "ac" | "washing" | "other">(""); // D-178: the supplier's type → its payable ("" = as last time)
   const n = Number(qty);
   let c = NaN, tot = NaN;
   try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
@@ -172,7 +173,7 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
   const valid = n > 0 && total >= 0 && (mode === "existing" ? !!item : name.trim().length > 0 && !!account) && paid >= 0 && paid <= total && (owed === 0 || supplier.trim().length > 0);
   const save = useMutation({
     mutationFn: () => api.inventory.stockIn({ ...(mode === "existing" ? { item_id: item } : { name: name.trim(), unit: unit.trim() || null, account_id: account }), qty: n,
-      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null, paid: pay === "credit" ? 0 : paid, supplier_invoice: invoiceNo.trim() || null }),
+      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null, paid: pay === "credit" ? 0 : paid, supplier_invoice: invoiceNo.trim() || null, supplier_kind: kind || null }),
     onSuccess: (r) => { toast.success(t("inventory.in_done", { total: formatUsd(r.total), balance: qtyFmt(r.balance) })); refresh(); onClose(); }, onError: onErr,
   });
   const pays: StockPay[] = ["cash_usd", "cash_khr", "aba", "acleda", "credit"];
@@ -205,6 +206,13 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
         <Field label={t("inventory.supplier")} required={owed > 0}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="op-supplier" /></Field>
         <Field label={t("inventory.supplier_invoice")} hint={t("inventory.supplier_invoice_hint")}><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} maxLength={60} data-testid="in-invoice" /></Field>
       </div>
+      {supplier.trim() && (
+        <Field label={t("inventory.supplier_kind")} hint={t("inventory.supplier_kind_hint")}>
+          <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} data-testid="in-supplier-kind">
+            {(["", "ac", "washing", "other"] as const).map((k) => <option key={k || "auto"} value={k}>{t(`inventory.supplier_kinds.${k || "auto"}`)}</option>)}
+          </Select>
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-2">
         {pay !== "credit" && <Field label={t("inventory.paid_now")} hint={owed > 0 ? t("inventory.owed_rest", { amount: formatUsd(owed) }) : t("inventory.paid_all")}><Input inputMode="decimal" value={paidIn} placeholder={total >= 0 ? (total / 100).toFixed(2) : ""} onChange={(e) => setPaidIn(e.target.value)} data-testid="op-paid" /></Field>}
         <DateField value={date} onChange={setDate} />

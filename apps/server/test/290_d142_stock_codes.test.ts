@@ -66,7 +66,8 @@ describe("5 · item codes on the client's scheme (D-165: the account code + 2 di
     expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json.code).toBe("1311005");
     expect((await product("x", { code: "1311004", inventory_account_id: a1.id })).json.error).toBe("CODE_TAKEN");
     expect((await product("x", { code: "1312001", inventory_account_id: a1.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT");
-    expect((await product("x", { inventory_account_id: a1.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // no code at all
+    expect((await product("x auto", { inventory_account_id: a1.id })).status).toBe(200); // D-178: no code → the account code + the next free 2 digits
+    expect(await itemByCode("1311005")).toMatchObject({ name_km: "x auto", acc: "13110" });
   });
 
   it("an account switched to «no sub codes» IS its one item (code = the account code); the flag is saved by the account form", async () => {

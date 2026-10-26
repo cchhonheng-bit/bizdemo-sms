@@ -12,6 +12,7 @@ import { Button, Card, ConfirmDialog, Field, Input, Select } from "@/components/
 import { toast } from "@/lib/toast";
 import { shiftDay } from "@/features/reports/range";
 import { cents, signedUsd, useAcctErr } from "./acct";
+import AccountMapping from "./AccountMapping"; // D-178
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 
@@ -32,6 +33,7 @@ export default function Setup({ info }: { info: BooksInfo | undefined }) {
         </dl>
         {can("accounting.close") && <FiscalYear info={info} monthName={monthName} />}
       </Card>
+      <AccountMapping />
       {!info.books_start && (can("accounting.close") ? <Opening today={info.today} draft={info.opening_draft} planned={info.planned_start ?? null} pending={info.pending?.total ?? 0} /> : <p className="text-sm text-muted">{t("acct.not_started")}</p>)}
       {info.books_start && can("accounting.close") && <LockCard info={info} />}
       {info.books_start && can("accounting.close") && <CloseYear info={info} />}
@@ -118,11 +120,11 @@ function Opening({ today, draft, planned, pending }: { today: string; draft: Ope
   const [pays, setPays] = useState<Pay[]>((draft?.payables ?? []).map((p) => ({ supplier: p.supplier, amount: dollars(p.amount) })));
   const [others, setOthers] = useState<Other[]>((draft?.others ?? []).map((o) => ({ code: o.code, amount: dollars(o.amount) })));
   const HANDLED = ["cash_usd", "cash_khr", "bank_aba", "bank_acleda", "ar", "ap", "deposits", "retained", "opening", "inventory", "current_profit"];
-  const otherBs = (accounts.data ?? []).filter((a) => !a.is_group && a.is_active && /^[123]/.test(a.code) && !a.code.startsWith("11") && !/^1[348]/.test(a.code) && !HANDLED.includes(a.role ?? ""));
+  const otherBs = (accounts.data ?? []).filter((a) => !a.is_group && a.is_active && a.statement === "BS" && !a.is_cash && !a.is_stock && !a.mapped.some((k) => HANDLED.includes(k))); // D-178: by the map, no code
   const [confirm, setConfirm] = useState(false);
   const c = (v: string) => (v.trim() === "" ? 0 : cents(v));
   const riels = riel.trim() === "" ? 0 : /^\d+$/.test(riel.replace(/[,\s]/g, "")) ? Number(riel.replace(/[,\s]/g, "")) : NaN;
-  const otherAssets = (accounts.data ?? []).filter((a) => a.type === "asset" && !a.role && a.is_active && !a.is_group && a.code.startsWith("11"));
+  const otherAssets = (accounts.data ?? []).filter((a) => a.is_cash && !a.mapped.length && a.is_active); // D-178: the other banks beside the mapped cash
   const nums = [c(usd), c(aba), c(acleda), c(stock), c(retained), riels, ...banks.map((b) => c(b.amount)), ...recv.map((r) => c(r.amount)), ...pays.map((p) => c(p.amount)), ...others.map((o) => c(o.amount))];
   const valid = nums.every((n) => Number.isFinite(n) && n >= 0) && banks.every((b) => b.code && c(b.amount) > 0) && recv.every((r) => r.customer_id && c(r.amount) > 0) && pays.every((p) => p.supplier.trim() && c(p.amount) > 0)
     && others.every((o) => o.code && c(o.amount) > 0);

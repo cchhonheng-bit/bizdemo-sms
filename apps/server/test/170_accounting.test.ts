@@ -49,8 +49,8 @@ describe("C1 chart of accounts", () => {
     expect((await acc(admin, "/accounts", { id: c6150.id, code: "50020", name_km: "ថ្លៃសម្អាតការិយាល័យ", type: "expense" })).status).toBe(200);
     expect((await code("50020")).name_km).toBe("ថ្លៃសម្អាតការិយាល័យ");
     const cash = await code("11001");
-    expect((await acc(admin, "/accounts", { id: cash.id, code: "11001", name_km: "x", type: "asset", is_active: false })).json.error).toBe("SYSTEM_ACCOUNT");
-    expect((await admin.req("DELETE", `/api/accounting/accounts/${cash.id}`)).json.error).toBe("SYSTEM_ACCOUNT");
+    expect((await acc(admin, "/accounts", { id: cash.id, code: "11001", name_km: "x", type: "asset", is_active: false })).json.error).toBe("ACCOUNT_IN_USE"); // D-178: still mapped
+    expect((await admin.req("DELETE", `/api/accounting/accounts/${cash.id}`)).json.error).toBe("ACCOUNT_IN_USE");
     expect((await admin.req("DELETE", `/api/accounting/accounts/${c6150.id}`)).status).toBe(200);
     expect((await acc(gm, "/accounts")).status).toBe(403);
     expect((await acc(kim, "/accounts")).status).toBe(403);

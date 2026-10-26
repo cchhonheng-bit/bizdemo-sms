@@ -80,7 +80,7 @@ describe("D-165 the chart of 25-10", () => {
 describe("D-167 suppliers: paid in part, the invoice number, paying later, what is owed", () => {
   it("a purchase of $100 paid $30 by ABA → $70 owed to the supplier (an AC: 20001, D-175); the supplier's invoice number on the move and the card; a credit purchase owes everything", async () => {
     const aba0 = await bal("11003"); // the Daikin of the test above was paid by ABA too
-    const r = await inv(admin, "/in", { name: "LG 1 HP", account_id: (await account("13310")).id, qty: 2, total: 10000, pay: "aba", paid: 3000, supplier: "ហាង A", supplier_invoice: "INV-A-77" });
+    const r = await inv(admin, "/in", { name: "LG 1 HP", account_id: (await account("13310")).id, qty: 2, total: 10000, pay: "aba", paid: 3000, supplier: "ហាង A", supplier_invoice: "INV-A-77", supplier_kind: "ac" }); // D-178: an AC supplier
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ total: 10000, paid: 3000, owed: 7000 });
     expect(await bal("20001")).toBe(-7000); expect((await bal("11003")) - aba0).toBe(-3000); // Cr payable 70, Cr ABA 30, Dr stock 100

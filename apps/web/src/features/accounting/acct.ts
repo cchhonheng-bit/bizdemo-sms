@@ -1,4 +1,5 @@
 // Shared helpers of the accounting pages (D-88): account names, money parsing, error toasts.
+import { ApiError } from "@/lib/http";
 import { useTranslation } from "react-i18next";
 import { formatUsd, toCents } from "@sms/shared";
 import { errCode, type AcctType } from "@/lib/api";
@@ -9,7 +10,16 @@ export const METHODS = ["cash_usd", "cash_khr", "aba", "acleda"] as const;
 
 export function useAcctErr() {
   const { t } = useTranslation();
-  return (e: unknown) => toast.error(t(`acct.err.${errCode(e)}`, { defaultValue: t("app.error") }));
+  return (e: unknown) => {
+    const code = errCode(e);
+    if (code === "ACCOUNT_IN_USE" && e instanceof ApiError) { // D-178: say where the account is still used
+      const d = (e.details ?? {}) as { mappings?: string[]; items?: string[]; more?: number };
+      const where = [...(d.mappings ?? []).map((k) => t(`acct.map.key.${k}`)), ...(d.items ?? [])].join(" · ");
+      toast.error(`${t("acct.err.ACCOUNT_IN_USE")}: ${where}${d.more ? ` · +${d.more}` : ""}`);
+      return;
+    }
+    toast.error(t(`acct.err.${code}`, { defaultValue: t("app.error") }));
+  };
 }
 export function useAccName() {
   const { i18n } = useTranslation();

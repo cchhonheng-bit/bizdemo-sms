@@ -270,7 +270,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
           <Field label={t("catalog.stock_link")} hint={t("catalog.stock_link_hint")}>
             <Select value={stockLink} onChange={(e) => setStockLink(e.target.value)} data-testid="stock-link">
               <option value="">{t("catalog.stock_link_none")}</option>
-              {(accounts.data ?? []).filter((a) => a.type === "asset" && a.is_active && !a.is_group && /^1[3-8]/.test(a.code)).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
+              {(accounts.data ?? []).filter((a) => a.is_stock && a.is_active).map((a) => <option key={a.id} value={a.id}>{a.code} · {a.name_km}</option>)}
             </Select>
           </Field>
         )}

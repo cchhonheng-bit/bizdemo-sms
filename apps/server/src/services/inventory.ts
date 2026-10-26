@@ -4,13 +4,14 @@
 // no negative stock unless the setting allows it, low-stock alert once a day, accounting hook on every move (the cost side follows
 // the item's group — D-143). Technician work never moves stock; an invoice never moves stock (D-144). Read with inventory.view,
 // change with inventory.manage (technicians never).
+import { isStockAccount, stockAccountIds } from "./account-map.js";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { assertCodeOnAccount, nextItemCode } from "./catalog.js";
 import { postStock, postSupplierPay } from "./ledger-hooks.js";
-import { khrToCents } from "@sms/shared";
+import { khrToCents, type SupplierKind } from "@sms/shared";
 import { notifyUser } from "./telegram.js";
 
 export type Pay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
@@ -33,7 +34,7 @@ export async function listLocations(user: SessionUser) {
 // ---------- the one place that moves stock ----------
 type MoveIn = { item: string; location: string; kind: Kind; qty: number; value?: number | null; ref_type?: string; ref_id?: string | null;
   pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null; date?: string | null; paid?: number | null; supplier_invoice?: string | null;
-  technician?: string | null; place?: string | null };
+  technician?: string | null; place?: string | null; supplier_kind?: SupplierKind | null };
 
 async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
   const loc = (await t<{ id: string }[]>`select id from stock_locations where id = ${m.location} and company_id = ${user.companyId} and is_active`)[0];
@@ -66,10 +67,10 @@ async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
     from companies c join company_settings s on s.company_id = c.id where c.id = ${user.companyId}`)[0]!;
   if (m.date && (Number.isNaN(Date.parse(m.date)) || m.date > tz.today)) throw new AppError("BAD_DATE", 400); // a date of choice, never in the future
   const id = (await t<{ id: number }[]>`insert into stock_moves (company_id, item_id, location_id, kind, qty, value_cents, fx_rate_khr, move_date, ref_type, ref_id, pay, supplier, reason, transfer_group, reversal_of,
-      technician_id, place, created_by, paid_cents, supplier_invoice)
+      technician_id, place, created_by, paid_cents, supplier_invoice, supplier_kind)
     values (${user.companyId}, ${m.item}, ${m.location}, ${m.kind}::stock_move_kind, ${q}, ${value}, ${tz.fx}::numeric, ${m.date ?? tz.today}::date,
       ${m.ref_type ?? "manual"}, ${m.ref_id ?? null}, ${m.pay ?? null}, ${m.supplier ?? null}, ${m.reason ?? null}, ${m.group ?? null}, ${m.reversal_of ?? null},
-      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}, ${m.paid ?? null}, ${m.supplier_invoice ?? null}) returning id`)[0]!.id; // D-167: the ledger is append-only — the paid part and the supplier's invoice number go in with the row
+      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}, ${m.paid ?? null}, ${m.supplier_invoice ?? null}, ${m.supplier_kind ?? null}) returning id`)[0]!.id; // D-167: the ledger is append-only — the paid part and the supplier's invoice number go in with the row
   await t`update stock_items set qty = qty + ${q}, value_cents = value_cents + ${value} where item_id = ${m.item}`;
   await t`update stock_balances set qty = qty + ${q} where location_id = ${m.location} and item_id = ${m.item}`;
   if (q < 0 && it.reorder != null) await lowStock(t, user, m.item, it.name, Number(it.reorder), tz.tz);
@@ -96,7 +97,9 @@ export type StockInInput = { item_id?: string | null; name?: string | null; code
   /** the stock the shop already held before the books (no money moves: Dr stock / Cr opening equity) */
   opening?: boolean;
   /** D-167: what is paid now (cents; the rest is owed to the supplier — pay «credit» = nothing) and the supplier's invoice number */
-  paid?: number | null; supplier_invoice?: string | null };
+  paid?: number | null; supplier_invoice?: string | null;
+  /** D-178: the supplier's type → the payable it is owed on (map ap_ac · ap_washing · ap); none → this supplier's last type, else «other» */
+  supplier_kind?: SupplierKind | null };
 
 /** the stock item an entry is about: the one chosen, else the one on that account with that name (a no-sub account IS its one item),
  *  else a new one — code on the client's scheme (D-142), made as the Admin's stock item (never in the price list) */
@@ -111,7 +114,7 @@ async function stockItemFor(t: Db, user: SessionUser, ip: string | null, v: Stoc
   if (!v.account_id) throw new AppError("NOT_STOCK_ACCOUNT", 400);
   const acc = (await t<{ id: string; code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select id, code, sub_codes, is_group, type::text as type from accounts
     where id = ${v.account_id} and company_id = ${user.companyId}`)[0];
-  if (!acc || acc.is_group || acc.type !== "asset" || !/^1[3-8]/.test(acc.code)) throw new AppError("NOT_STOCK_ACCOUNT", 400);
+  if (!acc || !(await isStockAccount(t, user.companyId, acc.id, true))) throw new AppError("NOT_STOCK_ACCOUNT", 400); // D-178: under a mapped stock header
   if (!name && !acc.sub_codes) { // a no-sub account (13001 …) IS its one item
     const one = (await t<{ id: string; name_km: string }[]>`select id, name_km from catalog_items where company_id = ${user.companyId} and inventory_account_id = ${acc.id} and is_stock limit 1`)[0];
     if (one) return { id: one.id, created: false, name: one.name_km };
@@ -144,11 +147,13 @@ export async function stockIn(user: SessionUser, ip: string | null, v: StockInIn
     const paid = v.opening ? null : v.pay === "credit" ? 0 : v.paid == null ? value : v.paid; // D-167
     if (paid != null && (paid < 0 || paid > value)) throw new AppError("PAID_OVER_TOTAL", 400);
     if (paid != null && paid !== value && !v.supplier?.trim()) throw new AppError("SUPPLIER_REQUIRED", 400); // the rest is owed to someone
-    const invoice = v.supplier_invoice?.trim().slice(0, 60) || null;
+    const invoice = v.supplier_invoice?.trim().slice(0, 60) || null, supplier = v.supplier?.trim() || null;
+    const skind: SupplierKind | null = v.opening ? null : v.supplier_kind ?? (supplier ? (await t<{ k: SupplierKind }[]>`select supplier_kind as k from stock_moves where company_id = ${user.companyId}
+      and lower(btrim(supplier)) = lower(${supplier}) and supplier_kind is not null order by id desc limit 1`)[0]?.k : null) ?? "other";
     const id = await move(t, user, { item: item.id, location: loc, kind: v.opening ? "opening" : "in", qty: v.qty, value, ref_type: v.opening ? "opening" : "purchase",
-      pay: v.opening ? null : v.pay, supplier: v.supplier?.trim() || null, reason: v.note?.trim() || null, date: v.date, paid, supplier_invoice: v.opening ? null : invoice });
+      pay: v.opening ? null : v.pay, supplier, reason: v.note?.trim() || null, date: v.date, paid, supplier_invoice: v.opening ? null : invoice, supplier_kind: skind });
     await audit(t, { companyId: user.companyId, userId: user.id, action: v.opening ? "stock.opening" : "stock.in", table: "stock_moves", rowId: String(id),
-      new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, paid, supplier_invoice: invoice, supplier: v.supplier ?? null, date: v.date ?? null }, ip });
+      new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, paid, supplier_invoice: invoice, supplier: v.supplier ?? null, supplier_kind: skind, date: v.date ?? null }, ip });
     await postStock(t, user, [id]);
     return { id, item_id: item.id, created: item.created, total: value, paid, owed: paid == null ? 0 : value - paid, balance: await balanceOf(t, item.id, loc) };
   });
@@ -206,7 +211,7 @@ export async function items(user: SessionUser) {
     select i.id as item_id, i.code, i.name_km as name, i.unit, coalesce(s.qty, 0)::text as qty, coalesce(s.value_cents, 0)::text as value, i.reorder_level::text as reorder,
       coalesce(a.id, d.id) as account_id, coalesce(a.code, d.code) as account_code, coalesce(a.name_km, d.name_km) as account_name, coalesce(a.name_en, d.name_en) as account_name_en
     from catalog_items i left join stock_items s on s.item_id = i.id left join accounts a on a.id = i.inventory_account_id
-      left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
+      left join account_map dm on dm.company_id = i.company_id and dm.key = 'inventory' left join accounts d on d.id = dm.account_id
     where i.company_id = ${user.companyId} and i.is_stock and i.kind = 'product' order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
   const bal = await sql<{ item_id: string; location_id: string; name: string; qty: string }[]>`select b.item_id, b.location_id, l.name, b.qty::text from stock_balances b
     join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind, l.name`;
@@ -222,18 +227,21 @@ export async function items(user: SessionUser) {
 /** D-177 (One Team 26-10 «the stock still shows the same accounts»): the stock part of the chart — the headers (13000 «ស្តុកថ្មី»,
  *  18000 «ស្តុក Second hand») and every active stock account under them in code order; the stock page lists each one, an empty one too */
 export async function stockAccounts(user: SessionUser) {
+  const ids = await stockAccountIds(sql, user.companyId, true); // D-178: the mapped stock headers and the accounts under them
   return sql<{ id: string; code: string; name_km: string; name_en: string | null; is_group: boolean; parent_code: string | null }[]>`select id, code, name_km, name_en,
-      is_group, parent_code from accounts where company_id = ${user.companyId} and is_active and type = 'asset' and code ~ '^1[3-8][0-9]{3}$' order by code`;
+      is_group, parent_code from accounts where company_id = ${user.companyId} and is_active and (id = any(${sql.array(ids)}::uuid[])
+        or id in (select account_id from account_map where company_id = ${user.companyId} and key in ('stock_new', 'stock_second_hand'))) order by code`;
 }
 
 /** D-142 «តម្លៃស្តុកចុងខែ»: stock on a day by account (quantity + value from the moves) beside the books' balance of the stock accounts
  *  (13000–18999) — the difference per account and in total; the books side only when accounting is on and the user may read it */
 export async function monthEnd(user: SessionUser, to: string, withBooks: boolean) {
   const rows = await sql<{ code: string; name_km: string; name_en: string | null; item_id: string; item_code: string | null; item_name: string; unit: string; qty: string; value: string }[]>`
-    select coalesce(a.code, d.code, '14500') as code, coalesce(a.name_km, d.name_km, '—') as name_km, coalesce(a.name_en, d.name_en) as name_en,
+    select coalesce(a.code, '—') as code, coalesce(a.name_km, '—') as name_km, a.name_en,
       i.id as item_id, i.code as item_code, i.name_km as item_name, i.unit, coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value
-    from catalog_items i left join accounts a on a.id = i.inventory_account_id left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
-      left join stock_moves m on m.item_id = i.id and m.move_date <= ${to}::date
+    from catalog_items i left join stock_moves m on m.item_id = i.id and m.move_date <= ${to}::date
+      left join account_map dm on dm.company_id = i.company_id and dm.key = 'inventory'
+      left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id)
     where i.company_id = ${user.companyId} and i.is_stock group by 1, 2, 3, 4, 5, 6, 7 order by 1, 5 nulls last, 6`;
   const byCode = new Map<string, { code: string; name_km: string; name_en: string | null; qty: number; value: number; balance: number | null; difference: number | null;
     items: { item_id: string; code: string | null; name: string; unit: string; qty: number; value: number }[] }>();
@@ -248,7 +256,7 @@ export async function monthEnd(user: SessionUser, to: string, withBooks: boolean
     const bal = await sql<{ code: string; name_km: string; name_en: string | null; balance: string }[]>`
       select a.code, a.name_km, a.name_en, coalesce(sum(case when e.entry_date <= ${to}::date then l.debit_cents - l.credit_cents else 0 end), 0)::text as balance
       from accounts a left join journal_lines l on l.account_id = a.id left join journal_entries e on e.id = l.entry_id
-      where a.company_id = ${user.companyId} and a.type = 'asset' and not a.is_group and a.code ~ '^1[3-8][0-9]{3}$' group by a.id, a.code, a.name_km, a.name_en order by a.code`;
+      where a.company_id = ${user.companyId} and a.id = any(${sql.array(await stockAccountIds(sql, user.companyId))}::uuid[]) group by a.id, a.code, a.name_km, a.name_en order by a.code`;
     let total = 0;
     for (const b of bal) {
       const balance = Number(b.balance);
@@ -269,9 +277,9 @@ export async function monthEnd(user: SessionUser, to: string, withBooks: boolean
 export async function reconcile(user: SessionUser, q: { from: string; to: string; technician?: string | null; borey?: string | null }) {
   const c = user.companyId;
   const outs = await sql<{ booking_id: string | null; place: string | null; grp: string; grp_name: string; technician: string | null; technician_id: string | null; qty: string }[]>`
-    select m.ref_id as booking_id, m.place, coalesce(a.code, d.code, '18000') as grp, coalesce(a.name_km, d.name_km, '—') as grp_name, u.full_name as technician, m.technician_id, sum(-m.qty)::text as qty
-    from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = i.inventory_account_id
-      left join accounts d on d.company_id = m.company_id and d.role = 'inventory' left join users u on u.id = m.technician_id
+    select m.ref_id as booking_id, m.place, coalesce(a.code, '—') as grp, coalesce(a.name_km, '—') as grp_name, u.full_name as technician, m.technician_id, sum(-m.qty)::text as qty
+    from stock_moves m join catalog_items i on i.id = m.item_id left join account_map dm on dm.company_id = m.company_id and dm.key = 'inventory'
+      left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id) left join users u on u.id = m.technician_id
       left join bookings b on b.id::text = m.ref_id left join customers cu on cu.id = b.customer_id
     where m.company_id = ${c} and m.kind = 'out' and m.move_date between ${q.from}::date and ${q.to}::date
       ${q.technician ? sql`and m.technician_id = ${q.technician}` : sql``} ${q.borey ? sql`and cu.borey_id = ${q.borey}` : sql``}
