@@ -156,8 +156,10 @@ export type CustomerHistory = { customer: Customer;
   invoices?: { id: string; number: string; status: "draft" | "issued" | "void"; issued_at: string | null; created_at: string; booking_number: string | null; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid" }[];
   debt?: number };
 export type StockLocation = { id: string; name: string; kind: "warehouse"; is_active: boolean };
+/** D-177: the stock part of the chart — headers (13000, 18000) and every active stock account */
+export type StockAccount = { id: string; code: string; name_km: string; name_en: string | null; is_group: boolean; parent_code: string | null };
 export type StockItem = { item_id: string; code?: string | null; name: string; unit: string; qty: number; value: number; avg_cost: number; reorder_level: number | null; low: boolean; by_location: { location_id: string; name: string; qty: number }[];
-  /** D-142: the item's stock account (13001 …, 14000 …; none → 18000) — the stock page groups by it */
+  /** D-142: the item's stock account (13110 …, 13400 …; none → 14500) — the stock page groups by it */
   account_id?: string | null; account_code?: string | null; account_name?: string | null; account_name_en?: string | null };
 /** D-142 «តម្លៃស្តុកចុងខែ»: stock by account on a day beside the books' stock accounts (balance / difference only with accounting.view) */
 export type MonthEnd = { to: string; stock_total: number; books_total: number | null; difference: number | null;
@@ -408,6 +410,7 @@ export const api = {
   inventory: {
     locations: () => get<StockLocation[]>("/api/inventory/locations"),
     items: () => get<StockItem[]>("/api/inventory/items"),
+    accounts: () => get<StockAccount[]>("/api/inventory/accounts"),
     reorder: (itemId: string, reorder_level: number | null) => post(`/api/inventory/items/${itemId}/reorder`, { reorder_level }),
     stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; paid: number | null; owed: number; balance: number }>("/api/inventory/in", v),
     payables: () => get<Payable[]>("/api/inventory/payables"),

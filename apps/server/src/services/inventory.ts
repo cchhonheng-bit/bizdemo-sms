@@ -219,6 +219,13 @@ export async function items(user: SessionUser) {
   });
 }
 
+/** D-177 (One Team 26-10 «the stock still shows the same accounts»): the stock part of the chart — the headers (13000 «ស្តុកថ្មី»,
+ *  18000 «ស្តុក Second hand») and every active stock account under them in code order; the stock page lists each one, an empty one too */
+export async function stockAccounts(user: SessionUser) {
+  return sql<{ id: string; code: string; name_km: string; name_en: string | null; is_group: boolean; parent_code: string | null }[]>`select id, code, name_km, name_en,
+      is_group, parent_code from accounts where company_id = ${user.companyId} and is_active and type = 'asset' and code ~ '^1[3-8][0-9]{3}$' order by code`;
+}
+
 /** D-142 «តម្លៃស្តុកចុងខែ»: stock on a day by account (quantity + value from the moves) beside the books' balance of the stock accounts
  *  (13000–18999) — the difference per account and in total; the books side only when accounting is on and the user may read it */
 export async function monthEnd(user: SessionUser, to: string, withBooks: boolean) {

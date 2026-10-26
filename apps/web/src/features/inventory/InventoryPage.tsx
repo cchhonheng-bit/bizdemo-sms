@@ -10,7 +10,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, toCents } from "@sms/shared";
 import { PackageMinus, PackagePlus, SlidersHorizontal } from "lucide-react";
-import { api, errCode, fmtDateTime, type StockItem, type StockPay } from "@/lib/api";
+import { api, errCode, fmtDateTime, type StockAccount, type StockItem, type StockPay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -52,12 +52,22 @@ const useAccName = () => { const { i18n } = useTranslation(); return (a: { code:
 function Stock({ manage }: { manage: boolean }) {
   const { t, i18n } = useTranslation();
   const q = useQuery({ queryKey: ["stock-items"], queryFn: api.inventory.items });
+  const accs = useQuery({ queryKey: ["stock-accounts"], queryFn: api.inventory.accounts });
   const [op, setOp] = useState<Op | null>(null);
   const [cardOf, setCardOf] = useState<StockItem | null>(null);
   const total = (q.data ?? []).reduce((s, i) => s + i.value, 0);
-  // grouped by stock account (13001 …, 14000 …, 18000), each group expandable
-  const groups = useMemo(() => { const g = new Map<string, { code: string; name: string; items: StockItem[] }>(); for (const i of q.data ?? []) { const k = i.account_code ?? "—";
-    const x = g.get(k) ?? { code: k, name: (i18n.language === "en" && i.account_name_en) || i.account_name || "", items: [] }; x.items.push(i); g.set(k, x); } return [...g.values()]; }, [q.data, i18n.language]);
+  // D-177: the stock part of the client's chart — each header (13000 «ស្តុកថ្មី», 18000 «ស្តុក Second hand») with EVERY account under it
+  // (an account without items too, one line), then any item on an account off the chart; each account with items expandable
+  const sections = useMemo(() => {
+    const byAcc = new Map<string, Group>();
+    for (const i of q.data ?? []) { const k = i.account_code ?? "—"; const x = byAcc.get(k) ?? { code: k, name: (i18n.language === "en" && i.account_name_en) || i.account_name || "", items: [] }; x.items.push(i); byAcc.set(k, x); }
+    const list = accs.data ?? [], used = new Set<string>(), nameOf = (a: StockAccount) => (i18n.language === "en" && a.name_en) || a.name_km;
+    const group = (a: StockAccount): Group => { used.add(a.code); return { code: a.code, name: nameOf(a), items: byAcc.get(a.code)?.items ?? [] }; };
+    const out: { code: string; name: string; groups: Group[] }[] = list.filter((a) => a.is_group).map((h) => ({ code: h.code, name: nameOf(h), groups: list.filter((a) => !a.is_group && a.parent_code === h.code).map(group) }));
+    const rest = [...list.filter((a) => !a.is_group && !used.has(a.code)).map(group), ...[...byAcc.values()].filter((g) => !used.has(g.code))];
+    if (rest.length) out.push({ code: "", name: "", groups: rest });
+    return out;
+  }, [q.data, accs.data, i18n.language]);
   const [closed, setClosed] = useState<Record<string, boolean>>({});
   return (
     <>
@@ -71,9 +81,22 @@ function Stock({ manage }: { manage: boolean }) {
       )}
       <p className="text-xs text-muted">{t("inventory.separate_hint")}</p>
       <Card title={`${t("inventory.value_total")} · ${formatUsd(total)}`}>
-        {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("inventory.none")} /> : (
+        {q.isLoading || accs.isLoading ? <Skeleton /> : !sections.length ? <Empty text={t("inventory.none")} /> : (
           <div className="-my-2" data-testid="stock-list">
-            {groups.map((g) => (
+            {sections.map((sec) => (
+              <div key={sec.code || "rest"} data-testid="stock-section">
+                {sec.code && (
+                  <div className="flex items-center justify-between gap-2 pt-4 pb-2 border-b-2 border-grey-line font-bold">
+                    <span className="min-w-0 break-words"><span className="font-mono">{sec.code}</span> {sec.name}</span>
+                    <span className="tabular whitespace-nowrap">{formatUsd(sec.groups.reduce((x, g) => x + g.items.reduce((y, i) => y + i.value, 0), 0))}</span>
+                  </div>
+                )}
+            {sec.groups.map((g) => !g.items.length ? (
+              <div key={g.code} data-testid="stock-account-empty" className="flex items-center justify-between gap-2 py-2 pl-3 min-h-[44px] border-b border-grey-line text-sm text-muted">
+                <span className="min-w-0 break-words"><span className="font-mono">{g.code}</span> {g.name}</span>
+                <span className="tabular whitespace-nowrap">{formatUsd(0)}</span>
+              </div>
+            ) : (
               <div key={g.code} data-testid="stock-group">
                 <button className="w-full flex items-center justify-between gap-2 py-3 min-h-[48px] font-semibold border-b border-grey-line" onClick={() => setClosed((c) => ({ ...c, [g.code]: !c[g.code] }))} aria-expanded={!closed[g.code]}>
                   <span className="min-w-0 break-words text-left"><span className="font-mono">{g.code}</span> {g.name} <span className="text-xs text-muted font-normal">· {g.items.length}</span></span>
@@ -99,6 +122,8 @@ function Stock({ manage }: { manage: boolean }) {
                 )}
               </div>
             ))}
+              </div>
+            ))}
           </div>
         )}
       </Card>
@@ -110,6 +135,7 @@ function Stock({ manage }: { manage: boolean }) {
   );
 }
 
+type Group = { code: string; name: string; items: StockItem[] };
 const ItemSelect = ({ items, value, onChange, testId, blank }: { items: StockItem[]; value: string; onChange: (v: string) => void; testId: string; blank?: string }) => (
   <Select value={value} onChange={(e) => onChange(e.target.value)} data-testid={testId}>
     {blank !== undefined && <option value="">{blank}</option>}

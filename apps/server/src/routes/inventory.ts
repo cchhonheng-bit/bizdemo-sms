@@ -2,7 +2,7 @@
 // Stock in = a direct entry (the item is made on its first entry); stock out = the Admin records what a technician collects.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { adjust, card, items, listLocations, monthEnd, payables, reconcile, setReorder, stockIn, stockOut, supplierPay } from "../services/inventory.js";
+import { adjust, card, items, listLocations, monthEnd, payables, reconcile, setReorder, stockAccounts, stockIn, stockOut, supplierPay } from "../services/inventory.js";
 import { featureOn } from "../lib/features.js";
 
 const id = z.string().uuid();
@@ -17,6 +17,7 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/locations", view, async (req) => listLocations(req.user!));
   app.get("/items", view, async (req) => items(req.user!));
+  app.get("/accounts", view, async (req) => stockAccounts(req.user!)); // D-177: the stock part of the chart (headers + every account)
   app.post("/items/:id/reorder", manage, async (req) => setReorder(req.user!, req.ip, z.object({ id }).parse(req.params).id,
     z.object({ reorder_level: z.number().min(0).max(1_000_000).nullable() }).strict().parse(req.body).reorder_level));
   // D-144 stock in: name / model · qty · unit · unit cost · stock account · supplier · date → the item is made (or matched) on the way

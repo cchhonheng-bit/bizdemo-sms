@@ -152,6 +152,17 @@ describe("D-175 the client's chart of 26-10", () => {
     expect(n(total[4])).toBe(n(total[5])); expect(n(total[8])).toBe(n(total[9]));
   });
 
+  it("D-177 the stock page's chart: the headers 13000 / 18000 and every active stock account under them (empty ones too), nothing switched off; technicians never", async () => {
+    const r = await inv(admin, "/accounts");
+    expect(r.status).toBe(200);
+    const list = r.json as { code: string; is_group: boolean; parent_code: string | null }[];
+    expect(list.filter((a) => a.is_group).map((a) => a.code)).toEqual(["13000", "18000"]);
+    expect(list.filter((a) => !a.is_group).map((a) => a.code)).toEqual(CLIENT_V3.map(([c]) => c).filter((c) => /^1[3-8]/.test(c) && !["13000", "18000"].includes(c)).sort());
+    expect(list.filter((a) => !a.is_group).every((a) => a.parent_code === (a.code.startsWith("18") ? "18000" : "13000"))).toBe(true);
+    expect(list.some((a) => a.code === "13001")).toBe(false);
+    expect((await (await loginAs(app, "kim")).req("GET", "/api/inventory/accounts")).status).toBe(403);
+  });
+
   it("a balance on an account switched off moves with ONE reclass entry dated today; the old entries stay; the trial balance stays 0 (company B)", async () => {
     const ub = asUser(s.users.ceo_b!, s.b);
     await saveOpening(ub, null, { date: today, cash_usd: 10000, cash_khr: 400000 });
