@@ -203,6 +203,36 @@ export async function setReorder(user: SessionUser, ip: string | null, itemId: s
   });
 }
 
+// ---------- an item leaves the stock (D-179) ----------
+/** what removing a stock item does: refused while it holds stock; switched off when anything ever used it (movements, job materials,
+ *  added work, invoice lines, bookings — the history stays); else deleted */
+export async function itemRemoval(db: Db, companyId: string, itemId: string): Promise<{ code: string | null; name: string; qty: number; action: "delete" | "off" }> {
+  const it = (await db<{ code: string | null; name_km: string; is_stock: boolean; qty: string }[]>`select ci.code, ci.name_km, ci.is_stock, coalesce(s.qty, 0)::text as qty
+    from catalog_items ci left join stock_items s on s.item_id = ci.id where ci.id = ${itemId} and ci.company_id = ${companyId}`)[0];
+  if (!it) throw notFound();
+  if (!it.is_stock) throw new AppError("NOT_STOCK_ITEM", 400);
+  const used = (await db`select 1 from stock_moves where item_id = ${itemId} union all select 1 from booking_materials where catalog_item_id = ${itemId}
+    union all select 1 from job_extras where catalog_item_id = ${itemId} union all select 1 from invoice_lines where catalog_item_id = ${itemId}
+    union all select 1 from bookings where service_item_id = ${itemId} limit 1`).length > 0;
+  return { code: it.code, name: it.name_km, qty: Number(it.qty), action: used ? "off" : "delete" };
+}
+export async function removeItem(user: SessionUser, ip: string | null, itemId: string) {
+  return tx(user.id, async (t) => {
+    await t`select id from catalog_items where id = ${itemId} and company_id = ${user.companyId} for update`;
+    const r = await itemRemoval(t, user.companyId, itemId);
+    if (r.qty !== 0) throw new AppError("ITEM_HAS_STOCK", 400, { qty: r.qty });
+    if (r.action === "off") await t`update catalog_items set is_active = false where id = ${itemId}`;
+    else {
+      await t`delete from stock_balances where item_id = ${itemId}`;
+      await t`delete from stock_items where item_id = ${itemId}`;
+      await t`delete from catalog_items where id = ${itemId}`;
+    }
+    await audit(t, { companyId: user.companyId, userId: user.id, action: r.action === "off" ? "stock.item_off" : "stock.item_delete", table: "catalog_items", rowId: itemId,
+      old: { code: r.code, name_km: r.name }, ip });
+    return { removed: r.action === "off" ? "off" as const : "deleted" as const };
+  });
+}
+
 // ---------- read ----------
 /** the stock items with quantity, value, average cost and their stock account (13110 …, 13400 …; none → 14500, D-176) */
 export async function items(user: SessionUser) {
@@ -212,7 +242,7 @@ export async function items(user: SessionUser) {
       coalesce(a.id, d.id) as account_id, coalesce(a.code, d.code) as account_code, coalesce(a.name_km, d.name_km) as account_name, coalesce(a.name_en, d.name_en) as account_name_en
     from catalog_items i left join stock_items s on s.item_id = i.id left join accounts a on a.id = i.inventory_account_id
       left join account_map dm on dm.company_id = i.company_id and dm.key = 'inventory' left join accounts d on d.id = dm.account_id
-    where i.company_id = ${user.companyId} and i.is_stock and i.kind = 'product' order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
+    where i.company_id = ${user.companyId} and i.is_stock and i.kind = 'product' and (i.is_active or coalesce(s.qty, 0) <> 0) order by coalesce(a.code, d.code) nulls last, i.code nulls last, i.name_km`;
   const bal = await sql<{ item_id: string; location_id: string; name: string; qty: string }[]>`select b.item_id, b.location_id, l.name, b.qty::text from stock_balances b
     join stock_locations l on l.id = b.location_id where l.company_id = ${user.companyId} and (b.qty <> 0 or l.is_active) order by l.kind, l.name`;
   return rows.map((r) => {

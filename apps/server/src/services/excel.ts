@@ -345,7 +345,7 @@ async function stockBalanceSheet(ctx: Ctx, q: Q): Promise<Built> {
     select i.code, i.name_km as name, i.unit, a.code as account, a.name_km as account_name, coalesce(m.qty, 0)::text as qty, coalesce(m.value, 0)::text as value, i.reorder_level::text as reorder
     from catalog_items i left join accounts a on a.id = i.inventory_account_id
       left join (select item_id, sum(qty) as qty, sum(value_cents) as value from stock_moves where company_id = ${ctx.user.companyId} and move_date <= ${asof}::date group by item_id) m on m.item_id = i.id
-    where i.company_id = ${ctx.user.companyId} and i.is_stock and i.kind = 'product' ${q.account?.length ? sql`and a.id = any(${sql.array(q.account)}::uuid[])` : sql``}
+    where i.company_id = ${ctx.user.companyId} and i.is_stock and i.kind = 'product' and (i.is_active or coalesce(m.qty, 0) <> 0) ${q.account?.length ? sql`and a.id = any(${sql.array(q.account)}::uuid[])` : sql``}
     order by a.code nulls last, i.code nulls last, i.name_km`;
   const cols: Col[] = [{ h: "កូដ", w: 10 }, { h: "ទំនិញ", w: 32 }, { h: "គណនីស្តុក", w: 9 }, { h: "ឈ្មោះគណនី", w: 24 }, { h: "ខ្នាត", w: 8 }, { h: "ចំនួន", w: 11, s: "qty", sum: true }, { h: "ថ្លៃមធ្យម", w: 12, s: "money" }, { h: "តម្លៃ", w: 13, s: "money", sum: true }, { h: "កម្រិតបញ្ជាទិញ", w: 12, s: "qty" }];
   const body = rows.map((r) => { const qty = n(r.qty), value = n(r.value); return [r.code, r.name, r.account, r.account_name, r.unit, QTY(qty), M(qty > 0 ? value / qty : 0), M(value), r.reorder == null ? null : QTY(n(r.reorder))] as XCell[]; });

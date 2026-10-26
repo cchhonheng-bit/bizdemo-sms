@@ -1333,7 +1333,8 @@
       "CODE_NOT_IN_ACCOUNT": "The code is outside this account",
       "PAID_OVER_TOTAL": "Paid more than the total",
       "SUPPLIER_REQUIRED": "Something is owed → the supplier's name is needed",
-      "BAD_METHOD": "The method does not match the currency"
+      "BAD_METHOD": "The method does not match the currency",
+      "ITEM_HAS_STOCK": "Still in stock — stock it out or adjust it to 0 first"
     },
     "cancelled_cost": "Cancelled · job cost",
     "me_date": "As of",
@@ -1400,7 +1401,12 @@
       "ac": "Air conditioners",
       "washing": "Washing machines",
       "other": "Other"
-    }
+    },
+    "remove": "Delete this item",
+    "remove_hint": "Never used → deleted · has history → switched off (hidden from the stock lists, history kept)",
+    "remove_has_stock": "Still in stock — stock it out or adjust it to 0 first",
+    "removed_deleted": "Item deleted",
+    "removed_off": "This item has history — switched off (hidden from the stock lists)"
   },
   "acct": {
     "title": "Accounting",

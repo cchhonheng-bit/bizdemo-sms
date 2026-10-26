@@ -135,3 +135,20 @@ describe("D-178 one account map, by id", () => {
     expect(await sql`select 1 from journal_lines where company_id = ${s.a} having coalesce(sum(debit_cents), 0) <> coalesce(sum(credit_cents), 0)`).toHaveLength(0); // still balanced
   });
 });
+
+describe("D-179 an item leaves the stock (stock card «លុបទំនិញនេះ»)", () => {
+  it("never used → deleted; used → switched off, hidden from the stock lists, its history kept; refused while in stock; technicians never", async () => {
+    const floor = (await account("13330")).id;
+    const unused = (await ceo.req("POST", "/api/catalog", { name_km: "LG floor (sample)", kind: "product", category: "mep", unit: "unit", sell_price: 0, inventory_account_id: floor })).json.id;
+    expect((await admin.req("DELETE", `/api/inventory/items/${unused}`)).json).toEqual({ removed: "deleted" });
+    expect(await sql`select 1 from catalog_items where id = ${unused}`).toHaveLength(0);
+    const used = (await inv(admin, "/in", { name: "LG floor 5 HP", account_id: floor, qty: 1, total: 90000, pay: "cash_usd" })).json.item_id;
+    expect((await admin.req("DELETE", `/api/inventory/items/${used}`)).json.error).toBe("ITEM_HAS_STOCK");
+    expect((await inv(admin, "/out", { item_id: used, qty: 1, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
+    expect((await (await loginAs(app, "kim")).req("DELETE", `/api/inventory/items/${used}`)).status).toBe(403);
+    expect((await admin.req("DELETE", `/api/inventory/items/${used}`)).json).toEqual({ removed: "off" });
+    expect(((await inv(admin, "/items")).json as any[]).some((x) => x.item_id === used)).toBe(false);
+    expect((await inv(admin, `/card?item=${used}&from=${today}&to=${today}`)).json.rows).toHaveLength(2); // the receipt and the stock out stay
+    expect(await sql`select 1 from journal_lines where company_id = ${s.a} having coalesce(sum(debit_cents), 0) <> coalesce(sum(credit_cents), 0)`).toHaveLength(0);
+  });
+});

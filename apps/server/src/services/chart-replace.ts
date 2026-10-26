@@ -5,6 +5,7 @@ import { sql, tx, type Db } from "../db.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { books, post } from "./accounting.js";
+import { itemRemoval, removeItem } from "./inventory.js";
 import { CHART, OLD_TO_NEW, isSubCodeAccount, replaceChart, seedParent, typeOfCode, updateChartV2, type Role } from "./chart.js";
 
 export async function chartReplaceCli(slug: string, apply: boolean): Promise<string[]> {
@@ -165,5 +166,25 @@ export async function chartV3Cli(slug: string, apply: boolean): Promise<string[]
   if (plan.moves) out.push(`unposted stock movements moved with their items: ${plan.moves}`);
   for (const m of plan.unmapped) out.push(`  NOT MAPPED: ${m}`);
   out.push(apply ? "applied ✓" : "dry run only");
+  return out;
+}
+
+/** `node dist/cli.mjs stock-item-remove <slug> <codes> [--apply]` (D-179): the same rule as the stock card's «លុបទំនិញនេះ», as HangKH Support */
+export async function stockItemRemoveCli(slug: string, codes: string[], apply: boolean): Promise<string[]> {
+  const co = (await sql<{ id: string; name: string }[]>`select id, name from companies where slug = ${slug}`)[0];
+  if (!co) throw new Error(`company "${slug}" not found`);
+  const u = (await sql<{ id: string; role: string; username: string; full_name: string; language: "km" | "en" }[]>`select id, role::text as role, username, full_name, language from users
+    where company_id = ${co.id} and is_platform and is_active order by created_at limit 1`)[0];
+  if (!u) throw new Error("this shop has no active HangKH Support account (users.is_platform)");
+  const user = { id: u.id, companyId: co.id, role: u.role, username: u.username, fullName: u.full_name, mustChangePassword: false, language: u.language, sessionId: "cli" } as SessionUser;
+  const out = [`${co.name} (${slug}) · as ${u.full_name}${apply ? "" : " · DRY RUN — nothing is written (add --apply)"}`];
+  for (const code of codes.map((c) => c.trim()).filter(Boolean)) {
+    const it = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${co.id} and code = ${code}`)[0];
+    if (!it) { out.push(`  ${code}: not found`); continue; }
+    const r = await itemRemoval(sql, co.id, it.id);
+    if (r.qty !== 0) { out.push(`  ${code} «${r.name}»: still ${r.qty} in stock — refused`); continue; }
+    if (apply) await removeItem(user, null, it.id);
+    out.push(`  ${code} «${r.name}»: ${r.action === "delete" ? "deleted (never used)" : "switched off (has history)"}${apply ? " ✓" : ""}`);
+  }
   return out;
 }

@@ -418,6 +418,7 @@ export const api = {
     locations: () => get<StockLocation[]>("/api/inventory/locations"),
     items: () => get<StockItem[]>("/api/inventory/items"),
     accounts: () => get<StockAccount[]>("/api/inventory/accounts"),
+    removeItem: (id: string) => del<{ removed: "deleted" | "off" }>(`/api/inventory/items/${id}`), // D-179
     reorder: (itemId: string, reorder_level: number | null) => post(`/api/inventory/items/${itemId}/reorder`, { reorder_level }),
     stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; paid: number | null; owed: number; balance: number }>("/api/inventory/in", v),
     payables: () => get<Payable[]>("/api/inventory/payables"),

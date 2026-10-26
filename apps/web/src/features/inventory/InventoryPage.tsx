@@ -12,7 +12,7 @@ import { formatUsd, toCents } from "@sms/shared";
 import { PackageMinus, PackagePlus, SlidersHorizontal } from "lucide-react";
 import { api, errCode, fmtDateTime, type StockAccount, type StockItem, type StockPay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
+import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { presetRange, type Range } from "@/features/reports/range";
 import RangePicker from "@/features/reports/RangePicker";
@@ -330,6 +330,10 @@ function CardDialog({ item, manage, onClose }: { item: StockItem; manage: boolea
   const q = useQuery({ queryKey: ["stock-card", item.item_id, ...range], queryFn: () => api.inventory.card(item.item_id, range[0], range[1]) });
   const [level, setLevel] = useState(item.reorder_level == null ? "" : String(item.reorder_level));
   const reorder = useMutation({ mutationFn: () => api.inventory.reorder(item.item_id, level.trim() === "" ? null : Number(level)), onSuccess: () => { toast.success(t("app.saved")); refresh(); }, onError: onErr });
+  // D-179: an item not wanted any more — deleted when never used, else switched off (hidden here, its history kept); never while in stock
+  const [askRemove, setAskRemove] = useState(false);
+  const remove = useMutation({ mutationFn: () => api.inventory.removeItem(item.item_id),
+    onSuccess: (r) => { toast.success(t(r.removed === "deleted" ? "inventory.removed_deleted" : "inventory.removed_off")); refresh(); onClose(); }, onError: (e) => { setAskRemove(false); onErr(e); } });
   const c = q.data;
   return (
     <Dialog open onClose={onClose} title={`${t("inventory.card")} · ${item.code ? `${item.code} · ` : ""}${item.name}`}>
@@ -355,6 +359,14 @@ function CardDialog({ item, manage, onClose }: { item: StockItem; manage: boolea
           <Button className="mb-3" loading={reorder.isPending} onClick={() => reorder.mutate()} data-testid="reorder-save">{t("app.save")}</Button>
         </div>
       )}
+      {manage && (
+        <div className="mt-2 border-t border-grey-line pt-3">
+          <Button variant="danger" className="w-full sm:w-auto" disabled={item.qty !== 0} onClick={() => setAskRemove(true)} data-testid="item-remove">{t("inventory.remove")}</Button>
+          <p className="text-xs text-muted mt-1">{item.qty !== 0 ? t("inventory.remove_has_stock") : t("inventory.remove_hint")}</p>
+        </div>
+      )}
+      <ConfirmDialog open={askRemove} danger onClose={() => setAskRemove(false)} onConfirm={() => remove.mutate()} loading={remove.isPending}
+        title={t("inventory.remove")} text={`${item.code ? `${item.code} · ` : ""}${item.name}`} />
     </Dialog>
   );
 }
