@@ -199,7 +199,7 @@ export async function setReorder(user: SessionUser, ip: string | null, itemId: s
 }
 
 // ---------- read ----------
-/** the stock items with quantity, value, average cost and their stock account (13001 …, 14000 …; none → the 18000 fallback) */
+/** the stock items with quantity, value, average cost and their stock account (13110 …, 13400 …; none → 14500, D-176) */
 export async function items(user: SessionUser) {
   await ensureLocations(sql, user.companyId);
   const rows = await sql<{ item_id: string; code: string | null; name: string; unit: string; qty: string; value: string; reorder: string | null; account_id: string | null; account_code: string | null; account_name: string | null; account_name_en: string | null }[]>`
@@ -223,7 +223,7 @@ export async function items(user: SessionUser) {
  *  (13000–18999) — the difference per account and in total; the books side only when accounting is on and the user may read it */
 export async function monthEnd(user: SessionUser, to: string, withBooks: boolean) {
   const rows = await sql<{ code: string; name_km: string; name_en: string | null; item_id: string; item_code: string | null; item_name: string; unit: string; qty: string; value: string }[]>`
-    select coalesce(a.code, d.code, '18000') as code, coalesce(a.name_km, d.name_km, '—') as name_km, coalesce(a.name_en, d.name_en) as name_en,
+    select coalesce(a.code, d.code, '14500') as code, coalesce(a.name_km, d.name_km, '—') as name_km, coalesce(a.name_en, d.name_en) as name_en,
       i.id as item_id, i.code as item_code, i.name_km as item_name, i.unit, coalesce(sum(m.qty), 0)::text as qty, coalesce(sum(m.value_cents), 0)::text as value
     from catalog_items i left join accounts a on a.id = i.inventory_account_id left join accounts d on d.company_id = i.company_id and d.role = 'inventory'
       left join stock_moves m on m.item_id = i.id and m.move_date <= ${to}::date

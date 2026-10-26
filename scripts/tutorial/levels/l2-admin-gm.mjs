@@ -258,14 +258,14 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.caption("ទិញសម្ភារៈមក? ចុច «ទិញចូល»"); await v.tap(T("op-in")); await v.hold(300);
       await v.caption("ទំនិញថ្មី៖ ឈ្មោះ និងគណនីស្តុក\nកូដបំពេញឯង"); await v.tap(T("in-mode-new"));
       await v.type(T("in-name"), "ទុយោស្ពាន់ 1/4", { before: 1000 });
-      const acc = T("in-account"), accVal = await acc.locator("option", { hasText: "14000" }).first().getAttribute("value");
+      const acc = T("in-account"), accVal = await acc.locator("option", { hasText: "13400" }).first().getAttribute("value");
       await v.tap(acc, () => acc.selectOption(accVal), next); await v.type(T("in-unit"), "ម៉ែត្រ", next);
       await v.caption("ចំនួន និងថ្លៃដើម\nសរុបគិតឯង (ឬវាយសរុប)"); await v.type(T("op-qty"), "12", { before: 1000 }); await v.type(T("op-cost"), "1.5", next);
       await v.look(T("op-total-text"), { zoom: 1.5 });
       await v.caption("បង់ដោយអ្វី អ្នកផ្គត់ផ្គង់ ថ្ងៃ\nហើយចុច «រក្សាទុក»"); await v.type(T("op-supplier"), "ហាងលក់គ្រឿងម៉ាស៊ីនត្រជាក់", { before: 1000 });
       const save = T("op-save"); await v.scrollTo(save); await v.tap(save, null, next); await v.idle(); await v.hold(600);
-      const grp = A.locator('[data-testid="stock-group"]', { hasText: "14000" }).first();
-      await v.caption("ស្តុកតាមគណនី៖ 14000 ទុយោស្ពាន់\nចំនួន និងតម្លៃស្តុក"); await v.scrollTo(grp); await v.look(grp, { zoom: 1.3, after: 1800 });
+      const grp = A.locator('[data-testid="stock-group"]', { hasText: "13400" }).first();
+      await v.caption("ស្តុកតាមគណនី៖ 13400 ទុយោស្ពាន់\nចំនួន និងតម្លៃស្តុក"); await v.scrollTo(grp); await v.look(grp, { zoom: 1.3, after: 1800 });
       await v.caption("ជាងមិនដកស្តុកទេ\nរដ្ឋបាលកត់ «ដកស្តុក» ពេលជាងមកយក"); await v.hold(2000);
     }),
     clip("L2-11_stock-out_v1", async (v, d, { A, link, dlg, T, next }) => {
@@ -278,7 +278,7 @@ insert into hub_subscriptions (shop_code, subscriber_id, promo, stopped_at, subs
       await v.look(T("out-job-info"), { zoom: 1.3, after: 1800 });
       await v.caption("គ្មានការងារ? ទុកទទេ\nហើយសរសេរកន្លែង (បុរី · ផ្ទះលេខ)"); await v.hold(1600);
       await v.caption("«សល់» = ចំនួនក្រោយដក\nចុច «រក្សាទុក»"); await v.look(T("out-left"), { zoom: 1.5 }); await v.tap(T("op-save"), null, next); await v.idle(); await v.hold(600);
-      const row = A.locator('[data-testid="stock-group"]', { hasText: "14000" }).locator("li button", { hasText: "ទុយោស្ពាន់ 1/4" }).first();
+      const row = A.locator('[data-testid="stock-group"]', { hasText: "13400" }).locator("li button", { hasText: "ទុយោស្ពាន់ 1/4" }).first();
       await v.caption("ចុចទំនិញ — «កាតស្តុក»\nចលនានីមួយៗ៖ ចូល ដក ការងារ"); await v.scrollTo(row); await v.tap(row); await T("stock-card").waitFor({ timeout: 10_000 }); await v.hold(300); await v.idle(); await v.hold(2000);
     }),
     clip("L2-12_stock-reconcile-month-end_v1", async (v, d, { A, link, dlg, T, next }) => {
