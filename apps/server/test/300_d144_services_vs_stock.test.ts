@@ -242,9 +242,9 @@ describe("C · the books start later than the work: nothing is refused, everythi
     expect(tb.balanced).toBe(true);
     expect(await bal("13400")).toBe(3000 - 1200);         // 15 m in at $2 − 6 m out at cost
     expect(await bal("13110")).toBe(85000 - 28333);       // 3 in ($600 + $250) − 1 out at the average
-    expect(await bal("50001")).toBe(28333);               // 13xxx → goods sold
-    expect(await bal("50005")).toBe(1200);                // 14000 → technicians' materials
-    expect(await bal("20003")).toBe(-60000);              // on credit
+    expect(await bal("50001")).toBe(28333 + 1200);        // D-175: every stock but 14500 → 50001 (the AC and the copper)
+    expect(await bal("50005")).toBe(0);
+    expect(await bal("20001")).toBe(-60000);              // on credit — an AC: owed on 20001 (D-175)
     expect(await bal("11003")).toBe(-25000);              // paid by ABA
     expect(await bal("11001")).toBe(100000 - 3000 + 7500 - 2500 - 30000);
     expect(await bal("12002")).toBe(7500 + 11000 - 7500);

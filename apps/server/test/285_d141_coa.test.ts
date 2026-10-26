@@ -43,20 +43,20 @@ describe("D-141 the chart", () => {
     expect(list.map((a) => a.code)).toEqual([...CHART.map((r) => r[0])].sort());
     for (const skipped of ["13006", "13007", "13008", "13105", "13106", "16001", "14001", "40003"]) expect(list.find((a) => a.code === skipped)).toBeUndefined();
     expect(list.find((a) => a.code === "11001").name_km).toBe("សាច់ប្រាក់នៅបេលា");
-    expect(list.find((a) => a.code === "12000").name_km).toBe(CHART.find((r) => r[0] === "12000")![1]); // as in the file (a zero-width space inside)
+    expect(list.find((a) => a.code === "12000").name_km).toBe(CHART.find((r) => r[0] === "12000")![1]); // D-175: as the client wrote it on 26-10 (no zero-width space)
     expect(list.find((a) => a.code === "12000").name_km).toContain("គេជំពាក់យើង");
     expect(list.find((a) => a.code === "40005").name_km).toBe("ចំណូលពីការសេវាកម្ម (ក្នុងបូរី)");
     expect(list.find((a) => a.code === "14500").name_km).toBe("សម្ភារះសម្រាប់ជាងប្រប្រាស់"); expect(list.find((a) => a.code === "13810").name_km).toContain("Gree");
     for (const a of list) expect(a.statement).toBe(Number(a.code[0]) <= 3 ? "BS" : "PL");
     expect(Object.fromEntries(list.filter((a) => ["11001", "18100", "13400", "14100", "21001", "50005"].includes(a.code)).map((a) => [a.code, a.parent_code])))
-      .toEqual({ "11001": "11000", "18100": "18000", "13400": "13000", "14100": "10000", "21001": "21000", "50005": "50000" });
+      .toEqual({ "11001": "11000", "18100": "18000", "13400": "13000", "14100": "13000", "21001": "21000", "50005": "50000" });
   });
 
   it("system accounts on the client's codes; what the client's chart lacks is added with a free code and flagged «បន្ថែមដោយប្រព័ន្ធ»", async () => {
     const role = async (r: string) => (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.a} and role = ${r}`)[0]?.code;
     const want: Record<string, string> = { cash_usd: "11001", bank_aba: "11003", bank_acleda: "11002", ar: "12002", staff_advance: "12001", inventory: "14500", deposits: "20004", tips: "20005",
       current_profit: "30002", retained: "30003", cogs: "50001", salaries: "50002", materials: "50005", rev_sales: "40001", rev_service: "40002", rev_sales_inside: "40004",
-      rev_service_inside: "40005", rev_other: "40006", ap: "20003", capital: "30001",
+      rev_service_inside: "40005", rev_other: "40006", ap: "20003", ap_ac: "20001", ap_washing: "20002", capital: "30001",
       cash_khr: "11004", payroll: "21002", opening: "30004", drawings: "30005", discount: "40007", stock_adjust: "50012", cash_diff: "50013" };
     for (const [r, c] of Object.entries(want)) expect(await role(r), r).toBe(c);
     const added = (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.a} and added_by_system order by code`).map((x) => x.code);
@@ -89,7 +89,7 @@ describe("D-141 postings on the new codes", () => {
     expect(after.map((x, i) => x - before[i]!)).toEqual([-700, -3000, -5000, -10000, -1200, 18700]);
   });
 
-  it("each stock item on its own stock account: stock in → 14000; materials (14000–18000) cost 50005 for a job AND for a sale (D-143); a new name on 18000", async () => {
+  it("each stock item on its own stock account: stock in → 14000; copper (13400) costs 50001 for a job AND for a sale (D-175: only 14500 → 50005); a new name on 18000", async () => {
     const pipeAcc = await code("13400");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
@@ -106,7 +106,7 @@ describe("D-141 postings on the new codes", () => {
     expect((await admin.req("POST", "/api/inventory/out", { item_id: pipe, qty: 2, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
     await invoice(outside, [{ kind: "product", qty: 2, unit_price: 500 }]);
     const b1 = await Promise.all(["13400", "14500", "50005", "50001", "11001"].map(bal));
-    expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 600 + 400, 0, -4500]); // D-143: copper pipe → 50005 wherever it leaves
+    expect(b1.map((x, i) => x - b0[i]!)).toEqual([4000 - 600 - 400, 500, 0, 600 + 400, -4500]); // D-175: copper pipe → 50001 wherever it leaves
   });
 
   it("the trial balance balances; group headers never appear in it; the balance sheet shows the year's profit on 30002", async () => {

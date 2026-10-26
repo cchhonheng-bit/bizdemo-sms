@@ -9,7 +9,7 @@ import type { Db } from "../db.js";
 import { AppError } from "../lib/errors.js";
 
 export type AccType = "asset" | "liability" | "equity" | "income" | "expense";
-export type Role = "cash_usd" | "cash_khr" | "bank_aba" | "bank_acleda" | "ar" | "staff_advance" | "inventory" | "ap" | "deposits" | "tips" | "payroll"
+export type Role = "cash_usd" | "cash_khr" | "bank_aba" | "bank_acleda" | "ar" | "staff_advance" | "inventory" | "ap" | "ap_ac" | "ap_washing" | "deposits" | "tips" | "payroll"
   | "capital" | "drawings" | "retained" | "current_profit" | "opening" | "rev_service" | "rev_sales" | "rev_service_inside" | "rev_sales_inside" | "rev_other"
   | "discount" | "cogs" | "materials" | "stock_adjust" | "salaries" | "bonus" | "cash_diff";
 /** [code, Khmer name (the client's), English name, type, role, "group" | "added"] */
@@ -22,7 +22,7 @@ export const CHART: ChartRow[] = [
   ["11002", "សាច់ប្រាក់នៅធនាគា ACLEDA", "Bank – ACLEDA", "asset", "bank_acleda"],
   ["11003", "សាច់ប្រាក់នៅធនាគា ABA", "Bank – ABA", "asset", "bank_aba"],
   ["11004", "សាច់ប្រាក់រៀល", "Cash (KHR)", "asset", "cash_khr", "added"],
-  ["12000", "គណនីត្រូវទទូលបាន​(គេជំពាក់យើង)", "Receivables", "asset", null, "group"],
+  ["12000", "គណនីត្រូវទទូលបាន(គេជំពាក់យើង)", "Receivables", "asset", null, "group"],
   ["12001", "បុគ្គលិកជំពាក់", "Staff advances", "asset", "staff_advance"],
   ["12002", "អតិថិជនជំពាក់", "Customers owe us", "asset", "ar"],
   ["12003", "គណនីត្រូវទទូលផ្សេងៗ", "Other receivables", "asset", null],
@@ -55,8 +55,8 @@ export const CHART: ChartRow[] = [
   ["18300", "ទូទឹកកក", "Refrigerators (second hand)", "asset", null],
   ["18400", "ម៉ូទ័រជុំរុញទឹក", "Water pumps (second hand)", "asset", null],
   ["20000", "បំណុល", "Liabilities", "liability", null, "group"],
-  ["20001", "ជំពាក់ថ្លៃម៉ាស៊ីនត្រជាក់", "Payable for air conditioners", "liability", null],
-  ["20002", "ជំពាក់ម៉ាស៊ីនបោកក់", "Payable for washing machines", "liability", null],
+  ["20001", "ជំពាក់ថ្លៃម៉ាស៊ីនត្រជាក់", "Payable for air conditioners", "liability", "ap_ac"], // D-175: what an AC receipt still owes
+  ["20002", "ជំពាក់ម៉ាស៊ីនបោកក់", "Payable for washing machines", "liability", "ap_washing"],
   ["20003", "ជំពាក់ទៅអ្នកផ្គត់ផ្គង់ផ្សេងៗ", "Payable to other suppliers", "liability", "ap"],
   ["20004", "អតិថិជនកក់", "Customer deposits", "liability", "deposits"],
   ["20005", "ភ្ញៀវអោយធីបជាង", "Customer tips for technicians", "liability", "tips"],
@@ -65,8 +65,8 @@ export const CHART: ChartRow[] = [
   ["21002", "ប្រាក់ខែត្រូវបើក", "Salaries payable", "liability", "payroll", "added"],
   ["30000", "ដើមទុន", "Equity", "equity", null, "group"],
   ["30001", "ដើមទុនវិនិយោគ", "Invested capital", "equity", "capital"],
-  ["30002", "ចំណេញ/​ខាត​(-) ក្នុងឆ្នាំ 2026", "Profit / loss (−) this year", "equity", "current_profit"],
-  ["30003", "ចំណេញ/​ខាត​(-) ខែមុន 2023 and 2024,2025", "Profit / loss (−) earlier years", "equity", "retained"],
+  ["30002", "ចំណេញ/ខាត(-) ក្នុងឆ្នាំ 2026", "Profit / loss (−) this year", "equity", "current_profit"],
+  ["30003", "ចំណេញ/ខាត(-) ខែមុន 2023 and 2024,2025", "Profit / loss (−) earlier years", "equity", "retained"],
   ["30004", "មូលធនសមតុល្យដើម", "Opening balance equity", "equity", "opening", "added"],
   ["30005", "ការដកប្រើផ្ទាល់ខ្លួនរបស់ម្ចាស់", "Owner's drawings", "equity", "drawings", "added"],
   ["40000", "ចំណូល", "Income", "income", null, "group"],
@@ -84,10 +84,10 @@ export const CHART: ChartRow[] = [
   ["50005", "សំភារះជាងប្រើប្រាស់", "Technicians' materials used", "expense", "materials"],
   ["50006", "ចំណាយជួល Office", "Office rent", "expense", null],
   ["50007", "ចំណាយទឹកភ្លើង", "Water and electricity", "expense", null],
-  ["50008", "ចំណាយ​ជូសជុល Office", "Office repairs", "expense", null],
+  ["50008", "ចំណាយជូសជុល Office", "Office repairs", "expense", null],
   ["50009", "ចំណាយទៅលើការផ្សោះផ្សាយ", "Advertising", "expense", null],
-  ["50010", "ចំណាយ​ទៅលើកាធ្វើដំណើរ", "Travel", "expense", null],
-  ["50011", "ចំណាយ​ផ្សេងៗ", "Other expenses", "expense", null],
+  ["50010", "ចំណាយទៅលើកាធ្វើដំណើរ", "Travel", "expense", null],
+  ["50011", "ចំណាយផ្សេងៗ", "Other expenses", "expense", null],
   ["50012", "ខាត/ចំណេញ កែតម្រូវស្តុក", "Stock count differences", "expense", "stock_adjust", "added"],
   ["50013", "ខ្វះ/លើស សាច់ប្រាក់", "Cash over / short", "expense", "cash_diff", "added"],
 ];
@@ -113,6 +113,7 @@ export const STOCK_ITEMS: [string, string, string][] = [
 const GROUPS = CHART.filter((r) => r[5] === "group").map((r) => r[0]);
 /** the group an account belongs to: the group whose code (without its trailing zeros) is the longest start of this code */
 export function parentOf(code: string, groups: string[] = GROUPS): string | null {
+  if (/^14[0-9]{3}$/.test(code) && groups.includes("13000")) return "13000"; // D-175 (client 26-10): appliances and technicians' materials are «ស្តុកថ្មី» too
   let best: string | null = null;
   for (const g of groups) {
     if (g === code) continue;
@@ -128,9 +129,12 @@ export const typeOfCode = (code: string): AccType | null => (({ 1: "asset", 2: "
  *  (13110 → 1311001, 1311002 …; 13400 → 1340001 …). An account switched to «no sub codes» IS its one item (code = the account code). */
 export const isSubCodeAccount = (code: string, group = false): boolean => !group && /^1[348][0-9]{3}$/.test(code);
 export const SUB_CODE_ACCOUNTS = CHART.filter((r) => isSubCodeAccount(r[0], r[5] === "group")).map((r) => r[0]);
-/** D-143 → D-165: goods sold (air conditioners, appliances, second hand, the kept 13001) cost 50001; materials (copper, insulation, boxes, wire,
- *  technicians' materials, items without an account) cost 50005 */
-export const isGoodsStockCode = (code: string | null | undefined): boolean => !!code && /^(130|13[1-3]|138|14[1-4]|18)/.test(code);
+/** D-143 → D-175 (client 26-10): everything that leaves stock costs 50001 (cost of goods) — ACs, copper, wire, appliances, second hand —
+ *  except the technicians' consumables of 14500 (and items without an account) → 50005 */
+export const isGoodsStockCode = (code: string | null | undefined): boolean => !!code && !/^145/.test(code);
+/** D-175 (client 26-10): what a stock receipt still owes goes to the payable of what was bought — ACs (new 131x0–133x0 / 138x0, second
+ *  hand 18100) → 20001, washing machines (14100 / 18200) → 20002, everything else → 20003 */
+export const payableRole = (code: string | null | undefined): Role => (!code ? "ap" : /^1(3[1-3]|38|81)/.test(code) ? "ap_ac" : /^1(41|82)/.test(code) ? "ap_washing" : "ap");
 /** one stock item for every no-sub stock account (13001 … 13199) that has none yet: code = the account code, the account's name, tracked */
 export async function ensureNoSubItems(db: Db, companyId: string): Promise<number> {
   const made = await db`insert into catalog_items (company_id, code, name_km, name_en, kind, category, unit, track_stock, is_stock, inventory_account_id)

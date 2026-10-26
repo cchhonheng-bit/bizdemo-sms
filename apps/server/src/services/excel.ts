@@ -11,6 +11,7 @@ import { audit } from "./audit.js";
 import { matchesSearch } from "@sms/shared";
 import { balanceSheet, books, checkPeriod, dayBefore, fyStart, incomeStatement, roleIds, statementOf, sums, trialBalanceMonth, type Sum } from "./accounting.js";
 import { listInvoices, type ListFilter } from "./invoices.js";
+import { parentOf } from "./chart.js";
 import { report as attendanceReport } from "./attendance.js";
 import { payables, reconcile } from "./inventory.js";
 import { techPerformance } from "./reports-extra.js";
@@ -230,14 +231,27 @@ async function coa(ctx: Ctx, q: Q): Promise<Built> {
     h(`Year to date Last month\n(to ${dmy(dayBefore(from))})`), h(""), h(`Year to date Current month\n(${dmy(fy)} – ${dmy(asof)})`), h("")]);
   rows.push([h(""), h(""), h(""), h(""), h(""), h(""), h("Debit"), h("Credit"), h("Debit"), h("Credit")]);
   const tot = [0, 0, 0, 0, 0, 0];
-  let prevGroup = false;
-  for (const a of all) {
-    if (a.is_group) { if (!prevGroup && rows.length > r1 + 1) rows.push([]); rows.push([null, B(a.code), null, B(a.name_km)]); prevGroup = true; continue; }
-    prevGroup = false;
+  // D-175: each group header rolls up the accounts under it (every level) — the period's debit / credit, each balance net on its side
+  const groups = all.filter((a) => a.is_group).map((a) => a.code), roll = new Map<string, number[]>();
+  const own = new Map(all.filter((a) => !a.is_group).map((a) => {
     const m = mvOf.get(a.id), retained = a.id === roles.retained;
     const open = isPL(a.type) ? po.get(a.id) ?? 0 : (bo.get(a.id) ?? 0) - (retained ? priorOpen : 0);
     const close = isPL(a.type) ? pc.get(a.id) ?? 0 : (bc.get(a.id) ?? 0) - (retained ? priorClose : 0);
-    const vals = [m?.d ?? 0, m?.c ?? 0, ...side(open), ...side(close)];
+    const v = [m?.d ?? 0, m?.c ?? 0, open, close];
+    for (let g = parentOf(a.code, groups); g; g = parentOf(g, groups)) { const s = roll.get(g) ?? [0, 0, 0, 0]; v.forEach((x, i) => { s[i]! += x; }); roll.set(g, s); }
+    return [a.id, v] as const;
+  }));
+  let prevGroup = false;
+  for (const a of all) {
+    if (a.is_group) {
+      if (!prevGroup && rows.length > r1 + 1) rows.push([]);
+      const [d, cr, open, close] = roll.get(a.code) ?? [0, 0, 0, 0];
+      rows.push([null, B(a.code), null, B(a.name_km), ...[d!, cr!, ...side(open!), ...side(close!)].map((v) => M(v, true))]);
+      prevGroup = true; continue;
+    }
+    prevGroup = false;
+    const [d, cr, open, close] = own.get(a.id)!;
+    const vals = [d!, cr!, ...side(open!), ...side(close!)];
     vals.forEach((v, i) => { tot[i]! += v; });
     rows.push([{ v: statementOf(a.type as never), s: "center" }, null, { v: a.code, s: "center" }, a.name_km, ...vals.map((v) => M(v))]);
   }

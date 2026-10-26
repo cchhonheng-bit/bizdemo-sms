@@ -16,7 +16,7 @@ import { audit } from "./audit.js";
 import { saveImage } from "./jobs.js";
 import { registerLedger, type LedgerEvent } from "./ledger-hooks.js";
 import { cell } from "./reports-extra.js";
-import { insertChart, isGoodsStockCode, parentOf, type AccType, type Role } from "./chart.js";
+import { insertChart, isGoodsStockCode, parentOf, payableRole, type AccType, type Role } from "./chart.js";
 
 export type { AccType } from "./chart.js";
 export type Source = "manual" | "other" | "opening" | "invoice" | "payment" | "deposit" | "stock" | "cash_close" | "payroll" | "closing" | "supplier_pay";
@@ -28,10 +28,27 @@ export async function ensureChart(db: Db, companyId: string): Promise<void> {
   if ((await db`select 1 from accounts where company_id = ${companyId} limit 1`).length) return;
   await insertChart(db, companyId); // D-141: One Team's chart (chart.ts)
 }
+/** D-175: a chart without one of the system's accounts posts to the nearest one it has (One Team 26-10: KHR cash in 11001, opening
+ *  balances and drawings in the capital 30001, cash over / short with the stock differences; no own AC / washing-machine payable → 20003) */
+const ROLE_FALLBACK: [Role, Role][] = [["ap_ac", "ap"], ["ap_washing", "ap"], ["cash_khr", "cash_usd"], ["opening", "capital"], ["drawings", "capital"], ["cash_diff", "stock_adjust"]];
 export async function roleIds(db: Db, companyId: string): Promise<Record<Role, string>> {
   await ensureChart(db, companyId);
-  const rows = await db<{ role: Role; id: string }[]>`select role, id from accounts where company_id = ${companyId} and role is not null`;
-  return Object.fromEntries(rows.map((r) => [r.role, r.id])) as Record<Role, string>;
+  const rows = await db<{ role: Role; id: string }[]>`select role, id from accounts where company_id = ${companyId} and role is not null and is_active`;
+  const R = Object.fromEntries(rows.map((r) => [r.role, r.id])) as Record<Role, string>;
+  for (const [role, to] of ROLE_FALLBACK) if (!R[role] && R[to]) R[role] = R[to];
+  return R;
+}
+/** D-175: a supplier payment clears what that supplier is owed, account by account (20001 ACs · 20002 washing machines · 20003 the rest);
+ *  anything beyond what the books show as owed goes to 20003 */
+async function supplierDebits(t: Db, companyId: string, R: Record<Role, string>, supplier: string | null, cents: number): Promise<Line[]> {
+  const open = supplier ? await t<{ account: string; owed: string }[]>`select l.account_id::text as account, (sum(l.credit_cents) - sum(l.debit_cents))::text as owed
+    from journal_lines l join accounts a on a.id = l.account_id where l.company_id = ${companyId} and l.account_id = any(${t.array([R.ap_ac, R.ap_washing, R.ap])}::uuid[])
+      and lower(btrim(l.supplier)) = lower(btrim(${supplier})) group by l.account_id, a.code having sum(l.credit_cents) > sum(l.debit_cents) order by a.code` : [];
+  const lines: Line[] = [];
+  let left = cents;
+  for (const o of open) { const x = Math.min(left, Number(o.owed)); if (x > 0) { lines.push({ account: o.account, amount: x, supplier, memo: supplier }); left -= x; } }
+  if (left) lines.push({ account: R.ap, amount: left, supplier, memo: supplier });
+  return lines;
 }
 export async function books(db: Db, companyId: string) {
   return (await db<{ start: string | null; locked: string | null; fx: string; tz: string; today: string; fy_month: number; closed_through: string | null }[]>`select s.books_start::text as start,
@@ -151,16 +168,16 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         const v = Number(m.value);
         const kind = m.kind === "reverse" ? m.okind ?? "adjust" : m.kind;
         const pay = m.kind === "reverse" ? m.opay : m.pay, supplier = m.kind === "reverse" ? m.osupplier : m.supplier;
-        // D-143 (CEO): the cost account follows the item's group, on a job or a direct sale alike — appliances 13000 / 13100 → 50001
-        // (cost of goods), materials 14000–18000 (and items without an account → 18000) → 50005 (technicians' materials)
-        const cost = isGoodsStockCode(m.inv_code) ? R.cogs : R.materials; // D-165: by the account's group
+        // D-143 → D-175 (client 26-10): the cost account follows the item's stock account, on a job or a direct sale alike — 50001
+        // (cost of goods) for everything but the technicians' consumables of 14500 (and items without an account) → 50005
+        const cost = isGoodsStockCode(m.inv_code) ? R.cogs : R.materials;
         lines.push({ account: m.inv ?? R.inventory, amount: v, memo: m.name });
         if (kind === "in") { // D-167: what was paid now goes by the method, the rest is owed to the supplier (pay «credit» = nothing paid)
           const raw = m.kind === "reverse" ? m.opaid : m.paid;
           const paid = pay === "credit" ? 0 : raw == null ? v : Math.round(Math.abs(Number(raw))) * (v < 0 ? -1 : 1);
           const owed = v - paid;
           if (paid) lines.push({ account: R[METHOD_ROLE[pay ?? "credit"]!], amount: -paid, memo: m.name });
-          if (owed) lines.push({ account: R.ap, amount: -owed, memo: m.name, supplier });
+          if (owed) lines.push({ account: R[payableRole(m.inv_code)], amount: -owed, memo: m.name, supplier }); // D-175: 20001 ACs · 20002 washing machines · 20003
         } else {
           const counter = kind === "opening" ? R.opening : kind === "out" || kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
           lines.push({ account: counter, amount: -v, memo: m.name });
@@ -176,7 +193,7 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
     }
     case "supplier_pay": { // D-167: Dr the supplier's payable / Cr the method
       await post(t, u, { date: e.date, memo: [e.supplier, e.note].filter(Boolean).join(" · "), source: "supplier_pay", source_id: e.id, fx: e.fx, khr_amount: e.khr, lines: [
-        { account: R.ap, amount: e.usd_cents, supplier: e.supplier, memo: e.supplier }, { account: R[METHOD_ROLE[e.method]!], amount: -e.usd_cents, memo: e.supplier }] });
+        ...await supplierDebits(t, u.companyId, R, e.supplier, e.usd_cents), { account: R[METHOD_ROLE[e.method]!], amount: -e.usd_cents, memo: e.supplier }] });
       return;
     }
     case "cash_close": {
@@ -553,7 +570,7 @@ async function postOther(t: Db, user: SessionUser, ip: string | null, v: OtherIn
         lines = [{ account: await account(v.account_code, v.type === "expense" ? ["expense"] : ["asset", "expense"]), amount: cents }, { account: cr, amount: -cents, supplier: cr === R.ap ? supplier : null }];
         break;
       }
-      case "supplier_payment": lines = [{ account: R.ap, amount: cents, supplier }, { account: await payAcc(v.pay), amount: -cents }]; break;
+      case "supplier_payment": lines = [...await supplierDebits(t, user.companyId, R, supplier, cents), { account: await payAcc(v.pay), amount: -cents }]; break;
       case "other_income": lines = [{ account: await payAcc(v.pay), amount: cents }, { account: v.account_code ? await account(v.account_code, ["income"]) : R.rev_other, amount: -cents }]; break; // D-141: 40006
       case "owner_contribution": lines = [{ account: await payAcc(v.pay), amount: cents }, { account: R.capital, amount: -cents }]; break;
       case "owner_withdrawal": lines = [{ account: R.drawings, amount: cents }, { account: await payAcc(v.pay), amount: -cents }]; break;

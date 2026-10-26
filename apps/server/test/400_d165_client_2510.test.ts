@@ -63,7 +63,7 @@ describe("D-165 the chart of 25-10", () => {
     expect(again.already).toBe(true); // idempotent
   });
 
-  it("the cost account follows the group of the 25-10 codes: AC / appliances / second hand → 50001, copper … technicians' materials → 50005", async () => {
+  it("the cost account: every stock account → 50001 (AC, copper …), only the technicians' consumables of 14500 → 50005 (D-175)", async () => {
     expect((await acc(cfo, "/opening", { date: today, cash_usd: 500000 })).status).toBe(200); // the books start → stock moves post
     const ac = (await inv(admin, "/in", { name: "Daikin 2 HP", account_id: (await account("13220")).id, qty: 1, total: 40000, pay: "cash_usd" })).json;
     expect(ac.item_id).toBeTruthy();
@@ -73,17 +73,17 @@ describe("D-165 the chart of 25-10", () => {
     const pipe = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '1340001'`)[0]!.id;
     expect((await inv(admin, "/in", { item_id: pipe, qty: 10, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
     expect((await inv(admin, "/out", { item_id: pipe, qty: 4, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
-    expect(await bal("50005")).toBe(800); expect(await bal("13400")).toBe(1200);
+    expect(await bal("50001")).toBe(40000 + 800); expect(await bal("50005")).toBe(0); expect(await bal("13400")).toBe(1200);
   });
 });
 
 describe("D-167 suppliers: paid in part, the invoice number, paying later, what is owed", () => {
-  it("a purchase of $100 paid $30 by ABA → $70 owed to the supplier (20003); the supplier's invoice number on the move and the card; a credit purchase owes everything", async () => {
+  it("a purchase of $100 paid $30 by ABA → $70 owed to the supplier (an AC: 20001, D-175); the supplier's invoice number on the move and the card; a credit purchase owes everything", async () => {
     const aba0 = await bal("11003"); // the Daikin of the test above was paid by ABA too
     const r = await inv(admin, "/in", { name: "LG 1 HP", account_id: (await account("13310")).id, qty: 2, total: 10000, pay: "aba", paid: 3000, supplier: "ហាង A", supplier_invoice: "INV-A-77" });
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ total: 10000, paid: 3000, owed: 7000 });
-    expect(await bal("20003")).toBe(-7000); expect((await bal("11003")) - aba0).toBe(-3000); // Cr payable 70, Cr ABA 30, Dr stock 100
+    expect(await bal("20001")).toBe(-7000); expect((await bal("11003")) - aba0).toBe(-3000); // Cr payable 70, Cr ABA 30, Dr stock 100
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "credit", supplier: "ហាង A", supplier_invoice: "INV-A-78" })).json).toMatchObject({ paid: 0, owed: 5000 });
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "aba", paid: 6000, supplier: "ហាង A" })).json.error).toBe("PAID_OVER_TOTAL");
     expect((await inv(admin, "/in", { item_id: r.json.item_id, qty: 1, total: 5000, pay: "aba", paid: 1000 })).json.error).toBe("SUPPLIER_REQUIRED");
@@ -93,13 +93,13 @@ describe("D-167 suppliers: paid in part, the invoice number, paying later, what 
     expect(list.find((p) => p.supplier === "ហាង A")).toMatchObject({ owed: 12000, purchases: 2, invoices: expect.arrayContaining(["INV-A-77", "INV-A-78"]) });
   });
 
-  it("paying the supplier: $50 by ACLEDA and 100,000 ៛ cash → owed goes down, posted Dr 20003 / Cr the method; a technician may not; the method must match the currency", async () => {
+  it("paying the supplier: $50 by ACLEDA and 100,000 ៛ cash → owed goes down, posted Dr 20001 (what the supplier is owed for ACs) / Cr the method; a technician may not; the method must match the currency", async () => {
     expect((await inv(admin, "/supplier-pay", { supplier: "ហាង A", amount: 5000, currency: "usd", method: "acleda", date: today, note: "ផ្នែកទី ១" })).json).toMatchObject({ usd_cents: 5000, owed: 7000 });
     expect((await inv(admin, "/supplier-pay", { supplier: "ហាង A", amount: 100000, currency: "khr", method: "cash_khr", date: today })).json).toMatchObject({ usd_cents: 2500, owed: 4500 });
     expect((await sql<{ n: number }[]>`select count(*)::int as n from supplier_payments where company_id = ${s.a}`)[0]!.n).toBe(2); // one row per payment
     expect(((await inv(admin, "/payables")).json as any[]).find((p) => p.supplier === "ហាង A")).toMatchObject({ owed: 4500, paid: 7500, purchases: 2 });
     expect((await inv(admin, "/supplier-pay", { supplier: "ហាង A", amount: 1000, currency: "khr", method: "cash_usd", date: today })).json.error).toBe("BAD_METHOD");
-    expect(await bal("20003")).toBe(-4500); expect(await bal("11002")).toBe(-5000); expect(await bal("11004")).toBe(-2500);
+    expect(await bal("20001")).toBe(-4500); expect(await bal("20003")).toBe(0); expect(await bal("11002")).toBe(-5000); expect(await bal("11004")).toBe(-2500);
     expect((await sql<{ n: number }[]>`select count(*)::int as n from journal_entries where company_id = ${s.a} and source = 'supplier_pay'`)[0]!.n).toBe(2);
     const kim = await loginAs(app, "kim");
     expect((await kim.req("POST", "/api/inventory/supplier-pay", { supplier: "ហាង A", amount: 100, currency: "usd", method: "aba", date: today })).status).toBe(403);
@@ -113,9 +113,9 @@ describe("D-168 the income statement in four columns", () => {
     expect(is.columns.current).toEqual({ from: `${today.slice(0, 8)}01`, to: today });
     expect(is.columns.last.to < is.columns.current.from).toBe(true);
     expect(is.columns.ytd.from <= is.columns.current.from && is.columns.ytd.to === today).toBe(true);
-    expect(is.cogs.find((r: any) => r.code === "50001")).toMatchObject({ amount: 40000, ytd: 40000 });
-    expect(is.expense.find((r: any) => r.code === "50005")).toMatchObject({ amount: 800 });
-    expect(is.totals.gross.amount).toBe(is.totals.income.amount - 40000);
+    expect(is.cogs.find((r: any) => r.code === "50001")).toMatchObject({ amount: 40800, ytd: 40800 }); // D-175: the copper too
+    expect(is.expense.find((r: any) => r.code === "50005")?.amount ?? 0).toBe(0);
+    expect(is.totals.gross.amount).toBe(is.totals.income.amount - 40800);
     expect(is.totals.net.amount).toBe(is.totals.gross.amount - is.totals.expense.amount);
     expect(is.net).toBe(is.totals.net.amount); expect(is.expense_total).toBe(40800);
     expect(is.previous).toMatchObject({ from: is.columns.last.from, to: is.columns.last.to });

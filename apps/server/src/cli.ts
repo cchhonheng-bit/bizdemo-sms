@@ -27,7 +27,7 @@ import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
 import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
 import { seedWebCatalog } from "./services/catalog.js";
 import { shopSetup } from "./services/shop-setup.js";
-import { chartReplaceCli, chartUpdateCli } from "./services/chart-replace.js";
+import { chartReplaceCli, chartUpdateCli, chartV3Cli } from "./services/chart-replace.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -232,6 +232,11 @@ async function main() {
     case "chart-update": { // D-165: the 23-10 stock codes → the client's 25-10 sheet, accounts kept (ids), items re-coded; --apply writes
       if (!a[0] || a[0].startsWith("--")) throw new Error("usage: chart-update <slug> [--apply]");
       for (const line of await chartUpdateCli(a[0], a.includes("--apply"))) console.log(line);
+      break;
+    }
+    case "chart-v3": { // D-175: the client's chart of 26-10 exactly as listed (names, accounts off, postings re-pointed); --apply writes
+      if (!a[0] || a[0].startsWith("--")) throw new Error("usage: chart-v3 <slug> [--apply]");
+      for (const line of await chartV3Cli(a[0], a.includes("--apply"))) console.log(line);
       break;
     }
     case "list-companies": {
