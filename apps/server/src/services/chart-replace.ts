@@ -61,7 +61,7 @@ export const V3_ROLES: [Role, string][] = [["discount", "50012"], ["stock_adjust
   ["cash_khr", "11001"], ["opening", "30001"], ["drawings", "30001"], ["cash_diff", "50011"]];
 export type V3Plan = { created: string[]; renamed: { code: string; from: string; to: string }[]; reactivated: string[]; roles: { role: string; from: string | null; to: string | null }[];
   off: { code: string; name: string; to: string | null; balance: number }[]; items: { id: string; code: string; to_code: string; name: string; from: string; account: string; qty: number; value: number }[];
-  parents: { code: string; from: string | null; to: string | null }[]; links: number; unmapped: string[]; reclass: string | null; already: boolean };
+  parents: { code: string; from: string | null; to: string | null }[]; links: number; unmapped: string[]; reclass: string | null; already: boolean; moves: number };
 
 /** names verbatim, the accounts off the list switched off (never deleted — a balance moves first with ONE dated reclass entry, old entries
  *  untouched), roles re-pointed, a stock item on an account off the list moved to the closest one with a new sub code; idempotent */
@@ -72,7 +72,7 @@ export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): P
       coalesce((select sum(l.debit_cents - l.credit_cents) from journal_lines l where l.account_id = a.id), 0)::text as bal from accounts a where a.company_id = ${c} order by a.code`;
   const byCode = new Map(have.map((a) => [a.code, a]));
   const list = new Map(CLIENT_V3.map(([code, km, group]) => [code, { km, group }]));
-  const plan: V3Plan = { created: [], renamed: [], reactivated: [], roles: [], off: [], items: [], parents: [], links: 0, unmapped: [], reclass: null, already: false };
+  const plan: V3Plan = { created: [], renamed: [], reactivated: [], roles: [], off: [], items: [], parents: [], links: 0, unmapped: [], reclass: null, already: false, moves: 0 };
   for (const [code, { km }] of list) {
     const a = byCode.get(code);
     if (!a) plan.created.push(code);
@@ -124,6 +124,15 @@ export async function clientChartV3(t: Db, user: SessionUser, apply: boolean): P
       stock_link_account_id = case when stock_link_account_id = ${id.get(o.code)!} then ${id.get(o.to)!}::uuid else stock_link_account_id end where company_id = ${c}`;
   if (offCodes.length) await t`update accounts set is_active = false where company_id = ${c} and code = any(${t.array(offCodes)})`;
   for (const x of plan.items) await t`update catalog_items set code = ${x.to_code || null}, inventory_account_id = ${id.get(x.account)!} where id = ${x.id}`;
+  // D-178: each stock movement keeps the account it was made on — a moved item's movements go with it only while nothing is posted on the old
+  // account (the books never change a posted line); the append-only guard is off for this one statement
+  for (const x of plan.items) {
+    const from = id.get(x.from)!, to = id.get(x.account)!;
+    if ((await t`select 1 from journal_lines where account_id = ${from} limit 1`).length) continue;
+    await t`alter table stock_moves disable trigger stock_moves_immutable`;
+    plan.moves += (await t`update stock_moves set account_id = ${to} where item_id = ${x.id} and account_id = ${from} returning id`).length;
+    await t`alter table stock_moves enable trigger stock_moves_immutable`;
+  }
   return plan;
 }
 
@@ -153,6 +162,7 @@ export async function chartV3Cli(slug: string, apply: boolean): Promise<string[]
   out.push(`reclass entry: ${plan.reclass ?? "none — no balance on the accounts switched off"}`);
   for (const x of plan.items) out.push(`  item ${x.code} «${x.name}» ${x.qty} · ${usd(x.value)} on ${x.from} → ${x.to_code} on ${x.account} (FLAG: brand / type not known — check)`);
   if (plan.links) out.push(`catalog links re-pointed: ${plan.links}`);
+  if (plan.moves) out.push(`unposted stock movements moved with their items: ${plan.moves}`);
   for (const m of plan.unmapped) out.push(`  NOT MAPPED: ${m}`);
   out.push(apply ? "applied ✓" : "dry run only");
   return out;

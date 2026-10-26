@@ -138,7 +138,7 @@ describe("D-141 chart-replace", () => {
     await tx(null, (t) => replaceChart(t, s.b, true));
     const codes = (await sql<{ code: string }[]>`select code from accounts where company_id = ${s.b} order by code`).map((x) => x.code);
     expect(codes).toEqual([...CHART.map((r) => r[0])].sort());
-    expect((await sql<{ code: string }[]>`select a.code from account_map m join accounts a on a.id = m.account_id where m.company_id = ${s.b} and m.key = cash_usd`)[0]?.code).toBe("11001"); // the map follows the new chart
+    expect((await sql<{ code: string }[]>`select a.code from account_map m join accounts a on a.id = m.account_id where m.company_id = ${s.b} and m.key = 'cash_usd'`)[0]?.code).toBe("11001"); // the map follows the new chart
     expect((await sql`select income_account_id from catalog_items where id = ${svcB}`)[0]!.income_account_id).toBeNull();
     const items = await sql<{ code: string; name_km: string; track_stock: boolean; acc: string }[]>`select ci.code, ci.name_km, ci.track_stock, a.code as acc
       from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.company_id = ${s.b} order by ci.code`;
