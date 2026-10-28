@@ -187,7 +187,7 @@ describe("COA — the owner's sample (three sheets)", () => {
     expect(num(cash[8]) - num(cash[9])).toBe(5000 + 100 - 100 - 15 + 200); // up to d-3 inclusive
     const r2 = await xl(cfo, "coa", { from: d(-4), to: d(-3) });
     const c2 = r2.rows.find((x) => x[2] === "11001")!;
-    expect([num(c2[6]) - num(c2[7]), num(c2[4]), num(c2[5]), num(c2[8]) - num(c2[9])]).toEqual([5000, 200, 15, 5000 - 15 + 200]);
+    expect([num(c2[6]) - num(c2[7]), num(c2[4]), num(c2[5]), num(c2[8]) - num(c2[9])]).toEqual([5000, 200 - 15, 0, 5000 - 15 + 200]); // D-180: the period net on one side
   });
   it("sheets 2 / 3 equal the API's income statement and balance sheet; the standalone exports equal the API totals", async () => {
     const is = (await acc(cfo, `/income-statement?from=${d(-7)}&to=${today}`)).json, bs = (await acc(cfo, `/balance-sheet?to=${today}`)).json, tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;

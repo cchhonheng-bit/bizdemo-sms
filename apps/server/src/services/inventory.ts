@@ -242,10 +242,10 @@ async function payablesFromBooks(user: SessionUser, db: Db) {
 /** D-182: one stock movement undone by its mirror (kind «reverse», the same quantity and value with the sign flipped, the same place,
  *  dated today) — the history keeps both; the books get the mirror entry from postStock */
 export async function reverseMove(t: Db, user: SessionUser, moveId: number): Promise<number> {
-  const m = (await t<{ item_id: string; location_id: string; qty: string; value: string }[]>`select item_id, location_id, qty::text, value_cents::text as value from stock_moves
+  const m = (await t<{ item_id: string; location_id: string; qty: string; value: string; ref_type: string | null; ref_id: string | null }[]>`select item_id, location_id, qty::text, value_cents::text as value, ref_type, ref_id from stock_moves
     where id = ${moveId} and company_id = ${user.companyId}`)[0];
   if (!m) throw notFound();
-  return move(t, user, { item: m.item_id, location: m.location_id, kind: "reverse", qty: -Number(m.qty), value: -Number(m.value), ref_type: "reverse", reversal_of: moveId, force: true });
+  return move(t, user, { item: m.item_id, location: m.location_id, kind: "reverse", qty: -Number(m.qty), value: -Number(m.value), ref_type: m.ref_type ?? "manual", ref_id: m.ref_id, reversal_of: moveId, force: true }); // the same purchase / job; reversal_of marks the mirror
 }
 
 // ---------- an item leaves the stock (D-179) ----------
