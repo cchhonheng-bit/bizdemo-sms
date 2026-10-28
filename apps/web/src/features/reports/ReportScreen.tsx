@@ -11,6 +11,8 @@ import { SheetView, type XCell } from "@/components/SheetView";
 import RangePicker from "./RangePicker";
 import { presetRange, type Range } from "./range";
 import { todayLocal } from "@/features/invoices/util";
+import { isDebtAccount, type PayStatus } from "@sms/shared";
+import { PayStatusSelect } from "@/components/PayStatusSelect";
 
 export type Need = "range" | "asof" | "technician" | "booker" | "account";
 type Preview = { title_km: string; title_en: string; filters: string[]; rows: number; sheets: { name: string; rows: XCell[][]; truncated: number }[] };
@@ -53,10 +55,14 @@ export function ReportScreen({ report, needs }: { report: ExportReport; needs: N
   const techs = (users.data ?? []).filter((u) => u.role === "tech").map((u) => ({ id: u.id, name: u.full_name }));
   const bookers = (users.data ?? []).filter((u) => u.role !== "tech").map((u) => ({ id: u.id, name: u.full_name }));
   const accs = (accounts.data ?? []).filter((a) => !a.is_group).map((a) => ({ id: a.id, name: `${a.code} ${a.name_km}` }));
+  // D-183 (client 28-10): a debt account picked (the customers' receivable, a supplier's payable) → the debt-state filter appears
+  const [paystatus, setPaystatus] = useState<PayStatus | "">("");
+  const debtPicked = account.some((id) => { const a = accounts.data?.find((x) => x.id === id); return !!a && isDebtAccount(a); });
+  const state = debtPicked ? paystatus : "";
   const params: ExportParams = useMemo(() => ({ ...(has("range") ? { from: range[0], to: range[1] } : {}), ...(has("asof") ? { asof } : {}),
-    ...(has("technician") ? { technician } : {}), ...(has("booker") ? { booker } : {}), ...(has("account") ? { account } : {}) }), [range, asof, technician, booker, account]); // eslint-disable-line react-hooks/exhaustive-deps
+    ...(has("technician") ? { technician } : {}), ...(has("booker") ? { booker } : {}), ...(has("account") ? { account } : {}), ...(state ? { paystatus: state } : {}) }), [range, asof, technician, booker, account, state]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useQuery({ queryKey: ["report-preview", report, params], queryFn: () => getJson<Preview>(exportUrl(report, params).replace(/\.xlsx(\?|$)/, ".json$1")), retry: false });
-  const active = technician.length + booker.length + account.length;
+  const active = technician.length + booker.length + account.length + (state ? 1 : 0);
   const s = q.data?.sheets[Math.min(sheet, (q.data?.sheets.length ?? 1) - 1)];
   return (
     <>
@@ -66,6 +72,7 @@ export function ReportScreen({ report, needs }: { report: ExportReport; needs: N
         {has("technician") && <MultiPick label={t("export.technician")} options={techs} value={technician} onChange={setTechnician} testid="pick-technician" />}
         {has("booker") && <MultiPick label={t("export.booker")} options={bookers} value={booker} onChange={setBooker} testid="pick-booker" />}
         {has("account") && <MultiPick label={t("export.account")} options={accs} value={account} onChange={setAccount} testid="pick-account" />}
+        {debtPicked && <PayStatusSelect value={paystatus} onChange={setPaystatus} />}
       </ReportToolbar>
       {q.isLoading ? <Skeleton /> : q.isError || !q.data || !s ? <ErrorState text={t(`export.err.${(q.error as Error | null)?.message ?? ""}`, { defaultValue: t("export.failed") })} onRetry={() => void q.refetch()} /> : (
         <Card title={i18n.language === "en" ? q.data.title_en : q.data.title_km}>

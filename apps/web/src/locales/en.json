@@ -927,7 +927,9 @@
       "BOOKING_LOCKED": "The booking can no longer change",
       "FORBIDDEN": "No permission",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
-    }
+    },
+    "free_service": "Other service",
+    "free_goods": "Other goods"
   },
   "invoice": {
     "title": "Invoices",
@@ -1042,7 +1044,12 @@
     "add_part": "Add another method",
     "pay_part": "Part {{n}}",
     "remove_part": "Remove",
-    "pay_total": "Total received"
+    "pay_total": "Total received",
+    "kind_to_product": "Make it goods",
+    "kind_to_service": "Make it a service",
+    "kind_title": "Change the line type",
+    "kind_text": "«{{line}}» becomes «{{kind}}». Its revenue {{amount}} moves to the «{{kind}}» income account in the books. The total and the payments stay the same.",
+    "kind_done": "Line type changed"
   },
   "attendance": {
     "title": "Attendance",
@@ -1945,5 +1952,12 @@
       "due": "Due",
       "leave": "Leave"
     }
+  },
+  "paystatus": {
+    "label": "Debt status",
+    "all": "All",
+    "unpaid": "Nothing paid",
+    "partial": "Partly paid",
+    "paid": "Paid in full"
   }
 }

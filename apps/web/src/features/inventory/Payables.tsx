@@ -4,11 +4,12 @@ import { useState } from "react";
 import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { formatKhr, formatUsd, toCents, usdToKhr } from "@sms/shared";
+import { formatKhr, formatUsd, toCents, usdToKhr, type PayStatus } from "@sms/shared";
 import { api, errCode, type Payable } from "@/lib/api";
 import { Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
+import { PayStatusSelect } from "@/components/PayStatusSelect";
 
 type Method = "cash_usd" | "cash_khr" | "aba" | "acleda";
 const METHODS: Method[] = ["cash_usd", "cash_khr", "aba", "acleda"];
@@ -17,11 +18,14 @@ export function Payables({ manage }: { manage: boolean }) {
   const { t } = useTranslation();
   const q = useQuery({ queryKey: ["payables"], queryFn: api.inventory.payables });
   const [paying, setPaying] = useState<Payable | null>(null);
+  const [st, setSt] = useState<PayStatus | "">(""); // D-183: ជំពាក់សុទ្ធ · ជំពាក់ខ្លះ · ទូទាត់ហើយ
   if (q.isLoading || !q.data) return <Skeleton />;
-  const rows = q.data;
+  const rows = q.data.filter((p) => !st || p.pay_status === st);
   return (
     <Card title={t("inventory.payables_title")}>
-      <ReportToolbar report="payables" params={{}} />
+      <ReportToolbar report="payables" params={{ paystatus: st || undefined }} active={st ? 1 : 0}>
+        <PayStatusSelect value={st} onChange={setSt} />
+      </ReportToolbar>
       {!rows.length ? <Empty text={t("inventory.payables_none")} /> : (
         <ul className="divide-y divide-grey-line" data-testid="payables">
           {rows.map((p) => (

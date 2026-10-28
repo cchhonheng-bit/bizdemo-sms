@@ -5,12 +5,13 @@ import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { Link, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatKhPhone, formatUsd, matchesSearch } from "@sms/shared";
+import { formatKhPhone, formatUsd, matchesSearch, type PayStatus } from "@sms/shared";
 import { Plus } from "lucide-react";
 import { api, fmtDate } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Empty, Input, Skeleton } from "@/components/ui";
 import { InvoiceBadge } from "./shared";
+import { PayStatusSelect } from "@/components/PayStatusSelect";
 import UninvoicedList from "./UninvoicedList";
 
 type Tab = "approval" | "todo" | "draft" | "unpaid" | "paid" | "void" | "debts";
@@ -44,10 +45,14 @@ function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
   const q = useQuery({ queryKey: ["invoices", status], queryFn: () => api.invoices.list(status) });
   const { can } = useAuth();
   const [s, setS] = useState(""); // D-140: number, customer, phone in any form
-  const rows = (q.data ?? []).filter((r) => matchesSearch(s, [r.number, r.booking_number, r.customer_name], r.customer_phones ?? []));
+  const [st, setSt] = useState<PayStatus | "">(""); // D-183: the unpaid tab — nothing paid / paid in part
+  const state = status === "unpaid" ? st : "";
+  const rows = (q.data ?? []).filter((r) => matchesSearch(s, [r.number, r.booking_number, r.customer_name], r.customer_phones ?? []) && (!state || r.payment_status === state));
   return (
     <Card>
-      <ReportToolbar report={can("report.finance") ? "invoices" : undefined} params={{ list: status, q: s.trim() || undefined }} />
+      <ReportToolbar report={can("report.finance") ? "invoices" : undefined} params={{ list: status, q: s.trim() || undefined, paystatus: state || undefined }} active={state ? 1 : 0}>
+        {status === "unpaid" && <PayStatusSelect value={st} onChange={setSt} only={["unpaid", "partial"]} />}
+      </ReportToolbar>
       <Input type="search" autoComplete="off" placeholder={t("app.search")} value={s} onChange={(e) => setS(e.target.value)} className="mb-3 w-full sm:max-w-xs" name="invoice_filter" />
       {q.isLoading ? <Skeleton /> : !rows.length ? <Empty text={t("invoice.none")} /> : (
         <ul className="divide-y divide-grey-line -my-2">
@@ -76,25 +81,29 @@ function List({ status }: { status: Exclude<Tab, "debts" | "todo"> }) {
 
 function Debts() {
   const { t } = useTranslation();
-  const q = useQuery({ queryKey: ["invoices", "debts"], queryFn: api.invoices.debts });
+  const [st, setSt] = useState<PayStatus | "">(""); // D-183: ជំពាក់សុទ្ធ · ជំពាក់ខ្លះ · ទូទាត់ហើយ
+  const q = useQuery({ queryKey: ["invoices", "debts", st], queryFn: () => api.invoices.debts(st || undefined) });
   const { can } = useAuth();
-  const sum = (k: "d0_30" | "d31_60" | "d60_plus" | "total") => (q.data ?? []).reduce((s, r) => s + r[k], 0);
+  const sum = (k: "d0_30" | "d31_60" | "d60_plus" | "total" | "paid") => (q.data ?? []).reduce((s, r) => s + r[k], 0);
+  const paidOnly = st === "paid"; // nothing owed: the rows show what was paid
   return (
     <>
-      <ReportToolbar report={can("report.finance") ? "receivables" : undefined} params={{ asof: todayLocal() }} />
+      <ReportToolbar report={can("report.finance") ? "receivables" : undefined} params={{ asof: todayLocal(), paystatus: st || undefined }} active={st ? 1 : 0}>
+        <PayStatusSelect value={st} onChange={setSt} />
+      </ReportToolbar>
       <div className="grid grid-cols-3 gap-2 text-center">
         {([["d0_30", "0–30"], ["d31_60", "31–60"], ["d60_plus", "> 60"]] as const).map(([k, label]) => (
           <div key={k} className={`card p-2 ${k === "d60_plus" && sum(k) > 0 ? "border-danger" : ""}`}><div className="text-xs text-muted">{label} {t("invoice.days")}</div><div className="font-bold tabular">{formatUsd(sum(k))}</div></div>
         ))}
       </div>
-      <Card title={`${t("invoice.tab.debts")} · ${formatUsd(sum("total"))}`}>
-        {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t("invoice.no_debts")} /> : (
+      <Card title={paidOnly ? `${t("paystatus.paid")} · ${formatUsd(sum("paid"))}` : `${t("invoice.tab.debts")} · ${formatUsd(sum("total"))}`}>
+        {q.isLoading ? <Skeleton /> : !q.data?.length ? <Empty text={t(paidOnly ? "invoice.none" : "invoice.no_debts")} /> : (
           <ul className="divide-y divide-grey-line -my-2">
             {q.data.map((r) => (
               <li key={r.customer_id} className="py-3">
                 <div className="flex justify-between gap-2">
                   <div className="min-w-0"><div className="font-semibold break-words">{r.customer_name}</div><div className="text-xs text-muted tabular">{formatKhPhone(r.phones[0])} · {t("invoice.n_invoices", { n: r.invoices })}</div></div>
-                  <div className="font-bold tabular text-danger">{formatUsd(r.total)}</div>
+                  {paidOnly ? <div className="font-bold tabular text-success">{formatUsd(r.paid)}</div> : <div className="font-bold tabular text-danger">{formatUsd(r.total)}</div>}
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1 text-xs">
                   {r.d0_30 > 0 && <Badge tone="grey">0–30: {formatUsd(r.d0_30)}</Badge>}

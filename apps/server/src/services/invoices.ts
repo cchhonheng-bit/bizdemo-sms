@@ -2,7 +2,7 @@
 // Prices: Admin / CEO (invoice.issue) · discount: GM / CEO (discount.give; ≥ limit needs discount.approve) · payments: payment.record ·
 // void: Admin → GM, GM → CEO, never self, CEO directly (BR-19). Technicians hold none of these permissions (AC-01).
 // Money = US cents; KHR riel with the rate stored on each row. Rows are never deleted (BR-20).
-import { formatUsd, khrToCents, usdToKhr } from "@sms/shared";
+import { formatUsd, khrToCents, payStatusOf, usdToKhr, type PayStatus } from "@sms/shared";
 import { extraInvoiceLines, pendingExtras } from "./extras.js";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, forbidden, notFound } from "../lib/errors.js";
@@ -10,7 +10,7 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { notifyUser } from "./telegram.js";
 import { applyDeposits } from "./deposits.js";
-import { postInvoiceIssue, postPayment, reverseSource } from "./ledger-hooks.js";
+import { postInvoiceIssue, postInvoiceLineKind, postPayment, reverseSource } from "./ledger-hooks.js";
 import type { Tx } from "../lib/i18n.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
@@ -48,7 +48,7 @@ async function sums(db: Db, id: string): Promise<{ subtotal: number; paid: numbe
     (select coalesce(sum(usd_cents), 0)::int from payments where invoice_id = ${id}) as paid,
     (select count(*)::int from payments where invoice_id = ${id}) as payments`)[0]!;
 }
-const payStatus = (total: number, paid: number) => (paid >= total ? "paid" : paid > 0 ? "partial" : "unpaid");
+const payStatus = payStatusOf; // D-183: the one rule of every debt screen and download
 
 async function lockInvoice(t: Db, user: SessionUser, id: string): Promise<Inv> {
   const i = (await t<Inv[]>`select i.id, i.company_id, i.booking_id, i.customer_id, i.number, i.status, i.discount, i.discount_status, i.discount_requested, i.discount_by, c.name as customer_name
@@ -222,6 +222,27 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
   });
 }
 
+// ---------- D-184 (client 28-10): a line's kind on an issued invoice ----------
+/** a line typed as a service that was goods (or the other way round) is corrected on the invoice itself: the kind changes and — once
+ *  issued — its revenue moves to the other income account by one entry (the issue entry stays; a void still reverses both). A line
+ *  whose catalog item has its own income account keeps that account: only the kind changes. Totals, payments and the print stay. */
+export async function setLineKind(user: SessionUser, ip: string | null, id: string, lineId: number, kind: "service" | "product") {
+  return tx(user.id, async (t) => {
+    const i = await lockInvoice(t, user, id);
+    if (i.status === "void") throw new AppError("INVOICE_VOID", 400);
+    const l = (await t<{ kind: string; description: string; amount: number; own: boolean }[]>`select l.kind::text as kind, l.description, round(l.qty * l.unit_price)::int as amount,
+        ci.income_account_id is not null as own from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.id = ${lineId} and l.invoice_id = ${id}`)[0];
+    if (!l) throw notFound();
+    if (l.kind === kind) return { changed: false, moved: 0 };
+    await t`update invoice_lines set kind = ${kind}::item_kind where id = ${lineId}`;
+    const moved = i.status === "issued" && !l.own ? l.amount : 0;
+    if (moved) await postInvoiceLineKind(t, user, { invoice_id: id, amount: moved, from: l.kind, to: kind, line: l.description });
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.line_kind", table: "invoices", rowId: id, old: { kind: l.kind },
+      new: { number: i.number, line: l.description, kind, amount: l.amount, revenue_moved: moved }, ip });
+    return { changed: true, moved };
+  });
+}
+
 // ---------- payments (FR-805 · BR-14/15 · AC-10) ----------
 export type PayPart = { amount: number; currency: "usd" | "khr"; method: PayMethod };
 /** D-161 (owner 22-10, «multiple pay»): one save may hold several parts — some cash $, some ABA, some ៛ — in ONE transaction:
@@ -353,7 +374,7 @@ export async function getInvoice(user: SessionUser, perms: string[], id: string)
     ...i, lines, payments, void_request: vr, subtotal, total, paid, balance: total - paid, payment_status: payStatus(total, paid),
     total_khr: usdToKhr(total, fx), balance_khr: usdToKhr(total - paid, fx), company,
     can: { issue: perms.includes("invoice.issue"), discount: perms.includes("discount.give"), discount_approve: perms.includes("discount.approve"),
-      pay: perms.includes("payment.record"), void_request: perms.includes("void.request"), void_approve: perms.includes("void.approve") },
+      pay: perms.includes("payment.record"), void_request: perms.includes("void.request"), void_approve: perms.includes("void.approve"), line_kind: perms.includes("accounting.post") }, // D-184
   };
 }
 
@@ -374,18 +395,20 @@ export async function listInvoices(user: SessionUser, status?: ListFilter, booki
   return rows.map((r) => ({ ...r, payment_status: payStatus(r.total, r.paid) }));
 }
 
-/** FR-807: what each customer still owes, by age of the issued invoice (company time zone) */
-export async function debts(user: SessionUser) {
-  return sql<{ customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; invoices: number; oldest: Date }[]>`
-    with x as (select l.*, (now() at time zone co.timezone)::date - (l.issued_at at time zone co.timezone)::date as age, l.total - l.paid as balance
+/** FR-807: what each customer still owes, by age of the issued invoice (company time zone). D-183: a debt state counts only the invoices
+ *  in it — «ជំពាក់សុទ្ធ» nothing paid, «ជំពាក់ខ្លះ» paid in part, «ទូទាត់ហើយ» paid in full (then the row's `paid` is what they paid) */
+export async function debts(user: SessionUser, state?: PayStatus) {
+  const which = state === "unpaid" ? sql`x.balance > 0 and x.paid <= 0` : state === "partial" ? sql`x.balance > 0 and x.paid > 0` : state === "paid" ? sql`x.balance <= 0` : sql`x.balance > 0`;
+  return sql<{ customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; paid: number; invoices: number; oldest: Date }[]>`
+    with x as (select l.*, (now() at time zone co.timezone)::date - (l.issued_at at time zone co.timezone)::date as age, greatest(l.total - l.paid, 0) as balance
       from (${LIST(user.companyId)}) l join companies co on co.id = ${user.companyId} where l.status = 'issued')
     select x.customer_id, c.name as customer_name, c.phones,
       coalesce(sum(x.balance) filter (where x.age <= 30), 0)::int as d0_30,
       coalesce(sum(x.balance) filter (where x.age between 31 and 60), 0)::int as d31_60,
       coalesce(sum(x.balance) filter (where x.age > 60), 0)::int as d60_plus,
-      sum(x.balance)::int as total, count(*)::int as invoices, min(x.issued_at) as oldest
-    from x join customers c on c.id = x.customer_id where x.balance > 0
-    group by x.customer_id, c.name, c.phones order by total desc`;
+      sum(x.balance)::int as total, sum(x.paid)::int as paid, count(*)::int as invoices, min(x.issued_at) as oldest
+    from x join customers c on c.id = x.customer_id where ${which}
+    group by x.customer_id, c.name, c.phones order by total desc, paid desc`;
 }
 
 export function assertCanView(perms: string[]) {

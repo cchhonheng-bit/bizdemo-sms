@@ -9,6 +9,7 @@ export type LedgerEvent =
   | { kind: "deposit_applied"; payment_id: string; usd_cents: number; fx: number }
   | { kind: "payment"; id: string; method: string; usd_cents: number; fx: number; date: string }
   | { kind: "invoice_issue"; invoice_id: string; date?: string }
+  | { kind: "invoice_line_kind"; invoice_id: string; amount: number; from: string; to: string; line: string } // D-184
   | { kind: "reverse"; source: SourceKind; id: string; memo: string }
   | { kind: "stock"; move_ids: number[] }
   | { kind: "cash_close"; day: string; diff_usd: number; diff_khr: number }
@@ -27,6 +28,8 @@ export const postDeposit = (t: Db, u: SessionUser, d: { id: string; method: stri
 export const postDepositApplied = (t: Db, u: SessionUser, p: { payment_id: string; usd_cents: number; fx: number }) => emit(t, u, { kind: "deposit_applied", ...p });
 export const postPayment = (t: Db, u: SessionUser, p: { id: string; method: string; usd_cents: number; fx: number; date: string }) => emit(t, u, { kind: "payment", ...p });
 export const postInvoiceIssue = (t: Db, u: SessionUser, invoiceId: string, date?: string) => emit(t, u, { kind: "invoice_issue", invoice_id: invoiceId, date });
+/** D-184: a line of an issued invoice changed between service and goods — its revenue moves to the other income account */
+export const postInvoiceLineKind = (t: Db, u: SessionUser, p: { invoice_id: string; amount: number; from: string; to: string; line: string }) => emit(t, u, { kind: "invoice_line_kind", ...p });
 /** reverse every posted entry of a business record (void invoice / payment / deposit, cancelled stock move …) */
 export const reverseSource = (t: Db, u: SessionUser, source: SourceKind, id: string, memo: string) => emit(t, u, { kind: "reverse", source, id, memo });
 export const postStock = (t: Db, u: SessionUser, moveIds: number[]) => emit(t, u, { kind: "stock", move_ids: moveIds });

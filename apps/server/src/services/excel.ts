@@ -8,7 +8,7 @@ import { AppError } from "../lib/errors.js";
 import { writeWorkbook, type SheetSpec, type StyleName, type XCell } from "../lib/xlsx.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
-import { matchesSearch } from "@sms/shared";
+import { matchesSearch, payStatusOf, type PayStatus } from "@sms/shared";
 import { balanceSheet, books, checkPeriod, dayBefore, fyStart, incomeStatement, roleIds, statementOf, sums, trialBalanceMonth, type Sum } from "./accounting.js";
 import { listInvoices, type ListFilter } from "./invoices.js";
 import { report as attendanceReport } from "./attendance.js";
@@ -23,7 +23,9 @@ export type Q = { from?: string; to?: string; asof?: string; technician?: string
   /** the screens' own filters (D-171): month (trial balance) · zone · search text · closed / cancelled bookings · inactive customers · the invoice list tab */
   month?: string; zone?: string; q?: string; closed?: string; cancelled?: string; inactive?: string; list?: string;
   /** the list screens (D-172): role · all (inactive too) · the reminders window · the audit person / group · verification open only */
-  role?: string; all?: string; days?: string; user?: string; type?: string; open?: string };
+  role?: string; all?: string; days?: string; user?: string; type?: string; open?: string;
+  /** D-183: a debt's state — unpaid · partial · paid (account report on a debt account, invoices, receivables, payables) */
+  paystatus?: PayStatus };
 type Col = { h: string; w?: number; s?: StyleName; sum?: boolean };
 type Ctx = { user: SessionUser; company: string; slug: string; tz: string; today: string; now: string };
 type Built = { title_km: string; title_en: string; filters: string[]; sheets: SheetSpec[]; rows: number; stamp: string };
@@ -82,6 +84,8 @@ function table(ctx: Ctx, name: string, b: { title_km: string; title_en: string; 
   return { name, rows, widths: cols.map((c) => c.w ?? 14), freeze: HEAD + 1, autoFilter: { row: HEAD + 1, cols: cols.length }, landscape: o.landscape };
 }
 const f = (k: string, v: string | null | undefined) => (v ? `${k}: ${v}` : "");
+const PAY_KM: Record<PayStatus, string> = { unpaid: "ជំពាក់សុទ្ធ", partial: "ជំពាក់ខ្លះ", paid: "ទូទាត់ហើយ" };
+const payText = (q: Q) => f("ស្ថានភាពបំណុល", q.paystatus ? PAY_KM[q.paystatus] : null);
 const rangeText = (q: { from?: string; to?: string; asof?: string }) => [q.from && q.to ? `ពី ${dmy(q.from)} ដល់ ${dmy(q.to)}` : q.from ? `ពី ${dmy(q.from)}` : "", q.asof ? `គិតត្រឹម ${dmy(q.asof)}` : ""].filter(Boolean);
 async function names(companyId: string, ids: string[] | undefined, what: "users" | "accounts" | "customers"): Promise<string> {
   if (!ids?.length) return "ទាំងអស់";
@@ -137,9 +141,10 @@ async function accountReport(ctx: Ctx, q: Q): Promise<Built> {
   const cols: Col[] = [{ h: "ថ្ងៃទី", w: 11, s: "date" }, { h: "គណនេយ្យលេខ", w: 12 }, { h: "បរិយាយ", w: 30 }, { h: "ចំនួនបានដក", w: 11, s: "qty" }, { h: "ខ្នាត", w: 8 }, { h: "តម្លៃរាយ", w: 12, s: "money" },
     { h: "តម្លៃសរុប", w: 13, s: "money" }, { h: "វីក្កយប័ត្រ", w: 14 }, { h: "BK #", w: 10 }, { h: "អ្នក Booking", w: 14 }, { h: "ឈ្មោះជាងបានដក", w: 16 }, { h: "ឈ្មោះហាងបានទិញ", w: 16 }, { h: "អាស័យដ្ឋាន", w: 40 },
     { h: "ឥណពន្ធ", w: 12, s: "money" }, { h: "ឥណទាន", w: 12, s: "money" }, { h: "សមតុល្យ", w: 13, s: "money" }];
-  const filters = [...rangeText({ from, to, asof }), `គណនី: ${q.account?.length ? await names(c, q.account, "accounts") : "ទាំងអស់ (សកម្ម ឬមានចលនា)"}`];
+  const filters = [...rangeText({ from, to, asof }), `គណនី: ${q.account?.length ? await names(c, q.account, "accounts") : "ទាំងអស់ (សកម្ម ឬមានចលនា)"}`, payText(q)].filter(Boolean);
   const [km, en] = TITLES["account-report"];
   const head = cols.map((x) => ({ v: x.h, s: "head" as const }));
+  const docs = q.paystatus ? await debtStates(c, asof) : null;
   const out: XCell[][] = [...headerRows(ctx, km, en, filters, 0)];
   const summary: XCell[][] = [];
   let total = 0;
@@ -151,29 +156,57 @@ async function accountReport(ctx: Ctx, q: Q): Promise<Built> {
         cu.name as customer, cu.address as customer_address
       from journal_lines l join journal_entries e on e.id = l.entry_id left join customers cu on cu.id = l.customer_id
       where l.account_id = ${a.id} and e.entry_date between ${from}::date and ${to}::date order by e.entry_date, e.created_at, l.id`;
-    if (!lines.length && !opening && !closing && q.account?.length === undefined) continue; // all accounts: skip the silent ones
-    const moves = await detailsOf(c, lines);
+    // D-183: a debt status picked → only the lines of the invoices / suppliers in that state, with their own running balance (no opening row)
+    const rowsOf = docs ? lines.filter((l) => docState(docs, a.id, l) === q.paystatus) : lines;
+    if (docs ? !rowsOf.length : !lines.length && !opening && !closing && q.account?.length === undefined) continue; // all accounts: skip the silent ones
+    const moves = await detailsOf(c, rowsOf);
     out.push([{ v: `${a.code} · ${a.name_km}`, s: "section" }], head);
-    out.push([D(from), a.code, "Opening Balance", null, null, null, M(opening), null, null, null, null, null, null, null, null, M(opening)]);
-    let run = opening, qtySum = 0;
-    for (const l of lines) {
+    if (!docs) out.push([D(from), a.code, "Opening Balance", null, null, null, M(opening), null, null, null, null, null, null, null, null, M(opening)]);
+    let run = docs ? 0 : opening, qtySum = 0;
+    for (const l of rowsOf) {
       const d = n(l.debit), cr = n(l.credit), amount = d - cr; run += amount;
       const x = moves.get(`${l.source}:${l.source_id ?? ""}`);
       const qty = x?.qty ?? null; if (qty) qtySum += qty;
       out.push([D(l.date), a.code, x?.description ?? l.line_memo ?? l.memo, qty == null ? null : QTY(qty), x?.unit ?? null, x?.unit_price == null ? null : M(x.unit_price), M(amount),
         x?.invoice ?? null, x?.bk ?? null, x?.booker ?? null, x?.technician ?? null, x?.supplier ?? l.supplier ?? null, x?.address ?? l.customer_address ?? null, M(d), M(cr), M(run)]);
     }
-    const later = closing - run; // movement between To and As-of (none when As-of = To)
+    const end = docs ? run : closing, later = docs ? 0 : closing - run; // movement between To and As-of (none when As-of = To)
     if (later) out.push([D(asof), a.code, `ចលនាបន្ទាប់ពី ${dmy(to)} ដល់ ${dmy(asof)}`, null, null, null, M(later), null, null, null, null, null, null, null, null, M(closing)]);
-    out.push([null, null, B("Balance"), QTY(qtySum, true), null, null, M(closing, true), null, null, null, null, null, null, M(lines.reduce((s, l) => s + n(l.debit), 0), true), M(lines.reduce((s, l) => s + n(l.credit), 0), true), M(closing, true)], [], []);
-    summary.push([a.code, a.name_km, M(opening), M(lines.reduce((s, l) => s + n(l.debit), 0)), M(lines.reduce((s, l) => s + n(l.credit), 0)), M(closing)]);
-    total += lines.length;
+    const dSum = rowsOf.reduce((s, l) => s + n(l.debit), 0), cSum = rowsOf.reduce((s, l) => s + n(l.credit), 0);
+    out.push([null, null, B("Balance"), QTY(qtySum, true), null, null, M(end, true), null, null, null, null, null, null, M(dSum, true), M(cSum, true), M(end, true)], [], []);
+    summary.push([a.code, a.name_km, M(docs ? 0 : opening), M(dSum), M(cSum), M(end)]);
+    total += rowsOf.length;
   }
   if (!summary.length) out.push(head, [{ v: NO_DATA, s: "warn" }]);
   else out.push([{ v: "សង្ខេបគណនីដែលបានជ្រើស", s: "section" }], ["គណនី", "ឈ្មោះ", "សមតុល្យដើម", "ឥណពន្ធ", "ឥណទាន", "សមតុល្យចុង"].map((h) => ({ v: h, s: "head" as const })), ...summary);
   out[4] = [{ v: `Generated by ${ctx.user.fullName} on ${ctx.now} (${ctx.tz}) · ${total} rows · ${summary.length} accounts`, s: "muted" }];
   return { title_km: km, title_en: en, filters, rows: total, stamp: `${from}_${asof}`, sheets: [{ name: "យកតាម Account មួយៗ", rows: out, widths: cols.map((x) => x.w ?? 14), freeze: HEAD + 1, landscape: true }] };
 }
+type DebtStates = { inv: Map<string, PayStatus>; pay: Map<string, string>; sup: Map<string, PayStatus> };
+/** D-183: every debt's state on a day — each issued invoice (its total vs the payments up to that day) and each supplier on each debt
+ *  account (owed vs paid from the books, the payables screen's own rule: every debit that is not an opening one is a payment) */
+async function debtStates(c: string, asof: string): Promise<DebtStates> {
+  const inv = new Map<string, PayStatus>();
+  for (const r of await sql<{ id: string; total: string; paid: string }[]>`select i.id::text as id,
+      ((select coalesce(sum(round(l.qty * l.unit_price)), 0) from invoice_lines l where l.invoice_id = i.id) - i.discount)::text as total,
+      (select coalesce(sum(p.usd_cents), 0) from payments p where p.invoice_id = i.id and p.paid_on <= ${asof}::date)::text as paid
+    from invoices i where i.company_id = ${c} and i.status = 'issued'`) inv.set(r.id, payStatusOf(n(r.total), n(r.paid)));
+  const pay = new Map((await sql<{ id: string; inv: string }[]>`select id::text as id, invoice_id::text as inv from payments where company_id = ${c}`).map((r) => [r.id, r.inv]));
+  const sup = new Map<string, PayStatus>();
+  for (const r of await sql<{ k: string; owed: string; paid: string }[]>`select l.account_id::text || ':' || lower(btrim(l.supplier)) as k, sum(l.credit_cents - l.debit_cents)::text as owed,
+      coalesce(sum(l.debit_cents) filter (where e.source <> 'opening'), 0)::text as paid
+    from journal_lines l join journal_entries e on e.id = l.entry_id join accounts a on a.id = l.account_id
+    where l.company_id = ${c} and a.type = 'liability' and l.supplier is not null and btrim(l.supplier) <> '' and e.entry_date <= ${asof}::date group by 1`) {
+    const owed = n(r.owed), paid = n(r.paid);
+    sup.set(r.k, payStatusOf(owed + paid, paid));
+  }
+  return { inv, pay, sup };
+}
+/** the state of the debt a ledger line belongs to: its invoice (the invoice itself or a payment on it), else its supplier on that account; none → null */
+const docState = (s: DebtStates, accountId: string, l: LedgerLine): PayStatus | null =>
+  l.source === "invoice" ? s.inv.get(l.source_id ?? "") ?? null
+  : l.source === "payment" ? s.inv.get(s.pay.get(l.source_id ?? "") ?? "") ?? null
+  : l.supplier?.trim() ? s.sup.get(`${accountId}:${l.supplier.trim().toLowerCase()}`) ?? null : null;
 type Detail = { description: string; qty: number | null; unit: string | null; unit_price: number | null; invoice: string | null; bk: string | null; booker: string | null; technician: string | null; supplier: string | null; address: string | null };
 /** the sample's detail columns, from the entry's source: stock moves (item · qty · unit · unit price · technician · supplier · invoice no.), invoices / payments (invoice · BK · booker · address) */
 async function detailsOf(companyId: string, lines: LedgerLine[]): Promise<Map<string, Detail>> {
@@ -370,11 +403,11 @@ async function stockMovesSheet(ctx: Ctx, q: Q): Promise<Built> {
   const [km, en] = TITLES["stock-moves"]; const filters = [...rangeText({ from, to }), f("ប្រភេទ", q.kind), `គណនី: ${await names(ctx.user.companyId, q.account, "accounts")}`];
   return { title_km: km, title_en: en, filters, rows: rows.length, stamp: `${from}_${to}`, sheets: [table(ctx, "Stock moves", { title_km: km, title_en: en, filters }, cols, body, { landscape: true })] };
 }
-async function payablesSheet(ctx: Ctx): Promise<Built> {
-  const rows = await payables(ctx.user);
-  const cols: Col[] = [{ h: "អ្នកផ្គត់ផ្គង់", w: 24 }, { h: "ជំពាក់", w: 13, s: "money", sum: true }, { h: "ទិញ (ដង)", w: 9, s: "int" }, { h: "ជំពាក់ដើម", w: 12, s: "money", sum: true }, { h: "បានបង់", w: 12, s: "money", sum: true }, { h: "វិក្កយបត្រនៅសល់", w: 28 }, { h: "ទិញចុងក្រោយ", w: 12, s: "date" }, { h: "បង់ចុងក្រោយ", w: 12, s: "date" }];
-  const body = rows.map((p) => [p.supplier, M(p.owed), INT(p.purchases), M(p.opening), M(p.paid), p.invoices.join(", "), D(p.last_purchase), D(p.last_payment)] as XCell[]);
-  const [km, en] = TITLES.payables; const filters = [`គិតត្រឹម ${dmy(ctx.today)}`];
+async function payablesSheet(ctx: Ctx, q: Q): Promise<Built> {
+  const rows = (await payables(ctx.user)).filter((p) => !q.paystatus || p.pay_status === q.paystatus); // D-183
+  const cols: Col[] = [{ h: "អ្នកផ្គត់ផ្គង់", w: 24 }, { h: "ជំពាក់", w: 13, s: "money", sum: true }, { h: "ទិញ (ដង)", w: 9, s: "int" }, { h: "ជំពាក់ដើម", w: 12, s: "money", sum: true }, { h: "បានបង់", w: 12, s: "money", sum: true }, { h: "វិក្កយបត្រនៅសល់", w: 28 }, { h: "ទិញចុងក្រោយ", w: 12, s: "date" }, { h: "បង់ចុងក្រោយ", w: 12, s: "date" }, { h: "ស្ថានភាពបំណុល", w: 13 }];
+  const body = rows.map((p) => [p.supplier, M(p.owed), INT(p.purchases), M(p.opening), M(p.paid), p.invoices.join(", "), D(p.last_purchase), D(p.last_payment), PAY_KM[p.pay_status]] as XCell[]);
+  const [km, en] = TITLES.payables; const filters = [`គិតត្រឹម ${dmy(ctx.today)}`, payText(q)].filter(Boolean);
   return { title_km: km, title_en: en, filters, rows: rows.length, stamp: ctx.today, sheets: [table(ctx, "Payables", { title_km: km, title_en: en, filters }, cols, body)] };
 }
 async function reconcileSheet(ctx: Ctx, q: Q): Promise<Built> {
@@ -425,11 +458,15 @@ async function invoicesSheet(ctx: Ctx, q: Q): Promise<Built> {
     where i.company_id = ${c} ${ranged ? sql`and ${day} between ${from}::date and ${to}::date` : sql``} ${q.status?.length ? sql`and i.status::text = any(${sql.array(q.status)}::text[])` : sql``} ${q.customer ? sql`and i.customer_id = ${q.customer}` : sql``}
       ${listed ? sql`and i.id = any(${sql.array(listed)}::uuid[])` : sql``}
     order by coalesce(i.issued_at, i.created_at), i.number`;
-  const rows = q.q ? found.filter((r) => matchesSearch(q.q!, [r.number, r.booking, r.customer], r.phones)) : found;
+  // D-183: the debt state of an issued invoice (a draft / void one has none — it is left out when a state is picked)
+  const stateOf = (r: (typeof found)[number]) => (r.status === "issued" ? payStatusOf(n(r.subtotal) - n(r.discount), n(r.paid)) : null);
+  const rows = found.filter((r) => (!q.q || matchesSearch(q.q, [r.number, r.booking, r.customer], r.phones)) && (!q.paystatus || stateOf(r) === q.paystatus));
   const cols: Col[] = [{ h: "លេខ", w: 14 }, { h: "ស្ថានភាព", w: 9 }, { h: "ថ្ងៃទី", w: 11, s: "date" }, { h: "អតិថិជន", w: 22 }, { h: "ទូរស័ព្ទ", w: 14 }, { h: "ការងារ", w: 10 }, { h: "តំបន់", w: 8 }, { h: "ក្រុមសេវា", w: 10 },
-    { h: "សរុបរង", w: 12, s: "money", sum: true }, { h: "បញ្ចុះតម្លៃ", w: 11, s: "money", sum: true }, { h: "សរុប", w: 12, s: "money", sum: true }, { h: "បានបង់", w: 12, s: "money", sum: true }, { h: "នៅខ្វះ", w: 12, s: "money", sum: true }, { h: "ចេញដោយ", w: 14 }, { h: "បង់ចុងក្រោយ", w: 11, s: "date" }];
-  const body = rows.map((r) => { const sub = n(r.subtotal), disc = n(r.discount), total = sub - disc, paid = n(r.paid); return [r.number, r.status, D(r.date), r.customer, r.phones.join(" / "), r.booking, r.zone, r.category, M(sub), M(disc), M(total), M(paid), M(r.status === "issued" ? Math.max(0, total - paid) : 0), r.issued_by, D(r.last_pay)] as XCell[]; });
-  const [km, en] = TITLES.invoices; const filters = [...(ranged ? rangeText({ from, to }) : ["គ្រប់ថ្ងៃ"]), f("ផ្ទាំង", q.list), f("ស្ថានភាព", q.status?.join(", ")), q.customer ? `អតិថិជន: ${await names(c, [q.customer], "customers")}` : "", f("ស្វែងរក", q.q)].filter(Boolean);
+    { h: "សរុបរង", w: 12, s: "money", sum: true }, { h: "បញ្ចុះតម្លៃ", w: 11, s: "money", sum: true }, { h: "សរុប", w: 12, s: "money", sum: true }, { h: "បានបង់", w: 12, s: "money", sum: true }, { h: "នៅខ្វះ", w: 12, s: "money", sum: true }, { h: "ចេញដោយ", w: 14 }, { h: "បង់ចុងក្រោយ", w: 11, s: "date" },
+    { h: "ស្ថានភាពបំណុល", w: 13 }];
+  const body = rows.map((r) => { const sub = n(r.subtotal), disc = n(r.discount), total = sub - disc, paid = n(r.paid), st = stateOf(r);
+    return [r.number, r.status, D(r.date), r.customer, r.phones.join(" / "), r.booking, r.zone, r.category, M(sub), M(disc), M(total), M(paid), M(r.status === "issued" ? Math.max(0, total - paid) : 0), r.issued_by, D(r.last_pay), st ? PAY_KM[st] : null] as XCell[]; });
+  const [km, en] = TITLES.invoices; const filters = [...(ranged ? rangeText({ from, to }) : ["គ្រប់ថ្ងៃ"]), f("ផ្ទាំង", q.list), f("ស្ថានភាព", q.status?.join(", ")), payText(q), q.customer ? `អតិថិជន: ${await names(c, [q.customer], "customers")}` : "", f("ស្វែងរក", q.q)].filter(Boolean);
   return { title_km: km, title_en: en, filters, rows: rows.length, stamp: ranged ? `${from}_${to}` : `all_${ctx.today}`, sheets: [table(ctx, "Invoices", { title_km: km, title_en: en, filters }, cols, body, { landscape: true })] };
 }
 async function paymentsSheet(ctx: Ctx, q: Q): Promise<Built> {
@@ -456,11 +493,13 @@ async function receivablesSheet(ctx: Ctx, q: Q): Promise<Built> {
     where i.company_id = ${c} and i.status = 'issued' and ${day} <= ${asof}::date ${q.customer ? sql`and i.customer_id = ${q.customer}` : sql``}
     order by cu.name, i.issued_at`;
   const cols: Col[] = [{ h: "អតិថិជន", w: 22 }, { h: "ទូរស័ព្ទ", w: 14 }, { h: "វិក្កយបត្រ", w: 14 }, { h: "ការងារ", w: 10 }, { h: "ចេញថ្ងៃ", w: 11, s: "date" }, { h: "អាយុ (ថ្ងៃ)", w: 9, s: "int" }, { h: "សរុប", w: 12, s: "money", sum: true }, { h: "បានបង់", w: 12, s: "money", sum: true },
-    { h: "នៅខ្វះ", w: 12, s: "money", sum: true }, { h: "0–30", w: 12, s: "money", sum: true }, { h: "31–60", w: 12, s: "money", sum: true }, { h: "> 60", w: 12, s: "money", sum: true }];
+    { h: "នៅខ្វះ", w: 12, s: "money", sum: true }, { h: "0–30", w: 12, s: "money", sum: true }, { h: "31–60", w: 12, s: "money", sum: true }, { h: "> 60", w: 12, s: "money", sum: true }, { h: "ស្ថានភាពបំណុល", w: 13 }];
   const body: XCell[][] = [];
-  for (const r of rows) { const total = n(r.total), paid = n(r.paid), bal = total - paid; if (bal <= 0) continue; const age = n(r.age);
-    body.push([r.customer, r.phones.join(" / "), r.number, r.booking, D(r.issued), INT(age), M(total), M(paid), M(bal), M(age <= 30 ? bal : 0), M(age > 30 && age <= 60 ? bal : 0), M(age > 60 ? bal : 0)]); }
-  const [km, en] = TITLES.receivables; const filters = [...rangeText({ asof }), q.customer ? `អតិថិជន: ${await names(c, [q.customer], "customers")}` : ""].filter(Boolean);
+  for (const r of rows) { const total = n(r.total), paid = n(r.paid), bal = total - paid, st = payStatusOf(total, paid);
+    if (q.paystatus ? st !== q.paystatus : bal <= 0) continue; // D-183: «ទូទាត់ហើយ» lists the invoices paid in full too
+    const age = n(r.age), owed = Math.max(0, bal);
+    body.push([r.customer, r.phones.join(" / "), r.number, r.booking, D(r.issued), INT(age), M(total), M(paid), M(owed), M(age <= 30 ? owed : 0), M(age > 30 && age <= 60 ? owed : 0), M(age > 60 ? owed : 0), PAY_KM[st]]); }
+  const [km, en] = TITLES.receivables; const filters = [...rangeText({ asof }), payText(q), q.customer ? `អតិថិជន: ${await names(c, [q.customer], "customers")}` : ""].filter(Boolean);
   return { title_km: km, title_en: en, filters, rows: body.length, stamp: asof, sheets: [table(ctx, "Receivables", { title_km: km, title_en: en, filters }, cols, body)] };
 }
 async function techPerformanceSheet(ctx: Ctx, q: Q): Promise<Built> {
@@ -498,7 +537,7 @@ async function build(ctx: Ctx, report: Report, q: Q): Promise<Built> {
   return report === "tech-withdrawals" ? techWithdrawals(ctx, q) : report === "account-report" ? accountReport(ctx, q) : report === "coa" ? coa(ctx, q)
     : report === "trial-balance" ? trialBalanceSheet(ctx, q) : report === "income-statement" ? incomeStatementSheet(ctx, rangeOnly(q, ctx.today)) : report === "balance-sheet" ? balanceSheetSheet(ctx, { asof: q.asof ?? q.to ?? ctx.today })
     : report === "journal" ? journalSheet(ctx, q) : report === "expenses" ? expensesSheet(ctx, q) : report === "stock-balance" ? stockBalanceSheet(ctx, q) : report === "stock-moves" ? stockMovesSheet(ctx, q)
-    : report === "payables" ? payablesSheet(ctx) : report === "stock-reconcile" ? reconcileSheet(ctx, q) : report === "bookings" ? bookingsSheet(ctx, q) : report === "invoices" ? invoicesSheet(ctx, q)
+    : report === "payables" ? payablesSheet(ctx, q) : report === "stock-reconcile" ? reconcileSheet(ctx, q) : report === "bookings" ? bookingsSheet(ctx, q) : report === "invoices" ? invoicesSheet(ctx, q)
     : report === "payments" ? paymentsSheet(ctx, q) : report === "receivables" ? receivablesSheet(ctx, q) : report === "tech-performance" ? techPerformanceSheet(ctx, q) : report === "customers" ? customersSheet(ctx, q)
     : attendanceSheet(ctx, q);
 }

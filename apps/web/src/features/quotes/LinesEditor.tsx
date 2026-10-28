@@ -23,12 +23,17 @@ export function LinesEditor({ rows, setRows, catalog, fx, testId = "quote-total"
   const set = (i: number, patch: Partial<Row>) => setRows((x) => x.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   return (
     <>
-      <div className="flex gap-2 mb-3">
-        <Select value={pick} onChange={(e) => addItem(e.target.value)} className="flex-1" aria-label={t("quote.add_item")}>
+      <div className="flex flex-wrap gap-2 mb-3">
+        <Select value={pick} onChange={(e) => addItem(e.target.value)} className="flex-1 min-w-[12rem]" aria-label={t("quote.add_item")}>
           <option value="">{t("quote.add_item")}</option>
           {items.map((i) => <option key={i.id} value={i.id}>{i.name_km} · {t(`catalog.kind_${i.kind}`)}</option>)}
         </Select>
-        <Button type="button" onClick={() => setRows((x) => [...x, { catalog_item_id: null, description: "", kind: "service", qty: "1", unit: "unit", price: "0" }])}><Plus size={16} /> {t("quote.free_line")}</Button>
+        {/* D-184 (client 28-10): a free line says what it is when added — a service or goods (its revenue account follows) */}
+        {(["service", "product"] as const).map((kind) => (
+          <Button key={kind} type="button" onClick={() => setRows((x) => [...x, { catalog_item_id: null, description: "", kind, qty: "1", unit: "unit", price: "0" }])} data-testid={`free-${kind}`}>
+            <Plus size={16} /> {t(kind === "service" ? "quote.free_service" : "quote.free_goods")}
+          </Button>
+        ))}
       </div>
       {rows.length === 0 && <p className="text-sm text-muted">{t("quote.no_lines")}</p>}
       <ul className="space-y-3">

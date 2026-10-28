@@ -14,3 +14,4 @@ export * from "./phone";
 export * from "./address";
 export * from "./list-filter";
 export * from "./account-map";
+export * from "./pay-status";

@@ -2,9 +2,10 @@
 // every write checks its own permission (BR-10, BR-12, BR-19). Technicians never reach these routes (AC-01).
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
+import { PAY_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
 import {
-  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, updateInvoice,
+  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
 } from "../services/invoices.js";
 import { invoiceJournal } from "../services/accounting.js";
 
@@ -29,7 +30,7 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const { status, booking } = z.object({ status: z.enum(["draft", "unpaid", "paid", "void", "approval"]).optional(), booking: z.string().uuid().optional() }).parse(req.query ?? {});
     return listInvoices(req.user!, status, booking);
   });
-  app.get("/debts", async (req) => debts(req.user!));
+  app.get("/debts", async (req) => debts(req.user!, z.object({ paystatus: z.enum(PAY_STATUSES).optional() }).parse(req.query ?? {}).paystatus)); // D-183
   app.get("/uninvoiced", async (req) => uninvoiced(req.user!.companyId)); // A1
   app.get("/prefill", { preHandler: app.requirePerm("invoice.issue") }, async (req) => prefill(req.user!, z.object({ booking: z.string().uuid() }).parse(req.query ?? {}).booking));
   app.get("/:id", async (req) => getInvoice(req.user!, req.perms, idParam.parse(req.params).id));
@@ -44,6 +45,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   app.put("/:id", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
     const v = z.object({ lines, notes: z.string().max(2000).optional().nullable() }).strict().parse(req.body);
     return updateInvoice(req.user!, req.ip, idParam.parse(req.params).id, v);
+  });
+  // D-184: a line's kind (service ↔ goods) corrected — on an issued invoice its revenue moves to the other income account (CFO / CEO)
+  app.post("/:id/lines/:line/kind", { preHandler: app.requirePerm("accounting.post") }, async (req) => {
+    const p = z.object({ id: z.string().uuid(), line: z.coerce.number().int().positive() }).parse(req.params);
+    return setLineKind(req.user!, req.ip, p.id, p.line, z.object({ kind: z.enum(["service", "product"]) }).strict().parse(req.body).kind);
   });
   // D-126: an optional earlier invoice date (unlocked period only; a reason when more than 3 days back)
   app.post("/:id/issue", { preHandler: app.requirePerm("invoice.issue") }, async (req) => issueInvoice(req.user!, req.ip, idParam.parse(req.params).id,

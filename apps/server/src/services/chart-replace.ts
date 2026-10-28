@@ -6,6 +6,7 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { books, post } from "./accounting.js";
 import { itemRemoval, removeItem } from "./inventory.js";
+import { setLineKind } from "./invoices.js";
 import { CHART, OLD_TO_NEW, isSubCodeAccount, replaceChart, seedParent, typeOfCode, updateChartV2, type Role } from "./chart.js";
 
 export async function chartReplaceCli(slug: string, apply: boolean): Promise<string[]> {
@@ -186,5 +187,34 @@ export async function stockItemRemoveCli(slug: string, codes: string[], apply: b
     if (apply) await removeItem(user, null, it.id);
     out.push(`  ${code} «${r.name}»: ${r.action === "delete" ? "deleted (never used)" : "switched off (has history)"}${apply ? " ✓" : ""}`);
   }
+  return out;
+}
+
+/** `node dist/cli.mjs invoice-line-kind <slug> <invoice number> <line #> <service|product> [--apply]` (D-184): the invoice screen's «ប្ដូរជាទំនិញ / សេវា»
+ *  as HangKH Support — the line's kind changes; on an issued invoice its revenue moves to the other income account by one entry */
+export async function invoiceLineKindCli(slug: string, number: string, pos: number, kind: "service" | "product", apply: boolean): Promise<string[]> {
+  const co = (await sql<{ id: string; name: string }[]>`select id, name from companies where slug = ${slug}`)[0];
+  if (!co) throw new Error(`company "${slug}" not found`);
+  const u = (await sql<{ id: string; role: string; username: string; full_name: string; language: "km" | "en" }[]>`select id, role::text as role, username, full_name, language from users
+    where company_id = ${co.id} and is_platform and is_active order by created_at limit 1`)[0];
+  if (!u) throw new Error("this shop has no active HangKH Support account (users.is_platform)");
+  const user = { id: u.id, companyId: co.id, role: u.role, username: u.username, fullName: u.full_name, mustChangePassword: false, language: u.language, sessionId: "cli" } as SessionUser;
+  const inv = (await sql<{ id: string; status: string }[]>`select id, status::text as status from invoices where company_id = ${co.id} and number = ${number}`)[0];
+  if (!inv) throw new Error(`invoice ${number} not found`);
+  const lines = await sql<{ id: string; description: string; kind: string; amount: number }[]>`select id::text as id, description, kind::text as kind, round(qty * unit_price)::int as amount
+    from invoice_lines where invoice_id = ${inv.id} order by sort, id`;
+  const usd = (v: number) => `$${(v / 100).toFixed(2)}`;
+  const out = [`${co.name} (${slug}) · ${number} (${inv.status}) · as ${u.full_name}${apply ? "" : " · DRY RUN — nothing is written (add --apply)"}`];
+  lines.forEach((l, k) => out.push(`  ${k + 1}. ${l.kind.padEnd(7)} ${usd(l.amount).padStart(10)}  ${l.description}${k + 1 === pos ? `  ← ${kind}` : ""}`));
+  const l = lines[pos - 1];
+  if (!l) throw new Error(`no line ${pos} on ${number}`);
+  if (l.kind === kind) { out.push(`line ${pos} is already ${kind} — nothing to do`); return out; }
+  if (apply) {
+    const r = await setLineKind(user, null, inv.id, Number(l.id), kind);
+    const je = (await sql<{ number: string; lines: string }[]>`select e.number, string_agg(a.code || ' ' || case when jl.debit_cents > 0 then 'Dr ' || (jl.debit_cents / 100.0)::text else 'Cr ' || (jl.credit_cents / 100.0)::text end, ' · ' order by jl.id) as lines
+      from journal_entries e join journal_lines jl on jl.entry_id = e.id join accounts a on a.id = jl.account_id where e.company_id = ${co.id} and e.source = 'invoice' and e.source_id = ${inv.id}::text
+      group by e.id, e.number, e.created_at order by e.created_at desc limit 1`)[0];
+    out.push(`line ${pos} → ${kind} ✓ · revenue moved ${usd(r.moved)}${r.moved && je ? ` · ${je.number}: ${je.lines}` : ""}`);
+  } else out.push(`would change line ${pos} ${l.kind} → ${kind} (revenue ${usd(l.amount)} moves to the ${kind === "product" ? "goods" : "service"} income account)`);
   return out;
 }

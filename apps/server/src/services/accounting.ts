@@ -119,6 +119,22 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
         ...k.map((x) => ({ account: x.account ?? revenueAccount(R, x.kind, zone), amount: -Number(x.amt), zone }))] });
       return;
     }
+    case "invoice_line_kind": { // D-184: Dr the old income account / Cr the new one, on the zone of the invoice's own entry, dated as it (today when that day is locked)
+      const o = (await t<{ date: string; number: string; fx: string; zone: "inside" | "outside" | null }[]>`select x.entry_date::text as date, i.number, x.fx_rate_khr::text as fx,
+          (select l.zone::text from journal_lines l where l.entry_id = x.id and l.zone is not null limit 1) as zone
+        from journal_entries x join invoices i on i.id::text = x.source_id where x.company_id = ${u.companyId} and x.source = 'invoice' and x.source_id = ${e.invoice_id}
+          and x.reversal_of is null and not exists (select 1 from journal_entries r where r.reversal_of = x.id) order by x.created_at limit 1`)[0];
+      if (!o) return; // issued before the books: its revenue sits in the opening balances
+      const from = revenueAccount(R, e.from, o.zone), to = revenueAccount(R, e.to, o.zone);
+      // only revenue the invoice really posted on the old account moves (an open invoice brought in at the start posted none)
+      const held = Number((await t<{ c: string }[]>`select coalesce(sum(l.credit_cents - l.debit_cents), 0)::text as c from journal_lines l join journal_entries x on x.id = l.entry_id
+        where x.company_id = ${u.companyId} and x.source = 'invoice' and x.source_id = ${e.invoice_id} and l.account_id = ${from}`)[0]!.c);
+      const amount = Math.min(e.amount, held);
+      if (amount <= 0 || from === to) return;
+      await post(t, u, { date: b.locked && o.date <= b.locked ? b.today : o.date, memo: `${o.number} · ${e.line}`, source: "invoice", source_id: e.invoice_id, fx: Number(o.fx), lines: [
+        { account: from, amount, zone: o.zone }, { account: to, amount: -amount, zone: o.zone }] });
+      return;
+    }
     case "payment": {
       const p = (await t<{ number: string; customer_id: string }[]>`select i.number, i.customer_id from payments p join invoices i on i.id = p.invoice_id where p.id = ${e.id}`)[0]!;
       await post(t, u, { date: e.date, memo: p.number, source: "payment", source_id: e.id, fx: e.fx, lines: [

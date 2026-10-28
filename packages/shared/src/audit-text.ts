@@ -34,7 +34,7 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "deposit.record": T("ទទួលប្រាក់កក់", "Deposit received"), "deposit.void": T("មោឃៈប្រាក់កក់", "Deposit voided"), "fx.set": T("កំណត់អត្រាប្តូរប្រាក់", "Exchange rate set"),
   "invoice.create": T("បង្កើតវិក្កយបត្រ", "Invoice created"), "invoice.discount": T("បញ្ចុះតម្លៃវិក្កយបត្រ", "Invoice discount"),
   "invoice.discount_approve": T("អនុម័តការបញ្ចុះតម្លៃ", "Discount approved"), "invoice.discount_reject": T("បដិសេធការបញ្ចុះតម្លៃ", "Discount rejected"),
-  "invoice.issue": T("ចេញវិក្កយបត្រ", "Invoice issued"), "invoice.update": T("កែវិក្កយបត្រ", "Invoice edited"), "invoice.void": T("មោឃៈវិក្កយបត្រ", "Invoice voided"),
+  "invoice.issue": T("ចេញវិក្កយបត្រ", "Invoice issued"), "invoice.line_kind": T("ប្ដូរប្រភេទជួរវិក្កយបត្រ (សេវា / ទំនិញ)", "Invoice line type changed (service / goods)"), "invoice.update": T("កែវិក្កយបត្រ", "Invoice edited"), "invoice.void": T("មោឃៈវិក្កយបត្រ", "Invoice voided"),
   "invoice.void_reject": T("បដិសេធការមោឃៈវិក្កយបត្រ", "Invoice void rejected"), "invoice.void_request": T("ស្នើមោឃៈវិក្កយបត្រ", "Invoice void requested"),
   "job.finish_for": T("បញ្ចប់ការងារជំនួសជាង", "Job finished for the technician"),
   "booking.release": T("ជាងបញ្ចប់ការងារមុន — ដោះលែង", "Technician released — finished the earlier job early"),

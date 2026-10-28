@@ -4,13 +4,16 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Download, Loader2 } from "lucide-react";
 import { toast } from "@/lib/toast";
+import type { PayStatus } from "@sms/shared";
 
 export type ExportReport = "tech-withdrawals" | "account-report" | "coa" | "trial-balance" | "income-statement" | "balance-sheet" | "journal" | "expenses" | "stock-balance" | "stock-moves" | "payables"
   | "stock-reconcile" | "bookings" | "invoices" | "payments" | "receivables" | "tech-performance" | "customers" | "attendance"
   | "boreys" | "requests" | "catalog" | "broadcasts" | "subscribers" | "notifications" | "leave-mine" | "leave-approve" | "payroll-runs" | "payroll-salaries" | "reminders" | "cash-close" | "verification" | "audit" | "quotes" | "uninvoiced" | "users"; // D-172
 export type ExportParams = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[]; customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
   month?: string; zone?: string; q?: string; closed?: "0" | "1"; cancelled?: "0" | "1"; inactive?: "0" | "1"; list?: string;
-  role?: string; all?: "0" | "1"; days?: string; user?: string; type?: string; open?: "0" | "1" };
+  role?: string; all?: "0" | "1"; days?: string; user?: string; type?: string; open?: "0" | "1";
+  /** D-183: a debt's state (account report on a debt account · invoices · receivables · payables) */
+  paystatus?: PayStatus };
 export const exportUrl = (report: ExportReport, p: ExportParams = {}): string => {
   const qs = Object.entries(p).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`).join("&");
   return `/api/export/${report}.xlsx${qs ? `?${qs}` : ""}`;

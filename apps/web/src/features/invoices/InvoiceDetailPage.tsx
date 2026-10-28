@@ -8,7 +8,7 @@ import { formatKhr, formatUsd, fromCents, toCents, usdToKhr } from "@sms/shared"
 import { Ban, Check, Pencil, Printer, Send, Wallet, X } from "lucide-react";
 import { api, errCode, fmtDate, type Invoice, type PayMethod } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { ActionBar, Button, Card, Dialog, ErrorState, Field, Input, Skeleton } from "@/components/ui";
+import { ActionBar, Badge, Button, Card, ConfirmDialog, Dialog, ErrorState, Field, Input, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { InvoiceBadge } from "./shared";
 import PaymentRow from "./PaymentRow";
@@ -50,7 +50,7 @@ export default function InvoiceDetailPage() {
 
       <Card title={t("quote.lines")}>
         <ul className="text-sm divide-y divide-grey-line">
-          {d.lines.map((l, i) => <li key={l.id ?? i} className="py-2 flex gap-2"><span className="flex-1 min-w-0 break-words">{l.description} <span className="text-xs text-muted">× {l.qty} {l.unit}</span></span><span className="tabular">{formatUsd(l.line_total ?? 0)}</span></li>)}
+          {d.lines.map((l, i) => <LineRow key={l.id ?? i} d={d} l={l} canSwitch={issued && !!d.can.line_kind && accountingOn && l.id != null} onDone={refresh} />)}
         </ul>
         <Totals d={d} />
       </Card>
@@ -105,6 +105,28 @@ function IssueDialog({ loading, onClose, onIssue }: { loading: boolean; onClose:
       </Field>
       {back > 3 && <Field label={t("invoice.issue_reason")} required><textarea className="input h-20 py-2" value={reason} maxLength={300} onChange={(e) => setReason(e.target.value)} data-testid="invoice-issue-reason" /></Field>}
     </Dialog>
+  );
+}
+
+/** D-184 (client 28-10): a line with its type (service / goods); on an issued invoice the CFO / CEO switch it — its revenue moves to
+ *  the other income account by one entry, the total and the payments stay */
+function LineRow({ d, l, canSwitch, onDone }: { d: Invoice; l: Invoice["lines"][number]; canSwitch: boolean; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [ask, setAsk] = useState(false);
+  const to = l.kind === "service" ? "product" : "service";
+  const m = useMutation({
+    mutationFn: () => api.invoices.setLineKind(d.id, l.id!, to),
+    onSuccess: () => { toast.success(t("invoice.kind_done")); setAsk(false); onDone(); },
+    onError: (e) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  return (
+    <li className="py-2 flex flex-wrap items-center gap-2" data-testid="invoice-line">
+      <span className="flex-1 min-w-0 break-words">{l.description} <span className="text-xs text-muted">× {l.qty} {l.unit}</span> <Badge tone={l.kind === "product" ? "blue" : "grey"} data-testid="line-kind">{t(`catalog.kind_${l.kind}`)}</Badge></span>
+      <span className="tabular">{formatUsd(l.line_total ?? 0)}</span>
+      {canSwitch && <Button type="button" onClick={() => setAsk(true)} data-testid="line-kind-switch">{t(to === "product" ? "invoice.kind_to_product" : "invoice.kind_to_service")}</Button>}
+      <ConfirmDialog open={ask} onClose={() => setAsk(false)} onConfirm={() => m.mutate()} loading={m.isPending} title={t("invoice.kind_title")}
+        text={t("invoice.kind_text", { line: l.description, kind: t(`catalog.kind_${to}`), amount: formatUsd(l.line_total ?? 0) })} />
+    </li>
   );
 }
 

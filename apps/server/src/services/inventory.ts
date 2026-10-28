@@ -11,7 +11,7 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { assertCodeOnAccount, nextItemCode } from "./catalog.js";
 import { postStock, postSupplierPay } from "./ledger-hooks.js";
-import { khrToCents, type SupplierKind } from "@sms/shared";
+import { khrToCents, payStatusOf, type SupplierKind } from "@sms/shared";
 import { notifyUser } from "./telegram.js";
 
 export type Pay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
@@ -235,7 +235,7 @@ async function payablesFromBooks(user: SessionUser, db: Db) {
   return [...by.entries()].map(([k, s]) => {
     const b = buys.find((x) => x.k === k);
     return { supplier: s.supplier, owed: s.owed, purchases: Number(b?.purchases ?? 0), opening: s.opening, paid: s.paid, invoices: b?.inv ?? [], last_purchase: b?.last ?? null,
-      last_payment: s.last_payment, accounts: [...s.accounts.values()].filter((a) => a.owed !== 0).sort((x, y) => x.code.localeCompare(y.code)) };
+      last_payment: s.last_payment, pay_status: payStatusOf(s.owed + s.paid, s.paid), accounts: [...s.accounts.values()].filter((a) => a.owed !== 0).sort((x, y) => x.code.localeCompare(y.code)) };
   }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
 }
 
@@ -447,6 +447,7 @@ export async function payables(user: SessionUser, db: Db = sql) {
   const names = new Set([...buys.map((b) => b.supplier), ...opening.map((o) => o.supplier.trim()), ...paid.map((p) => p.supplier)]);
   return [...names].map((supplier) => {
     const b = buys.find((x) => x.supplier === supplier), o = opening.filter((x) => x.supplier.trim() === supplier).reduce((a, x) => a + x.amount, 0), p = paid.find((x) => x.supplier === supplier);
-    return { supplier, owed: Number(b?.owed ?? 0) + o - Number(p?.paid ?? 0), purchases: Number(b?.purchases ?? 0), opening: o, paid: Number(p?.paid ?? 0), invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null };
+    const owed = Number(b?.owed ?? 0) + o - Number(p?.paid ?? 0), paid = Number(p?.paid ?? 0);
+    return { supplier, owed, purchases: Number(b?.purchases ?? 0), opening: o, paid, invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null, pay_status: payStatusOf(owed + paid, paid) };
   }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
 }

@@ -2,7 +2,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
-import { filterList, LIST_REPORTS, LIST_SPECS, type ListReport } from "@sms/shared";
+import { filterList, LIST_REPORTS, LIST_SPECS, PAY_STATUSES, type ListReport } from "@sms/shared";
 import { exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
 import { LIST_DEFS } from "../services/list-exports.js";
 
@@ -15,7 +15,7 @@ const query = z.object({ from: day.optional(), to: day.optional(), asof: day.opt
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(), zone: z.enum(["inside", "outside"]).optional(), q: z.string().max(120).optional(), closed: z.enum(["0", "1"]).optional(),
   cancelled: z.enum(["0", "1"]).optional(), inactive: z.enum(["0", "1"]).optional(), list: z.enum(["draft", "unpaid", "paid", "void", "approval"]).optional(),
   role: z.string().regex(/^[a-z_]{2,20}$/).optional(), all: z.enum(["0", "1"]).optional(), days: z.string().regex(/^\d{1,2}$/).optional(), user: z.string().uuid().optional(),
-  type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional() }).strict();
+  type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional(), paystatus: z.enum(PAY_STATUSES).optional() }).strict(); // D-183
 
 /** the permission of the screen that shows the report */
 const PERM: Record<Report, string | string[]> = {
