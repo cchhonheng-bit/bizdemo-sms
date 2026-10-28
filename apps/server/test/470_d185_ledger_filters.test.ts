@@ -23,7 +23,10 @@ const report = async (q: Record<string, string>) => {
   const rows = r.statusCode === 200 ? readWorkbook(r.rawPayload)[0]!.rows : [];
   return { status: r.statusCode, n: Number(r.headers["x-rows"]), rows, balance: Number(rows.find((x) => x[2] === "Balance")?.[6] ?? NaN), filters: rows[3]?.[0] ?? "" };
 };
-const facets = async (c: Client, q: Record<string, string>) => app.inject({ method: "GET", url: `/api/export/account-report/facets?${qs({ from: today, to: today, ...q })}`, headers: { cookie: c.cookie! } });
+const facets = async (c: Client, q: Record<string, string>) => {
+  const r = await app.inject({ method: "GET", url: `/api/export/account-report/facets?${qs({ from: today, to: today, ...q })}`, headers: { cookie: c.cookie! } });
+  return { status: r.statusCode, json: r.json() as any };
+};
 const tx = (body: Record<string, unknown>) => acc(cfo, "/transactions", { date: today, ...body });
 
 beforeAll(async () => {
@@ -81,7 +84,7 @@ describe("D-185 every account gets the filters its own lines support", () => {
     const f4 = (await facets(cfo, { account: await id("11001") })).json;
     expect(f4.sources).toEqual(expect.arrayContaining(["opening", "other", "payment", "manual"]));
     expect((await facets(cfo, {})).json).toEqual({ debt: false, sources: [], zones: [], parties: [], items: [], bookers: [] });
-    expect((await facets(gm, { account: await id("12001") })).statusCode).toBe(403);
+    expect((await facets(gm, { account: await id("12001") })).status).toBe(403);
   });
 
   it("12001 by debt state, per staff member: ជំពាក់ខ្លះ = Kim ($60 left) · ជំពាក់សុទ្ធ = Dara ($60, nothing paid) · ទូទាត់ហើយ = the GM (0)", async () => {
