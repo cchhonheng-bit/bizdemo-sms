@@ -447,7 +447,7 @@ export async function payables(user: SessionUser, db: Db = sql) {
   const names = new Set([...buys.map((b) => b.supplier), ...opening.map((o) => o.supplier.trim()), ...paid.map((p) => p.supplier)]);
   return [...names].map((supplier) => {
     const b = buys.find((x) => x.supplier === supplier), o = opening.filter((x) => x.supplier.trim() === supplier).reduce((a, x) => a + x.amount, 0), p = paid.find((x) => x.supplier === supplier);
-    const owed = Number(b?.owed ?? 0) + o - Number(p?.paid ?? 0), paid = Number(p?.paid ?? 0);
-    return { supplier, owed, purchases: Number(b?.purchases ?? 0), opening: o, paid, invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null, pay_status: payStatusOf(owed + paid, paid) };
+    const out = Number(p?.paid ?? 0), owed = Number(b?.owed ?? 0) + o - out;
+    return { supplier, owed, purchases: Number(b?.purchases ?? 0), opening: o, paid: out, invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null, pay_status: payStatusOf(owed + out, out) };
   }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
 }
