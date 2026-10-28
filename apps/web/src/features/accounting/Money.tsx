@@ -5,7 +5,7 @@ import { ReportToolbar } from "@/components/ReportToolbar";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, khrToCents } from "@sms/shared";
-import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, HandCoins, PiggyBank, ShoppingCart, Truck } from "lucide-react";
+import { ArrowDownCircle, ArrowLeftRight, ArrowUpCircle, HandCoins, PiggyBank, ShoppingCart, Truck, UserCheck, UserMinus } from "lucide-react";
 import { api, type AcctTxType, type AcctType } from "@/lib/api";
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -18,6 +18,7 @@ const KINDS: { type: AcctTxType; icon: typeof ArrowUpCircle }[] = [
   { type: "expense", icon: ArrowUpCircle }, { type: "purchase", icon: ShoppingCart }, { type: "supplier_payment", icon: Truck },
   { type: "other_income", icon: ArrowDownCircle }, { type: "owner_contribution", icon: PiggyBank }, { type: "owner_withdrawal", icon: HandCoins },
   { type: "transfer", icon: ArrowLeftRight },
+  { type: "staff_advance", icon: UserMinus }, { type: "staff_repay", icon: UserCheck }, // D-185: on staff advances, naming the person
 ];
 const ACCOUNT_TYPES: Partial<Record<AcctTxType, AcctType[]>> = { expense: ["expense"], purchase: ["asset", "expense"], other_income: ["income"] };
 
@@ -89,15 +90,19 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   const debtAccounts = useQuery({ queryKey: ["debt-accounts"], queryFn: api.inventory.debtAccounts });
   const debts = useQuery({ queryKey: ["supplier-debts", supplier.trim()], queryFn: () => api.inventory.supplierDebts(supplier.trim()), enabled: type === "supplier_payment" && supplier.trim().length > 1 });
   const onCredit = (type === "expense" || type === "purchase") && pay === "credit";
+  const isStaff = type === "staff_advance" || type === "staff_repay";
+  const [staffId, setStaffId] = useState("");
+  const staff = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic, enabled: isStaff });
   const fx = info.data?.fx_rate_khr ?? 4100;
   const amt = khr ? (/^\d+$/.test(amount.trim()) ? Number(amount) : NaN) : cents(amount);
   const usd = khr ? (Number.isFinite(amt) ? khrToCents(amt, fx) : NaN) : amt;
   const needsAccount = !!ACCOUNT_TYPES[type];
   const needsSupplier = type === "supplier_payment" || ((type === "expense" || type === "purchase") && pay === "credit");
-  const valid = usd > 0 && (!needsAccount || !!code) && (!needsSupplier || !!supplier.trim()) && (type !== "transfer" || from !== to);
+  const valid = usd > 0 && (!needsAccount || !!code) && (!needsSupplier || !!supplier.trim()) && (type !== "transfer" || from !== to) && (!isStaff || !!staffId);
   const save = useMutation({
     mutationFn: () => api.accounting.transaction({ date, type, amount: amt, currency: khr ? "khr" : "usd", account_code: needsAccount ? code : undefined,
-      ...(type === "transfer" ? { from, to } : { pay }), supplier: supplier.trim() || null, debt_account_id: (type === "supplier_payment" || onCredit) && debtAcc ? debtAcc : null, memo: memo.trim() || null, attachment: photo }),
+      ...(type === "transfer" ? { from, to } : { pay }), supplier: supplier.trim() || null, debt_account_id: (type === "supplier_payment" || onCredit) && debtAcc ? debtAcc : null, memo: memo.trim() || null, attachment: photo,
+      ...(isStaff ? { user_id: staffId } : {}) }),
     onSuccess: (r) => { toast.success(r.pending ? t("acct.saved_pending") : t("acct.posted", { number: r.number })); for (const k of ["acct-journal", "acct-accounts", "acct-pending", "books"]) void qc.invalidateQueries({ queryKey: [k] }); onClose(); },
     onError: onErr,
   });
@@ -119,11 +124,19 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
           <Select value={code} onChange={(e) => setCode(e.target.value)} data-testid="tx-account"><option value="">{t("acct.pick_account")}</option>{choices.map((a) => <option key={a.id} value={a.code}>{name(a)}</option>)}</Select>
         </Field>
       )}
+      {isStaff && (
+        <Field label={t("acct.staff")} required>
+          <Select value={staffId} onChange={(e) => setStaffId(e.target.value)} data-testid="tx-staff">
+            <option value="">{t("acct.pick_staff")}</option>
+            {(staff.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}
+          </Select>
+        </Field>
+      )}
       {type === "transfer" ? (<>
         <p className="text-sm mb-1">{t("inventory.from")}</p><PayPicker value={from} onChange={setFrom} testid="tx-from" />
         <p className="text-sm mb-1">{t("inventory.to")}</p><PayPicker value={to} onChange={setTo} testid="tx-to" />
       </>) : (<>
-        <p className="text-sm mb-1">{type === "other_income" || type === "owner_contribution" ? t("acct.received_in") : t("acct.paid_from")}</p>
+        <p className="text-sm mb-1">{type === "other_income" || type === "owner_contribution" || type === "staff_repay" ? t("acct.received_in") : t("acct.paid_from")}</p>
         <PayPicker value={pay} onChange={setPay} credit={type === "expense" || type === "purchase"} testid="tx-pay" />
       </>)}
       {(needsSupplier || type === "expense" || type === "purchase") && <Field label={t("inventory.supplier")} required={needsSupplier}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="tx-supplier" /></Field>}

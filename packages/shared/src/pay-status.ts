@@ -3,8 +3,7 @@
 export const PAY_STATUSES = ["unpaid", "partial", "paid"] as const;
 export type PayStatus = (typeof PAY_STATUSES)[number];
 export const payStatusOf = (total: number, paid: number): PayStatus => (paid >= total ? "paid" : paid > 0 ? "partial" : "unpaid");
-/** liabilities that are not a supplier's debt (customer deposits, tips, wages owed) */
-const NOT_SUPPLIER_DEBT = ["deposits", "tips", "payroll"];
-/** an account whose lines belong to a debt — the customers' receivable or a supplier's payable: the status filter applies to it */
+/** an account that holds people's debts (D-185): the customers' receivable, staff advances, and every liability (suppliers, customer
+ *  deposits, tips and wages owed — each line names its person) — the status filter is offered on it even before it has a line */
 export const isDebtAccount = (a: { type: string; mapped: readonly string[] }): boolean =>
-  a.mapped.includes("ar") || (a.type === "liability" && !a.mapped.some((k) => NOT_SUPPLIER_DEBT.includes(k)));
+  a.mapped.includes("ar") || a.mapped.includes("staff_advance") || a.type === "liability";

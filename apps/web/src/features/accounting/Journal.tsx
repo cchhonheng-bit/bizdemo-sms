@@ -109,7 +109,9 @@ function EntryDialog({ id, onClose, onOpen }: { id: string; onClose: () => void;
   );
 }
 
-type Draft = { account_id: string; side: "dr" | "cr"; amount: string; memo: string };
+/** D-185: `who` = "" · "u:<staff id>" · "s" (a supplier, its name in `supplier`) — the person a line on a balance-sheet account is about */
+type Draft = { account_id: string; side: "dr" | "cr"; amount: string; memo: string; who: string; supplier: string };
+const blank = (side: "dr" | "cr", amount = ""): Draft => ({ account_id: "", side, amount, memo: "", who: "", supplier: "" });
 function NewEntryDialog({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -120,14 +122,18 @@ function NewEntryDialog({ onClose }: { onClose: () => void }) {
   const [date, setDate] = useState(todayLocal());
   const [memo, setMemo] = useState(""); const [note, setNote] = useState("");
   const [photo, setPhoto] = useState<string | null>(null);
-  const [lines, setLines] = useState<Draft[]>([{ account_id: "", side: "dr", amount: "", memo: "" }, { account_id: "", side: "cr", amount: "", memo: "" }]);
+  const [lines, setLines] = useState<Draft[]>([blank("dr"), blank("cr")]);
+  const staff = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const personal = (id: string) => { const a = active.find((x) => x.id === id); return !!a && (a.type === "asset" || a.type === "liability") && !a.is_cash && !a.is_stock; };
   const set = (i: number, v: Partial<Draft>) => setLines((ls) => ls.map((l, j) => (j === i ? { ...l, ...v } : l)));
   const dr = lines.filter((l) => l.side === "dr").reduce((s, l) => s + (cents(l.amount) || 0), 0);
   const cr = lines.filter((l) => l.side === "cr").reduce((s, l) => s + (cents(l.amount) || 0), 0);
   const ok = memo.trim() && lines.length >= 2 && lines.every((l) => l.account_id && cents(l.amount) > 0) && dr === cr && dr > 0;
   const save = useMutation({
     mutationFn: () => api.accounting.post({ date, memo, note: note || null, attachment: photo,
-      lines: lines.map((l) => ({ account_id: l.account_id, [l.side === "dr" ? "debit" : "credit"]: cents(l.amount), memo: l.memo || null })) }),
+      lines: lines.map((l) => { const who = personal(l.account_id) ? l.who : "";
+        return { account_id: l.account_id, [l.side === "dr" ? "debit" : "credit"]: cents(l.amount), memo: l.memo || null,
+          user_id: who.startsWith("u:") ? who.slice(2) : null, supplier: who === "s" ? l.supplier.trim() || null : null }; }) }),
     onSuccess: (r) => { toast.success(t("acct.posted", { number: r.number })); void qc.invalidateQueries({ queryKey: ["acct-journal"] }); void qc.invalidateQueries({ queryKey: ["acct-accounts"] }); onClose(); },
     onError: onErr,
   });
@@ -154,9 +160,19 @@ function NewEntryDialog({ onClose }: { onClose: () => void }) {
             <button type="button" className="min-h-[44px] min-w-[44px] grid place-items-center text-muted disabled:opacity-30" disabled={lines.length <= 2} aria-label={t("app.delete")} onClick={() => setLines((ls) => ls.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
           </div>
           <Input className="mt-2" placeholder={t("acct.line_memo")} value={l.memo} onChange={(e) => set(i, { memo: e.target.value })} maxLength={200} />
+          {personal(l.account_id) && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+              <Select value={l.who} onChange={(e) => set(i, { who: e.target.value })} aria-label={t("acct.who")} data-testid={`je-who-${i}`}>
+                <option value="">{t("acct.who")}</option>
+                {(staff.data ?? []).map((u) => <option key={u.id} value={`u:${u.id}`}>{u.full_name}</option>)}
+                <option value="s">{t("acct.who_supplier")}</option>
+              </Select>
+              {l.who === "s" && <Input placeholder={t("acct.who_supplier_name")} value={l.supplier} onChange={(e) => set(i, { supplier: e.target.value })} maxLength={120} />}
+            </div>
+          )}
         </div>
       ))}
-      <Button onClick={() => setLines((ls) => [...ls, { account_id: "", side: dr > cr ? "cr" : "dr", amount: dr !== cr ? ((Math.abs(dr - cr)) / 100).toFixed(2) : "", memo: "" }])} disabled={lines.length >= 50}><Plus size={16} /> {t("acct.add_line")}</Button>
+      <Button onClick={() => setLines((ls) => [...ls, blank(dr > cr ? "cr" : "dr", dr !== cr ? ((Math.abs(dr - cr)) / 100).toFixed(2) : "")])} disabled={lines.length >= 50}><Plus size={16} /> {t("acct.add_line")}</Button>
       <div className={`flex justify-between text-sm mt-3 tabular ${dr === cr && dr > 0 ? "text-success" : "text-danger"}`} data-testid="je-diff">
         <span>{t("acct.debit")} {formatUsd(dr)} · {t("acct.credit")} {formatUsd(cr)}</span>
         <span>{dr === cr ? (dr > 0 ? t("acct.balanced") : "") : t("acct.diff", { amount: formatUsd(Math.abs(dr - cr)) })}</span>

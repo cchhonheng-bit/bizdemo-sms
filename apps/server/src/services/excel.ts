@@ -25,7 +25,9 @@ export type Q = { from?: string; to?: string; asof?: string; technician?: string
   /** the list screens (D-172): role · all (inactive too) · the reminders window · the audit person / group · verification open only */
   role?: string; all?: string; days?: string; user?: string; type?: string; open?: string;
   /** D-183: a debt's state — unpaid · partial · paid (account report on a debt account, invoices, receivables, payables) */
-  paystatus?: PayStatus };
+  paystatus?: PayStatus;
+  /** D-185 the account report's own filters: movement (debit / credit) · transaction types · people (c.<id> · u.<id> · s.<name>) · items */
+  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[] };
 type Col = { h: string; w?: number; s?: StyleName; sum?: boolean };
 type Ctx = { user: SessionUser; company: string; slug: string; tz: string; today: string; now: string };
 type Built = { title_km: string; title_en: string; filters: string[]; sheets: SheetSpec[]; rows: number; stamp: string };
@@ -131,60 +133,140 @@ async function techWithdrawals(ctx: Ctx, q: Q): Promise<Built> {
   return { title_km: km, title_en: en, filters, rows: rows.length, stamp: `${from}_${to}`, sheets: [table(ctx, "ពេលជាងដក", { title_km: km, title_en: en, filters }, cols, body, { landscape: true })] };
 }
 
-type LedgerLine = { date: string; number: string; memo: string; source: string; source_id: string | null; line_memo: string | null; debit: string; credit: string; supplier: string | null; customer: string | null; customer_address: string | null };
-/** Account Report.xlsx: one section per account (the sample's 13 columns + debit · credit · running balance), Opening Balance first, «Balance» last, a summary at the end */
-async function accountReport(ctx: Ctx, q: Q): Promise<Built> {
-  const { from, to, asof } = await resolveDates(ctx.user.companyId, q);
-  const c = ctx.user.companyId;
-  const accounts = await sql<{ id: string; code: string; name_km: string; type: string }[]>`select id, code, name_km, type::text as type from accounts where company_id = ${c} and not is_group
+type LedgerLine = { date: string; number: string; memo: string; source: string; source_id: string | null; line_memo: string | null; debit: string; credit: string; supplier: string | null; customer: string | null; customer_address: string | null;
+  customer_id: string | null; user_id: string | null; staff: string | null; zone: string | null };
+type LedgerAccount = { id: string; code: string; name_km: string; type: string };
+/** the accounts of an account report (picked, else every active / used one), the dates by the as-of rule and the customers' receivable (map «ar») */
+async function ledgerScope(c: string, q: Q) {
+  const { from, to, asof } = await resolveDates(c, q);
+  const accounts = await sql<LedgerAccount[]>`select id, code, name_km, type::text as type from accounts where company_id = ${c} and not is_group
     ${q.account?.length ? sql`and id = any(${sql.array(q.account)}::uuid[])` : sql`and (is_active or exists (select 1 from journal_lines l where l.account_id = accounts.id))`} order by code`;
+  return { from, to, asof, accounts, ar: (await roleIds(sql, c)).ar as string | undefined };
+}
+/** one account's lines in the range, with the person each one names (customer · staff member · supplier) and its zone */
+const ledgerLines = (accountId: string, from: string, to: string) => sql<LedgerLine[]>`select e.entry_date::text as date, e.number, e.memo, e.source, e.source_id, l.memo as line_memo,
+    l.debit_cents::text as debit, l.credit_cents::text as credit, l.supplier, cu.name as customer, cu.address as customer_address, l.customer_id::text as customer_id,
+    l.user_id::text as user_id, su.full_name as staff, l.zone::text as zone
+  from journal_lines l join journal_entries e on e.id = l.entry_id left join customers cu on cu.id = l.customer_id left join users su on su.id = l.user_id
+  where l.account_id = ${accountId} and e.entry_date between ${from}::date and ${to}::date order by e.entry_date, e.created_at, l.id`;
+const ledgerKey = (l: LedgerLine) => `${l.source}:${l.source_id ?? ""}`;
+
+/** Account Report.xlsx: one section per account (the sample's 13 columns + debit · credit · running balance), Opening Balance first, «Balance» last, a summary at the end.
+ *  D-185: any filter (debt state · movement · transaction type · zone · who · item · booker · search) lists only the matching lines with their own running balance */
+async function accountReport(ctx: Ctx, q: Q): Promise<Built> {
+  const c = ctx.user.companyId;
+  const { from, to, asof, accounts, ar } = await ledgerScope(c, q);
   const cols: Col[] = [{ h: "ថ្ងៃទី", w: 11, s: "date" }, { h: "គណនេយ្យលេខ", w: 12 }, { h: "បរិយាយ", w: 30 }, { h: "ចំនួនបានដក", w: 11, s: "qty" }, { h: "ខ្នាត", w: 8 }, { h: "តម្លៃរាយ", w: 12, s: "money" },
     { h: "តម្លៃសរុប", w: 13, s: "money" }, { h: "វីក្កយប័ត្រ", w: 14 }, { h: "BK #", w: 10 }, { h: "អ្នក Booking", w: 14 }, { h: "ឈ្មោះជាងបានដក", w: 16 }, { h: "ឈ្មោះហាងបានទិញ", w: 16 }, { h: "អាស័យដ្ឋាន", w: 40 },
     { h: "ឥណពន្ធ", w: 12, s: "money" }, { h: "ឥណទាន", w: 12, s: "money" }, { h: "សមតុល្យ", w: 13, s: "money" }];
-  const filters = [...rangeText({ from, to, asof }), `គណនី: ${q.account?.length ? await names(c, q.account, "accounts") : "ទាំងអស់ (សកម្ម ឬមានចលនា)"}`, payText(q)].filter(Boolean);
   const [km, en] = TITLES["account-report"];
   const head = cols.map((x) => ({ v: x.h, s: "head" as const }));
+  const filtered = ledgerFiltered(q);
   const docs = q.paystatus ? await debtStates(c, asof) : null;
-  const out: XCell[][] = [...headerRows(ctx, km, en, filters, 0)];
+  const out: XCell[][] = [];
   const summary: XCell[][] = [];
+  const seen = new Map<string, string>(); // a person's token / an item → its name, for the filter line
   let total = 0;
   for (const a of accounts) {
     const bal = async (day: string, op: "<" | "<=") => Number((await sql<{ b: string }[]>`select coalesce(sum(l.debit_cents - l.credit_cents), 0)::text as b from journal_lines l join journal_entries e on e.id = l.entry_id
       where l.account_id = ${a.id} and ${op === "<" ? sql`e.entry_date < ${day}::date` : sql`e.entry_date <= ${day}::date`}`)[0]!.b);
     const opening = await bal(from, "<"), closing = await bal(asof, "<=");
-    const lines = await sql<LedgerLine[]>`select e.entry_date::text as date, e.number, e.memo, e.source, e.source_id, l.memo as line_memo, l.debit_cents::text as debit, l.credit_cents::text as credit, l.supplier,
-        cu.name as customer, cu.address as customer_address
-      from journal_lines l join journal_entries e on e.id = l.entry_id left join customers cu on cu.id = l.customer_id
-      where l.account_id = ${a.id} and e.entry_date between ${from}::date and ${to}::date order by e.entry_date, e.created_at, l.id`;
-    // D-183: a debt status picked → only the lines of the invoices / suppliers in that state, with their own running balance (no opening row)
-    const rowsOf = docs ? lines.filter((l) => docState(docs, a.id, l) === q.paystatus) : lines;
-    if (docs ? !rowsOf.length : !lines.length && !opening && !closing && q.account?.length === undefined) continue; // all accounts: skip the silent ones
-    const moves = await detailsOf(c, rowsOf);
+    const lines = await ledgerLines(a.id, from, to);
+    const moves = await detailsOf(c, lines);
+    for (const l of lines) { const x = moves.get(ledgerKey(l)); for (const p of partiesOf(l, x)) seen.set(p.token, p.name); if (x?.item_id) seen.set(x.item_id, x.description); }
+    const rowsOf = filtered ? lines.filter((l) => keepLine(q, l, moves.get(ledgerKey(l)), docs ? docState(docs, a, ar, l) : null)) : lines;
+    if (filtered ? !rowsOf.length : !lines.length && !opening && !closing && q.account?.length === undefined) continue; // all accounts: skip the silent ones
     out.push([{ v: `${a.code} · ${a.name_km}`, s: "section" }], head);
-    if (!docs) out.push([D(from), a.code, "Opening Balance", null, null, null, M(opening), null, null, null, null, null, null, null, null, M(opening)]);
-    let run = docs ? 0 : opening, qtySum = 0;
+    if (!filtered) out.push([D(from), a.code, "Opening Balance", null, null, null, M(opening), null, null, null, null, null, null, null, null, M(opening)]);
+    let run = filtered ? 0 : opening, qtySum = 0;
     for (const l of rowsOf) {
       const d = n(l.debit), cr = n(l.credit), amount = d - cr; run += amount;
-      const x = moves.get(`${l.source}:${l.source_id ?? ""}`);
+      const x = moves.get(ledgerKey(l));
       const qty = x?.qty ?? null; if (qty) qtySum += qty;
       out.push([D(l.date), a.code, x?.description ?? l.line_memo ?? l.memo, qty == null ? null : QTY(qty), x?.unit ?? null, x?.unit_price == null ? null : M(x.unit_price), M(amount),
-        x?.invoice ?? null, x?.bk ?? null, x?.booker ?? null, x?.technician ?? null, x?.supplier ?? l.supplier ?? null, x?.address ?? l.customer_address ?? null, M(d), M(cr), M(run)]);
+        x?.invoice ?? null, x?.bk ?? null, x?.booker ?? null, x?.technician ?? l.staff ?? null, x?.supplier ?? l.supplier ?? null, x?.address ?? l.customer_address ?? null, M(d), M(cr), M(run)]);
     }
-    const end = docs ? run : closing, later = docs ? 0 : closing - run; // movement between To and As-of (none when As-of = To)
+    const end = filtered ? run : closing, later = filtered ? 0 : closing - run; // movement between To and As-of (none when As-of = To)
     if (later) out.push([D(asof), a.code, `ចលនាបន្ទាប់ពី ${dmy(to)} ដល់ ${dmy(asof)}`, null, null, null, M(later), null, null, null, null, null, null, null, null, M(closing)]);
     const dSum = rowsOf.reduce((s, l) => s + n(l.debit), 0), cSum = rowsOf.reduce((s, l) => s + n(l.credit), 0);
     out.push([null, null, B("Balance"), QTY(qtySum, true), null, null, M(end, true), null, null, null, null, null, null, M(dSum, true), M(cSum, true), M(end, true)], [], []);
-    summary.push([a.code, a.name_km, M(docs ? 0 : opening), M(dSum), M(cSum), M(end)]);
+    summary.push([a.code, a.name_km, M(filtered ? 0 : opening), M(dSum), M(cSum), M(end)]);
     total += rowsOf.length;
   }
+  const named = (ids: string[] | undefined) => ids?.map((t) => seen.get(t) ?? "—").join(", ");
+  const filters = [...rangeText({ from, to, asof }), `គណនី: ${q.account?.length ? await names(c, q.account, "accounts") : "ទាំងអស់ (សកម្ម ឬមានចលនា)"}`, payText(q),
+    f("ចលនា", q.dir ? DIR_KM[q.dir] : null), f("ប្រភេទប្រតិបត្តិការ", q.sources?.map((s) => SOURCE_KM[s] ?? s).join(", ")), f("តំបន់", q.zone ? ZONE_KM[q.zone] : null),
+    f("អ្នកពាក់ព័ន្ធ", named(q.party)), f("ទំនិញ", named(q.items)), q.booker?.length ? `អ្នក Booking: ${await names(c, q.booker, "users")}` : "", f("ស្វែងរក", q.q?.trim())].filter(Boolean);
+  out.unshift(...headerRows(ctx, km, en, filters, 0));
   if (!summary.length) out.push(head, [{ v: NO_DATA, s: "warn" }]);
   else out.push([{ v: "សង្ខេបគណនីដែលបានជ្រើស", s: "section" }], ["គណនី", "ឈ្មោះ", "សមតុល្យដើម", "ឥណពន្ធ", "ឥណទាន", "សមតុល្យចុង"].map((h) => ({ v: h, s: "head" as const })), ...summary);
   out[4] = [{ v: `Generated by ${ctx.user.fullName} on ${ctx.now} (${ctx.tz}) · ${total} rows · ${summary.length} accounts`, s: "muted" }];
   return { title_km: km, title_en: en, filters, rows: total, stamp: `${from}_${asof}`, sheets: [{ name: "យកតាម Account មួយៗ", rows: out, widths: cols.map((x) => x.w ?? 14), freeze: HEAD + 1, landscape: true }] };
 }
-type DebtStates = { inv: Map<string, PayStatus>; pay: Map<string, string>; sup: Map<string, PayStatus> };
-/** D-183: every debt's state on a day — each issued invoice (its total vs the payments up to that day) and each supplier on each debt
- *  account (owed vs paid from the books, the payables screen's own rule: every debit that is not an opening one is a payment) */
+
+// ---------- D-185 (client 28-10): every account gets the filters its own lines support ----------
+const DIR_KM: Record<string, string> = { in: "ឥណពន្ធ (ចូល)", out: "ឥណទាន (ចេញ)" };
+const ZONE_KM: Record<string, string> = { inside: "ក្នុងបុរី", outside: "ក្រៅបុរី" };
+const SOURCE_KM: Record<string, string> = { manual: "ដោយដៃ", other: "ចំណូល/ចំណាយ", opening: "សមតុល្យដើម", invoice: "វិក្កយបត្រ", payment: "ទទួលប្រាក់", deposit: "ប្រាក់កក់", stock: "ស្តុក",
+  cash_close: "បិទសាច់ប្រាក់", payroll: "ប្រាក់ខែ", closing: "បិទបញ្ជីចុងឆ្នាំ", supplier_pay: "បង់អ្នកផ្គត់ផ្គង់" };
+export type Party = { token: string; kind: "customer" | "staff" | "supplier"; name: string };
+/** a supplier's token: the name as typed, case and spaces ignored (spellings merged as on the payables screen) */
+const supplierToken = (name: string) => `s.${Buffer.from(name.trim().toLowerCase(), "utf8").toString("base64url")}`;
+/** the people a ledger line is about: its own customer / staff member / supplier, else those of its source (the invoice's customer, the stock
+ *  movement's technician and supplier) */
+function partiesOf(l: LedgerLine, x: Detail | undefined): Party[] {
+  const out: Party[] = [];
+  const cid = l.customer_id ?? x?.customer_id ?? null;
+  if (cid) out.push({ token: `c.${cid}`, kind: "customer", name: l.customer ?? x?.customer ?? "—" });
+  if (l.user_id) out.push({ token: `u.${l.user_id}`, kind: "staff", name: l.staff ?? "—" });
+  if (x?.technician_id && x.technician_id !== l.user_id) out.push({ token: `u.${x.technician_id}`, kind: "staff", name: x.technician ?? "—" });
+  const sup = (l.supplier ?? x?.supplier)?.trim();
+  if (sup) out.push({ token: supplierToken(sup), kind: "supplier", name: sup });
+  return out;
+}
+const ledgerFiltered = (q: Q) => !!(q.paystatus || q.dir || q.sources?.length || q.zone || q.party?.length || q.items?.length || q.booker?.length || q.q?.trim());
+/** does a line pass the account report's filters (all optional, all together) */
+function keepLine(q: Q, l: LedgerLine, x: Detail | undefined, state: PayStatus | null): boolean {
+  if (q.paystatus && state !== q.paystatus) return false;
+  if (q.dir && !(n(q.dir === "in" ? l.debit : l.credit) > 0)) return false;
+  if (q.sources?.length && !q.sources.includes(l.source)) return false;
+  if (q.zone && (l.zone ?? x?.zone) !== q.zone) return false; // a payment line carries none: its invoice's / job's zone
+  if (q.party?.length && !partiesOf(l, x).some((p) => q.party!.includes(p.token))) return false;
+  if (q.items?.length && !(x?.item_id && q.items.includes(x.item_id))) return false;
+  if (q.booker?.length && !(x?.booker_id && q.booker.includes(x.booker_id))) return false;
+  if (q.q?.trim() && !matchesSearch(q.q, [x?.description, l.line_memo, l.memo, l.number, x?.invoice, x?.bk, x?.booker, x?.technician, l.staff, x?.supplier ?? l.supplier, l.customer ?? x?.customer,
+    x?.address ?? l.customer_address])) return false;
+  return true;
+}
+export type LedgerFacets = { debt: boolean; sources: string[]; zones: string[]; parties: Party[]; items: { id: string; name: string }[]; bookers: { id: string; name: string }[] };
+/** which filters the picked accounts' own lines in the range support, with their choices — the screen shows only those. The debt state is
+ *  offered as soon as one line belongs to a debt (an invoice, a person on a balance-sheet account) */
+export async function accountFacets(user: SessionUser, q: Q): Promise<LedgerFacets> {
+  const c = user.companyId;
+  if (!q.account?.length) return { debt: false, sources: [], zones: [], parties: [], items: [], bookers: [] };
+  const { from, to, asof, accounts, ar } = await ledgerScope(c, q);
+  const docs = await debtStates(c, asof);
+  const sources = new Set<string>(), zones = new Set<string>(), parties = new Map<string, Party>(), items = new Map<string, string>(), bookers = new Map<string, string>();
+  let debt = false;
+  for (const a of accounts) {
+    const lines = await ledgerLines(a.id, from, to), moves = await detailsOf(c, lines);
+    for (const l of lines) {
+      const x = moves.get(ledgerKey(l));
+      sources.add(l.source); const z = l.zone ?? x?.zone; if (z) zones.add(z);
+      for (const p of partiesOf(l, x)) parties.set(p.token, p);
+      if (x?.item_id) items.set(x.item_id, x.description);
+      if (x?.booker_id) bookers.set(x.booker_id, x.booker ?? "—");
+      if (!debt && docState(docs, a, ar, l)) debt = true;
+    }
+  }
+  const list = (m: Map<string, string>) => [...m].map(([id, name]) => ({ id, name })).sort((p, r) => p.name.localeCompare(r.name));
+  return { debt, sources: [...sources].sort(), zones: [...zones].sort(), parties: [...parties.values()].sort((p, r) => p.kind.localeCompare(r.kind) || p.name.localeCompare(r.name)), items: list(items), bookers: list(bookers) };
+}
+
+type DebtStates = { inv: Map<string, PayStatus>; pay: Map<string, string>; party: Map<string, PayStatus> };
+/** D-183 · D-185: every debt's state on a day — each issued invoice (its total vs the payments up to that day) and each person on each
+ *  balance-sheet account (a customer, staff member or supplier: what they owe — an asset's debits — or are owed — a liability's credits —
+ *  against what cleared it; an opening line is never a payment: the payables screen's own rule) */
 async function debtStates(c: string, asof: string): Promise<DebtStates> {
   const inv = new Map<string, PayStatus>();
   for (const r of await sql<{ id: string; total: string; paid: string }[]>`select i.id::text as id,
@@ -192,44 +274,60 @@ async function debtStates(c: string, asof: string): Promise<DebtStates> {
       (select coalesce(sum(p.usd_cents), 0) from payments p where p.invoice_id = i.id and p.paid_on <= ${asof}::date)::text as paid
     from invoices i where i.company_id = ${c} and i.status = 'issued'`) inv.set(r.id, payStatusOf(n(r.total), n(r.paid)));
   const pay = new Map((await sql<{ id: string; inv: string }[]>`select id::text as id, invoice_id::text as inv from payments where company_id = ${c}`).map((r) => [r.id, r.inv]));
-  const sup = new Map<string, PayStatus>();
-  for (const r of await sql<{ k: string; owed: string; paid: string }[]>`select l.account_id::text || ':' || lower(btrim(l.supplier)) as k, sum(l.credit_cents - l.debit_cents)::text as owed,
-      coalesce(sum(l.debit_cents) filter (where e.source <> 'opening'), 0)::text as paid
+  const party = new Map<string, PayStatus>();
+  for (const r of await sql<{ k: string; type: string; net: string; dr: string; cr: string }[]>`select l.account_id::text || '|' ||
+        case when l.supplier is not null and btrim(l.supplier) <> '' then 's:' || lower(btrim(l.supplier)) when l.user_id is not null then 'u:' || l.user_id::text else 'c:' || l.customer_id::text end as k,
+      a.type::text as type, sum(l.debit_cents - l.credit_cents)::text as net,
+      coalesce(sum(l.debit_cents) filter (where e.source <> 'opening'), 0)::text as dr, coalesce(sum(l.credit_cents) filter (where e.source <> 'opening'), 0)::text as cr
     from journal_lines l join journal_entries e on e.id = l.entry_id join accounts a on a.id = l.account_id
-    where l.company_id = ${c} and a.type = 'liability' and l.supplier is not null and btrim(l.supplier) <> '' and e.entry_date <= ${asof}::date group by 1`) {
-    const owed = n(r.owed), paid = n(r.paid);
-    sup.set(r.k, payStatusOf(owed + paid, paid));
+    where l.company_id = ${c} and a.type in ('asset', 'liability') and e.entry_date <= ${asof}::date
+      and ((l.supplier is not null and btrim(l.supplier) <> '') or l.user_id is not null or l.customer_id is not null) group by 1, 2`) {
+    const asset = r.type === "asset", owed = asset ? n(r.net) : -n(r.net), cleared = asset ? n(r.cr) : n(r.dr);
+    party.set(r.k, payStatusOf(owed + cleared, cleared));
   }
-  return { inv, pay, sup };
+  return { inv, pay, party };
 }
-/** the state of the debt a ledger line belongs to: its invoice (the invoice itself or a payment on it), else its supplier on that account; none → null */
-const docState = (s: DebtStates, accountId: string, l: LedgerLine): PayStatus | null =>
-  l.source === "invoice" ? s.inv.get(l.source_id ?? "") ?? null
-  : l.source === "payment" ? s.inv.get(s.pay.get(l.source_id ?? "") ?? "") ?? null
-  : l.supplier?.trim() ? s.sup.get(`${accountId}:${l.supplier.trim().toLowerCase()}`) ?? null : null;
-type Detail = { description: string; qty: number | null; unit: string | null; unit_price: number | null; invoice: string | null; bk: string | null; booker: string | null; technician: string | null; supplier: string | null; address: string | null };
+const partyKey = (l: LedgerLine) => (l.supplier?.trim() ? `s:${l.supplier.trim().toLowerCase()}` : l.user_id ? `u:${l.user_id}` : l.customer_id ? `c:${l.customer_id}` : null);
+/** the state of the debt a ledger line belongs to: on a balance-sheet account the person it names (a staff advance, wages owed, a supplier,
+ *  a customer's deposit …) — except the customers' receivable, where each invoice keeps its own state; else its invoice (the invoice itself or a
+ *  payment on it: a paid invoice's revenue is «ទូទាត់ហើយ»); none → null */
+function docState(s: DebtStates, a: LedgerAccount, ar: string | undefined, l: LedgerLine): PayStatus | null {
+  const inv = l.source === "invoice" ? s.inv.get(l.source_id ?? "") : l.source === "payment" ? s.inv.get(s.pay.get(l.source_id ?? "") ?? "") : undefined;
+  const k = partyKey(l);
+  if ((a.type === "asset" || a.type === "liability") && k && !(a.id === ar && inv)) return s.party.get(`${a.id}|${k}`) ?? null;
+  return inv ?? null;
+}
+type Detail = { description: string; qty: number | null; unit: string | null; unit_price: number | null; invoice: string | null; bk: string | null; booker: string | null; technician: string | null; supplier: string | null; address: string | null;
+  /** D-185: the ids behind the names (filters) */
+  customer_id: string | null; customer: string | null; technician_id: string | null; item_id: string | null; booker_id: string | null; zone: string | null };
 /** the sample's detail columns, from the entry's source: stock moves (item · qty · unit · unit price · technician · supplier · invoice no.), invoices / payments (invoice · BK · booker · address) */
 async function detailsOf(companyId: string, lines: LedgerLine[]): Promise<Map<string, Detail>> {
   const m = new Map<string, Detail>();
   const ids = (src: string) => [...new Set(lines.filter((l) => l.source === src && l.source_id).map((l) => l.source_id!))];
   const stock = ids("stock"), inv = ids("invoice"), pay = ids("payment");
-  if (stock.length) for (const r of await sql<{ id: string; item: string; unit: string | null; qty: string; value: string; kind: string; ref_type: string | null; bk: string | null; booker: string | null; technician: string | null; supplier: string | null; sinv: string | null; place: string | null; address: string | null }[]>`
-      select m.id::text as id, i.name_km as item, i.unit, m.qty::text as qty, m.value_cents::text as value, m.kind::text as kind, m.ref_type, b.number as bk, bu.full_name as booker, tu.full_name as technician,
-        m.supplier, m.supplier_invoice as sinv, m.place, cu.address
+  if (stock.length) for (const r of await sql<{ id: string; item: string; item_id: string; unit: string | null; qty: string; value: string; kind: string; ref_type: string | null; bk: string | null; booker: string | null; booker_id: string | null;
+      technician: string | null; technician_id: string | null; supplier: string | null; sinv: string | null; place: string | null; address: string | null; customer_id: string | null; customer: string | null; zone: string | null }[]>`
+      select m.id::text as id, i.name_km as item, i.id::text as item_id, i.unit, m.qty::text as qty, m.value_cents::text as value, m.kind::text as kind, m.ref_type, b.number as bk, bu.full_name as booker,
+        b.created_by::text as booker_id, tu.full_name as technician, m.technician_id::text as technician_id, m.supplier, m.supplier_invoice as sinv, m.place, cu.address, cu.id::text as customer_id, cu.name as customer, coalesce(b.zone, cu.zone)::text as zone
       from stock_moves m join catalog_items i on i.id = m.item_id left join users tu on tu.id = m.technician_id
         left join bookings b on m.ref_type = 'booking' and b.id::text = m.ref_id left join users bu on bu.id = b.created_by left join customers cu on cu.id = b.customer_id
       where m.company_id = ${companyId} and m.id::text = any(${sql.array(stock)}::text[])`) {
     const qty = n(r.qty), value = n(r.value);
-    m.set(`stock:${r.id}`, { description: r.item, qty, unit: r.unit, unit_price: qty ? Math.round(value / Math.abs(qty)) : null, invoice: r.sinv, bk: r.bk, booker: r.booker, technician: r.technician, supplier: r.supplier, address: r.address ?? r.place });
+    m.set(`stock:${r.id}`, { description: r.item, qty, unit: r.unit, unit_price: qty ? Math.round(value / Math.abs(qty)) : null, invoice: r.sinv, bk: r.bk, booker: r.booker, technician: r.technician, supplier: r.supplier,
+      address: r.address ?? r.place, customer_id: r.customer_id, customer: r.customer, technician_id: r.technician_id, item_id: r.item_id, booker_id: r.booker_id, zone: r.zone });
   }
-  const invRows = inv.length ? await sql<{ id: string; number: string; bk: string | null; booker: string | null; customer: string; address: string | null }[]>`
-      select i.id::text as id, i.number, b.number as bk, bu.full_name as booker, cu.name as customer, cu.address from invoices i join customers cu on cu.id = i.customer_id
+  const invRows = inv.length ? await sql<{ id: string; number: string; bk: string | null; booker: string | null; booker_id: string | null; customer: string; customer_id: string; address: string | null; zone: string | null }[]>`
+      select i.id::text as id, i.number, b.number as bk, bu.full_name as booker, b.created_by::text as booker_id, cu.name as customer, cu.id::text as customer_id, cu.address,
+        coalesce(b.zone, cu.zone)::text as zone from invoices i join customers cu on cu.id = i.customer_id
         left join bookings b on b.id = i.booking_id left join users bu on bu.id = b.created_by where i.company_id = ${companyId} and i.id::text = any(${sql.array(inv)}::text[])` : [];
-  for (const r of invRows) m.set(`invoice:${r.id}`, { description: `វិក្កយបត្រ ${r.number} · ${r.customer}`, qty: null, unit: null, unit_price: null, invoice: r.number, bk: r.bk, booker: r.booker, technician: null, supplier: null, address: r.address });
-  if (pay.length) for (const r of await sql<{ id: string; number: string; bk: string | null; booker: string | null; customer: string; address: string | null; method: string }[]>`
-      select p.id::text as id, i.number, b.number as bk, bu.full_name as booker, cu.name as customer, cu.address, p.method::text as method from payments p join invoices i on i.id = p.invoice_id
+  for (const r of invRows) m.set(`invoice:${r.id}`, { description: `វិក្កយបត្រ ${r.number} · ${r.customer}`, qty: null, unit: null, unit_price: null, invoice: r.number, bk: r.bk, booker: r.booker, technician: null, supplier: null, address: r.address,
+    customer_id: r.customer_id, customer: r.customer, technician_id: null, item_id: null, booker_id: r.booker_id, zone: r.zone });
+  if (pay.length) for (const r of await sql<{ id: string; number: string; bk: string | null; booker: string | null; booker_id: string | null; customer: string; customer_id: string; address: string | null; method: string; zone: string | null }[]>`
+      select p.id::text as id, i.number, b.number as bk, bu.full_name as booker, b.created_by::text as booker_id, cu.name as customer, cu.id::text as customer_id, cu.address, p.method::text as method,
+        coalesce(b.zone, cu.zone)::text as zone from payments p join invoices i on i.id = p.invoice_id
         join customers cu on cu.id = i.customer_id left join bookings b on b.id = i.booking_id left join users bu on bu.id = b.created_by where p.company_id = ${companyId} and p.id::text = any(${sql.array(pay)}::text[])`)
-    m.set(`payment:${r.id}`, { description: `លុយចូលពី ${r.customer} (${r.method})`, qty: null, unit: null, unit_price: null, invoice: r.number, bk: r.bk, booker: r.booker, technician: null, supplier: null, address: r.address });
+    m.set(`payment:${r.id}`, { description: `លុយចូលពី ${r.customer} (${r.method})`, qty: null, unit: null, unit_price: null, invoice: r.number, bk: r.bk, booker: r.booker, technician: null, supplier: null, address: r.address,
+      customer_id: r.customer_id, customer: r.customer, technician_id: null, item_id: null, booker_id: r.booker_id, zone: r.zone });
   return m;
 }
 

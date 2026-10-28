@@ -13,7 +13,9 @@ export type ExportParams = { from?: string; to?: string; asof?: string; technici
   month?: string; zone?: string; q?: string; closed?: "0" | "1"; cancelled?: "0" | "1"; inactive?: "0" | "1"; list?: string;
   role?: string; all?: "0" | "1"; days?: string; user?: string; type?: string; open?: "0" | "1";
   /** D-183: a debt's state (account report on a debt account · invoices · receivables · payables) */
-  paystatus?: PayStatus };
+  paystatus?: PayStatus;
+  /** D-185 the account report: movement · transaction types · people (tokens from the facets) · items */
+  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[] };
 export const exportUrl = (report: ExportReport, p: ExportParams = {}): string => {
   const qs = Object.entries(p).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`).join("&");
   return `/api/export/${report}.xlsx${qs ? `?${qs}` : ""}`;

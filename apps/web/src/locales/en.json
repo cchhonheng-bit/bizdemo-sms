@@ -1573,7 +1573,9 @@
       "other_income": "Other income",
       "owner_contribution": "Owner puts in",
       "owner_withdrawal": "Owner takes out",
-      "transfer": "Move money"
+      "transfer": "Move money",
+      "staff_advance": "Staff advance",
+      "staff_repay": "Staff repays"
     },
     "tx_hint": {
       "expense": "Fuel, rent, electricity, phone … paid now or on credit",
@@ -1582,7 +1584,9 @@
       "other_income": "Income outside invoices (scrap, interest …)",
       "owner_contribution": "The owner puts money into the company",
       "owner_withdrawal": "The owner takes money out for personal use",
-      "transfer": "Cash into the bank, cash out of the bank, or bank to bank"
+      "transfer": "Cash into the bank, cash out of the bank, or bank to bank",
+      "staff_advance": "Money lent or paid in advance to a staff member — recorded on staff advances under their name",
+      "staff_repay": "A staff member pays back an advance — taken off staff advances"
     },
     "recent": "Last 30 days",
     "income_account": "Income account",
@@ -1684,7 +1688,8 @@
       "BAD_RANGE": "Invalid date range",
       "RANGE_TOO_LONG": "Date range too long",
       "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it",
-      "NOT_BS_ACCOUNT": "Not an active balance-sheet account"
+      "NOT_BS_ACCOUNT": "Not an active balance-sheet account",
+      "STAFF_REQUIRED": "Pick a staff member"
     },
     "rate_label": "Exchange rate",
     "added_by_system": "Added by the system",
@@ -1773,7 +1778,12 @@
       "confirm": "Confirm",
       "done_off": "Account switched off",
       "done_deleted": "Account deleted"
-    }
+    },
+    "staff": "Staff member",
+    "pick_staff": "Pick a staff member",
+    "who": "Who (optional)",
+    "who_supplier": "Supplier…",
+    "who_supplier_name": "Supplier name"
   },
   "print": {
     "invoice": "INVOICE",
@@ -1951,7 +1961,23 @@
       "overdue": "Overdue",
       "due": "Due",
       "leave": "Leave"
-    }
+    },
+    "dir": "Movement",
+    "dir_in": "Debit (in)",
+    "dir_out": "Credit (out)",
+    "source": "Transaction type",
+    "party": "Who",
+    "party_kind": {
+      "customer": "Customer",
+      "staff": "Staff",
+      "supplier": "Supplier"
+    },
+    "zone": "Zone",
+    "zone_inside": "Inside a borey",
+    "zone_outside": "Outside",
+    "item": "Item",
+    "q": "Search",
+    "q_hint": "Description · invoice · BK · name · address"
   },
   "paystatus": {
     "label": "Debt status",

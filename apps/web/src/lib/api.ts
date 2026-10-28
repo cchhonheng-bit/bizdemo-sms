@@ -244,7 +244,7 @@ export type BooksInfo = { books_start: string | null; lock_date: string | null; 
   next_year_end: string | null; can_close: boolean; opening_draft: OpeningValues | null };
 export type OpeningValues = { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number;
   receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number; account_id?: string | null }[]; others?: { code: string; amount: number }[] };
-export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
+export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer" | "staff_advance" | "staff_repay"; // D-185
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
 export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
 export type PayrollRun = { id: string; period: string; status: "draft" | "approved" | "paid" | "void"; created_at: string; approved_at: string | null; paid_at: string | null; pay_method: string | null;
@@ -478,11 +478,11 @@ export const api = {
     deleteAccount: (id: string) => del(`/api/accounting/accounts/${id}`),
     journal: (from: string, to: string, source?: string) => get<JournalRow[]>(`/api/accounting/journal?from=${from}&to=${to}${source ? `&source=${source}` : ""}`),
     entry: (id: string) => get<JournalEntry>(`/api/accounting/journal/${id}`),
-    post: (v: { date: string; memo: string; note?: string | null; attachment?: string | null; lines: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] }) =>
+    post: (v: { date: string; memo: string; note?: string | null; attachment?: string | null; lines: { account_id: string; debit?: number; credit?: number; memo?: string | null; user_id?: string | null; supplier?: string | null }[] }) =>
       post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/journal", v),
     reverse: (id: string, reason: string) => post<{ id: string; number: string }>(`/api/accounting/journal/${id}/reverse`, { reason }),
     transaction: (v: { date: string; type: AcctTxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string; account_code?: string; supplier?: string | null;
-      memo?: string | null; attachment?: string | null; debt_account_id?: string | null }) => post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/transactions", v),
+      memo?: string | null; attachment?: string | null; debt_account_id?: string | null; user_id?: string | null }) => post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/transactions", v),
     accountUsage: (id: string) => get<AccountUsage>(`/api/accounting/accounts/${id}/usage`), // D-182
     retireAccount: (id: string, v: { mode: "keep" | "remove"; target_id: string | null }) => post<{ result: "off" | "deleted" }>(`/api/accounting/accounts/${id}/retire`, v),
     tb: (to: string) => get<TrialBalance>(`/api/accounting/trial-balance?to=${to}`),

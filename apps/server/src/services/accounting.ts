@@ -334,14 +334,17 @@ export async function listPending(user: SessionUser) {
   return sql`select id, kind, entry_date::text as date, memo, payload, status, created_at from pending_postings where company_id = ${user.companyId} and status <> 'posted' order by entry_date, created_at`;
 }
 
-export type JournalInput = { date: string; memo: string; note?: string | null; attachment?: string | null; lines: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] };
+export type JournalInput = { date: string; memo: string; note?: string | null; attachment?: string | null;
+  lines: { account_id: string; debit?: number; credit?: number; memo?: string | null; user_id?: string | null; supplier?: string | null }[] }; // D-185: who the line is about
 async function journalLines(t: Db, user: SessionUser, v: JournalInput) {
     const ids = [...new Set(v.lines.map((l) => l.account_id))];
     const acc = await t<{ id: string; active: boolean; group: boolean }[]>`select id, is_active as active, is_group as group from accounts where company_id = ${user.companyId} and id = any(${t.array(ids)}::uuid[])`;
     if (acc.length !== ids.length) throw notFound();
     if (acc.some((a) => !a.active)) throw new AppError("ACCOUNT_INACTIVE", 400);
     if (acc.some((a) => a.group)) throw new AppError("ACCOUNT_IS_GROUP", 400); // D-141
-    const lines = v.lines.map((l) => ({ account: l.account_id, amount: (l.debit ?? 0) - (l.credit ?? 0), memo: l.memo?.trim() || null }));
+    const staff = [...new Set(v.lines.map((l) => l.user_id).filter((x): x is string => !!x))]; // D-185: a staff member named on a line is one of this shop's
+    if (staff.length && (await t`select id from users where company_id = ${user.companyId} and id = any(${t.array(staff)}::uuid[])`).length !== staff.length) throw notFound();
+    const lines = v.lines.map((l) => ({ account: l.account_id, amount: (l.debit ?? 0) - (l.credit ?? 0), memo: l.memo?.trim() || null, user_id: l.user_id ?? null, supplier: l.supplier?.trim() || null }));
     if (lines.reduce((s, l) => s + l.amount, 0) !== 0) throw new AppError("NOT_BALANCED", 400);
     return lines;
 }
@@ -566,12 +569,14 @@ export async function saveOpening(user: SessionUser, ip: string | null, v: { dat
 }
 
 // ---------- C4 other transactions ----------
-export type TxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
+export type TxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer" | "staff_advance" | "staff_repay";
 
 export type OtherInput = { date: string; type: TxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string;
   account_code?: string; supplier?: string | null; memo?: string | null; note?: string | null; attachment?: string | null;
   /** D-181: the debt account picked — a purchase / expense on credit owes on it, a supplier payment clears it (none → the old rule) */
-  debt_account_id?: string | null };
+  debt_account_id?: string | null;
+  /** D-185: the staff member of a staff advance / repayment */
+  user_id?: string | null };
 export async function otherTransaction(user: SessionUser, ip: string | null, v: OtherInput) {
   return tx(user.id, async (t) => {
     const b = await books(t, user.companyId);
@@ -607,7 +612,7 @@ async function postOther(t: Db, user: SessionUser, ip: string | null, v: OtherIn
       return a.id;
     };
     const supplier = v.supplier?.trim() || null;
-    let lines: Line[];
+    let lines: Line[], staff: string | null = null;
     switch (v.type) {
       case "expense": case "purchase": {
         const cr = await payAcc(v.pay, true);
@@ -624,8 +629,17 @@ async function postOther(t: Db, user: SessionUser, ip: string | null, v: OtherIn
         lines = [{ account: to, amount: cents }, { account: from, amount: -cents }];
         break;
       }
+      case "staff_advance": case "staff_repay": { // D-185: a staff member borrows / pays back — on the staff advances account (map), naming the person
+        if (!v.user_id) throw new AppError("STAFF_REQUIRED", 400);
+        const s = (await t<{ name: string }[]>`select full_name as name from users where id = ${v.user_id} and company_id = ${user.companyId}`)[0];
+        if (!s) throw new AppError("STAFF_REQUIRED", 400);
+        const adv = { account: R.staff_advance, user_id: v.user_id, memo: s.name }, cash = await payAcc(v.pay);
+        lines = v.type === "staff_advance" ? [{ ...adv, amount: cents }, { account: cash, amount: -cents }] : [{ account: cash, amount: cents }, { ...adv, amount: -cents }];
+        staff = s.name;
+        break;
+      }
     }
-    const memo = [v.memo?.trim(), supplier].filter(Boolean).join(" · ") || "—"; // the type is the source_id (shown translated)
+    const memo = [v.memo?.trim(), supplier, staff].filter(Boolean).join(" · ") || "—"; // the type is the source_id (shown translated)
     const r = (await post(t, user, { date: v.date, memo, note: v.note?.trim() || null, source: "other", source_id: v.type, fx: Number(b.fx), lines,
       khr_amount: v.currency === "khr" ? v.amount : null, attachment_id: attachment }))!;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.transaction", table: "journal_entries", rowId: r.id, new: { number: r.number, ...v, attachment: !!v.attachment, usd_cents: cents }, ip });

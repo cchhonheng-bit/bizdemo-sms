@@ -99,13 +99,12 @@ describe("D-184 an issued invoice's line switched between service and goods", ()
 });
 
 describe("D-183 the debt-state filter", () => {
-  it("one rule: the debt accounts are the customers' receivable and the supplier payables (not deposits, tips or wages)", async () => {
+  it("one rule (D-185): the debt accounts hold people's debts — the customers' receivable, staff advances, every liability; not cash or income", async () => {
     const accs = (await acc(cfo, "/accounts")).json as { code: string; type: string; mapped: string[] }[];
     const debt = (code: string) => isDebtAccount(accs.find((a) => a.code === code)!);
-    expect([debt("12002"), debt("20001"), debt("20002"), debt("20003")]).toEqual([true, true, true, true]);
-    expect([debt("11001"), debt("40005"), debt("20004"), debt("20005")]).toEqual([false, false, false, false]); // cash · income · deposits · tips
-    expect(isDebtAccount(accs.find((a) => a.mapped.includes("payroll"))!)).toBe(false); // wages owed — whichever account the map gives
-    expect(accs.find((a) => a.mapped.includes("deposits"))!.code).toBe("20004");
+    expect([debt("12002"), debt("12001"), debt("20001"), debt("20002"), debt("20003"), debt("20004"), debt("20005")]).toEqual([true, true, true, true, true, true, true]);
+    expect(isDebtAccount(accs.find((a) => a.mapped.includes("payroll"))!)).toBe(true); // wages owed — whichever account the map gives
+    expect([debt("11001"), debt("40005"), debt("50001")]).toEqual([false, false, false]);
   });
 
   it("the account report on 12002: ជំពាក់សុទ្ធ = invoice A only · ជំពាក់ខ្លះ = B's issue + payment (balance $30) · ទូទាត់ហើយ = C (net 0) · ទាំងអស់ = every line incl. the void one", async () => {

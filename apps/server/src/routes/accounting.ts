@@ -18,7 +18,8 @@ const cents = z.number().int().min(0).max(10_000_000_000);
 const positive = z.number().int().min(1).max(10_000_000_000);
 const image = z.string().max(3_000_000).nullable().optional(); // base64 receipt photo (≤ 2 MB)
 const payRef = z.union([z.enum([...METHODS, "credit"]), id]);
-const line = z.object({ account_id: id, debit: cents.optional(), credit: cents.optional(), memo: z.string().max(200).nullable().optional() }).strict()
+const line = z.object({ account_id: id, debit: cents.optional(), credit: cents.optional(), memo: z.string().max(200).nullable().optional(),
+  user_id: id.nullable().optional(), supplier: z.string().max(120).nullable().optional() }).strict() // D-185: who the line is about
   .refine((l) => ((l.debit ?? 0) > 0) !== ((l.credit ?? 0) > 0), "ONE_SIDE");
 
 export const accountingRoutes: FastifyPluginAsync = async (app) => {
@@ -73,10 +74,10 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
 
   // C4 other transactions
   app.post("/transactions", postBig, async (req) => otherTransaction(req.user!, req.ip, z.object({ date: day,
-    type: z.enum(["expense", "purchase", "supplier_payment", "other_income", "owner_contribution", "owner_withdrawal", "transfer"]),
+    type: z.enum(["expense", "purchase", "supplier_payment", "other_income", "owner_contribution", "owner_withdrawal", "transfer", "staff_advance", "staff_repay"]), // D-185
     amount: positive, currency: z.enum(["usd", "khr"]).optional(), pay: payRef.optional(), from: payRef.optional(), to: payRef.optional(),
     account_code: z.string().regex(/^[1-9][0-9]{3,5}$/).optional(), supplier: z.string().max(120).nullable().optional(), memo: z.string().max(200).nullable().optional(),
-    note: z.string().max(1000).nullable().optional(), attachment: image, debt_account_id: id.nullable().optional() }).strict().parse(req.body))); // D-181
+    note: z.string().max(1000).nullable().optional(), attachment: image, debt_account_id: id.nullable().optional(), user_id: id.nullable().optional() }).strict().parse(req.body))); // D-181 · D-185
 
   // C5 reports (+ Excel)
   const period = z.object({ from: day, to: day });

@@ -3,7 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import { filterList, LIST_REPORTS, LIST_SPECS, PAY_STATUSES, type ListReport } from "@sms/shared";
-import { exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
+import { accountFacets, exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
 import { LIST_DEFS } from "../services/list-exports.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -15,7 +15,9 @@ const query = z.object({ from: day.optional(), to: day.optional(), asof: day.opt
   month: z.string().regex(/^\d{4}-\d{2}$/).optional(), zone: z.enum(["inside", "outside"]).optional(), q: z.string().max(120).optional(), closed: z.enum(["0", "1"]).optional(),
   cancelled: z.enum(["0", "1"]).optional(), inactive: z.enum(["0", "1"]).optional(), list: z.enum(["draft", "unpaid", "paid", "void", "approval"]).optional(),
   role: z.string().regex(/^[a-z_]{2,20}$/).optional(), all: z.enum(["0", "1"]).optional(), days: z.string().regex(/^\d{1,2}$/).optional(), user: z.string().uuid().optional(),
-  type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional(), paystatus: z.enum(PAY_STATUSES).optional() }).strict(); // D-183
+  type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional(), paystatus: z.enum(PAY_STATUSES).optional(), // D-183
+  dir: z.enum(["in", "out"]).optional(), sources: words, items: ids, // D-185: the account report's filters
+  party: z.string().transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)).pipe(z.array(z.string().regex(/^(?:[cu]\.[0-9a-f-]{36}|s\.[A-Za-z0-9_-]{1,400})$/)).max(200)).optional() }).strict();
 
 /** the permission of the screen that shows the report */
 const PERM: Record<Report, string | string[]> = {
@@ -48,6 +50,11 @@ export const exportsRoutes: FastifyPluginAsync = async (app) => {
     if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403); // technicians never export (D-171)
     return r;
   };
+  // D-185: which filters the picked accounts support (the account report's panel shows only those) — the account report's permission
+  app.get("/account-report/facets", { preHandler: app.requireAuth }, async (req) => {
+    if (req.user!.role === "tech" || !(req.perms as string[]).includes("accounting.view")) throw new AppError("FORBIDDEN", 403);
+    return accountFacets(req.user!, query.parse(req.query ?? {}));
+  });
   // the on-screen table of a report: the same builder as the file (D-171: file = screen)
   app.get("/:report.json", { preHandler: app.requireAuth }, async (req) => {
     const q = query.parse(req.query ?? {}), list = listOf(req);
