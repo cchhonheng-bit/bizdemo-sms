@@ -103,7 +103,9 @@ describe("D-183 the debt-state filter", () => {
     const accs = (await acc(cfo, "/accounts")).json as { code: string; type: string; mapped: string[] }[];
     const debt = (code: string) => isDebtAccount(accs.find((a) => a.code === code)!);
     expect([debt("12002"), debt("20001"), debt("20002"), debt("20003")]).toEqual([true, true, true, true]);
-    expect([debt("11001"), debt("40005"), debt("21001")]).toEqual([false, false, false]);
+    expect([debt("11001"), debt("40005"), debt("20004"), debt("20005")]).toEqual([false, false, false, false]); // cash · income · deposits · tips
+    expect(isDebtAccount(accs.find((a) => a.mapped.includes("payroll"))!)).toBe(false); // wages owed — whichever account the map gives
+    expect(accs.find((a) => a.mapped.includes("deposits"))!.code).toBe("20004");
   });
 
   it("the account report on 12002: ជំពាក់សុទ្ធ = invoice A only · ជំពាក់ខ្លះ = B's issue + payment (balance $30) · ទូទាត់ហើយ = C (net 0) · ទាំងអស់ = every line incl. the void one", async () => {
