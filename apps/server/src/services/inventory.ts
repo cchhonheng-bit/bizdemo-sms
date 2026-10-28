@@ -4,7 +4,7 @@
 // no negative stock unless the setting allows it, low-stock alert once a day, accounting hook on every move (the cost side follows
 // the item's group — D-143). Technician work never moves stock; an invoice never moves stock (D-144). Read with inventory.view,
 // change with inventory.manage (technicians never).
-import { isStockAccount, stockAccountIds } from "./account-map.js";
+import { assertDebtAccount, isStockAccount, stockAccountIds } from "./account-map.js";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
@@ -34,7 +34,9 @@ export async function listLocations(user: SessionUser) {
 // ---------- the one place that moves stock ----------
 type MoveIn = { item: string; location: string; kind: Kind; qty: number; value?: number | null; ref_type?: string; ref_id?: string | null;
   pay?: Pay | null; supplier?: string | null; reason?: string | null; group?: string | null; reversal_of?: number | null; date?: string | null; paid?: number | null; supplier_invoice?: string | null;
-  technician?: string | null; place?: string | null; supplier_kind?: SupplierKind | null };
+  technician?: string | null; place?: string | null; supplier_kind?: SupplierKind | null; payable_account_id?: string | null;
+  /** D-182: a CEO's «remove the amounts» may leave a quantity below zero */
+  force?: boolean };
 
 async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
   const loc = (await t<{ id: string }[]>`select id from stock_locations where id = ${m.location} and company_id = ${user.companyId} and is_active`)[0];
@@ -53,7 +55,7 @@ async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
   let value: number;
   if (q < 0) {
     const allowNeg = (await t<{ a: boolean }[]>`select allow_negative_stock as a from company_settings where company_id = ${user.companyId}`)[0]?.a ?? false;
-    if (!allowNeg && Number(b.qty) + q < -1e-9) throw new AppError("INSUFFICIENT_STOCK", 400, { item: it.name, available: Number(b.qty) });
+    if (!allowNeg && !m.force && Number(b.qty) + q < -1e-9) throw new AppError("INSUFFICIENT_STOCK", 400, { item: it.name, available: Number(b.qty) });
     // weighted average: the last unit takes whatever value is left, so nothing stays behind in cents
     value = m.kind === "transfer_out" ? 0 : m.value != null ? m.value : -Number((await t<{ v: string }[]>`select case
         when ${-q}::numeric >= ${s.qty}::numeric then greatest(${s.value}::bigint, 0)
@@ -67,10 +69,10 @@ async function move(t: Db, user: SessionUser, m: MoveIn): Promise<number> {
     from companies c join company_settings s on s.company_id = c.id where c.id = ${user.companyId}`)[0]!;
   if (m.date && (Number.isNaN(Date.parse(m.date)) || m.date > tz.today)) throw new AppError("BAD_DATE", 400); // a date of choice, never in the future
   const id = (await t<{ id: number }[]>`insert into stock_moves (company_id, item_id, location_id, kind, qty, value_cents, fx_rate_khr, move_date, ref_type, ref_id, pay, supplier, reason, transfer_group, reversal_of,
-      technician_id, place, created_by, paid_cents, supplier_invoice, supplier_kind)
+      technician_id, place, created_by, paid_cents, supplier_invoice, supplier_kind, payable_account_id)
     values (${user.companyId}, ${m.item}, ${m.location}, ${m.kind}::stock_move_kind, ${q}, ${value}, ${tz.fx}::numeric, ${m.date ?? tz.today}::date,
       ${m.ref_type ?? "manual"}, ${m.ref_id ?? null}, ${m.pay ?? null}, ${m.supplier ?? null}, ${m.reason ?? null}, ${m.group ?? null}, ${m.reversal_of ?? null},
-      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}, ${m.paid ?? null}, ${m.supplier_invoice ?? null}, ${m.supplier_kind ?? null}) returning id`)[0]!.id; // D-167: the ledger is append-only — the paid part and the supplier's invoice number go in with the row
+      ${m.technician ?? null}, ${m.place ?? null}, ${user.id}, ${m.paid ?? null}, ${m.supplier_invoice ?? null}, ${m.supplier_kind ?? null}, ${m.payable_account_id ?? null}) returning id`)[0]!.id; // D-167: the ledger is append-only — the paid part and the supplier's invoice number go in with the row
   await t`update stock_items set qty = qty + ${q}, value_cents = value_cents + ${value} where item_id = ${m.item}`;
   await t`update stock_balances set qty = qty + ${q} where location_id = ${m.location} and item_id = ${m.item}`;
   if (q < 0 && it.reorder != null) await lowStock(t, user, m.item, it.name, Number(it.reorder), tz.tz);
@@ -99,7 +101,9 @@ export type StockInInput = { item_id?: string | null; name?: string | null; code
   /** D-167: what is paid now (cents; the rest is owed to the supplier — pay «credit» = nothing) and the supplier's invoice number */
   paid?: number | null; supplier_invoice?: string | null;
   /** D-178: the supplier's type → the payable it is owed on (map ap_ac · ap_washing · ap); none → this supplier's last type, else «other» */
-  supplier_kind?: SupplierKind | null };
+  supplier_kind?: SupplierKind | null;
+  /** D-181: the debt account picked for what stays owed (none → the one this supplier owed on last time, else the supplier type's) */
+  payable_account_id?: string | null };
 
 /** the stock item an entry is about: the one chosen, else the one on that account with that name (a no-sub account IS its one item),
  *  else a new one — code on the client's scheme (D-142), made as the Admin's stock item (never in the price list) */
@@ -150,8 +154,12 @@ export async function stockIn(user: SessionUser, ip: string | null, v: StockInIn
     const invoice = v.supplier_invoice?.trim().slice(0, 60) || null, supplier = v.supplier?.trim() || null;
     const skind: SupplierKind | null = v.opening ? null : v.supplier_kind ?? (supplier ? (await t<{ k: SupplierKind }[]>`select supplier_kind as k from stock_moves where company_id = ${user.companyId}
       and lower(btrim(supplier)) = lower(${supplier}) and supplier_kind is not null order by id desc limit 1`)[0]?.k : null) ?? "other";
+    // D-181: the debt account picked for what stays owed; none → the account this supplier owed on last time (else the supplier type's map key)
+    if (!v.opening && v.payable_account_id) await assertDebtAccount(t, user.companyId, v.payable_account_id);
+    const payAccount = v.opening ? null : v.payable_account_id ?? (supplier ? (await t<{ a: string }[]>`select payable_account_id::text as a from stock_moves where company_id = ${user.companyId}
+      and lower(btrim(supplier)) = lower(${supplier}) and payable_account_id is not null order by id desc limit 1`)[0]?.a ?? null : null);
     const id = await move(t, user, { item: item.id, location: loc, kind: v.opening ? "opening" : "in", qty: v.qty, value, ref_type: v.opening ? "opening" : "purchase",
-      pay: v.opening ? null : v.pay, supplier, reason: v.note?.trim() || null, date: v.date, paid, supplier_invoice: v.opening ? null : invoice, supplier_kind: skind });
+      pay: v.opening ? null : v.pay, supplier, reason: v.note?.trim() || null, date: v.date, paid, supplier_invoice: v.opening ? null : invoice, supplier_kind: skind, payable_account_id: payAccount });
     await audit(t, { companyId: user.companyId, userId: user.id, action: v.opening ? "stock.opening" : "stock.in", table: "stock_moves", rowId: String(id),
       new: { item_id: item.id, name: item.name, created: item.created, qty: v.qty, unit_cost: v.unit_cost ?? null, total: value, pay: v.opening ? null : v.pay, paid, supplier_invoice: invoice, supplier: v.supplier ?? null, supplier_kind: skind, date: v.date ?? null }, ip });
     await postStock(t, user, [id]);
@@ -201,6 +209,43 @@ export async function setReorder(user: SessionUser, ip: string | null, itemId: s
     await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.track", table: "catalog_items", rowId: itemId, new: { reorder_level: level }, ip });
     return { ok: true };
   });
+}
+
+/** D-181: what each supplier is owed, from the books: every liability line carrying the supplier (stock receipts, opening debts, credit
+ *  purchases, payments — wherever they were recorded), per debt account; the purchases and open invoice numbers from the stock receipts */
+async function payablesFromBooks(user: SessionUser, db: Db) {
+  const lines = await db<{ supplier: string; account_id: string; code: string; name_km: string; name_en: string | null; cr: string; dr: string; d: string; source: string }[]>`
+    select btrim(l.supplier) as supplier, a.id as account_id, a.code, a.name_km, a.name_en, l.credit_cents::text as cr, l.debit_cents::text as dr, e.entry_date::text as d, e.source
+    from journal_lines l join journal_entries e on e.id = l.entry_id join accounts a on a.id = l.account_id
+    where l.company_id = ${user.companyId} and a.type = 'liability' and l.supplier is not null and btrim(l.supplier) <> '' order by e.created_at, l.id`;
+  const buys = await db<{ k: string; purchases: string; last: string | null; inv: string[] | null }[]>`select lower(btrim(supplier)) as k, count(*)::text as purchases, max(move_date)::text as last,
+      array_remove(array_agg(distinct supplier_invoice) filter (where supplier_invoice is not null and value_cents > coalesce(paid_cents, case when pay = 'credit' then 0 else value_cents end)), null) as inv
+    from stock_moves where company_id = ${user.companyId} and kind = 'in' and supplier is not null and btrim(supplier) <> '' group by 1`;
+  type Acc = { account_id: string; code: string; name_km: string; name_en: string | null; owed: number };
+  const by = new Map<string, { supplier: string; owed: number; opening: number; paid: number; last_payment: string | null; accounts: Map<string, Acc> }>();
+  for (const l of lines) {
+    const k = l.supplier.toLowerCase(), cr = Number(l.cr), dr = Number(l.dr);
+    const s = by.get(k) ?? { supplier: l.supplier, owed: 0, opening: 0, paid: 0, last_payment: null, accounts: new Map<string, Acc>() };
+    s.supplier = l.supplier; s.owed += cr - dr; // the latest spelling names the row
+    if (l.source === "opening") s.opening += cr - dr;
+    else if (dr > 0) { s.paid += dr; if (!s.last_payment || l.d > s.last_payment) s.last_payment = l.d; }
+    const a = s.accounts.get(l.account_id) ?? { account_id: l.account_id, code: l.code, name_km: l.name_km, name_en: l.name_en, owed: 0 };
+    a.owed += cr - dr; s.accounts.set(l.account_id, a); by.set(k, s);
+  }
+  return [...by.entries()].map(([k, s]) => {
+    const b = buys.find((x) => x.k === k);
+    return { supplier: s.supplier, owed: s.owed, purchases: Number(b?.purchases ?? 0), opening: s.opening, paid: s.paid, invoices: b?.inv ?? [], last_purchase: b?.last ?? null,
+      last_payment: s.last_payment, accounts: [...s.accounts.values()].filter((a) => a.owed !== 0).sort((x, y) => x.code.localeCompare(y.code)) };
+  }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
+}
+
+/** D-182: one stock movement undone by its mirror (kind «reverse», the same quantity and value with the sign flipped, the same place,
+ *  dated today) — the history keeps both; the books get the mirror entry from postStock */
+export async function reverseMove(t: Db, user: SessionUser, moveId: number): Promise<number> {
+  const m = (await t<{ item_id: string; location_id: string; qty: string; value: string }[]>`select item_id, location_id, qty::text, value_cents::text as value from stock_moves
+    where id = ${moveId} and company_id = ${user.companyId}`)[0];
+  if (!m) throw notFound();
+  return move(t, user, { item: m.item_id, location: m.location_id, kind: "reverse", qty: -Number(m.qty), value: -Number(m.value), ref_type: "reverse", reversal_of: moveId, force: true });
 }
 
 // ---------- an item leaves the stock (D-179) ----------
@@ -365,7 +410,9 @@ export async function card(user: SessionUser, itemId: string, from: string, to: 
 }
 
 // ---------- D-167 (client 25-10): what the shop owes its suppliers, and paying them later in $ or ៛ by any method ----------
-export type SupplierPayInput = { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date?: string | null; note?: string | null };
+export type SupplierPayInput = { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date?: string | null; note?: string | null;
+  /** D-181: the debt account this payment clears (none → the supplier's open debts in account order) */
+  account_id?: string | null };
 export async function supplierPay(user: SessionUser, ip: string | null, v: SupplierPayInput) {
   if ((v.method === "cash_usd" && v.currency !== "usd") || (v.method === "cash_khr" && v.currency !== "khr")) throw new AppError("BAD_METHOD", 400);
   return tx(user.id, async (t) => {
@@ -375,17 +422,20 @@ export async function supplierPay(user: SessionUser, ip: string | null, v: Suppl
     const cents = v.currency === "usd" ? Math.round(v.amount) : khrToCents(v.amount, fx);
     if (cents <= 0) throw new AppError("AMOUNT_TOO_SMALL", 400);
     const supplier = v.supplier.trim().slice(0, 120);
-    const id = (await t<{ id: string }[]>`insert into supplier_payments (company_id, supplier, amount_cents, currency, amount_native, fx_rate_khr, method, paid_on, note, created_by)
-      values (${user.companyId}, ${supplier}, ${cents}, ${v.currency}, ${v.currency === "usd" ? cents / 100 : v.amount}, ${fx}, ${v.method}, ${date}::date, ${v.note?.trim() || null}, ${user.id}) returning id::text`)[0]!.id;
+    if (v.account_id) await assertDebtAccount(t, user.companyId, v.account_id);
+    const id = (await t<{ id: string }[]>`insert into supplier_payments (company_id, supplier, amount_cents, currency, amount_native, fx_rate_khr, method, paid_on, note, created_by, account_id)
+      values (${user.companyId}, ${supplier}, ${cents}, ${v.currency}, ${v.currency === "usd" ? cents / 100 : v.amount}, ${fx}, ${v.method}, ${date}::date, ${v.note?.trim() || null}, ${user.id}, ${v.account_id ?? null}) returning id::text`)[0]!.id;
     await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.supplier_pay", table: "supplier_payments", rowId: id, new: { supplier, amount: v.amount, currency: v.currency, usd_cents: cents, method: v.method, date, note: v.note ?? null }, ip });
-    await postSupplierPay(t, user, { id, supplier, usd_cents: cents, method: v.method, fx, date, khr: v.currency === "khr" ? v.amount : null, note: v.note?.trim() || null });
-    const owed = (await payables(user, t)).find((p) => p.supplier === supplier)?.owed ?? 0;
+    await postSupplierPay(t, user, { id, supplier, usd_cents: cents, method: v.method, fx, date, khr: v.currency === "khr" ? v.amount : null, note: v.note?.trim() || null, account: v.account_id ?? null });
+    const owed = (await payables(user, t)).find((p) => p.supplier.toLowerCase() === supplier.toLowerCase())?.owed ?? 0;
     return { id, usd_cents: cents, owed };
   });
 }
 /** per supplier: purchases not paid (value − paid now), + the opening debt entered with the balances, − the payments made; the open
  *  supplier invoice numbers and the last purchase — the same whether the books are started or not */
 export async function payables(user: SessionUser, db: Db = sql) {
+  // D-181: once the books run, the debts come from the books — per supplier (spellings merged) and per debt account, whatever recorded them
+  if ((await db<{ s: string | null }[]>`select books_start::text as s from company_settings where company_id = ${user.companyId}`)[0]?.s) return payablesFromBooks(user, db);
   const buys = await db<{ supplier: string; owed: string; invoices: string[] | null; last: string | null; purchases: string }[]>`
     select m.supplier, sum(case when m.kind = 'in' then m.value_cents - coalesce(m.paid_cents, case when m.pay = 'credit' then 0 else m.value_cents end)
                               when m.kind = 'reverse' and o.kind = 'in' then -(o.value_cents - coalesce(o.paid_cents, case when o.pay = 'credit' then 0 else o.value_cents end)) else 0 end)::text as owed,

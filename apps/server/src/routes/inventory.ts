@@ -5,6 +5,7 @@ import { z } from "zod";
 import { adjust, card, items, listLocations, monthEnd, payables, reconcile, removeItem, setReorder, stockAccounts, stockIn, stockOut, supplierPay } from "../services/inventory.js";
 import { featureOn } from "../lib/features.js";
 import { SUPPLIER_KINDS } from "@sms/shared";
+import { listDebtAccounts, listSupplierDebts } from "../services/account-map.js";
 
 const id = z.string().uuid();
 const qty = z.number().positive().max(1_000_000).multipleOf(0.001);
@@ -28,11 +29,14 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
     pay: z.enum(["cash_usd", "cash_khr", "aba", "acleda", "credit"]).nullable().optional(), supplier: z.string().max(120).nullable().optional(), date: day.nullable().optional(),
     note: z.string().max(300).nullable().optional(), opening: z.boolean().optional(),
     paid: cents.nullable().optional(), supplier_invoice: z.string().trim().max(60).nullable().optional(),
-    supplier_kind: z.enum(SUPPLIER_KINDS).nullable().optional() }).strict().parse(req.body))); // D-167 · D-178 the supplier's type
+    supplier_kind: z.enum(SUPPLIER_KINDS).nullable().optional(), payable_account_id: id.nullable().optional() }).strict().parse(req.body))); // D-167 · D-178 · D-181 the debt account
   // D-167: what is owed per supplier, and a payment to one (in $ or ៛, any method)
   app.get("/payables", view, async (req) => payables(req.user!));
+  // D-181: the debt accounts for the pickers · one supplier's open debts per account (from the books)
+  app.get("/debt-accounts", view, async (req) => listDebtAccounts(req.user!));
+  app.get("/supplier-debts", view, async (req) => listSupplierDebts(req.user!, z.object({ supplier: z.string().trim().min(1).max(120) }).parse(req.query ?? {}).supplier));
   app.post("/supplier-pay", manage, async (req) => supplierPay(req.user!, req.ip, z.object({ supplier: z.string().trim().min(1).max(120), amount: z.number().positive().max(1_000_000_000_000),
-    currency: z.enum(["usd", "khr"]), method: z.enum(["cash_usd", "cash_khr", "aba", "acleda"]), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
+    currency: z.enum(["usd", "khr"]), method: z.enum(["cash_usd", "cash_khr", "aba", "acleda"]), date: day.nullable().optional(), note: z.string().max(300).nullable().optional(), account_id: id.nullable().optional() }).strict().parse(req.body)));
   // D-144 stock out: item · qty · technician · the job (or the project / borey / house no.) · date → the balance left
   app.post("/out", manage, async (req) => stockOut(req.user!, req.ip, z.object({ item_id: id, qty, technician_id: id, booking_id: id.nullable().optional(),
     place: z.string().max(120).nullable().optional(), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));

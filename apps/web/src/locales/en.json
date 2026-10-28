@@ -1334,7 +1334,8 @@
       "PAID_OVER_TOTAL": "Paid more than the total",
       "SUPPLIER_REQUIRED": "Something is owed → the supplier's name is needed",
       "BAD_METHOD": "The method does not match the currency",
-      "ITEM_HAS_STOCK": "Still in stock — stock it out or adjust it to 0 first"
+      "ITEM_HAS_STOCK": "Still in stock — stock it out or adjust it to 0 first",
+      "NOT_DEBT_ACCOUNT": "Pick an active debt (liability) account"
     },
     "cancelled_cost": "Cancelled · job cost",
     "me_date": "As of",
@@ -1406,7 +1407,12 @@
     "remove_hint": "Never used → deleted · has history → switched off (hidden from the stock lists, history kept)",
     "remove_has_stock": "Still in stock — stock it out or adjust it to 0 first",
     "removed_deleted": "Item deleted",
-    "removed_off": "This item has history — switched off (hidden from the stock lists)"
+    "removed_off": "This item has history — switched off (hidden from the stock lists)",
+    "debt_account": "Debt account",
+    "debt_account_hint": "The account the amount still owed is recorded on",
+    "debt_auto": "As last time",
+    "pay_from_debt": "Clear from debt account",
+    "pay_auto": "Automatic (in account order)"
   },
   "acct": {
     "title": "Accounting",
@@ -1524,7 +1530,8 @@
       "stock": "Stock",
       "cash_close": "Cash close",
       "payroll": "Payroll",
-      "closing": "Year-end closing"
+      "closing": "Year-end closing",
+      "supplier_pay": "Supplier payment"
     },
     "reversal": "Reversal",
     "reversed": "Reversed",
@@ -1625,6 +1632,9 @@
     "opening_draft_saved": "Saved — editable until you press «Confirm opening balances»",
     "opening_draft_note": "Draft — nothing is in the books until you press «Confirm opening balances»",
     "err": {
+      "NOT_DEBT_ACCOUNT": "Pick an active debt (liability) account",
+      "BAD_TARGET_ACCOUNT": "Pick an active account of the same type",
+      "ACCOUNT_REMOVE_BLOCKED": "The amounts cannot be removed — use «Keep»",
       "ACCOUNT_IN_USE": "This account is still in use — it cannot be switched off or deleted",
       "MAP_WRONG_ACCOUNT": "This account is the wrong type for this posting",
       "ACCOUNT_INACTIVE": "This account is switched off",
@@ -1735,6 +1745,27 @@
         "drawings": "Owner's drawings"
       },
       "read_only": "Only the CEO and the CFO may change it"
+    },
+    "debt_account": "Debt account",
+    "debt_default": "Default (other suppliers)",
+    "clear_debt": "Clear from debt account",
+    "clear_auto": "Automatic (in account order)",
+    "retire": {
+      "title": "This account is in use",
+      "lead": "This account holds entries or items. Choose how to close it:",
+      "balance": "Balance",
+      "entries": "Entries",
+      "items": "Items",
+      "mapped": "Mapping",
+      "keep": "Keep the amounts — move them to another account",
+      "keep_hint": "The balance moves to the account you pick (entry dated today) · its items follow (new codes) · the mapping follows · history kept · this account is switched off",
+      "target": "Move to account",
+      "remove": "Remove the amounts (recorded by mistake)",
+      "remove_hint": "The receipts, stock outs and entries on this account are reversed — stock, cash and debts go back as before · history kept · its items switched off · this account is switched off",
+      "remove_blocked": "The amounts cannot be removed: {{what}} — use «Keep» or correct them where they were made (mapping: Accounting → Setup)",
+      "confirm": "Confirm",
+      "done_off": "Account switched off",
+      "done_deleted": "Account deleted"
     }
   },
   "print": {

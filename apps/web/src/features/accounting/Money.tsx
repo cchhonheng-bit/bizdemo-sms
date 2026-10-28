@@ -84,6 +84,11 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   useEffect(() => { if (type === "other_income" && !code && otherIncome) setCode(otherIncome); }, [type, code, otherIncome]);
   const [pay, setPay] = useState("cash_usd"); const [from, setFrom] = useState("cash_usd"); const [to, setTo] = useState("aba");
   const [supplier, setSupplier] = useState(""); const [memo, setMemo] = useState(""); const [photo, setPhoto] = useState<string | null>(null);
+  // D-181: the debt account — where a purchase / expense on credit owes, which debt a supplier payment clears ("" = the default)
+  const [debtAcc, setDebtAcc] = useState("");
+  const debtAccounts = useQuery({ queryKey: ["debt-accounts"], queryFn: api.inventory.debtAccounts });
+  const debts = useQuery({ queryKey: ["supplier-debts", supplier.trim()], queryFn: () => api.inventory.supplierDebts(supplier.trim()), enabled: type === "supplier_payment" && supplier.trim().length > 1 });
+  const onCredit = (type === "expense" || type === "purchase") && pay === "credit";
   const fx = info.data?.fx_rate_khr ?? 4100;
   const amt = khr ? (/^\d+$/.test(amount.trim()) ? Number(amount) : NaN) : cents(amount);
   const usd = khr ? (Number.isFinite(amt) ? khrToCents(amt, fx) : NaN) : amt;
@@ -92,7 +97,7 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
   const valid = usd > 0 && (!needsAccount || !!code) && (!needsSupplier || !!supplier.trim()) && (type !== "transfer" || from !== to);
   const save = useMutation({
     mutationFn: () => api.accounting.transaction({ date, type, amount: amt, currency: khr ? "khr" : "usd", account_code: needsAccount ? code : undefined,
-      ...(type === "transfer" ? { from, to } : { pay }), supplier: supplier.trim() || null, memo: memo.trim() || null, attachment: photo }),
+      ...(type === "transfer" ? { from, to } : { pay }), supplier: supplier.trim() || null, debt_account_id: (type === "supplier_payment" || onCredit) && debtAcc ? debtAcc : null, memo: memo.trim() || null, attachment: photo }),
     onSuccess: (r) => { toast.success(r.pending ? t("acct.saved_pending") : t("acct.posted", { number: r.number })); for (const k of ["acct-journal", "acct-accounts", "acct-pending", "books"]) void qc.invalidateQueries({ queryKey: [k] }); onClose(); },
     onError: onErr,
   });
@@ -122,6 +127,14 @@ function TxDialog({ type, onClose }: { type: AcctTxType; onClose: () => void }) 
         <PayPicker value={pay} onChange={setPay} credit={type === "expense" || type === "purchase"} testid="tx-pay" />
       </>)}
       {(needsSupplier || type === "expense" || type === "purchase") && <Field label={t("inventory.supplier")} required={needsSupplier}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="tx-supplier" /></Field>}
+      {(type === "supplier_payment" || onCredit) && (
+        <Field label={type === "supplier_payment" ? t("acct.clear_debt") : t("acct.debt_account")}>
+          <Select value={debtAcc} onChange={(e) => setDebtAcc(e.target.value)} data-testid="tx-debt-account">
+            <option value="">{type === "supplier_payment" ? t("acct.clear_auto") : t("acct.debt_default")}</option>
+            {(debtAccounts.data ?? []).map((a) => { const o = debts.data?.find((d) => d.account_id === a.id)?.owed; return <option key={a.id} value={a.id}>{name(a)}{o ? ` — ${formatUsd(o)}` : ""}</option>; })}
+          </Select>
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <Field label={t("acct.date")}><Input type="date" value={date} max={todayLocal()} onChange={(e) => e.target.value && setDate(e.target.value)} /></Field>
         <Field label={t("acct.memo")}><Input value={memo} onChange={(e) => setMemo(e.target.value)} maxLength={200} data-testid="tx-memo" /></Field>

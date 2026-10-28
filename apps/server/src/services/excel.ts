@@ -245,12 +245,12 @@ async function coa(ctx: Ctx, q: Q): Promise<Built> {
     if (a.is_group) {
       if (!prevGroup && rows.length > r1 + 1) rows.push([]);
       const [d, cr, open, close] = roll.get(a.code) ?? [0, 0, 0, 0];
-      rows.push([null, B(a.code), null, B(a.name_km), ...[d!, cr!, ...side(open!), ...side(close!)].map((v) => M(v, true))]);
+      rows.push([null, B(a.code), null, B(a.name_km), ...[...side(d! - cr!), ...side(open!), ...side(close!)].map((v) => M(v, true))]);
       prevGroup = true; continue;
     }
     prevGroup = false;
     const [d, cr, open, close] = own.get(a.id)!;
-    const vals = [d!, cr!, ...side(open!), ...side(close!)];
+    const vals = [...side(d! - cr!), ...side(open!), ...side(close!)]; // D-180: the period's movement net on one side, as the client's own trial balance
     vals.forEach((v, i) => { tot[i]! += v; });
     rows.push([{ v: statementOf(a.type as never), s: "center" }, null, { v: a.code, s: "center" }, a.name_km, ...vals.map((v) => M(v))]);
   }

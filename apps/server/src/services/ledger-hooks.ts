@@ -12,7 +12,7 @@ export type LedgerEvent =
   | { kind: "reverse"; source: SourceKind; id: string; memo: string }
   | { kind: "stock"; move_ids: number[] }
   | { kind: "cash_close"; day: string; diff_usd: number; diff_khr: number }
-  | { kind: "supplier_pay"; id: string; supplier: string; usd_cents: number; method: string; fx: number; date: string; khr: number | null; note: string | null }; // D-167
+  | { kind: "supplier_pay"; id: string; supplier: string; usd_cents: number; method: string; fx: number; date: string; khr: number | null; note: string | null; account?: string | null }; // D-167 · D-181 the debt account picked
 
 type Handler = (t: Db, u: SessionUser, e: LedgerEvent) => Promise<void>;
 let handler: Handler | null = null;
@@ -30,5 +30,5 @@ export const postInvoiceIssue = (t: Db, u: SessionUser, invoiceId: string, date?
 /** reverse every posted entry of a business record (void invoice / payment / deposit, cancelled stock move …) */
 export const reverseSource = (t: Db, u: SessionUser, source: SourceKind, id: string, memo: string) => emit(t, u, { kind: "reverse", source, id, memo });
 export const postStock = (t: Db, u: SessionUser, moveIds: number[]) => emit(t, u, { kind: "stock", move_ids: moveIds });
-export const postSupplierPay = (t: Db, u: SessionUser, p: { id: string; supplier: string; usd_cents: number; method: string; fx: number; date: string; khr: number | null; note: string | null }) => emit(t, u, { kind: "supplier_pay", ...p });
+export const postSupplierPay = (t: Db, u: SessionUser, p: { id: string; supplier: string; usd_cents: number; method: string; fx: number; date: string; khr: number | null; note: string | null; account?: string | null }) => emit(t, u, { kind: "supplier_pay", ...p });
 export const postCashClose = (t: Db, u: SessionUser, c: { day: string; diff_usd: number; diff_khr: number }) => emit(t, u, { kind: "cash_close", ...c });

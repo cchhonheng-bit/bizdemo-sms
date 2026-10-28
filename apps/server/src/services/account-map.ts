@@ -60,3 +60,20 @@ export async function setMapping(user: SessionUser, ip: string | null, key: stri
     return { ok: true };
   });
 }
+
+// ---------- D-181 (client 28-10): the debt account is chosen where a debt is recorded or cleared ----------
+/** a debt account the user picked: an active liability posting account of this shop */
+export async function assertDebtAccount(db: Db, companyId: string, id: string): Promise<void> {
+  if (!(await db`select 1 from accounts where id = ${id} and company_id = ${companyId} and type = 'liability' and is_active and not is_group`).length) throw new AppError("NOT_DEBT_ACCOUNT", 400);
+}
+/** the pickers: every active liability posting account */
+export const listDebtAccounts = (user: SessionUser) => sql<{ id: string; code: string; name_km: string; name_en: string | null }[]>`select id, code, name_km, name_en from accounts
+  where company_id = ${user.companyId} and type = 'liability' and is_active and not is_group order by code`;
+/** one supplier's open debts per account, from the books (spellings merged: case and spaces) */
+export async function supplierDebts(db: Db, companyId: string, supplier: string) {
+  return (await db<{ account_id: string; code: string; name_km: string; name_en: string | null; owed: string }[]>`select a.id as account_id, a.code, a.name_km, a.name_en,
+      sum(l.credit_cents - l.debit_cents)::text as owed from journal_lines l join accounts a on a.id = l.account_id
+    where l.company_id = ${companyId} and a.type = 'liability' and lower(btrim(l.supplier)) = lower(btrim(${supplier}))
+    group by a.id, a.code, a.name_km, a.name_en having sum(l.credit_cents - l.debit_cents) <> 0 order by a.code`).map((r) => ({ ...r, owed: Number(r.owed) }));
+}
+export const listSupplierDebts = (user: SessionUser, supplier: string) => supplierDebts(sql, user.companyId, supplier);

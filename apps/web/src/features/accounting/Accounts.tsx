@@ -7,8 +7,9 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd } from "@sms/shared";
 import { Download, Pencil, Plus } from "lucide-react";
-import { api, type Account, type AcctType } from "@/lib/api";
+import { api, errCode, type Account, type AcctType } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import RetireAccount from "./RetireAccount"; // D-182
 import { Badge, Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import RangePicker from "@/features/reports/RangePicker";
@@ -69,11 +70,16 @@ function AccountDialog({ account, onClose }: { account: Account | null; onClose:
   // D-178: the code and the name may change (everything points at the account's id); the type stays once it is used or mapped
   const typeLocked = !!account && (account.used || account.mapped.length > 0);
   const done = () => { toast.success(t("app.saved")); for (const k of ["acct-accounts", "acct-mapping", "stock-items", "stock-accounts", "catalog"]) void qc.invalidateQueries({ queryKey: [k] }); onClose(); };
-  const save = useMutation({ mutationFn: () => api.accounting.saveAccount({ id: account?.id, code, name_km: km, name_en: en || null, type, is_active: active, sub_codes: sub }), onSuccess: done, onError: onErr });
-  const remove = useMutation({ mutationFn: () => api.accounting.deleteAccount(account!.id), onSuccess: done, onError: onErr });
+  // D-182: the CEO may stop using / delete an account still in use — the refusal opens the confirm with what it touches instead
+  const isCeo = useAuth((s) => s.me?.role === "ceo");
+  const [retire, setRetire] = useState(false);
+  const inUse = (e: unknown) => { if (isCeo && errCode(e) === "ACCOUNT_IN_USE") setRetire(true); else onErr(e); };
+  const save = useMutation({ mutationFn: () => api.accounting.saveAccount({ id: account?.id, code, name_km: km, name_en: en || null, type, is_active: active, sub_codes: sub }), onSuccess: done, onError: inUse });
+  const remove = useMutation({ mutationFn: () => api.accounting.deleteAccount(account!.id), onSuccess: done, onError: inUse });
   return (
     <Dialog open onClose={onClose} title={account ? t("acct.edit_account") : t("acct.new_account")} footer={<>
-      {account && !account.used && !account.mapped.length && <Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}>{t("app.delete")}</Button>}
+      {account && !account.is_group && (isCeo || (!account.used && !account.mapped.length)) && <Button variant="danger" loading={remove.isPending} data-testid="acc-delete"
+        onClick={() => (account.used || account.mapped.length ? setRetire(true) : remove.mutate())}>{t("app.delete")}</Button>}
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" className="flex-1 sm:flex-none" disabled={!/^[1-9]\d{3,5}$/.test(code) || !km.trim()} loading={save.isPending} onClick={() => save.mutate()} data-testid="acc-save">{t("app.save")}</Button>
     </>}>
@@ -89,6 +95,7 @@ function AccountDialog({ account, onClose }: { account: Account | null; onClose:
           <span>{t("acct.sub_codes")}<span className="block text-xs text-muted">{t("acct.sub_codes_hint")}</span></span></label>
       )}
       {typeLocked && <p className="text-xs text-muted">{account?.mapped.length ? t("acct.system_hint") : t("acct.used_hint")}</p>}
+      {retire && account && <RetireAccount account={account} onClose={() => setRetire(false)} onDone={() => { setRetire(false); onClose(); }} />}
     </Dialog>
   );
 }

@@ -173,8 +173,18 @@ export type StockPay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
 export type StockInInput = { item_id?: string | null; name?: string | null; code?: string | null; unit?: string | null; account_id?: string | null; qty: number; unit_cost?: number | null; total?: number | null;
   pay?: StockPay | null; supplier?: string | null; date?: string | null; note?: string | null; opening?: boolean; paid?: number | null; supplier_invoice?: string | null;
   /** D-178: the supplier's type → its payable (none → as last time, else other) */
-  supplier_kind?: "ac" | "washing" | "other" | null };
-export type Payable = { supplier: string; owed: number; purchases: number; opening: number; paid: number; invoices: string[]; last_purchase: string | null; last_payment: string | null };
+  supplier_kind?: "ac" | "washing" | "other" | null;
+  /** D-181: the debt account picked for what stays owed (none → as last time) */
+  payable_account_id?: string | null };
+export type Payable = { supplier: string; owed: number; purchases: number; opening: number; paid: number; invoices: string[]; last_purchase: string | null; last_payment: string | null;
+  /** D-181: once the books run — what is owed on each debt account */
+  accounts?: SupplierDebt[] };
+/** D-181: a debt account (an active liability posting account) · one supplier's open debt on an account */
+export type DebtAccount = { id: string; code: string; name_km: string; name_en: string | null };
+export type SupplierDebt = { account_id: string; code: string; name_km: string; name_en: string | null; owed: number };
+/** D-182: what an account touches — for the CEO's «stop using / delete» */
+export type AccountUsage = { id: string; code: string; name_km: string; name_en: string | null; type: string; balance: number; lines: number; entries: Record<string, number>; moves: number;
+  mappings: string[]; items: { id: string; code: string | null; name_km: string; qty: number; value: number; is_active: boolean }[]; remove_blockers: string[] };
 /** D-144 «ផ្ទៀងផ្ទាត់សម្ភារៈ»: stock out vs invoiced through the linked price-list lines, per job (or place) and stock group */
 export type ReconcileRow = { key: string; booking_id: string | null; booking_number: string | null; customer_name: string | null; borey_name: string | null; place: string | null; technician: string | null;
   group_code: string; group_name: string; out_qty: number; invoiced_qty: number; difference: number };
@@ -231,7 +241,7 @@ export type BooksInfo = { books_start: string | null; lock_date: string | null; 
   planned_start?: string | null; pending?: { transactions: number; invoices: number; payments: number; deposits: number; stock: number; total: number } | null;
   next_year_end: string | null; can_close: boolean; opening_draft: OpeningValues | null };
 export type OpeningValues = { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number;
-  receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number }[]; others?: { code: string; amount: number }[] };
+  receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number; account_id?: string | null }[]; others?: { code: string; amount: number }[] };
 export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer";
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
 export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
@@ -422,7 +432,9 @@ export const api = {
     reorder: (itemId: string, reorder_level: number | null) => post(`/api/inventory/items/${itemId}/reorder`, { reorder_level }),
     stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; paid: number | null; owed: number; balance: number }>("/api/inventory/in", v),
     payables: () => get<Payable[]>("/api/inventory/payables"),
-    supplierPay: (v: { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date: string; note: string | null }) => post<{ id: string; usd_cents: number; owed: number }>("/api/inventory/supplier-pay", v),
+    supplierPay: (v: { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date: string; note: string | null; account_id?: string | null }) => post<{ id: string; usd_cents: number; owed: number }>("/api/inventory/supplier-pay", v),
+    debtAccounts: () => get<DebtAccount[]>("/api/inventory/debt-accounts"), // D-181
+    supplierDebts: (supplier: string) => get<SupplierDebt[]>(`/api/inventory/supplier-debts?supplier=${encodeURIComponent(supplier)}`),
     stockOut: (v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string | null; note?: string | null }) => post<{ id: number; balance: number }>("/api/inventory/out", v),
     adjust: (v: { item_id: string; qty: number; reason: string; unit_cost?: number | null; date?: string | null }) => post<{ id: number; balance: number }>("/api/inventory/adjust", v),
     card: (item: string, from: string, to: string, location?: string) => get<StockCard>(`/api/inventory/card?item=${item}&from=${from}&to=${to}${location ? `&location=${location}` : ""}`),
@@ -448,7 +460,7 @@ export const api = {
     info: () => get<BooksInfo>("/api/accounting/lock"),
     setLock: (lock_date: string, reason?: string) => post<{ lock_date: string }>("/api/accounting/lock", { lock_date, reason: reason || null }),
     opening: (v: { date: string; cash_usd?: number; cash_khr?: number; banks?: Record<string, number>; stock?: number; retained_earnings?: number; receivables?: { customer_id: string; amount: number; note?: string }[];
-      payables?: { supplier: string; amount: number }[] }) => post<{ opening_equity: number; retained_earnings: number; entries: number; open_invoices: number; opening_invoices: string[]; backlog: BacklogReport }>("/api/accounting/opening", v),
+      payables?: { supplier: string; amount: number; account_id?: string | null }[] }) => post<{ opening_equity: number; retained_earnings: number; entries: number; open_invoices: number; opening_invoices: string[]; backlog: BacklogReport }>("/api/accounting/opening", v),
     /** D-144: what waits for the books to start */
     pending: () => get<PendingPosting[]>("/api/accounting/pending"),
     /** D-126: the opening balances stay a draft (changeable, logged) until «បញ្ជាក់សមតុល្យដើម» (opening) */
@@ -466,7 +478,9 @@ export const api = {
       post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/journal", v),
     reverse: (id: string, reason: string) => post<{ id: string; number: string }>(`/api/accounting/journal/${id}/reverse`, { reason }),
     transaction: (v: { date: string; type: AcctTxType; amount: number; currency?: "usd" | "khr"; pay?: string; from?: string; to?: string; account_code?: string; supplier?: string | null;
-      memo?: string | null; attachment?: string | null }) => post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/transactions", v),
+      memo?: string | null; attachment?: string | null; debt_account_id?: string | null }) => post<{ id: string; number: string | null; pending?: boolean }>("/api/accounting/transactions", v),
+    accountUsage: (id: string) => get<AccountUsage>(`/api/accounting/accounts/${id}/usage`), // D-182
+    retireAccount: (id: string, v: { mode: "keep" | "remove"; target_id: string | null }) => post<{ result: "off" | "deleted" }>(`/api/accounting/accounts/${id}/retire`, v),
     tb: (to: string) => get<TrialBalance>(`/api/accounting/trial-balance?to=${to}`),
     tbMonth: (month: string) => get<TrialBalanceMonth>(`/api/accounting/trial-balance?month=${month}`),
     pl: (from: string, to: string) => get<ProfitLoss>(`/api/accounting/income-statement?from=${from}&to=${to}`),

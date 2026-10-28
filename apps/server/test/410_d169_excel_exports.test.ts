@@ -176,7 +176,7 @@ describe("COA — the owner's sample (three sheets)", () => {
     expect(r.rows[HEAD + 1]!.slice(6, 10)).toEqual(["Debit", "Credit", "Debit", "Credit"]);
     const g = r.rows.find((x) => x[1] === "13000")!, a = r.rows.find((x) => x[2] === "13400")!;
     expect(g[3]).toBe("ស្តុកថ្មី"); expect(a[0]).toBe("BS"); expect(a[3]).toBe("ទុយោស្ពាន់");
-    expect([num(a[4]), num(a[5]), num(a[6]), num(a[7]), num(a[8]), num(a[9])]).toEqual([100, 60, 0, 0, 40, 0]); // 10 m in (d-6) · 6 m out (d-3) · opening before d-7 = 0 · closing 40
+    expect([num(a[4]), num(a[5]), num(a[6]), num(a[7]), num(a[8]), num(a[9])]).toEqual([40, 0, 0, 0, 40, 0]); // D-180: 10 m in (d-6) − 6 m out (d-3) = 40 net on the debit side (the client’s own sample) · opening before d-7 = 0 · closing 40
     const total = findRow(r.rows, (x) => x[3] === "Total")!, check = findRow(r.rows, (x) => x[3] === "Debit − Credit")!;
     expect(num(total[4])).toBe(num(total[5])); expect(num(total[8])).toBe(num(total[9])); expect([num(check[4]), num(check[6]), num(check[8])]).toEqual([0, 0, 0]);
     expect(r.rows.some((x) => !!x[0]?.startsWith("⚠"))).toBe(false);

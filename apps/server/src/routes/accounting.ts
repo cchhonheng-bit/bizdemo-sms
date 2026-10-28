@@ -1,6 +1,7 @@
 // Accounting (D-88 · flag "accounting"): read with accounting.view, post with accounting.post, lock / opening with accounting.close;
 // payroll with payroll.manage, approval / void with payroll.approve. Technicians never (fixed rule).
 import { getMapping, setMapping } from "../services/account-map.js";
+import { accountUsage, retireAccount } from "../services/account-retire.js";
 import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
@@ -41,6 +42,10 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
     name_km: z.string().trim().min(1).max(80), name_en: z.string().trim().max(80).nullable().optional(), type: z.enum(["asset", "liability", "equity", "income", "expense"]),
     is_active: z.boolean().optional(), sub_codes: z.boolean().optional() }).strict().parse(req.body)));
   app.delete("/accounts/:id", postP, async (req) => deleteAccount(req.user!, req.ip, z.object({ id }).parse(req.params).id));
+  // D-182: what an account touches · the CEO stops using / deletes an account in use (keep the amounts → another account, or remove them)
+  app.get("/accounts/:id/usage", view, async (req) => accountUsage(req.user!, z.object({ id }).parse(req.params).id));
+  app.post("/accounts/:id/retire", postP, async (req) => retireAccount(req.user!, req.ip, z.object({ id }).parse(req.params).id,
+    z.object({ mode: z.enum(["keep", "remove"]), target_id: id.nullable().optional() }).strict().parse(req.body)));
 
   // C2 journal
   app.get("/journal", view, async (req) => listJournal(req.user!, z.object({ from: day, to: day, source: z.string().max(20).optional(), account: id.optional() }).parse(req.query ?? {})));
@@ -61,7 +66,7 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
     banks: z.record(z.string().regex(/^(aba|acleda|[1-9][0-9]{3,5})$/), cents).optional(), stock: cents.optional(), // D-92: each bank by code, stock value, retained earnings
     retained_earnings: z.number().int().min(-10_000_000_000).max(10_000_000_000).optional(),
     receivables: z.array(z.object({ customer_id: id, amount: positive, note: z.string().max(200).nullable().optional() }).strict()).max(500).optional(),
-    payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive }).strict()).max(200).optional(),
+    payables: z.array(z.object({ supplier: z.string().trim().min(1).max(120), amount: positive, account_id: id.nullable().optional() }).strict()).max(200).optional(), // D-181
     others: z.array(z.object({ code: z.string().regex(/^[0-9]{5}$/), amount: z.number().int().min(-10_000_000_000).max(10_000_000_000) }).strict()).max(100).optional() }).strict(); // D-166
   app.post("/opening", close, async (req) => saveOpening(req.user!, req.ip, openingBody.parse(req.body)));            // «បញ្ជាក់សមតុល្យដើម»: posts + locks
   app.put("/opening/draft", close, async (req) => saveOpeningDraft(req.user!, req.ip, openingBody.parse(req.body))); // D-126: changeable until then
@@ -71,7 +76,7 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
     type: z.enum(["expense", "purchase", "supplier_payment", "other_income", "owner_contribution", "owner_withdrawal", "transfer"]),
     amount: positive, currency: z.enum(["usd", "khr"]).optional(), pay: payRef.optional(), from: payRef.optional(), to: payRef.optional(),
     account_code: z.string().regex(/^[1-9][0-9]{3,5}$/).optional(), supplier: z.string().max(120).nullable().optional(), memo: z.string().max(200).nullable().optional(),
-    note: z.string().max(1000).nullable().optional(), attachment: image }).strict().parse(req.body)));
+    note: z.string().max(1000).nullable().optional(), attachment: image, debt_account_id: id.nullable().optional() }).strict().parse(req.body))); // D-181
 
   // C5 reports (+ Excel)
   const period = z.object({ from: day, to: day });

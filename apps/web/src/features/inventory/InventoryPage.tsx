@@ -162,7 +162,8 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
   const [qty, setQty] = useState(""), [cost, setCost] = useState(""), [totalIn, setTotalIn] = useState("");
   const [pay, setPay] = useState<StockPay>("cash_usd"), [supplier, setSupplier] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
   const [paidIn, setPaidIn] = useState(""), [invoiceNo, setInvoiceNo] = useState(""); // D-167: paid now (the rest owed) · the supplier's invoice number
-  const [kind, setKind] = useState<"" | "ac" | "washing" | "other">(""); // D-178: the supplier's type → its payable ("" = as last time)
+  const [debtAcc, setDebtAcc] = useState(""); // D-181: the debt account for what stays owed ("" = as last time)
+  const debtAccounts = useQuery({ queryKey: ["debt-accounts"], queryFn: api.inventory.debtAccounts });
   const n = Number(qty);
   let c = NaN, tot = NaN;
   try { c = cost.trim() === "" ? NaN : toCents(cost); } catch { /* invalid */ }
@@ -173,7 +174,7 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
   const valid = n > 0 && total >= 0 && (mode === "existing" ? !!item : name.trim().length > 0 && !!account) && paid >= 0 && paid <= total && (owed === 0 || supplier.trim().length > 0);
   const save = useMutation({
     mutationFn: () => api.inventory.stockIn({ ...(mode === "existing" ? { item_id: item } : { name: name.trim(), unit: unit.trim() || null, account_id: account }), qty: n,
-      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null, paid: pay === "credit" ? 0 : paid, supplier_invoice: invoiceNo.trim() || null, supplier_kind: kind || null }),
+      ...(tot >= 0 ? { total: tot } : { unit_cost: c }), pay, supplier: supplier.trim() || null, date, note: note.trim() || null, paid: pay === "credit" ? 0 : paid, supplier_invoice: invoiceNo.trim() || null, payable_account_id: debtAcc || null }),
     onSuccess: (r) => { toast.success(t("inventory.in_done", { total: formatUsd(r.total), balance: qtyFmt(r.balance) })); refresh(); onClose(); }, onError: onErr,
   });
   const pays: StockPay[] = ["cash_usd", "cash_khr", "aba", "acleda", "credit"];
@@ -206,10 +207,11 @@ function StockInDialog({ items, onClose }: { items: StockItem[]; onClose: () => 
         <Field label={t("inventory.supplier")} required={owed > 0}><Input value={supplier} onChange={(e) => setSupplier(e.target.value)} maxLength={120} data-testid="op-supplier" /></Field>
         <Field label={t("inventory.supplier_invoice")} hint={t("inventory.supplier_invoice_hint")}><Input value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} maxLength={60} data-testid="in-invoice" /></Field>
       </div>
-      {supplier.trim() && (
-        <Field label={t("inventory.supplier_kind")} hint={t("inventory.supplier_kind_hint")}>
-          <Select value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} data-testid="in-supplier-kind">
-            {(["", "ac", "washing", "other"] as const).map((k) => <option key={k || "auto"} value={k}>{t(`inventory.supplier_kinds.${k || "auto"}`)}</option>)}
+      {owed > 0 && (
+        <Field label={t("inventory.debt_account")} hint={t("inventory.debt_account_hint")}>
+          <Select value={debtAcc} onChange={(e) => setDebtAcc(e.target.value)} data-testid="in-debt-account">
+            <option value="">{t("inventory.debt_auto")}</option>
+            {(debtAccounts.data ?? []).map((a) => <option key={a.id} value={a.id}>{accName(a)}</option>)}
           </Select>
         </Field>
       )}

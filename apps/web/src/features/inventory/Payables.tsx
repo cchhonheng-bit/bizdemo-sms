@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd, toCents, usdToKhr } from "@sms/shared";
 import { api, errCode, type Payable } from "@/lib/api";
-import { Button, Card, Dialog, Empty, Field, Input, Skeleton } from "@/components/ui";
+import { Button, Card, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
 
@@ -29,7 +29,8 @@ export function Payables({ manage }: { manage: boolean }) {
               <div className="flex-1 min-w-0">
                 <div className="font-semibold break-words">{p.supplier}</div>
                 <div className="text-xs text-muted break-words">{t("inventory.purchases_n", { n: p.purchases })}{p.opening ? ` · ${t("inventory.opening_debt")} ${formatUsd(p.opening)}` : ""}{p.paid ? ` · ${t("inventory.last_payment")} ${p.last_payment}` : ""}
-                  {p.invoices.length ? ` · ${t("inventory.open_invoices")}: ${p.invoices.map((x) => `#${x}`).join(", ")}` : ""}</div>
+                  {p.invoices.length ? ` · ${t("inventory.open_invoices")}: ${p.invoices.map((x) => `#${x}`).join(", ")}` : ""}
+                  {p.accounts?.length ? ` · ${p.accounts.map((a) => `${a.code} ${formatUsd(a.owed)}`).join(" · ")}` : ""}</div>
               </div>
               <div className={`tabular font-bold ${p.owed > 0 ? "text-danger" : ""}`} data-testid="payable-owed">{formatUsd(p.owed)}</div>
               {manage && p.owed > 0 && <Button variant="primary" onClick={() => setPaying(p)} data-testid="payable-pay">{t("inventory.pay_supplier")}</Button>}
@@ -43,29 +44,39 @@ export function Payables({ manage }: { manage: boolean }) {
 }
 
 function PayDialog({ p, onClose }: { p: Payable; onClose: () => void }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const qc = useQueryClient();
   const fxq = useQuery({ queryKey: ["acct-info"], queryFn: api.accounting.info });
   const fx = fxq.data?.fx_rate_khr ?? 4100;
   const [currency, setCurrency] = useState<"usd" | "khr">("usd");
   const [method, setMethod] = useState<Method>("cash_usd");
   const [amount, setAmount] = useState(""), [date, setDate] = useState(todayLocal()), [note, setNote] = useState("");
+  const [acct, setAcct] = useState(""); // D-181: the debt account this payment clears ("" = in account order)
+  const owedNow = acct ? p.accounts?.find((a) => a.account_id === acct)?.owed ?? p.owed : p.owed;
   const pick = (c: "usd" | "khr") => { setCurrency(c); setAmount(""); if (c === "khr" && method === "cash_usd") setMethod("cash_khr"); if (c === "usd" && method === "cash_khr") setMethod("cash_usd"); };
   let value = NaN;
   try { value = currency === "usd" ? toCents(amount) : /^\d[\d,]*$/.test(amount.trim()) ? Number(amount.replace(/,/g, "")) : NaN; } catch { /* invalid */ }
   const cents = currency === "usd" ? value : Math.round((value / fx) * 100);
   const save = useMutation({
-    mutationFn: () => api.inventory.supplierPay({ supplier: p.supplier, amount: value, currency, method, date, note: note.trim() || null }),
+    mutationFn: () => api.inventory.supplierPay({ supplier: p.supplier, amount: value, currency, method, date, note: note.trim() || null, account_id: acct || null }),
     onSuccess: (r) => { toast.success(t("inventory.pay_done", { owed: formatUsd(r.owed) })); void qc.invalidateQueries({ queryKey: ["payables"] }); onClose(); },
     onError: (e) => toast.error(t(`inventory.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
-  const full = () => setAmount(currency === "usd" ? (p.owed / 100).toFixed(2) : String(usdToKhr(p.owed, fx)));
+  const full = () => setAmount(currency === "usd" ? (owedNow / 100).toFixed(2) : String(usdToKhr(owedNow, fx)));
   return (
     <Dialog open onClose={onClose} title={`${t("inventory.pay_supplier")} · ${p.supplier}`} footer={<>
       <Button onClick={onClose}>{t("app.cancel")}</Button>
       <Button variant="primary" className="flex-1 sm:flex-none" disabled={!(value > 0)} loading={save.isPending} onClick={() => save.mutate()} data-testid="spay-save">{t("app.save")}</Button>
     </>}>
       <div className="rounded-md bg-grey-bg p-3 mb-3 flex justify-between text-sm"><span>{t("inventory.owed")}</span><span className="font-bold tabular">{formatUsd(p.owed)} <span className="font-normal text-muted">≈ {formatKhr(usdToKhr(p.owed, fx))}</span></span></div>
+      {!!p.accounts?.length && (
+        <Field label={t("inventory.pay_from_debt")}>
+          <Select value={acct} onChange={(e) => setAcct(e.target.value)} data-testid="spay-account">
+            <option value="">{t("inventory.pay_auto")}</option>
+            {p.accounts.map((a) => <option key={a.account_id} value={a.account_id}>{a.code} · {(i18n.language === "en" && a.name_en) || a.name_km} — {formatUsd(a.owed)}</option>)}
+          </Select>
+        </Field>
+      )}
       <div className="grid grid-cols-2 gap-2 mb-3" role="radiogroup">
         {(["usd", "khr"] as const).map((c) => <button key={c} type="button" role="radio" aria-checked={currency === c} onClick={() => pick(c)} className={`min-h-[44px] rounded-md border font-semibold ${currency === c ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{c === "usd" ? "$ USD" : "៛ KHR"}</button>)}
       </div>
