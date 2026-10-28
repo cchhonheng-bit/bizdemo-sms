@@ -293,8 +293,8 @@ const partyKey = (l: LedgerLine) => (l.supplier?.trim() ? `s:${l.supplier.trim()
  *  payment on it: a paid invoice's revenue is «ទូទាត់ហើយ»); none → null */
 function docState(s: DebtStates, a: LedgerAccount, ar: string | undefined, l: LedgerLine): PayStatus | null {
   const inv = l.source === "invoice" ? s.inv.get(l.source_id ?? "") : l.source === "payment" ? s.inv.get(s.pay.get(l.source_id ?? "") ?? "") : undefined;
-  const k = partyKey(l);
-  if ((a.type === "asset" || a.type === "liability") && k && !(a.id === ar && inv)) return s.party.get(`${a.id}|${k}`) ?? null;
+  const k = partyKey(l), tied = l.source === "invoice" || l.source === "payment"; // on the receivable an invoice's line is the invoice's (a void one has none)
+  if ((a.type === "asset" || a.type === "liability") && k && !(a.id === ar && tied)) return s.party.get(`${a.id}|${k}`) ?? null;
   return inv ?? null;
 }
 type Detail = { description: string; qty: number | null; unit: string | null; unit_price: number | null; invoice: string | null; bk: string | null; booker: string | null; technician: string | null; supplier: string | null; address: string | null;
