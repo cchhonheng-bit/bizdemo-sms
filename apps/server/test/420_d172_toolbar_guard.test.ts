@@ -48,7 +48,7 @@ const INV = "features/inventory/InventoryPage.tsx", REP = "features/accounting/R
 /** every tab of the tabbed pages (the union in the page's source) → its component, or "exempt" */
 const TABS: Record<string, { file: string; union: RegExp; tabs: Record<string, Target | "exempt"> }> = {
   "/inventory": { file: INV, union: /type Tab = ([^;]+);/, tabs: { stock: [INV, "Stock"], withdrawals: [INV, "InventoryPage"], moves: [INV, "InventoryPage"], monthend: ["features/inventory/MonthEnd.tsx"],
-    reconcile: [INV, "Reconcile"], payables: ["features/inventory/Payables.tsx", "Payables"] } },
+    reconcile: [INV, "Reconcile"], payables: ["features/inventory/Payables.tsx", "Payables"], bybooking: ["features/inventory/ByBooking.tsx", "ByBooking"] } }, // D-189
   "/accounting": { file: "features/accounting/AccountingPage.tsx", union: /type Tab = ([^;]+);/, tabs: { reports: [REP, "Reports"], money: ["features/accounting/Money.tsx"],
     journal: ["features/accounting/Journal.tsx"], accounts: ["features/accounting/Accounts.tsx"], payroll: ["features/accounting/Payroll.tsx", "Payroll"], setup: "exempt" } },
   "/accounting · reports": { file: REP, union: /type View = ([^;]+);/, tabs: { pl: [REP, "Reports"], bs: [REP, "Reports"], tb: [REP, "Reports"], gl: [REP, "GL"], coa: [REP, "Reports"], acc: [REP, "Reports"] } },

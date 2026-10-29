@@ -130,7 +130,8 @@ describe("A · the price list and the stock are separate", () => {
     await reviewed(job);
     const n = await moves(), before = await stockOf(pipe);
     const p = (await admin.req("GET", `/api/invoices/prefill?booking=${job}`)).json;
-    expect(p.lines).toEqual([expect.objectContaining({ kind: "service", description: "ដំឡើងទុយោ" })]); // no materials come along any more
+    // D-189: the stock taken for the job comes along as a linked goods line (pre-filled only — the invoice never moves stock)
+    expect(p.lines).toEqual([expect.objectContaining({ kind: "service", description: "ដំឡើងទុយោ" }), expect.objectContaining({ catalog_item_id: pipe, kind: "product", qty: 6 })]);
     expect(p.extra_materials).toBeUndefined();
     const i = await admin.req("POST", "/api/invoices", { booking_id: job, lines: [{ catalog_item_id: copper, description: "ទុយោស្ពាន់ (ម៉ែត្រ)", kind: "product", qty: 5, unit: "ម៉ែត្រ", unit_price: 1500 }] });
     expect(i.status).toBe(200);
