@@ -42,6 +42,10 @@ describe("login (rule 6.2/6.3)", () => {
   });
 
   it("D-85: behind Caddy the real client IP counts — one client hitting the limit never blocks another; a direct caller cannot spoof X-Forwarded-For", async () => {
+    // the limiter counts in fixed clock minutes: pin the clock mid-minute (the 12 tries straddled a new minute once — 29-10)
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Math.floor(Date.now() / 60_000) * 60_000 + 30_000);
+    try {
     resetRateLimits();
     const attempt = (xff: string, remote = "172.18.0.5") => app.inject({ method: "POST", url: "/api/auth/login", remoteAddress: remote,
       headers: { "content-type": "application/json", "x-forwarded-for": xff }, payload: JSON.stringify({ identifier: `probe-${xff}`, password: "wrong-pass" }) });
@@ -51,7 +55,7 @@ describe("login (rule 6.2/6.3)", () => {
     // a connection that does not come from the private proxy network: its own address counts, the header is ignored
     for (let i = 0; i < 5; i++) await attempt("203.0.113.30", "198.51.100.7");
     expect((await attempt("203.0.113.31", "198.51.100.7")).statusCode).toBe(429);
-    resetRateLimits();
+    } finally { vi.useRealTimers(); resetRateLimits(); }
   });
 
   it("inactive user cannot log in; deactivation ends existing sessions", async () => {

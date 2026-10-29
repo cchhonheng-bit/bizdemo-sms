@@ -1016,7 +1016,7 @@ describe("D-121 customer pages: the bot opens exact addresses; skeleton first; i
     expect(a.status).toBe(200); expect(a.json).toMatchObject({ ok: true, name: "សុខ ដារ៉ា", phone: "012 345 678" }); expect(tg.cookie).toBeTruthy();
     expect(hubCalls.filter((c) => c.path === "/internal/tg-verify").map((c) => c.body)).toEqual([{ init_data: "mini-a", max_age: 86400 }]);
     const t = (await page("/my/bookings", { cookie: tg.cookie! })).body;
-    expect(t).toContain('data-page="my"'); expect(t).toContain('data-view="bookings"'); expect(t).toContain("តាមដានការកក់"); expect(t).toContain(`#${n1}`);
+    expect(t).toContain('data-page="my"'); expect(t).toContain('data-view="bookings"'); expect(t).toContain("ការកក់របស់ខ្ញុំ"); expect(t).toContain(`#${n1}`);
     expect(t).not.toContain('data-page="gate"'); expect(loginForm(t)).toBe(false); expect(SPA(t)).toBe(false); expect(t).not.toContain('id="settings"');
     const h = (await page("/my", { cookie: tg.cookie! })).body;
     expect(h).toContain('data-view="home"'); expect(h).toContain('id="settings"'); expect(h).not.toMatch(/id="pw"|id="login"/); // settings has «change password», never a login

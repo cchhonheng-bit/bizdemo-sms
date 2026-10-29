@@ -123,15 +123,15 @@ describe("D-136 test passwords", () => {
 });
 
 describe("D-136 eye buttons", () => {
-  it("the website's password fields: hidden at first, the eye says «show» in the page's language; site.js toggles", async () => {
+  it("the website's PIN fields (D-191): hidden at first, the eye says «show» in the page's language; site.js toggles", async () => {
     config.shop.features = "website"; setHubTransport(async () => ({ status: 200, json: { ok: true } })); resetBotCache();
     try {
       const km = (await app.inject({ method: "GET", url: "/my/login" })).body;
-      expect(km).toContain('<input class="in" id="pw" type="password"');
-      expect(km).toContain('data-eye="pw" aria-label="បង្ហាញពាក្យសម្ងាត់" data-show="បង្ហាញពាក្យសម្ងាត់" data-hide="លាក់ពាក្យសម្ងាត់"');
+      expect(km).toContain('<input class="in pin" id="pw" type="password"');
+      expect(km).toContain('data-eye="pw" aria-label="បង្ហាញលេខសម្ងាត់" data-show="បង្ហាញលេខសម្ងាត់" data-hide="លាក់លេខសម្ងាត់"');
       const en = (await app.inject({ method: "GET", url: "/my/login?lang=en" })).body;
-      expect(en).toContain('data-eye="pw" aria-label="Show password" data-show="Show password" data-hide="Hide password"');
-      expect(en).not.toContain("បង្ហាញពាក្យសម្ងាត់"); // one language per page (D-89)
+      expect(en).toContain('data-eye="pw" aria-label="Show PIN" data-show="Show PIN" data-hide="Hide PIN"');
+      expect(en).not.toContain("បង្ហាញលេខសម្ងាត់"); // one language per page (D-89)
       const js = (await app.inject({ method: "GET", url: "/pub/site.js" })).body;
       expect(js).toContain('$$("[data-eye]")'); expect(js).toContain('input.type = show ? "text" : "password"');
     } finally { config.shop.features = ""; setHubTransport(null); resetBotCache(); }
