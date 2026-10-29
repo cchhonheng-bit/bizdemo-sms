@@ -14,7 +14,7 @@ import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, customerText, NIGHT_CONFIRM, normalizeKhPhone, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
+import { CUSTOMER_MENU, customerText, NIGHT_CONFIRM, normalizeKhPhone, SITE_CONSENT_VERSION, WEB_TIMER_HOURS } from "@sms/shared";
 import { client, loginAs, makeApp, PW, resetDb, seed, type Client, type Seed, PLACE, span } from "./helpers.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
@@ -81,13 +81,14 @@ const bookingOf = async (ref: string) => (await sql<Record<string, any>[]>`selec
   from bookings b join customers c on c.id = b.customer_id where b.web_ref = ${ref}`)[0]!;
 const requestOf = async (bookingId: string, kind = "booking") => (await sql<Record<string, any>[]>`select * from service_requests where booking_id = ${bookingId} and kind = ${kind} order by created_at desc limit 1`)[0]!;
 const linkToken = async (ref: string) => /start=(b-[A-Za-z0-9_-]{20})"/.exec((await page(`/book/done/${ref}`)).body)?.[1] ?? null;
-/** the password a bot message carries («🔑 ពាក្យសម្ងាត់៖ 1234» or «🔑 ពាក្យសម្ងាត់ថ្មី៖ 1234») */
-const pwIn = (text: unknown): string | null => /ពាក្យសម្ងាត់(?:ថ្មី)?៖ (\d{4})/.exec(String(text ?? ""))?.[1] ?? null;
-let pwA = ""; // customer A's first password — set when A's chat is linked
-const tryLogin = (phone: string, password: string) => pub("POST", "/api/public/login", { phone, password });
-async function signIn(phone: string, password: string): Promise<Client> {
+/** D-191: no password comes from the bot any more — a customer's PIN is set here straight in the database (the website's own account
+ *  flow is tested in 530_d191_customer_pin) */
+const pwA = "4827"; // customer A's PIN — set once A's chat is linked
+const setPin = async (phone: string, pin: string) => sql`update customers set password_hash = ${await hashPassword(pin)} where is_active and ${normalizeKhPhone(phone)} = any(phones)`;
+const tryLogin = (phone: string, pin: string) => pub("POST", "/api/public/login", { phone, pin });
+async function signIn(phone: string, pin: string): Promise<Client> {
   const c = client(app);
-  await c.req("POST", "/api/public/login", { phone, password });
+  await c.req("POST", "/api/public/login", { phone, pin });
   return c;
 }
 const counts = async () => (await sql`select (select count(*) from customers)::int as c, (select count(*) from bookings)::int as b, (select count(*) from service_requests)::int as r`)[0];
@@ -431,15 +432,14 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     expect(r.body).not.toContain("សុខ ដារ៉ា"); expect(r.body).not.toContain("012345678");
   });
 
-  it("the token works once: «linked» + the first password in ONE message of at most 4 lines, the hint after it, the keyboard grid, the menu button; a second use is refused", async () => {
+  it("the token works once: «linked» in ONE message of at most 4 lines — no password (D-191) —, the keyboard grid, the menu button; a second use is refused", async () => {
     const token = (await linkToken(ref1))!;
     const x = (await internal("customer-subscribed", { code: token, subscriber_id: SUB.a })).json();
-    pwA = pwIn(x.text)!;
-    expect(pwA).toMatch(/^\d{4}$/);
-    expect(x.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${n1} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\n🔑 ពាក្យសម្ងាត់៖ ${pwA}\nចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ`);
-    expect(x.hint).toBe("អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»"); expect(x.menu_url).toBe("https://oneteam.test/my");
+    expect(x.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${n1} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\nដំណឹងការកក់នឹងមកដល់ទីនេះ`);
+    expect(x.hint).toBeUndefined(); expect(x.menu_url).toBe("https://oneteam.test/my");
+    await setPin("12 345 678", pwA);
     expect(x.keyboard).toEqual([[{ text: "📅 កក់សេវា", web_app: "https://oneteam.test/book" }, { text: "📍 តាមដានការកក់", web_app: "https://oneteam.test/my/bookings" }],
-      [{ text: "🎁 ប្រូម៉ូសិន" }, { text: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី" }], [{ text: "🔕 ឈប់ទទួលដំណឹង" }]]);
+      [{ text: "🎁 ប្រូម៉ូសិន" }, { text: "🔑 ភ្លេចលេខសម្ងាត់" }], [{ text: "🔕 ឈប់ទទួលដំណឹង" }]]);
     expect(Number((await bookingOf(ref1)).web_subscriber_id)).toBe(SUB.a); expect(Number((await bookingOf(ref1)).csub)).toBe(SUB.a);
     const again = (await internal("customer-subscribed", { code: token, subscriber_id: SUB.b })).json();
     expect(again).toMatchObject({ ok: false, error: "CODE_USED", text: customerText.linkUsed });
@@ -447,7 +447,7 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     expect((await page(`/book/done/${ref1}`)).body).toContain("បានភ្ជាប់ Telegram");
   });
 
-  it("inside Telegram (Mini App): the launch data links the booking at once — no link — and the bot sends «linked» + password with the grid", async () => {
+  it("inside Telegram (Mini App): the launch data links the booking at once — no link — and the bot sends «linked» with the grid", async () => {
     hubCalls.length = 0;
     const r = await book((await slotOf(5, "08:00")).at, { phone: "011999111", name: "ភ្ញៀវ Mini", init_data: "mini-new" });
     expect(r.statusCode).toBe(200); expect(r.json()).toMatchObject({ linked: true, link: null });
@@ -455,8 +455,8 @@ describe("the Telegram link: website token (single use) · Mini App and signed i
     expect(Number(b.web_subscriber_id)).toBe(SUB.mini); expect(b.consent_source).toBe("miniapp");
     expect(hubCalls.find((c) => c.path === "/internal/web-subscribe")!.body).toEqual({ init_data: "mini-new", source: "miniapp" });
     const m = toldBodies(SUB.mini)[0];
-    expect(m.text).toMatch(new RegExp(`^✅ ភ្ជាប់រួចរាល់\\nការកក់ #${b.number} រង់ចាំបញ្ជាក់ \\(≤៣០ នាទី\\)\\n🔑 ពាក្យសម្ងាត់៖ \\d{4}\\nចូលដោយលេខទូរស័ព្ទ \\+ ពាក្យសម្ងាត់នេះ$`));
-    expect(m.keyboard[2]).toEqual([{ text: "🔕 ឈប់ទទួលដំណឹង" }]); expect(m.hint).toBe(customerText.hint); expect(m.menu_url).toBe("https://oneteam.test/my");
+    expect(m.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${b.number} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\nដំណឹងការកក់នឹងមកដល់ទីនេះ`);
+    expect(m.keyboard[2]).toEqual([{ text: "🔕 ឈប់ទទួលដំណឹង" }]); expect(m.hint).toBeUndefined(); expect(m.menu_url).toBe("https://oneteam.test/my");
     expect(await code(book((await slotOf(5, "09:00")).at, { phone: "011999222", name: "ភ្ញៀវ ក្លែង", init_data: "forged" }))).toEqual([200, undefined]); // bad launch data: saved, the link stays the way
   });
 
@@ -557,13 +557,13 @@ describe("nobody answers (CEO): 30 min → Admin + GM, 60 min → CEO, never dec
 });
 
 describe("quote request: the same tiles + items, photos (metadata stripped), the same one-tap link", () => {
-  it("consent, description or an item, at most 5 real images; the request goes to the GM — photos without camera position or comments; the bot link for the new customer brings the password", async () => {
+  it("consent, description or an item, at most 5 real images; the request goes to the GM — photos without camera position or comments; the bot link (optional) links the new customer — no password", async () => {
     expect(await code(quote({ consent: false }))).toEqual([400, "CONSENT_REQUIRED"]);
     expect(await code(quote({ description: " " }))).toEqual([400, "DESCRIPTION_REQUIRED"]);
     expect(await code(quote({ photos: [PNG, PNG, PNG, PNG, PNG, PNG] }))).toEqual([400, "TOO_MANY_PHOTOS"]);
     expect(await code(quote({ photos: [Buffer.from("<script>alert(1)</script>").toString("base64")] }))).toEqual([400, "BAD_IMAGE"]);
     const h = (await page(`/quote?items=${ID["AC-BUY"]}:1`)).body;
-    expect(h).toContain("ផ្ញើ និងភ្ជាប់ Telegram"); expect(h).toContain("ពេលចុច «ផ្ញើ និងភ្ជាប់ Telegram» អ្នកយល់ព្រមលើ៖"); expect(h).toContain(`value="${ID["AC-BUY"]}" selected`);
+    expect(h).toContain("ផ្ញើសំណើ"); expect(h).toContain("ពេលចុច «ផ្ញើសំណើ» អ្នកយល់ព្រមលើ៖"); expect(h).toContain(`value="${ID["AC-BUY"]}" selected`);
     const r = await quote({ items: `${ID["AC-BUY"]}:2`, description: "", category: "ac", photos: [JPEG, PNG_META], lat: 11.5564, lng: 104.9282, accuracy: 30 });
     expect(r.statusCode).toBe(200); expect(r.json()).toMatchObject({ ok: true, linked: false }); expect(r.json().link).toMatch(/start=b-/);
     const rq = (await sql<Record<string, any>[]>`select * from service_requests where kind = 'quote' order by created_at desc limit 1`)[0]!;
@@ -576,112 +576,33 @@ describe("quote request: the same tiles + items, photos (metadata stripped), the
     expect(readFileSync(join(config.uploadsDir, files.find((f) => f.mime === "image/png")!.path)).includes("PNG-TEXT-SECRET")).toBe(false);
     expect((await page(`/pub/img/${files[0]!.id}`)).statusCode).toBe(404);
     const x = (await internal("customer-subscribed", { code: /start=(b-[A-Za-z0-9_-]{20})/.exec(r.json().link)![1], subscriber_id: 77 })).json();
-    expect(x.text).toMatch(/^✅ ភ្ជាប់រួចរាល់\nសំណើតម្លៃរបស់អ្នកបានទទួលហើយ\n🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/);
+    expect(x.text).toBe("✅ ភ្ជាប់រួចរាល់\nសំណើតម្លៃរបស់អ្នកបានទទួលហើយ");
     expect((await page(`/quote/done/${r.json().ref}`)).body).toContain("បានភ្ជាប់ Telegram");
   });
 });
 
-describe("customer login: phone + password from the bot; a new password only from the bot (CEO)", () => {
-  const PHONE_B = "012666555";
-  let pwB = "";
-  const guard = async (phone: string) => (await sql<{ failed: number; locked_until: Date | null; permanent: boolean }[]>`select failed, locked_until, permanent from customer_login_guards where phone = ${normalizeKhPhone(phone)}`)[0] ?? null;
-  const wrong = async (phone: string, n: number) => {
-    const out: unknown[][] = [];
-    for (let i = 0; i < n; i++) { resetRateLimits(); const r = await tryLogin(phone, "9z9z"); out.push([r.statusCode, r.json().error, r.json().details?.minutes]); }
-    return out;
-  };
-  const lockOver = (phone: string) => sql`update customer_login_guards set locked_until = now() - interval '1 second' where phone = ${normalizeKhPhone(phone)}`;
-  const newPwInBot = async () => {
-    const m = (await internal("tg-text", { chat_id: 930002, tg_user: 930002, text: CUSTOMER_MENU.password, subscriber_id: SUB.b })).json();
-    expect(m.text).toMatch(/^🔑 ពាក្យសម្ងាត់ថ្មី៖ \d{4}$/); expect(m.after).toBe(customerText.hint);
-    return pwIn(m.text)!;
-  };
+describe("customer sign-in (D-191): phone + the customer's own PIN — no password ever comes from the bot", () => {
+  const PHONE_B = "012666555", pwB = "1212";
+  beforeAll(async () => { await setPin(PHONE_B, pwB); });
 
-  it("the sign-in screen: phone + password; «forgot password» opens the bot — no reset form, no reset address", async () => {
-    const r = await page("/my/login");
-    for (const x of ['id="phone"', 'id="pw"', 'type="password"', "ភ្លេចពាក្យសម្ងាត់?", 'id="forgot" href="https://t.me/Oneteam_app_bot"', "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", "សូមភ្ជាប់ Telegram ជាមុនសិន"]) expect(r.body).toContain(x);
-    expect((await pub("POST", "/api/public/password-reset", { phone: "12 666 555" })).statusCode).toBe(404);
-    expect((await pub("GET", "/api/my")).statusCode).toBe(401);
+  it("the sign-in screen: phone + PIN; «forgot» opens the website's reset page (a code by Telegram or from the shop) — never the bot", async () => {
+    const h = (await page("/my/login")).body;
+    for (const x of ['id="phone"', 'id="pw"', 'type="password"', "ភ្លេចលេខសម្ងាត់?", 'id="forgot" href="/my/reset"', "លេខសម្ងាត់ ៤ ខ្ទង់"]) expect(h).toContain(x);
+    expect(h).not.toContain("t.me/Oneteam_app_bot"); expect(h).not.toContain("ពាក្យសម្ងាត់");
+    expect((await page("/my/reset")).body).toContain('id="r-send"');
   });
 
-  it("CEO D-127: the bot's password messages say where to change it — the birthday / phone hint only on the change-password form", async () => {
-    expect(customerText.hint).toBe("អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»");
-    expect(customerText.hint).not.toBe(CUSTOMER_PASSWORD_HINT.km);
-    for (const p of ["/my/login", `/book/done/${ref1}`]) expect((await page(p)).body).not.toContain(CUSTOMER_PASSWORD_HINT.km);
-    const A = await signIn("12 345 678", pwA);
-    const home = (await page("/my", { cookie: A.cookie! })).body, form = home.indexOf('id="pw-card"');
-    expect(form).toBeGreaterThan(0);
-    expect(home.indexOf(CUSTOMER_PASSWORD_HINT.km)).toBeGreaterThan(form); // inside the change-password form, nowhere before it
-    expect((await page("/my/bookings", { cookie: A.cookie! })).body).not.toContain(CUSTOMER_PASSWORD_HINT.km);
-  });
-
-  it("only an argon2 hash is stored; nothing else carries the password", async () => {
+  it("only an argon2 hash is stored; no outbox row carries a PIN or a password", async () => {
     const c = (await sql<{ password_hash: string }[]>`select password_hash from customers where tg_subscriber_id = ${SUB.a}`)[0]!;
     expect(c.password_hash).toMatch(/^\$argon2id\$/); expect(c.password_hash).not.toContain(pwA);
-    expect((await sql`select 1 from telegram_outbox where text like '%ពាក្យសម្ងាត់%'`).length).toBe(0);
-    expect((await sql`select count(*)::int as n from audit_log where new_data::text like ${"%" + pwA + "%"} and action like 'customer.password%'`)[0]!.n).toBe(0);
+    expect((await sql`select 1 from telegram_outbox where text like '%ពាក្យសម្ងាត់%' or text like '%លេខសម្ងាត់%'`).length).toBe(0);
   });
 
-  it("login: right phone + password → session; a wrong password and an unknown number get the same answer", async () => {
+  it("sign-in: right phone + PIN → session (Khmer digits too); a wrong PIN and an unknown number get the same answer", async () => {
     const bad = await tryLogin("12 345 678", "0000"), unknown = await tryLogin("099 111 222", "0000");
-    expect([bad.statusCode, bad.json()]).toEqual([401, { error: "INVALID_CREDENTIALS" }]);
-    expect([unknown.statusCode, unknown.json()]).toEqual([bad.statusCode, bad.json()]);
-    const ok = await tryLogin("+855 12 345 678", pwA);
-    expect(ok.statusCode).toBe(200); expect(String(ok.headers["set-cookie"])).toMatch(/^otc=[^;]+;.*HttpOnly/i);
-    expect(await guard("012345678")).toBeNull();
-  });
-
-  it("locks per phone: 10 → 3 min, 15 → 5 min, 20 → 30 min, 30 → until a new password; while locked even the right password is refused", async () => {
-    await sql`update users set telegram_chat_id = null where telegram_chat_id = 930002`;
-    pwB = await newPwInBot(); // customer B was linked by the staff: the bot gives the first password
-    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
-    expect((await wrong(PHONE_B, 9)).every((x) => x[0] === 401)).toBe(true);
-    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 3]);
-    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(423);
-    await lockOver(PHONE_B);
-    expect((await wrong(PHONE_B, 4)).every((x) => x[0] === 401)).toBe(true);
-    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 5]);
-    await lockOver(PHONE_B);
-    await wrong(PHONE_B, 4);
-    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED", 30]);
-    await lockOver(PHONE_B);
-    await wrong(PHONE_B, 9);
-    expect((await wrong(PHONE_B, 1))[0]).toEqual([423, "LOCKED_PERMANENT", undefined]);
-    await lockOver(PHONE_B);
-    expect((await tryLogin(PHONE_B, pwB)).json().error).toBe("LOCKED_PERMANENT");
-    expect((await wrong("097 000 111", 10))[9]).toEqual([423, "LOCKED", 3]); // no enumeration: an unknown number climbs the same ladder
-  });
-
-  it("unlock paths: Admin / GM in the app (audited) or a new password from the bot — into the linked chat only; every session ends; 3 an hour", async () => {
-    expect((await kim.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(403);
-    expect((await admin.req("POST", `/api/customers/${custB}/unlock-login`)).status).toBe(200);
-    expect((await sql`select user_id from audit_log where action = 'customer.login_unlocked' and row_id = ${custB}`)[0]).toMatchObject({ user_id: s.users.admin });
-    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
-    const before = await signIn(PHONE_B, pwB);
-    await sql`update customer_login_guards set failed = 30, permanent = true where phone = ${PHONE_B}`;
-    hubCalls.length = 0;
-    pwB = await newPwInBot();
-    expect(hubCalls.filter((c) => c.path === "/internal/notify-subscriber")).toHaveLength(0); // the answer IS the chat message; nothing else is sent anywhere
-    expect(await guard(PHONE_B)).toBeNull(); expect((await before.req("GET", "/api/my")).status).toBe(401);
-    expect((await tryLogin(PHONE_B, pwB)).statusCode).toBe(200);
-    expect((await sql`select new_data from audit_log where action = 'customer.password_reset' order by id desc limit 1`)[0]!.new_data).toEqual({ via: "bot" });
-    await newPwInBot();
-    const third = await newPwInBot();
-    const fourth = (await internal("tg-text", { chat_id: 930002, tg_user: 930002, text: CUSTOMER_MENU.password, subscriber_id: SUB.b })).json();
-    expect(fourth.text).toBe(customerText.tooManyResets);
-    pwB = third;
-  });
-
-  it("change password: needs the current one, at least 4, nothing easy to guess (1212-style allowed); the other sessions end", async () => {
-    resetRateLimits();
-    const one = await signIn(PHONE_B, pwB), two = await signIn(PHONE_B, pwB);
-    const change = (c: Client, current: string, next: string) => c.req("POST", "/api/my/password", { current, next });
-    expect((await change(one, "0000", "2580")).json).toMatchObject({ error: "WRONG_PASSWORD" });
-    expect((await change(one, pwB, "258")).json).toMatchObject({ error: "PASSWORD_TOO_SHORT" });
-    for (const weak of ["1111", "1234", "4321", "6555"]) expect((await change(one, pwB, weak)).json).toMatchObject({ error: "WEAK_PASSWORD" });
-    expect((await change(one, pwB, "1212")).status).toBe(200);
-    expect((await one.req("GET", "/api/my")).status).toBe(200); expect((await two.req("GET", "/api/my")).status).toBe(401);
-    pwB = "1212";
+    expect([bad.statusCode, bad.json().error]).toEqual([401, "INVALID_CREDENTIALS"]); expect([unknown.statusCode, unknown.json().error]).toEqual([401, "INVALID_CREDENTIALS"]);
+    expect((await tryLogin("+855 12 345 678", pwA)).statusCode).toBe(200);
+    expect((await tryLogin("12 345 678", "៤៨២៧")).statusCode).toBe(200);
   });
 
   it("a customer session never opens the staff app; inside Telegram the launch data signs in (checked by the hub, up to 24 h)", async () => {
@@ -695,17 +616,6 @@ describe("customer login: phone + password from the bot; a new password only fro
     expect(hubCalls.find((c) => c.path === "/internal/tg-verify")!.body).toEqual({ init_data: "mini-b", max_age: 86400 });
     expect(await code(pub("POST", "/api/public/tg-login", { init_data: "forged" }))).toEqual([401, "INVALID_CREDENTIALS"]);
     expect(await code(pub("POST", "/api/public/tg-login", { init_data: "mini-none" }))).toEqual([409, "NOT_LINKED"]);
-  });
-
-  it("per visitor: after 50 failed logins in an hour the next one is refused", async () => {
-    // the limiter counts in fixed clock hours: pin the clock mid-hour so the 51 tries cannot straddle a new hour (flaky at hh:00)
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(Math.floor(Date.now() / 3_600_000) * 3_600_000 + 1_800_000);
-    try {
-      resetRateLimits();
-      for (let i = 0; i < 50; i++) expect((await tryLogin(`0965550${String(i).padStart(2, "0")}`, "9z9z")).statusCode).toBe(401);
-      expect(await code(tryLogin("096555099", "9z9z"))).toEqual([429, "RATE_LIMITED"]);
-    } finally { vi.useRealTimers(); resetRateLimits(); }
   });
 });
 
@@ -726,10 +636,10 @@ describe("customer home: own data only, notification settings, book again", () =
     expect(a.upcoming.find((x: any) => x.id === bk1)).toMatchObject({ status: "confirmed", can_cancel: true, can_reschedule: true });
     const b = (await B.req("GET", "/api/my")).json;
     expect(b.upcoming.map((x: any) => x.id)).toEqual([bkB]); expect(b.past.map((x: any) => x.id)).toEqual([closedB]);
-    expect(b.past[0].rebook).toBe(`/book?items=${ID["AC-CLEAN"]}:1`);
+    expect(b.past[0].rebook).toBe(`/book?items=${ID["AC-CLEAN"]}:1&from=${closedB}`);
     expect(JSON.stringify(a)).not.toContain(bkB); expect(JSON.stringify(b)).not.toContain(bk1);
     const html = (await page("/my", { cookie: A.cookie! })).body;
-    for (const x of ["សួស្តី", "ការកំណត់", "ដំណឹងអំពីការកក់របស់ខ្ញុំ", 'id="n-service" checked', 'id="n-promo" checked', "ប្ដូរពាក្យសម្ងាត់", "ចាកចេញ", "កក់សេវាថ្មី"]) expect(html).toContain(x);
+    for (const x of ["សួស្តី", "ការកំណត់", "ដំណឹងអំពីការកក់របស់ខ្ញុំ", 'id="n-service" checked', 'id="n-promo" checked', "ប្ដូរលេខសម្ងាត់", "ចាកចេញ", "ចាកចេញពីឧបករណ៍ទាំងអស់", "កក់សេវាថ្មី"]) expect(html).toContain(x);
   });
 
   it("notification switches: kept by the hub (consent log there), audited here; promotions off when service messages are off", async () => {
@@ -751,20 +661,19 @@ describe("customer home: own data only, notification settings, book again", () =
     expect((await B.req("POST", `/api/my/bookings/${bk1}/cancel`, { reason: "សាកល្បង" })).status).toBe(404);
   });
 
-  it("a known phone number opens neither that customer's history nor an account until the staff confirm — then the password arrives", async () => {
+  it("a known phone number opens nobody's history: the bot links only the booking; the staff confirmation links the record — never a password", async () => {
     await staffJob((await slotOf(1, "08:00")).at, [], custK);
     refC = (await book((await slotOf(5, "14:00")).at, { phone: "012777888", name: "មិនមែនម្ចាស់" })).json().ref;
     bkC = (await bookingOf(refC)).id;
     const linked = (await internal("customer-subscribed", { code: (await linkToken(refC))!, subscriber_id: SUB.c })).json();
-    expect(linked.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${(await bookingOf(refC)).number} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)`); // no password yet
+    expect(linked.text).toBe(`✅ ភ្ជាប់រួចរាល់\nការកក់ #${(await bookingOf(refC)).number} រង់ចាំបញ្ជាក់ (≤៣០ នាទី)\nដំណឹងការកក់នឹងមកដល់ទីនេះ`);
     expect((await sql`select tg_subscriber_id from customers where id = ${custK}`)[0]!.tg_subscriber_id).toBeNull();
     const lite = (await internal("tg-text", { chat_id: 930003, tg_user: 930003, text: CUSTOMER_MENU.password, subscriber_id: SUB.c })).json();
-    expect(lite.text).toBe(customerText.passwordLater);
+    expect(lite.text).toBe(customerText.pinLater);
     hubCalls.length = 0;
     expect((await confirmFree(admin, (await requestOf(bkC)).id)).status).toBe(200);
-    const pwC = told(SUB.c).map(pwIn).find(Boolean)!;
-    expect(pwC).toMatch(/^\d{4}$/); expect(told(SUB.c).find((x) => pwIn(x))).toMatch(/^🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/);
-    expect((await tryLogin("012 777 888", pwC)).statusCode).toBe(200);
+    expect(told(SUB.c).some((x) => /ពាក្យសម្ងាត់|លេខសម្ងាត់/.test(x))).toBe(false);
+    expect((await sql`select tg_subscriber_id::text as sub from customers where id = ${custK}`)[0]!.sub).toBe(String(SUB.c));
   });
 
   it("reschedule is a REQUEST; the answer follows the message style", async () => {
@@ -791,7 +700,7 @@ describe("the customer bot: the keyboard grid — each button; share my phone; a
   it("/start of a customer: hello + the grid (📅 / 📍 open the Mini App) + the menu button", async () => {
     const m = (await internal("tg-start", { chat_id: 930001, tg_user: 930001, subscriber_id: SUB.a })).json();
     expect(m).toMatchObject({ kind: "customer", text: "👋 សួស្តី សុខ ដារ៉ា\nសូមជ្រើសខាងក្រោម", menu_url: "https://oneteam.test/my" });
-    expect(m.keyboard.flat().map((b: any) => b.text)).toEqual(["📅 កក់សេវា", "📍 តាមដានការកក់", "🎁 ប្រូម៉ូសិន", "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", "🔕 ឈប់ទទួលដំណឹង"]);
+    expect(m.keyboard.flat().map((b: any) => b.text)).toEqual(["📅 កក់សេវា", "📍 តាមដានការកក់", "🎁 ប្រូម៉ូសិន", "🔑 ភ្លេចលេខសម្ងាត់", "🔕 ឈប់ទទួលដំណឹង"]);
     expect((await internal("tg-start", { chat_id: 930009, tg_user: 930009, subscriber_id: null })).json()).toEqual({ kind: "none", menu_url: "https://oneteam.test/my" });
   });
 
@@ -808,13 +717,13 @@ describe("the customer bot: the keyboard grid — each button; share my phone; a
     expect((await say(CUSTOMER_MENU.promo, 98)).kind).toBe("none"); // an unknown chat gets nothing
   });
 
-  it("share my phone (Telegram vouches for it): a new number makes the customer, a known number links its record; both get the first password; a foreign number is refused", async () => {
+  it("share my phone (Telegram vouches for it): a new number makes the customer, a known number links its record; never a password; a foreign number is refused", async () => {
     const x = (await internal("tg-contact", { subscriber_id: 91, tg_user: 9101, phone: "+855 97 555 1111", first_name: "Vanna" })).json();
-    expect(x.ok).toBe(true); expect(x.text).toMatch(/^✅ ភ្ជាប់រួចរាល់\n🔑 ពាក្យសម្ងាត់៖ \d{4}\nចូលដោយលេខទូរស័ព្ទ \+ ពាក្យសម្ងាត់នេះ$/); expect(x.hint).toBe(customerText.hint);
+    expect(x.ok).toBe(true); expect(x.text).toBe(customerText.linkedKnown); expect(x.hint).toBeUndefined();
     expect((await sql`select name, phones, origin, consent_source, tg_subscriber_id::text as sub from customers where tg_subscriber_id = 91`)[0]).toMatchObject({ name: "Vanna", phones: ["+855975551111"], origin: "telegram", consent_source: "bot", sub: "91" });
     const t = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "អតិថិជន ហាង", phones: ["012454545"], zone: "inside" })).json.id;
     const y = (await internal("tg-contact", { subscriber_id: 92, tg_user: 9201, phone: "85512454545", first_name: "X" })).json();
-    expect(pwIn(y.text)).toMatch(/^\d{4}$/);
+    expect(y.text).toBe(customerText.linkedKnown);
     expect((await sql`select tg_subscriber_id::text as sub, name from customers where id = ${t}`)[0]).toMatchObject({ sub: "92", name: "អតិថិជន ហាង" });
     expect((await internal("tg-contact", { subscriber_id: 92, tg_user: 9201, phone: "85512454545" })).json().text).toBe(customerText.linkedKnown); // linked again: no new password
     expect((await internal("tg-contact", { subscriber_id: 93, tg_user: 9301, phone: "+1 202 555 0100" })).json()).toMatchObject({ ok: false, text: customerText.notKhPhone });
@@ -826,16 +735,16 @@ describe("the customer bot: the keyboard grid — each button; share my phone; a
   });
 
   it("every customer message is Khmer, at most 4 lines, starts with its one emoji (the brief's exact texts)", () => {
-    const all = [customerText.linked("BK-0001", "4827"), customerText.linkedQuote("4827"), customerText.linkedKnown, customerText.password("4827"), customerText.received("BK-0001"),
+    const all = [customerText.linked("BK-0001"), customerText.linkedQuote, customerText.linkedKnown, customerText.pinCode("123456", 10), customerText.pinLater, customerText.received("BK-0001"),
       customerText.confirmed("BK-0001", "ច័ន្ទ 6 តុលា", "09:00", "Kim"), customerText.declined("BK-0001", "ក្រៅតំបន់"), customerText.reminder("09:00", "លាងម៉ាស៊ីនត្រជាក់", "Kim"),
-      customerText.onTheWay("Kim"), customerText.done("BK-0001", "5 វិច្ឆិកា 2026"), customerText.newPassword("4827"), customerText.unsubscribed("promo"), customerText.unsubscribed("all"),
-      customerText.noPromo, customerText.askContact, customerText.linkUsed, customerText.passwordLater, customerText.rescheduled("BK-0001", "ច័ន្ទ 6 តុលា", "10:00")];
+      customerText.onTheWay("Kim"), customerText.done("BK-0001", "5 វិច្ឆិកា 2026"), customerText.unsubscribed("promo"), customerText.unsubscribed("all"),
+      customerText.noPromo, customerText.askContact, customerText.linkUsed, customerText.rescheduled("BK-0001", "ច័ន្ទ 6 តុលា", "10:00")];
     for (const m of all) { expect(lines4(m)).toBe(true); expect(m).toMatch(/^\p{Extended_Pictographic}/u); expect(m).not.toMatch(/\b(booking|status|link|token|password|error)\b/i); }
     expect(customerText.confirmed("BK-0001", "ច័ន្ទ 6 តុលា", "09:00", "Kim")).toBe("✅ បានបញ្ជាក់ #BK-0001\nច័ន្ទ 6 តុលា ម៉ោង 09:00 · ជាង Kim");
     expect(customerText.reminder("09:00", "លាងម៉ាស៊ីនត្រជាក់", "Kim")).toBe("⏰ ស្អែក ម៉ោង 09:00\nលាងម៉ាស៊ីនត្រជាក់ · ជាង Kim");
     expect(customerText.onTheWay("Kim")).toBe("🚗 ជាង Kim កំពុងមក");
     expect(customerText.done("BK-0001", "5 វិច្ឆិកា 2026")).toBe("✅ ការងាររួចរាល់ #BK-0001\nធានាដល់ 5 វិច្ឆិកា 2026");
-    expect(customerText.newPassword("4827")).toBe("🔑 ពាក្យសម្ងាត់ថ្មី៖ 4827");
+    expect(customerText.pinCode("123456", 10)).toBe("🔑 លេខកូដប្ដូរលេខសម្ងាត់៖ 123456\nប្រើក្នុង ១០ នាទី · កុំប្រាប់អ្នកណា");
     expect(customerText.unsubscribed("promo")).toBe("🔕 បានឈប់ តែប្រូម៉ូសិន\nបើកវិញបានគ្រប់ពេល");
   });
 });
@@ -1041,16 +950,14 @@ describe("D-120 test phones (Settings, CEO only): a test reaches the CEO only, h
     expect((await sql`select is_test from customers where id = ${rq.customer_id}`)[0]!.is_test).toBe(true);
     expect((await sql`select count(*)::int as n from notifications where user_id = ${s.users.gm01!}`)[0]!.n).toBe(gmBefore);
     expect((await notesOf(s.users.ceo!, "សំណើសុំតម្លៃ · Heng សាកល្បង")).at(-1)).toMatch(/^🧪 /);
-    // the tester links the chat; the CEO confirms → the password arrives there and signs in to the TEST account (not the real customer)
+    // the tester links the chat; the CEO confirms → the TEST record (not the real customer) is linked to that chat — no password (D-191)
     expect((await internal("customer-subscribed", { code: (await linkToken(tb.web_ref))!, subscriber_id: 91 })).json().ok).toBe(true);
     const staffIds = [s.users.admin!, s.users.gm01!, s.users.kim!, s.users.dara!, (await sql<{ id: string }[]>`select id from users where username = 'cfo'`)[0]!.id];
     const countOf = async () => (await sql<{ n: number }[]>`select count(*)::int as n from notifications where user_id = any(${sql.array(staffIds)}::uuid[])`)[0]!.n;
     const staffBefore = await countOf();
     expect((await confirmFree(ceo, (await requestOf(tb.id)).id)).status).toBe(200); // confirm = assigned too (whichever technician is free)
     expect(told(91).some((t) => t.startsWith(`✅ បានបញ្ជាក់ #${tb.number}`))).toBe(true); // the tester gets the real customer messages
-    const pw = told(91).map(pwIn).find(Boolean)!;
-    expect(pw).toMatch(/^\d{4}$/);
-    expect((await tryLogin(TEST_PHONE, pw)).statusCode).toBe(200);
+    expect(told(91).some((x) => /ពាក្យសម្ងាត់|លេខសម្ងាត់/.test(x))).toBe(false);
     expect((await sql`select tg_subscriber_id::text as sub from customers where id = ${tb.customer_id}`)[0]!.sub).toBe("91");
     // confirmed + assigned → cancel, by the CEO: the group, the technicians, Admin, GM and CFO hear nothing
     expect((await notesOf(s.users.ceo!, tb.number)).some((t) => t === `🧪 ${tb.number}`)).toBe(true); // the job message the group would get

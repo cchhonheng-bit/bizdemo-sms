@@ -100,7 +100,7 @@ describe("D-119 night rule: the pending-booking clock runs only 08:00–20:00 sh
     expect(NIGHT_CONFIRM.km).toBe("យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក");
     expect(customerText.received("BK-0007")).toContain("(≤៣០ នាទី)");
     expect(customerText.received("BK-0007", true)).toBe(`✅ បានទទួលការកក់ #BK-0007\n${NIGHT_CONFIRM.km}`);
-    expect(customerText.linked("BK-0007", "4827", true).split("\n")).toEqual(["✅ ភ្ជាប់រួចរាល់", `ការកក់ #BK-0007 · ${NIGHT_CONFIRM.km}`, "🔑 ពាក្យសម្ងាត់៖ 4827", "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ"]);
-    expect(customerText.linked("BK-0007", null)).not.toContain(NIGHT_CONFIRM.km);
+    expect(customerText.linked("BK-0007", true).split("\n")).toEqual(["✅ ភ្ជាប់រួចរាល់", `ការកក់ #BK-0007 · ${NIGHT_CONFIRM.km}`, "ដំណឹងការកក់នឹងមកដល់ទីនេះ"]); // D-191: never a password
+    expect(customerText.linked("BK-0007")).not.toContain(NIGHT_CONFIRM.km);
   });
 });
