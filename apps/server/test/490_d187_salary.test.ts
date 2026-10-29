@@ -68,7 +68,7 @@ describe("D-187 the salary on the user form, linked to payroll", () => {
 
   it("approve posts salaries $300 + benefits $50 / wages owed $350 (the map); paying «each» clears it against the mapped ABA account", async () => {
     const run = ((await acc(admin, "/payroll")).json as any[]).find((r) => r.period === month);
-    const [sal, ben, owed, aba] = await Promise.all(["salaries", "bonus", "payroll", "bank_aba"].map(mapped));
+    const [sal, ben, owed, aba] = (await Promise.all(["salaries", "bonus", "payroll", "bank_aba"].map(mapped))) as [string, string, string, string];
     const before = await Promise.all([sal, ben, owed, aba].map(bal));
     expect((await acc(ceo, `/payroll/${run.id}/approve`, {})).status).toBe(200);
     expect(await Promise.all([sal, ben, owed].map(bal))).toEqual([before[0]! + 30000, before[1]! + 5000, before[2]! - 35000]);
