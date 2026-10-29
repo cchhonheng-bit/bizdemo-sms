@@ -3,7 +3,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import { filterList, LIST_REPORTS, LIST_SPECS, PAY_STATUSES, type ListReport } from "@sms/shared";
-import { accountFacets, exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
+import { accountFacets, byBookingData, byBookingOptions, exportReport, listExport, previewReport, REPORTS, type Q, type Report } from "../services/excel.js";
 import { LIST_DEFS } from "../services/list-exports.js";
 
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -17,12 +17,14 @@ const query = z.object({ from: day.optional(), to: day.optional(), asof: day.opt
   role: z.string().regex(/^[a-z_]{2,20}$/).optional(), all: z.enum(["0", "1"]).optional(), days: z.string().regex(/^\d{1,2}$/).optional(), user: z.string().uuid().optional(),
   type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional(), paystatus: z.enum(PAY_STATUSES).optional(), // D-183
   dir: z.enum(["in", "out"]).optional(), sources: words, items: ids, // D-185: the account report's filters
-  party: z.string().transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)).pipe(z.array(z.string().regex(/^(?:[cu]\.[0-9a-f-]{36}|s\.[A-Za-z0-9_-]{1,400})$/)).max(200)).optional() }).strict();
+  party: z.string().transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)).pipe(z.array(z.string().regex(/^(?:[cu]\.[0-9a-f-]{36}|s\.[A-Za-z0-9_-]{1,400})$/)).max(200)).optional(),
+  bk: ids, mismatch: z.enum(["0", "1"]).optional() }).strict(); // D-189 «By Booking»: the bookings picked · only the mismatches
 
 /** the permission of the screen that shows the report */
 const PERM: Record<Report, string | string[]> = {
   "tech-withdrawals": "inventory.view", "stock-balance": "inventory.view", "stock-moves": "inventory.view", payables: ["cost.read", "inventory.manage"], "stock-reconcile": "cost.read",
   "account-report": "accounting.view", coa: "accounting.view", "trial-balance": "accounting.view", "income-statement": "accounting.view", "balance-sheet": "accounting.view", journal: "accounting.view", expenses: "accounting.view",
+  "by-booking": "cost.read", // D-189: costs and sales of each job
   bookings: "report.ops", "tech-performance": "report.ops", attendance: "report.ops", invoices: "report.finance", payments: "report.finance", receivables: "report.finance", customers: ["customer.manage", "report.ops"],
 };
 
@@ -50,6 +52,13 @@ export const exportsRoutes: FastifyPluginAsync = async (app) => {
     if (req.user!.role === "tech") throw new AppError("FORBIDDEN", 403); // technicians never export (D-171)
     return r;
   };
+  // D-189 «By Booking»: the booking picker · the jobs still to settle (the resolve panel) — the report's permission
+  const byBookingGate = (req: FastifyRequest) => { if (req.user!.role === "tech" || !(req.perms as string[]).includes("cost.read")) throw new AppError("FORBIDDEN", 403); };
+  app.get("/by-booking/options", { preHandler: app.requireAuth }, async (req) => { byBookingGate(req); return byBookingOptions(req.user!, query.parse(req.query ?? {})); });
+  app.get("/by-booking/mismatches", { preHandler: app.requireAuth }, async (req) => {
+    byBookingGate(req);
+    return (await byBookingData(req.user!, { ...query.parse(req.query ?? {}), mismatch: "1" })).bookings.map((b) => ({ booking_id: b.id, number: b.number, flags: b.flags, notes: b.notes, invoiced: b.invoiced }));
+  });
   // D-185: which filters the picked accounts support (the account report's panel shows only those) — the account report's permission
   app.get("/account-report/facets", { preHandler: app.requireAuth }, async (req) => {
     if (req.user!.role === "tech" || !(req.perms as string[]).includes("accounting.view")) throw new AppError("FORBIDDEN", 403);

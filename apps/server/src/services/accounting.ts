@@ -195,7 +195,7 @@ async function onEvent(t: Db, u: SessionUser, e: LedgerEvent): Promise<void> {
           // D-181: the debt account picked on the receipt; none → the supplier type's map key (D-178)
           if (owed) lines.push({ account: (m.kind === "reverse" ? m.opa : m.pa) ?? R[PAYABLE_KEY[sk] ?? "ap"], amount: -owed, memo: m.name, supplier });
         } else {
-          const counter = kind === "opening" ? R.opening : kind === "out" || kind === "out_job" || kind === "out_sale" ? cost : R.stock_adjust;
+          const counter = kind === "opening" ? R.opening : kind === "out" || kind === "out_job" || kind === "out_sale" || kind === "return" ? cost : R.stock_adjust; // D-189: a return goes back against the job cost
           lines.push({ account: counter, amount: -v, memo: m.name });
         }
       }

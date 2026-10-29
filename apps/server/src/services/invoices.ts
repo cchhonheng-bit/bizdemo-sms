@@ -10,12 +10,13 @@ import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { notifyUser } from "./telegram.js";
 import { applyDeposits } from "./deposits.js";
+import { jobStockMatch } from "./inventory.js";
 import { postInvoiceIssue, postInvoiceLineKind, postPayment, reverseSource } from "./ledger-hooks.js";
 import type { Tx } from "../lib/i18n.js";
 
 export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
-type Inv = { id: string; company_id: string; booking_id: string | null; customer_id: string; number: string; status: "draft" | "issued" | "void";
+type Inv = { id: string; company_id: string; booking_id: string | null; customer_id: string; number: string; status: "draft" | "issued" | "void"; is_extra: boolean;
   discount: number; discount_status: string; discount_requested: number | null; discount_by: string | null; customer_name: string };
 
 /** INV-YYMM-#### — YYMM in the company's time zone at `at`; the per-month counter row is locked by the upsert (BR-13 · AC-11 · AC-21) */
@@ -51,7 +52,7 @@ async function sums(db: Db, id: string): Promise<{ subtotal: number; paid: numbe
 const payStatus = payStatusOf; // D-183: the one rule of every debt screen and download
 
 async function lockInvoice(t: Db, user: SessionUser, id: string): Promise<Inv> {
-  const i = (await t<Inv[]>`select i.id, i.company_id, i.booking_id, i.customer_id, i.number, i.status, i.discount, i.discount_status, i.discount_requested, i.discount_by, c.name as customer_name
+  const i = (await t<Inv[]>`select i.id, i.company_id, i.booking_id, i.customer_id, i.number, i.status, i.is_extra, i.discount, i.discount_status, i.discount_requested, i.discount_by, c.name as customer_name
     from invoices i join customers c on c.id = i.customer_id where i.id = ${id} and i.company_id = ${user.companyId} for update of i`)[0];
   if (!i) throw notFound();
   return i;
@@ -74,6 +75,47 @@ async function openInvoice(db: Db, bookingId: string) {
 }
 
 /** lines suggested for a reviewed job: the accepted quote (type B), else the booked service + the materials of the report, at catalog prices */
+/** D-189: the stock a technician took for the job (withdrawn − returned), item by item, as goods lines linked to the item — only what
+ *  the other lines (or invoices) do not cover yet, per stock account (the reconciliation's own rule) */
+async function stockLines(db: Db, companyId: string, bookingId: string, covered: Map<string, number>): Promise<InvoiceLineInput[]> {
+  const items = await db<{ item_id: string; name: string; unit: string | null; price: number | null; acc: string; qty: string }[]>`
+    select m.item_id::text as item_id, i.name_km as name, i.unit, i.sell_price::int as price, a.id::text as acc, sum(-m.qty)::text as qty
+    from stock_moves m join catalog_items i on i.id = m.item_id left join account_map dm on dm.company_id = m.company_id and dm.key = 'inventory'
+      join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id)
+    where m.company_id = ${companyId} and m.kind in ('out', 'return') and m.ref_type = 'booking' and m.ref_id = ${bookingId}
+    group by 1, 2, 3, 4, 5 having sum(-m.qty) > 0 order by sum(-m.qty) desc`;
+  const left = new Map(covered), out: InvoiceLineInput[] = [];
+  for (const it of items) {
+    const c = Math.min(Number(it.qty), left.get(it.acc) ?? 0);
+    left.set(it.acc, (left.get(it.acc) ?? 0) - c);
+    const q = Math.round((Number(it.qty) - c) * 1000) / 1000;
+    if (q > 0) out.push({ catalog_item_id: it.item_id, description: it.name, kind: "product", qty: q, unit: it.unit ?? "", unit_price: it.price ?? 0 });
+  }
+  return out;
+}
+/** per stock account, what invoice lines already cover (a stock item sold directly, or a price-list line linked to the account) */
+async function coveredBy(db: Db, companyId: string, lines: InvoiceLineInput[]): Promise<Map<string, number>> {
+  const ids = [...new Set(lines.map((l) => l.catalog_item_id).filter((x): x is string => !!x))];
+  const acc = ids.length ? new Map((await db<{ id: string; acc: string | null }[]>`select id::text as id, coalesce(stock_link_account_id, case when is_stock then inventory_account_id end)::text as acc
+    from catalog_items where company_id = ${companyId} and id = any(${db.array(ids)}::uuid[])`).map((r) => [r.id, r.acc])) : new Map<string, string | null>();
+  const m = new Map<string, number>();
+  for (const l of lines) { const a = l.catalog_item_id ? acc.get(l.catalog_item_id) : null; if (a) m.set(a, (m.get(a) ?? 0) + Number(l.qty)); }
+  return m;
+}
+
+/** D-189: an extra invoice for a job already invoiced — what is still not billed of the stock taken for it (the «By Booking» report's
+ *  «ចេញវិក្កយបត្របន្ថែម»); the Admin edits it like any draft */
+export async function prefillExtra(user: SessionUser, bookingId: string) {
+  const b = (await sql<{ id: string; number: string; customer_id: string; customer_name: string; service_text: string }[]>`select b.id, b.number, b.customer_id, c.name as customer_name, b.service_text
+    from bookings b join customers c on c.id = b.customer_id where b.id = ${bookingId} and b.company_id = ${user.companyId}`)[0];
+  if (!b) throw notFound();
+  if (!(await sql`select 1 from invoices where booking_id = ${b.id} and status = 'issued' and not is_extra`).length) throw new AppError("NOT_INVOICED", 400);
+  const covered = new Map<string, number>();
+  for (const x of (await jobStockMatch(sql, user.companyId, [b.id])).get(b.id) ?? []) covered.set(x.account_id, x.invoiced + x.variance);
+  return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, warranty_of_number: null, extra: true,
+    lines: await stockLines(sql, user.companyId, b.id, covered) };
+}
+
 export async function prefill(user: SessionUser, bookingId: string) {
   const b = (await sql<{ id: string; number: string; status: string; service_text: string; service_item_id: string | null; web_lines: { id: string; qty: number }[] | null; customer_id: string; customer_name: string; warranty_of_number: string | null }[]>`
     select b.id, b.number, b.status, b.service_text, b.service_item_id, b.web_lines, b.customer_id, c.name as customer_name, pb.number as warranty_of_number
@@ -102,16 +144,22 @@ export async function prefill(user: SessionUser, bookingId: string) {
     if (!lines.length) lines.push({ catalog_item_id: null, description: b.service_text.slice(0, 300), kind: "service", qty: 1, unit: "", unit_price: 0 });
   }
   lines.push(...done); // D-140 F: work added on site, as Admin / GM confirmed it
+  lines.push(...await stockLines(sql, user.companyId, b.id, await coveredBy(sql, user.companyId, lines))); // D-189: the stock taken for the job, not covered above
   // FR-1201: a warranty job is free — same lines, $0
   const free = !!b.warranty_of_number;
   lines = lines.map((l) => ({ catalog_item_id: l.catalog_item_id ?? null, description: l.description, kind: l.kind, qty: Number(l.qty), unit: l.unit, unit_price: free ? 0 : Number(l.unit_price) }));
   return { booking_id: b.id, booking_number: b.number, customer_id: b.customer_id, customer_name: b.customer_name, service_text: b.service_text, warranty_of_number: b.warranty_of_number, lines };
 }
 
-export async function createInvoice(user: SessionUser, ip: string | null, v: { booking_id?: string; customer_id?: string; lines: InvoiceLineInput[]; notes?: string | null }) {
+export async function createInvoice(user: SessionUser, ip: string | null, v: { booking_id?: string; customer_id?: string; lines: InvoiceLineInput[]; notes?: string | null; extra?: boolean }) {
   return tx(user.id, async (t) => {
     let customerId: string, bookingId: string | null = null;
-    if (v.booking_id) {
+    if (v.booking_id && v.extra) { // D-189: beside the job's issued invoice, for what was forgotten
+      const b = (await t<{ id: string; customer_id: string }[]>`select id, customer_id from bookings where id = ${v.booking_id} and company_id = ${user.companyId} for update`)[0];
+      if (!b) throw notFound();
+      if (!(await t`select 1 from invoices where booking_id = ${b.id} and status = 'issued' and not is_extra`).length) throw new AppError("NOT_INVOICED", 400);
+      customerId = b.customer_id; bookingId = b.id;
+    } else if (v.booking_id) {
       const b = (await t<{ id: string; status: string; customer_id: string }[]>`select id, status, customer_id from bookings where id = ${v.booking_id} and company_id = ${user.companyId} for update`)[0];
       if (!b) throw notFound();
       if (await openInvoice(t, b.id)) throw new AppError("INVOICE_EXISTS", 409);
@@ -124,8 +172,8 @@ export async function createInvoice(user: SessionUser, ip: string | null, v: { b
     }
     await checkItems(t, user, v.lines);
     const number = await nextInvoiceNumber(t, user.companyId);
-    const id = (await t<{ id: string }[]>`insert into invoices (company_id, booking_id, customer_id, number, notes, fx_rate_khr, created_by)
-      values (${user.companyId}, ${bookingId}, ${customerId}, ${number}, ${v.notes?.trim() || null}, ${await fxOf(t, user.companyId)}, ${user.id}) returning id`)[0]!.id;
+    const id = (await t<{ id: string }[]>`insert into invoices (company_id, booking_id, customer_id, number, notes, fx_rate_khr, created_by, is_extra)
+      values (${user.companyId}, ${bookingId}, ${customerId}, ${number}, ${v.notes?.trim() || null}, ${await fxOf(t, user.companyId)}, ${user.id}, ${!!(bookingId && v.extra)}) returning id`)[0]!.id;
     await writeLines(t, id, v.lines);
     await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.create", table: "invoices", rowId: id, new: { number, booking_id: bookingId, customer_id: customerId, lines: v.lines.length, subtotal: subtotalOf(v.lines) }, ip });
     return { id, number };
@@ -210,7 +258,7 @@ export async function issueInvoice(user: SessionUser, ip: string | null, id: str
     await t`update invoices set status = 'issued', issued_at = ${back ? t`(${date}::date + time '12:00') at time zone ${d.tz}` : t`now()`}, issued_by = ${user.id}, fx_rate_khr = ${fx} where id = ${id}`;
     const { subtotal } = await sums(t, id);
     const total = subtotal - i.discount;
-    if (i.booking_id) {
+    if (i.booking_id && !i.is_extra) { // D-189: an extra invoice leaves the job's status and deposits alone
       const deposited = await applyDeposits(t, user, { id, booking_id: i.booking_id, total }); // deposits taken at quote acceptance
       await t`update bookings set status = 'invoiced' where id = ${i.booking_id}`;
       if (total <= 0 || deposited >= total) await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
@@ -279,7 +327,7 @@ export async function recordPayment(user: SessionUser, ip: string | null, id: st
       ids.push(pid);
     }
     const nowPaid = paid + sum;
-    if (i.booking_id) {
+    if (i.booking_id && !i.is_extra) {
       const st = (await t<{ status: string }[]>`select status from bookings where id = ${i.booking_id} for update`)[0]!.status;
       if (nowPaid >= total && st !== "closed") await t`update bookings set status = 'closed' where id = ${i.booking_id}`;
       else if (nowPaid < total && st === "invoiced") await t`update bookings set status = 'partially_paid' where id = ${i.booking_id}`;
@@ -298,7 +346,7 @@ async function assertVoidable(t: Db, i: Inv) {
 
 async function doVoid(t: Db, user: SessionUser, i: Inv, reason: string, ip: string | null) {
   await t`update invoices set status = 'void', voided_at = now(), voided_by = ${user.id}, void_reason = ${reason} where id = ${i.id}`;
-  if (i.booking_id) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
+  if (i.booking_id && !i.is_extra) await t`update bookings set status = 'reviewed' where id = ${i.booking_id} and status = 'invoiced'`;
   await audit(t, { companyId: i.company_id, userId: user.id, action: "invoice.void", table: "invoices", rowId: i.id, new: { number: i.number, reason }, ip });
   await reverseSource(t, user, "invoice", i.id, reason);
   await tellBoss(t, i, user, "invoice.void", { km: `🚫 មោឃៈ · ${i.number}`, en: `🚫 VOID · ${i.number}` },
@@ -346,7 +394,7 @@ export async function decideVoid(user: SessionUser, ip: string | null, id: strin
 
 // ---------- read ----------
 export async function getInvoice(user: SessionUser, perms: string[], id: string) {
-  const i = (await sql`select i.id, i.number, i.status, i.notes, i.booking_id, i.customer_id, i.fx_rate_khr::float as fx_rate_khr, i.discount, i.discount_status,
+  const i = (await sql`select i.id, i.number, i.status, i.is_extra, i.notes, i.booking_id, i.customer_id, i.fx_rate_khr::float as fx_rate_khr, i.discount, i.discount_status,
       i.discount_requested, i.discount_note, i.created_at, i.issued_at, i.voided_at, i.void_reason,
       b.number as booking_number, b.service_text, coalesce(b.address, c.address) as address, c.name as customer_name, c.phones as customer_phones,
       cu.full_name as created_by_name, iu.full_name as issued_by_name, vu.full_name as voided_by_name, du.full_name as discount_by_name

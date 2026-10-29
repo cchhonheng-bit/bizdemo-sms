@@ -9,7 +9,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useSearchParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, toCents } from "@sms/shared";
-import { PackageMinus, PackagePlus, SlidersHorizontal } from "lucide-react";
+import { PackageMinus, PackagePlus, SlidersHorizontal, Undo2 } from "lucide-react";
 import { api, errCode, fmtDateTime, type StockAccount, type StockItem, type StockPay } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, Field, Input, Select, Skeleton } from "@/components/ui";
@@ -19,9 +19,10 @@ import RangePicker from "@/features/reports/RangePicker";
 import { todayLocal } from "@/features/invoices/util";
 import { Payables } from "./Payables"; // D-167
 import MonthEnd from "./MonthEnd";
+import ByBooking, { ReturnDialog } from "./ByBooking"; // D-189
 
-type Tab = "stock" | "withdrawals" | "moves" | "monthend" | "reconcile" | "payables";
-type Op = "in" | "out" | "adjust";
+type Tab = "stock" | "withdrawals" | "moves" | "monthend" | "reconcile" | "payables" | "bybooking"; // D-189: bybooking = «តាមការងារ»
+type Op = "in" | "out" | "adjust" | "return";
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(3).replace(/0+$/, ""));
 const signed = (c: number) => `${c < 0 ? "−" : "+"}${formatUsd(Math.abs(c))}`;
 
@@ -29,7 +30,7 @@ export default function InventoryPage() {
   const { t } = useTranslation();
   const { can } = useAuth();
   const manage = can("inventory.manage");
-  const tabs: Tab[] = can("cost.read") ? ["stock", "withdrawals", "moves", "monthend", "reconcile", "payables"] : can("inventory.manage") ? ["stock", "withdrawals", "moves", "monthend", "payables"] : ["stock", "withdrawals", "moves", "monthend"]; // D-167 · D-171
+  const tabs: Tab[] = can("cost.read") ? ["stock", "withdrawals", "bybooking", "moves", "monthend", "reconcile", "payables"] : can("inventory.manage") ? ["stock", "withdrawals", "moves", "monthend", "payables"] : ["stock", "withdrawals", "moves", "monthend"]; // D-167 · D-171
   const [sp] = useSearchParams();
   const [tab, setTab] = useState<Tab>(() => (tabs.includes(sp.get("tab") as Tab) ? (sp.get("tab") as Tab) : "stock"));
   return (
@@ -38,7 +39,7 @@ export default function InventoryPage() {
       <div className="flex rounded-md border border-grey-line overflow-x-auto text-sm" role="tablist">
         {tabs.map((k) => <button key={k} role="tab" aria-selected={tab === k} data-testid={`inv-tab-${k}`} className={`flex-1 shrink-0 whitespace-nowrap px-3 min-h-[44px] ${tab === k ? "bg-navy text-white" : "bg-white"}`} onClick={() => setTab(k)}>{t(`inventory.tab.${k}`)}</button>)}
       </div>
-      {tab === "stock" ? <Stock manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : tab === "withdrawals" ? <ReportScreen report="tech-withdrawals" needs={["range", "technician", "booker"]} /> : tab === "moves" ? <ReportScreen report="stock-moves" needs={["range"]} /> : <Reconcile />}
+      {tab === "stock" ? <Stock manage={manage} /> : tab === "bybooking" ? <ByBooking manage={manage} /> : tab === "monthend" ? <MonthEnd /> : tab === "payables" ? <Payables manage={manage} /> : tab === "withdrawals" ? <ReportScreen report="tech-withdrawals" needs={["range", "technician", "booker"]} /> : tab === "moves" ? <ReportScreen report="stock-moves" needs={["range"]} /> : <Reconcile />}
     </div>
   );
 }
@@ -73,10 +74,11 @@ function Stock({ manage }: { manage: boolean }) {
     <>
       <ReportToolbar report="stock-balance" params={{ asof: todayLocal() }} />
       {manage && (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <Button variant="primary" onClick={() => setOp("in")} data-testid="op-in"><PackagePlus size={16} /> {t("inventory.op.in")}</Button>
           <Button onClick={() => setOp("out")} data-testid="op-out"><PackageMinus size={16} /> {t("inventory.op.out")}</Button>
           <Button onClick={() => setOp("adjust")} data-testid="op-adjust"><SlidersHorizontal size={16} /> {t("inventory.op.adjust")}</Button>
+          <Button onClick={() => setOp("return")} data-testid="op-return"><Undo2 size={16} /> {t("inventory.op.return")}</Button>
         </div>
       )}
       <p className="text-xs text-muted">{t("inventory.separate_hint")}</p>
@@ -130,6 +132,7 @@ function Stock({ manage }: { manage: boolean }) {
       {op === "in" && <StockInDialog items={q.data ?? []} onClose={() => setOp(null)} />}
       {op === "out" && <StockOutDialog items={q.data ?? []} onClose={() => setOp(null)} />}
       {op === "adjust" && <AdjustDialog items={q.data ?? []} onClose={() => setOp(null)} />}
+      {op === "return" && <ReturnDialog onClose={() => setOp(null)} />}
       {cardOf && <CardDialog item={cardOf} manage={manage} onClose={() => setCardOf(null)} />}
     </>
   );

@@ -15,7 +15,7 @@ import { khrToCents, payStatusOf, type SupplierKind } from "@sms/shared";
 import { notifyUser } from "./telegram.js";
 
 export type Pay = "cash_usd" | "cash_khr" | "aba" | "acleda" | "credit";
-type Kind = "opening" | "in" | "out" | "adjust" | "transfer_out" | "transfer_in" | "reverse" | "out_job" | "out_sale";
+type Kind = "opening" | "in" | "out" | "adjust" | "transfer_out" | "transfer_in" | "reverse" | "out_job" | "out_sale" | "return"; // D-189: return = leftovers back from a job
 
 // ---------- the warehouse (the only place stock lives since D-144) ----------
 export async function ensureLocations(db: Db, companyId: string): Promise<void> {
@@ -356,12 +356,12 @@ export async function reconcile(user: SessionUser, q: { from: string; to: string
     from stock_moves m join catalog_items i on i.id = m.item_id left join account_map dm on dm.company_id = m.company_id and dm.key = 'inventory'
       left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id) left join users u on u.id = m.technician_id
       left join bookings b on b.id::text = m.ref_id left join customers cu on cu.id = b.customer_id
-    where m.company_id = ${c} and m.kind = 'out' and m.move_date between ${q.from}::date and ${q.to}::date
+    where m.company_id = ${c} and m.kind in ('out', 'return') and m.move_date between ${q.from}::date and ${q.to}::date -- D-189: what came back is not used
       ${q.technician ? sql`and m.technician_id = ${q.technician}` : sql``} ${q.borey ? sql`and cu.borey_id = ${q.borey}` : sql``}
     group by 1, 2, 3, 4, 5, 6`;
   const invs = await sql<{ booking_id: string | null; number: string; grp: string; grp_name: string; qty: string }[]>`
     select i.booking_id, i.number, sa.code as grp, sa.name_km as grp_name, sum(l.qty)::text as qty
-    from invoices i join invoice_lines l on l.invoice_id = i.id join catalog_items ci on ci.id = l.catalog_item_id join accounts sa on sa.id = ci.stock_link_account_id
+    from invoices i join invoice_lines l on l.invoice_id = i.id join catalog_items ci on ci.id = l.catalog_item_id join accounts sa on sa.id = coalesce(ci.stock_link_account_id, case when ci.is_stock then ci.inventory_account_id end) -- D-189: a stock item sold directly
       join companies co on co.id = i.company_id left join bookings b on b.id = i.booking_id left join customers cu on cu.id = i.customer_id
     where i.company_id = ${c} and i.status = 'issued' and (i.issued_at at time zone co.timezone)::date between ${q.from}::date and ${q.to}::date
       ${q.technician ? sql`and exists (select 1 from booking_technicians bt where bt.booking_id = i.booking_id and bt.user_id = ${q.technician})` : sql``}
@@ -450,4 +450,93 @@ export async function payables(user: SessionUser, db: Db = sql) {
     const out = Number(p?.paid ?? 0), owed = Number(b?.owed ?? 0) + o - out;
     return { supplier, owed, purchases: Number(b?.purchases ?? 0), opening: o, paid: out, invoices: b?.invoices ?? [], last_purchase: b?.last ?? null, last_payment: p?.last ?? null, pay_status: payStatusOf(owed + out, out) };
   }).filter((p) => p.owed !== 0 || p.paid || p.purchases).sort((a, b) => b.owed - a.owed || a.supplier.localeCompare(b.supplier));
+}
+
+// ---------- D-189 (client 29-10): leftovers back from a job · variances · withdrawals vs invoice per job ----------
+const r3 = (n: number) => Math.round(n * 1000) / 1000;
+/** what each technician still holds: withdrawn for a job (or a place) − already returned, per item, at the job's own withdrawal cost */
+export async function openWithdrawals(db: Db, companyId: string, f: { technician?: string | null; booking?: string | null } = {}) {
+  const rows = await db<{ booking_id: string | null; booking_number: string | null; place: string | null; technician_id: string; technician: string; item_id: string; code: string | null; name: string;
+      unit: string | null; out_qty: string; back_qty: string; out_value: string; last: string }[]>`
+    select m.ref_id as booking_id, b.number as booking_number, case when m.ref_id is null then m.place end as place, m.technician_id::text as technician_id, u.full_name as technician,
+      m.item_id::text as item_id, i.code, i.name_km as name, i.unit,
+      sum(case when m.kind = 'out' then -m.qty else 0 end)::text as out_qty, sum(case when m.kind = 'return' then m.qty else 0 end)::text as back_qty,
+      sum(case when m.kind = 'out' then -m.value_cents else 0 end)::text as out_value, max(m.move_date)::text as last
+    from stock_moves m join catalog_items i on i.id = m.item_id join users u on u.id = m.technician_id left join bookings b on m.ref_type = 'booking' and b.id::text = m.ref_id
+    where m.company_id = ${companyId} and m.kind in ('out', 'return') and m.technician_id is not null
+      ${f.technician ? db`and m.technician_id = ${f.technician}` : db``} ${f.booking ? db`and m.ref_id = ${f.booking}` : db``}
+    group by 1, 2, 3, 4, 5, 6, 7, 8, 9`;
+  return rows.map((r) => { const out = Number(r.out_qty), back = Number(r.back_qty);
+    return { booking_id: r.booking_id, booking_number: r.booking_number, place: r.place, technician_id: r.technician_id, technician: r.technician, item_id: r.item_id, code: r.code, name: r.name, unit: r.unit,
+      withdrawn: r3(out), returned: r3(back), left: r3(out - back), unit_cost: out > 0 ? Number(r.out_value) / out : 0, last: r.last }; })
+    .filter((r) => r.left > 0.0005).sort((a, b) => b.last.localeCompare(a.last) || (a.booking_number ?? "").localeCompare(b.booking_number ?? ""));
+}
+export const listOpenWithdrawals = (user: SessionUser, f: { technician?: string | null; booking?: string | null }) => openWithdrawals(sql, user.companyId, f);
+
+/** «ត្រឡប់ចូលស្តុក»: what a technician did not use comes back — never more than they still hold for that job / place; at the job's own
+ *  withdrawal cost (the books: Dr stock / Cr the job's cost); audited */
+export async function returnStock(user: SessionUser, ip: string | null, v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string | null; note?: string | null }) {
+  return tx(user.id, async (t) => {
+    const loc = await warehouseId(t, user.companyId);
+    const place = v.booking_id ? null : v.place?.trim().slice(0, 120) || null;
+    if (!v.booking_id && !place) throw new AppError("PLACE_REQUIRED", 400);
+    const held = (await openWithdrawals(t, user.companyId, { technician: v.technician_id, booking: v.booking_id ?? null }))
+      .find((r) => r.item_id === v.item_id && (v.booking_id ? r.booking_id === v.booking_id : r.booking_id === null && r.place === place));
+    if (!held || v.qty > held.left + 1e-9) throw new AppError("RETURN_TOO_MUCH", 400, { left: held?.left ?? 0 });
+    const id = await move(t, user, { item: v.item_id, location: loc, kind: "return", qty: v.qty, value: Math.round(held.unit_cost * v.qty), ref_type: v.booking_id ? "booking" : "out",
+      ref_id: v.booking_id ?? null, technician: v.technician_id, place, reason: v.note?.trim() || null, date: v.date });
+    const balance = await balanceOf(t, v.item_id, loc);
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.return", table: "stock_moves", rowId: String(id),
+      new: { item_id: v.item_id, qty: v.qty, technician: held.technician, booking: held.booking_number, place, date: v.date ?? null, balance }, ip });
+    await postStock(t, user, [id]);
+    return { id, balance, left: r3(held.left - v.qty) };
+  });
+}
+
+/** «កត់ជាខូច/បាត់»: a job's stock that was neither used on the invoice nor returned is recorded as lost / broken with a reason, per stock
+ *  account — the report stops flagging that quantity (the cost stays on the job); audited */
+export async function recordVariance(user: SessionUser, ip: string | null, v: { booking_id: string; account_id: string; qty: number; reason: string }) {
+  const why = v.reason.trim();
+  if (why.length < 3) throw new AppError("REASON_REQUIRED", 400);
+  return tx(user.id, async (t) => {
+    const b = (await t<{ number: string }[]>`select number from bookings where id = ${v.booking_id} and company_id = ${user.companyId}`)[0];
+    if (!b) throw notFound();
+    if (!(await t`select 1 from accounts where id = ${v.account_id} and company_id = ${user.companyId}`).length) throw notFound();
+    const id = (await t<{ id: number }[]>`insert into stock_variances (company_id, booking_id, account_id, qty, reason, created_by)
+      values (${user.companyId}, ${v.booking_id}, ${v.account_id}, ${v.qty}, ${why}, ${user.id}) returning id`)[0]!.id;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "stock.variance", table: "stock_variances", rowId: String(id), new: { booking: b.number, account_id: v.account_id, qty: v.qty, reason: why }, ip });
+    return { id };
+  });
+}
+
+export type JobStock = { account_id: string; code: string; name: string; unit: string | null; out: number; invoiced: number; variance: number; short: number };
+/** per job and stock account (the reconciliation's own rule): withdrawn − returned · invoiced (lines selling a stock item, or price-list
+ *  lines linked to that stock account) · recorded as lost / broken → what is still not accounted for (> 0 = the report flags it) */
+export async function jobStockMatch(db: Db, companyId: string, bookingIds: string[]): Promise<Map<string, JobStock[]>> {
+  const out = new Map<string, JobStock[]>();
+  if (!bookingIds.length) return out;
+  const outs = await db<{ b: string; acc: string; code: string; name: string; unit: string | null; qty: string }[]>`
+    select m.ref_id as b, a.id::text as acc, a.code, a.name_km as name, min(i.unit) as unit, sum(-m.qty)::text as qty
+    from stock_moves m join catalog_items i on i.id = m.item_id left join account_map dm on dm.company_id = m.company_id and dm.key = 'inventory'
+      join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id)
+    where m.company_id = ${companyId} and m.kind in ('out', 'return') and m.ref_type = 'booking' and m.ref_id = any(${db.array(bookingIds)}::text[]) group by 1, 2, 3, 4`;
+  const invs = await db<{ b: string; acc: string; code: string; name: string; unit: string | null; qty: string }[]>`
+    select i.booking_id::text as b, a.id::text as acc, a.code, a.name_km as name, min(l.unit) as unit, sum(l.qty)::text as qty
+    from invoices i join invoice_lines l on l.invoice_id = i.id join catalog_items ci on ci.id = l.catalog_item_id
+      join accounts a on a.id = coalesce(ci.stock_link_account_id, case when ci.is_stock then ci.inventory_account_id end)
+    where i.company_id = ${companyId} and i.status = 'issued' and i.booking_id = any(${db.array(bookingIds)}::uuid[]) group by 1, 2, 3, 4`;
+  const vars = await db<{ b: string; acc: string; qty: string }[]>`select booking_id::text as b, account_id::text as acc, sum(qty)::text as qty from stock_variances
+    where company_id = ${companyId} and booking_id = any(${db.array(bookingIds)}::uuid[]) group by 1, 2`;
+  const at = (b: string, acc: string, code: string, name: string, unit: string | null) => {
+    const list = out.get(b) ?? []; out.set(b, list);
+    let x = list.find((y) => y.account_id === acc);
+    if (!x) { x = { account_id: acc, code, name, unit, out: 0, invoiced: 0, variance: 0, short: 0 }; list.push(x); }
+    if (!x.unit && unit) x.unit = unit;
+    return x;
+  };
+  for (const o of outs) at(o.b, o.acc, o.code, o.name, o.unit).out += Number(o.qty);
+  for (const i of invs) at(i.b, i.acc, i.code, i.name, i.unit).invoiced += Number(i.qty);
+  for (const v of vars) { const x = out.get(v.b)?.find((y) => y.account_id === v.acc); if (x) x.variance += Number(v.qty); }
+  for (const list of out.values()) for (const x of list) { x.out = r3(x.out); x.invoiced = r3(x.invoiced); x.variance = r3(x.variance); x.short = r3(x.out - x.invoiced - x.variance); }
+  return out;
 }

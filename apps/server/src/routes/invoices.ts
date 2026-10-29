@@ -5,7 +5,7 @@ import { z } from "zod";
 import { PAY_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
 import {
-  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
+  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, prefillExtra, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
 } from "../services/invoices.js";
 import { invoiceJournal } from "../services/accounting.js";
 
@@ -32,13 +32,16 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
   });
   app.get("/debts", async (req) => debts(req.user!, z.object({ paystatus: z.enum(PAY_STATUSES).optional() }).parse(req.query ?? {}).paystatus)); // D-183
   app.get("/uninvoiced", async (req) => uninvoiced(req.user!.companyId)); // A1
-  app.get("/prefill", { preHandler: app.requirePerm("invoice.issue") }, async (req) => prefill(req.user!, z.object({ booking: z.string().uuid() }).parse(req.query ?? {}).booking));
+  app.get("/prefill", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
+    const q = z.object({ booking: z.string().uuid(), extra: z.enum(["0", "1"]).optional() }).parse(req.query ?? {}); // D-189: «1» = an extra invoice
+    return q.extra === "1" ? prefillExtra(req.user!, q.booking) : prefill(req.user!, q.booking);
+  });
   app.get("/:id", async (req) => getInvoice(req.user!, req.perms, idParam.parse(req.params).id));
   // D-142 «ការកត់ត្រាគណនេយ្យ»: the invoice's entries, line by line (CFO / CEO / Admin — accounting.view)
   app.get("/:id/journal", { preHandler: app.requirePerm("accounting.view") }, async (req) => invoiceJournal(req.user!, idParam.parse(req.params).id));
 
   app.post("/", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
-    const v = z.object({ booking_id: z.string().uuid().optional(), customer_id: z.string().uuid().optional(), lines, notes: z.string().max(2000).optional().nullable() })
+    const v = z.object({ booking_id: z.string().uuid().optional(), customer_id: z.string().uuid().optional(), lines, notes: z.string().max(2000).optional().nullable(), extra: z.boolean().optional() })
       .strict().refine((x) => !!x.booking_id !== !!x.customer_id, "BOOKING_OR_CUSTOMER").parse(req.body);
     return createInvoice(req.user!, req.ip, v);
   });

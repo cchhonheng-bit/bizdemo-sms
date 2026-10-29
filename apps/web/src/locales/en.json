@@ -1052,7 +1052,8 @@
       "NOT_VOIDABLE": "This line cannot be voided",
       "DEPOSIT_PAYMENT": "Comes from a deposit — correct the deposit",
       "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
-      "EXTRAS_PENDING": "Review the work added by the technician first (the job page)"
+      "EXTRAS_PENDING": "Review the work added by the technician first (the job page)",
+      "NOT_INVOICED": "This job has no invoice yet"
     },
     "journal": "Accounting entries",
     "journal_none": "Nothing posted yet — the books have not started, or the invoice is not issued",
@@ -1290,12 +1291,14 @@
       "reconcile": "Reconciliation",
       "payables": "Owed to suppliers",
       "withdrawals": "Withdrawals",
-      "moves": "Stock moves"
+      "moves": "Stock moves",
+      "bybooking": "By booking"
     },
     "op": {
       "in": "Stock in",
       "adjust": "Adjust",
-      "out": "Stock out"
+      "out": "Stock out",
+      "return": "Return to stock"
     },
     "value_total": "Stock value",
     "none": "No stock yet — press «Stock in» to start",
@@ -1332,7 +1335,8 @@
       "transfer_out": "Transfer out",
       "transfer_in": "Transfer in",
       "reverse": "Reversal",
-      "out": "Stock out (technician)"
+      "out": "Stock out (technician)",
+      "return": "Returned by the technician"
     },
     "err": {
       "INSUFFICIENT_STOCK": "Not enough stock",
@@ -1357,7 +1361,8 @@
       "SUPPLIER_REQUIRED": "Something is owed → the supplier's name is needed",
       "BAD_METHOD": "The method does not match the currency",
       "ITEM_HAS_STOCK": "Still in stock — stock it out or adjust it to 0 first",
-      "NOT_DEBT_ACCOUNT": "Pick an active debt (liability) account"
+      "NOT_DEBT_ACCOUNT": "Pick an active debt (liability) account",
+      "RETURN_TOO_MUCH": "More than the technician holds"
     },
     "cancelled_cost": "Cancelled · job cost",
     "me_date": "As of",
@@ -1434,7 +1439,19 @@
     "debt_account_hint": "The account the amount still owed is recorded on",
     "debt_auto": "As last time",
     "pay_from_debt": "Clear from debt account",
-    "pay_auto": "Automatic (in account order)"
+    "pay_auto": "Automatic (in account order)",
+    "return_hint": "Pick the technician, then what they still hold (for a job or a place) — never more than that",
+    "holds": "holds {{left}} {{unit}}",
+    "holds_none": "Holds nothing",
+    "returned_ok": "Returned to stock",
+    "settle_title": "Jobs to settle ({{n}})",
+    "settle_hint": "More stock withdrawn than invoiced — choose one: return to stock · invoice · lost / broken",
+    "settle_line": "withdrawn {{out}} · invoiced {{inv}} · unaccounted {{short}} {{unit}}",
+    "mismatch": "Mismatch",
+    "extra_invoice": "Extra invoice",
+    "make_invoice": "Make the invoice",
+    "lost": "Lost / broken",
+    "lost_reason": "Reason"
   },
   "acct": {
     "title": "Accounting",
@@ -1994,7 +2011,9 @@
     "zone_outside": "Outside",
     "item": "Item",
     "q": "Search",
-    "q_hint": "Description · invoice · BK · name · address"
+    "q_hint": "Description · invoice · BK · name · address",
+    "bk": "Jobs",
+    "mismatch": "Only mismatches"
   },
   "paystatus": {
     "label": "Debt status",

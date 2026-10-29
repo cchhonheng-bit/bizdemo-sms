@@ -1,6 +1,6 @@
 // D-171: a report screen whose table IS the file — the same builder on the server answers the table (.json) and the file (.xlsx), with the
 // same filters from the shared toolbar (date range · as-of · technicians · bookers · accounts with search and «ជ្រើសទាំងអស់»).
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
@@ -14,7 +14,7 @@ import { todayLocal } from "@/features/invoices/util";
 import { isDebtAccount, type PayStatus } from "@sms/shared";
 import { PayStatusSelect } from "@/components/PayStatusSelect";
 
-export type Need = "range" | "asof" | "technician" | "booker" | "account";
+export type Need = "range" | "asof" | "technician" | "booker" | "account" | "bk" | "mismatch"; // D-189: bk = bookings picked · mismatch = only the mismatches
 type Preview = { title_km: string; title_en: string; filters: string[]; rows: number; sheets: { name: string; rows: XCell[][]; truncated: number }[] };
 async function getJson<T>(url: string): Promise<T> {
   const r = await fetch(url, { credentials: "same-origin" });
@@ -43,20 +43,23 @@ export function MultiPick({ label, options, value, onChange, testid }: { label: 
   );
 }
 
-export function ReportScreen({ report, needs }: { report: ExportReport; needs: Need[] }) {
+export function ReportScreen({ report, needs, below }: { report: ExportReport; needs: Need[]; below?: (p: ExportParams) => ReactNode }) {
   const { t, i18n } = useTranslation();
   const has = (n: Need) => needs.includes(n);
   const [range, setRange] = useState<Range>(presetRange("month", todayLocal()));
   const [asof, setAsof] = useState(todayLocal());
   const [technician, setTechnician] = useState<string[]>([]), [booker, setBooker] = useState<string[]>([]), [account, setAccount] = useState<string[]>([]);
   const [sheet, setSheet] = useState(0);
+  const [bk, setBk] = useState<string[]>([]), [mismatch, setMismatch] = useState(false);
   const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic, enabled: has("technician") || has("booker") });
   const accounts = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: has("account") });
   const techs = (users.data ?? []).filter((u) => u.role === "tech").map((u) => ({ id: u.id, name: u.full_name }));
   const bookers = (users.data ?? []).filter((u) => u.role !== "tech").map((u) => ({ id: u.id, name: u.full_name }));
   const accs = (accounts.data ?? []).filter((a) => !a.is_group).map((a) => ({ id: a.id, name: `${a.code} ${a.name_km}` }));
+  const bks = useQuery({ queryKey: ["by-booking-options", range], queryFn: () => getJson<{ id: string; name: string }[]>(`/api/export/by-booking/options?from=${range[0]}&to=${range[1]}`), enabled: has("bk"), retry: false });
   const base: ExportParams = useMemo(() => ({ ...(has("range") ? { from: range[0], to: range[1] } : {}), ...(has("asof") ? { asof } : {}),
-    ...(has("technician") ? { technician } : {}), ...(has("booker") ? { booker } : {}), ...(has("account") ? { account } : {}) }), [range, asof, technician, booker, account]); // eslint-disable-line react-hooks/exhaustive-deps
+    ...(has("technician") ? { technician } : {}), ...(has("booker") ? { booker } : {}), ...(has("account") ? { account } : {}),
+    ...(has("bk") ? { bk } : {}), ...(has("mismatch") && mismatch ? { mismatch: "1" as const } : {}) }), [range, asof, technician, booker, account, bk, mismatch]); // eslint-disable-line react-hooks/exhaustive-deps
   // D-183 · D-185 (client 28-10): the account report's own filters — each picked account gets the ones its lines support (the facets)
   const ledger = report === "account-report";
   const [lf, setLf] = useState<LedgerFilter>(NO_LEDGER_FILTER);
@@ -66,7 +69,7 @@ export function ReportScreen({ report, needs }: { report: ExportReport; needs: N
   const pickAccounts = (v: string[]) => { setAccount(v); setLf((f) => ({ ...f, sources: [], party: [], items: [], booker: [], zone: "" })); }; // the choices follow the accounts
   const params: ExportParams = useMemo(() => (ledger ? { ...base, ...ledgerParams(lf, debtOn) } : base), [base, ledger, lf, debtOn]);
   const q = useQuery({ queryKey: ["report-preview", report, params], queryFn: () => getJson<Preview>(exportUrl(report, params).replace(/\.xlsx(\?|$)/, ".json$1")), retry: false });
-  const active = technician.length + booker.length + account.length + (ledger ? ledgerActive(lf, debtOn) : 0);
+  const active = technician.length + booker.length + account.length + bk.length + (mismatch ? 1 : 0) + (ledger ? ledgerActive(lf, debtOn) : 0);
   const s = q.data?.sheets[Math.min(sheet, (q.data?.sheets.length ?? 1) - 1)];
   return (
     <>
@@ -77,7 +80,10 @@ export function ReportScreen({ report, needs }: { report: ExportReport; needs: N
         {has("booker") && <MultiPick label={t("export.booker")} options={bookers} value={booker} onChange={setBooker} testid="pick-booker" />}
         {has("account") && <MultiPick label={t("export.account")} options={accs} value={account} onChange={pickAccounts} testid="pick-account" />}
         {ledger && <LedgerFilters value={lf} onChange={setLf} facets={account.length ? facets.data : undefined} debtOn={debtOn} />}
+        {has("bk") && <MultiPick label={t("export.bk")} options={bks.data ?? []} value={bk} onChange={setBk} testid="pick-bk" />}
+        {has("mismatch") && <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={mismatch} onChange={(e) => setMismatch(e.target.checked)} data-testid="pick-mismatch" /> {t("export.mismatch")}</label>}
       </ReportToolbar>
+      {below?.(params)}
       {q.isLoading ? <Skeleton /> : q.isError || !q.data || !s ? <ErrorState text={t(`export.err.${(q.error as Error | null)?.message ?? ""}`, { defaultValue: t("export.failed") })} onRetry={() => void q.refetch()} /> : (
         <Card title={i18n.language === "en" ? q.data.title_en : q.data.title_km}>
           {q.data.sheets.length > 1 && (

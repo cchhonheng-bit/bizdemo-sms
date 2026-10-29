@@ -19,8 +19,9 @@ export default function InvoiceEditorPage() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const bookingId = sp.get("booking");
+  const extra = sp.get("extra") === "1"; // D-189: an extra invoice for a job already invoiced («By Booking»)
   const existing = useQuery({ queryKey: ["invoice", id], queryFn: () => api.invoices.get(id!), enabled: !!id });
-  const pre = useQuery({ queryKey: ["invoice-prefill", bookingId], queryFn: () => api.invoices.prefill(bookingId!), enabled: !!bookingId && !id, retry: false });
+  const pre = useQuery({ queryKey: ["invoice-prefill", bookingId, extra], queryFn: () => api.invoices.prefill(bookingId!, extra), enabled: !!bookingId && !id, retry: false });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
   const settings = useQuery({ queryKey: ["settings"], queryFn: api.settings });
   const direct = !id && !bookingId;
@@ -46,7 +47,7 @@ export default function InvoiceEditorPage() {
       let target = id;
       if (id) await api.invoices.update(id, { lines, notes });
       else {
-        const r = await api.invoices.create({ ...(bookingId ? { booking_id: bookingId } : { customer_id: cust!.id }), lines, notes });
+        const r = await api.invoices.create({ ...(bookingId ? { booking_id: bookingId, ...(extra ? { extra: true } : {}) } : { customer_id: cust!.id }), lines, notes });
         target = r.id; toast.success(t("invoice.created", { number: r.number }));
       }
       for (const k of [["invoice"], ["invoices"], ["invoice-for"], ["booking"]]) await qc.invalidateQueries({ queryKey: k });

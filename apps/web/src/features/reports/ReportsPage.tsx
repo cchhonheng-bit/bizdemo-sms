@@ -8,6 +8,7 @@ import { formatKhr, formatUsd } from "@sms/shared";
 import { CheckCircle2 } from "lucide-react";
 import { api, errCode, type VerifyItem } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useFeature } from "@/lib/config";
 import { Badge, Button, Card, Empty, ErrorState, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { todayLocal } from "@/features/invoices/util";
@@ -49,6 +50,8 @@ function Row({ label, value, strong, tone }: { label: string; value: string | nu
 function Summary({ range }: { range: Range }) {
   const { t, i18n } = useTranslation();
   const en = i18n.language === "en";
+  const canCost = useAuth((st) => st.can("cost.read")), stockOn = useFeature("inventory");
+  const byBooking = canCost && stockOn; // D-189: the shortcut to «តាមការងារ»
   const q = useQuery({ queryKey: ["report-summary", ...range], queryFn: () => api.reports.summary(range[0], range[1]), enabled: range[0] <= range[1] });
   if (q.isLoading) return <Skeleton />;
   if (q.isError || !q.data) return <ErrorState text={t(`reports.err.${errCode(q.error)}`, { defaultValue: t("app.error") })} onRetry={() => void q.refetch()} />;
@@ -92,6 +95,7 @@ function Summary({ range }: { range: Range }) {
             <Row label={t("reports.type.void")} value={`${s.voids!.count} · ${formatUsd(s.voids!.total)}`} />
             <Row label={t("invoice.discount")} value={`${s.discounts!.count} · ${formatUsd(s.discounts!.total)} ${t("reports.over_limit", { n: s.discounts!.over_limit })}`} />
             <Row label={t("reports.cancels")} value={s.cancels} />
+            {byBooking && <Link to="/inventory?tab=bybooking" className="block text-sm text-navy underline mt-2 min-h-[36px]" data-testid="link-bybooking">{t("inventory.tab.bybooking")} →</Link>}
           </Card>
         </>
       )}

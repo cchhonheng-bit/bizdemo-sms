@@ -9,14 +9,14 @@ import { writeWorkbook, type SheetSpec, type StyleName, type XCell } from "../li
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
 import { matchesSearch, payStatusOf, type PayStatus } from "@sms/shared";
-import { balanceSheet, books, checkPeriod, dayBefore, fyStart, incomeStatement, roleIds, statementOf, sums, trialBalanceMonth, type Sum } from "./accounting.js";
+import { balanceSheet, books, checkPeriod, dayBefore, fyStart, incomeStatement, revenueAccount, roleIds, statementOf, sums, trialBalanceMonth, type Sum } from "./accounting.js";
 import { listInvoices, type ListFilter } from "./invoices.js";
 import { report as attendanceReport } from "./attendance.js";
-import { payables, reconcile } from "./inventory.js";
+import { jobStockMatch, payables, reconcile, type JobStock } from "./inventory.js";
 import { techPerformance } from "./reports-extra.js";
 
 export const REPORTS = ["tech-withdrawals", "account-report", "coa", "trial-balance", "income-statement", "balance-sheet", "journal", "expenses",
-  "stock-balance", "stock-moves", "payables", "stock-reconcile", "bookings", "invoices", "payments", "receivables", "tech-performance", "customers", "attendance"] as const;
+  "stock-balance", "stock-moves", "payables", "stock-reconcile", "bookings", "invoices", "payments", "receivables", "tech-performance", "customers", "attendance", "by-booking"] as const;
 export type Report = (typeof REPORTS)[number];
 export type Q = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[];
   customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
@@ -27,7 +27,9 @@ export type Q = { from?: string; to?: string; asof?: string; technician?: string
   /** D-183: a debt's state — unpaid · partial · paid (account report on a debt account, invoices, receivables, payables) */
   paystatus?: PayStatus;
   /** D-185 the account report's own filters: movement (debit / credit) · transaction types · people (c.<id> · u.<id> · s.<name>) · items */
-  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[] };
+  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[];
+  /** D-189 «By Booking»: the bookings picked · only the mismatches */
+  bk?: string[]; mismatch?: "0" | "1" };
 type Col = { h: string; w?: number; s?: StyleName; sum?: boolean };
 type Ctx = { user: SessionUser; company: string; slug: string; tz: string; today: string; now: string };
 type Built = { title_km: string; title_en: string; filters: string[]; sheets: SheetSpec[]; rows: number; stamp: string };
@@ -44,6 +46,7 @@ const TITLES: Record<Report, [string, string]> = {
   payables: ["ជំពាក់អ្នកផ្គត់ផ្គង់", "Supplier payables"], "stock-reconcile": ["ផ្ទៀងផ្ទាត់សម្ភារៈ", "Stock reconciliation"], bookings: ["ការងារ", "Bookings"],
   invoices: ["វិក្កយបត្រ", "Invoices"], payments: ["ការទទួលប្រាក់", "Payments received"], receivables: ["អតិថិជនជំពាក់ (តាមអាយុ)", "Receivables aging"],
   "tech-performance": ["លទ្ធផលការងារជាង", "Technician performance"], customers: ["អតិថិជន", "Customers"], attendance: ["វត្តមាន", "Attendance"],
+  "by-booking": ["ដកស្តុក ធៀបនឹងវិក្កយបត្រ តាមការងារ", "By booking — stock withdrawn vs invoiced"],
 };
 const NO_DATA = "គ្មានទិន្នន័យសម្រាប់លក្ខខណ្ឌដែលបានជ្រើស";
 const dmy = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
@@ -121,7 +124,7 @@ async function techWithdrawals(ctx: Ctx, q: Q): Promise<Built> {
     from stock_moves m join catalog_items i on i.id = m.item_id left join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id)
       left join bookings b on m.ref_type = 'booking' and b.id::text = m.ref_id left join users bu on bu.id = b.created_by left join customers cu on cu.id = b.customer_id
       left join users tu on tu.id = m.technician_id
-    where m.company_id = ${c} and m.kind = 'out' and m.move_date between ${from}::date and ${to}::date
+    where m.company_id = ${c} and m.kind in ('out', 'return') and m.move_date between ${from}::date and ${to}::date
       ${q.technician?.length ? sql`and m.technician_id = any(${sql.array(q.technician)}::uuid[])` : sql``}
       ${q.booker?.length ? sql`and b.created_by = any(${sql.array(q.booker)}::uuid[])` : sql``}
     order by m.move_date, m.id`;
@@ -630,6 +633,89 @@ async function attendanceSheet(ctx: Ctx, q: Q): Promise<Built> {
   return { title_km: km, title_en: en, filters, rows: body.length, stamp: `${from}_${to}`, sheets: [table(ctx, "Attendance", { title_km: km, title_en: en, filters }, cols, body)] };
 }
 
+// ---------- D-189 (client 29-10): «By Booking» — stock withdrawn for a job vs what was invoiced ----------
+type BkLine = { date: string | null; account: string; text: string; qty: number | null; unit: string | null; unit_price: number | null; amount: number; invoice: string | null; technician: string | null; flagged: boolean };
+export type ByBooking = { id: string; number: string; address: string | null; lines: BkLine[]; qty: number; amount: number; flags: JobStock[]; notes: string[]; invoiced: boolean };
+const q3 = (n: number) => Math.round(n * 1000) / 1000;
+/** the bookings of the range (booking date) that took stock or were invoiced, in booking order: withdrawals first (− qty and − cost, on the
+ *  item's stock account), then the invoice lines (+, on the line's income account) and the discount (−, on the discount account); per job
+ *  and stock account what was withdrawn − returned − invoiced − recorded lost is flagged (yellow) with a note */
+export async function byBookingData(user: SessionUser, q: Q): Promise<{ from: string; to: string; bookings: ByBooking[] }> {
+  const c = user.companyId, b0 = await books(sql, c);
+  const { from, to } = rangeOnly(q, b0.today);
+  const bks = await sql<{ id: string; number: string; address: string | null; zone: string | null; lead: string | null }[]>`
+    select b.id::text as id, b.number, coalesce(b.address, cu.address) as address, coalesce(b.zone, cu.zone)::text as zone,
+      (select u.full_name from booking_technicians bt join users u on u.id = bt.user_id where bt.booking_id = b.id order by (bt.role = 'lead') desc, u.full_name limit 1) as lead
+    from bookings b join customers cu on cu.id = b.customer_id join companies co on co.id = b.company_id
+    where b.company_id = ${c} and not b.is_test and (b.scheduled_at at time zone co.timezone)::date between ${from}::date and ${to}::date
+      and (exists (select 1 from stock_moves m where m.company_id = b.company_id and m.ref_type = 'booking' and m.ref_id = b.id::text and m.kind in ('out', 'return'))
+        or exists (select 1 from invoices i where i.booking_id = b.id and i.status = 'issued'))
+      ${q.bk?.length ? sql`and b.id = any(${sql.array(q.bk)}::uuid[])` : sql``}
+      ${q.technician?.length ? sql`and (exists (select 1 from booking_technicians bt where bt.booking_id = b.id and bt.user_id = any(${sql.array(q.technician)}::uuid[]))
+        or exists (select 1 from stock_moves m where m.ref_type = 'booking' and m.ref_id = b.id::text and m.technician_id = any(${sql.array(q.technician)}::uuid[])))` : sql``}
+    order by b.number`;
+  const ids = bks.map((b) => b.id);
+  if (!ids.length) return { from, to, bookings: [] };
+  const R = await roleIds(sql, c);
+  const codeOf = new Map((await sql<{ id: string; code: string }[]>`select id::text as id, code from accounts where company_id = ${c}`).map((a) => [a.id, a.code]));
+  const moves = await sql<{ b: string; date: string; qty: string; value: string; name: string; unit: string | null; acc: string; technician: string | null }[]>`
+    select m.ref_id as b, m.move_date::text as date, m.qty::text as qty, m.value_cents::text as value, i.name_km as name, i.unit, a.id::text as acc, u.full_name as technician
+    from stock_moves m join catalog_items i on i.id = m.item_id left join account_map dm on dm.company_id = m.company_id and dm.key = 'inventory'
+      join accounts a on a.id = coalesce(m.account_id, i.inventory_account_id, dm.account_id) left join users u on u.id = m.technician_id
+    where m.company_id = ${c} and m.kind in ('out', 'return') and m.ref_type = 'booking' and m.ref_id = any(${sql.array(ids)}::text[]) order by m.move_date, m.id`;
+  const invs = await sql<{ id: string; b: string; number: string; date: string; discount: number }[]>`select i.id::text as id, i.booking_id::text as b, i.number,
+      (i.issued_at at time zone co.timezone)::date::text as date, i.discount from invoices i join companies co on co.id = i.company_id
+    where i.company_id = ${c} and i.status = 'issued' and i.booking_id = any(${sql.array(ids)}::uuid[]) order by i.issued_at, i.number`;
+  const lines = invs.length ? await sql<{ inv: string; text: string; kind: string; qty: string; unit: string | null; price: number; income: string | null }[]>`
+    select l.invoice_id::text as inv, l.description as text, l.kind::text as kind, l.qty::text as qty, l.unit, l.unit_price as price, ci.income_account_id::text as income
+    from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.invoice_id = any(${sql.array(invs.map((i) => i.id))}::uuid[]) order by l.invoice_id, l.sort, l.id` : [];
+  const match = await jobStockMatch(sql, c, ids);
+  const out: ByBooking[] = [];
+  for (const b of bks) {
+    const flags = (match.get(b.id) ?? []).filter((x) => x.short > 0.0005);
+    if (q.mismatch === "1" && !flags.length) continue;
+    const flagged = new Set(flags.map((x) => x.account_id));
+    const zone: "inside" | "outside" | null = b.zone === "inside" ? "inside" : b.zone === "outside" ? "outside" : null;
+    const ls: BkLine[] = moves.filter((m) => m.b === b.id).map((m) => { const qty = Number(m.qty), value = Number(m.value);
+      return { date: m.date, account: codeOf.get(m.acc) ?? "", text: m.name, qty, unit: m.unit, unit_price: qty ? Math.round(value / Math.abs(qty)) : null, amount: value, invoice: null, technician: m.technician, flagged: flagged.has(m.acc) }; });
+    for (const i of invs.filter((x) => x.b === b.id)) {
+      for (const l of lines.filter((x) => x.inv === i.id)) { const qty = Number(l.qty), goods = l.kind === "product"; // a service line: the amount only, as the sample
+        ls.push({ date: i.date, account: codeOf.get(l.income ?? revenueAccount(R, l.kind, zone)) ?? "", text: l.text, qty: goods ? qty : null, unit: goods ? l.unit || null : null, unit_price: goods ? l.price : null,
+          amount: Math.round(qty * l.price), invoice: i.number, technician: b.lead, flagged: false }); }
+      if (i.discount) ls.push({ date: i.date, account: codeOf.get(R.discount) ?? "", text: "បញ្ចុះតម្លៃអោយភ្ញៀវ", qty: null, unit: null, unit_price: null, amount: -i.discount, invoice: i.number, technician: b.lead, flagged: false });
+    }
+    const unitTxt = (x: JobStock) => (x.unit ? ` ${x.unit}` : "");
+    out.push({ id: b.id, number: b.number, address: b.address, lines: ls, invoiced: invs.some((x) => x.b === b.id), qty: q3(ls.reduce((s, l) => s + (l.qty ?? 0), 0)), amount: ls.reduce((s, l) => s + l.amount, 0), flags,
+      notes: flags.map((x) => `${x.name}: ដក ${x.out}${unitTxt(x)} · វិក្កយបត្រ ${x.invoiced}${unitTxt(x)}${x.variance ? ` · ខូច/បាត់ ${x.variance}${unitTxt(x)}` : ""}`) });
+  }
+  return { from, to, bookings: out };
+}
+/** the booking picker of the report: the bookings of the range that took stock or were invoiced */
+export async function byBookingOptions(user: SessionUser, q: Q) {
+  const d = await byBookingData(user, { from: q.from, to: q.to });
+  return d.bookings.map((b) => ({ id: b.id, name: b.number }));
+}
+async function byBookingSheet(ctx: Ctx, q: Q): Promise<Built> {
+  const d = await byBookingData(ctx.user, q);
+  const cols: Col[] = [{ h: "ថ្ងៃទី", w: 11, s: "date" }, { h: "គណនេយ្យលេខ", w: 12 }, { h: "បរិយាយ", w: 30 }, { h: "ចំនួនបានដក", w: 12, s: "qty" }, { h: "ខ្នាត", w: 9 }, { h: "តម្លៃរាយ", w: 12, s: "money" },
+    { h: "តម្លៃសរុប", w: 13, s: "money" }, { h: "Invoice #", w: 13 }, { h: "BK #", w: 10 }, { h: "ឈ្មោះជាងបានដក", w: 16 }, { h: "អាស័យដ្ឋាន", w: 50 }];
+  const hl = (on: boolean, s: StyleName | undefined, v: string | number | null): XCell => (on ? { v, s: s === "money" ? "hlMoney" : s === "qty" ? "hlQty" : s === "date" ? "hlDate" : "hl" } : s ? { v, s } : v);
+  const body: XCell[][] = [];
+  let tq = 0, ta = 0, n = 0;
+  for (const b of d.bookings) {
+    for (const l of b.lines) { const f = l.flagged; n++;
+      body.push([hl(f, "date", l.date), hl(f, undefined, l.account), hl(f, undefined, l.text), hl(f, "qty", l.qty), hl(f, undefined, l.unit), hl(f, "money", l.unit_price == null ? null : usd(l.unit_price)),
+        hl(f, "money", usd(l.amount)), hl(f, undefined, l.invoice), hl(f, undefined, b.number), hl(f, undefined, l.technician), hl(f, undefined, b.address)]); }
+    body.push([null, null, b.notes.length ? { v: `សរុប ${b.number} · ⚠ ${b.notes.join(" · ")}`, s: "warn" } : B(`សរុប ${b.number}`), QTY(b.qty, true), null, null, M(b.amount, true), null, B(b.number), null, null]);
+    tq += b.qty; ta += b.amount;
+  }
+  if (body.length) body.push([B("សរុប"), null, null, QTY(q3(tq), true), null, null, M(ta, true), null, null, null, null]);
+  const tech = q.technician?.length ? `ជាង: ${await names(ctx.user.companyId, q.technician, "users")}` : "";
+  const filters = [...rangeText({ from: d.from, to: d.to }), q.bk?.length ? `ការងារ: ${d.bookings.map((b) => b.number).join(", ") || "—"}` : "ការងារ: ទាំងអស់", tech, q.mismatch === "1" ? "តែការងារដែលមិនត្រូវគ្នា" : ""].filter(Boolean);
+  const [km, en] = TITLES["by-booking"];
+  return { title_km: km, title_en: en, filters, rows: n, stamp: `${d.from}_${d.to}`, sheets: [table(ctx, "By Booking", { title_km: km, title_en: en, filters }, cols, body, { noTotals: true, landscape: true })] };
+}
+
 // ---------- entry point ----------
 async function build(ctx: Ctx, report: Report, q: Q): Promise<Built> {
   return report === "tech-withdrawals" ? techWithdrawals(ctx, q) : report === "account-report" ? accountReport(ctx, q) : report === "coa" ? coa(ctx, q)
@@ -637,7 +723,7 @@ async function build(ctx: Ctx, report: Report, q: Q): Promise<Built> {
     : report === "journal" ? journalSheet(ctx, q) : report === "expenses" ? expensesSheet(ctx, q) : report === "stock-balance" ? stockBalanceSheet(ctx, q) : report === "stock-moves" ? stockMovesSheet(ctx, q)
     : report === "payables" ? payablesSheet(ctx, q) : report === "stock-reconcile" ? reconcileSheet(ctx, q) : report === "bookings" ? bookingsSheet(ctx, q) : report === "invoices" ? invoicesSheet(ctx, q)
     : report === "payments" ? paymentsSheet(ctx, q) : report === "receivables" ? receivablesSheet(ctx, q) : report === "tech-performance" ? techPerformanceSheet(ctx, q) : report === "customers" ? customersSheet(ctx, q)
-    : attendanceSheet(ctx, q);
+    : report === "by-booking" ? byBookingSheet(ctx, q) : attendanceSheet(ctx, q);
 }
 export async function exportReport(user: SessionUser, ip: string | null, report: Report, q: Q): Promise<ExportFile> {
   const ctx = await ctxOf(user);

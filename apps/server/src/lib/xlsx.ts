@@ -83,10 +83,10 @@ const colIndex = (ref: string) => { const letters = /^[A-Z]+/i.exec(ref)?.[0]?.t
 // ---------- writer ----------
 export type Cell = string | number | null | undefined;
 /** named cell styles of the shared workbook stylesheet (D-169: one look for every Excel export) */
-export type StyleName = "text" | "bold" | "title" | "sub" | "muted" | "head" | "money" | "moneyB" | "khr" | "khrB" | "date" | "qty" | "qtyB" | "int" | "intB" | "center" | "warn" | "section";
+export type StyleName = "text" | "bold" | "title" | "sub" | "muted" | "head" | "money" | "moneyB" | "khr" | "khrB" | "date" | "qty" | "qtyB" | "int" | "intB" | "center" | "warn" | "section" | "hl" | "hlMoney" | "hlQty" | "hlDate"; // D-189: hl* = a yellow (flagged) row
 export type XCell = Cell | { v: Cell; s?: StyleName; f?: string };
 export type SheetSpec = { name: string; rows: XCell[][]; widths?: number[]; freeze?: number; autoFilter?: { row: number; cols: number }; merges?: string[]; landscape?: boolean };
-const STYLES: StyleName[] = ["text", "bold", "title", "sub", "muted", "head", "money", "moneyB", "khr", "khrB", "date", "qty", "qtyB", "int", "intB", "center", "warn", "section"];
+const STYLES: StyleName[] = ["text", "bold", "title", "sub", "muted", "head", "money", "moneyB", "khr", "khrB", "date", "qty", "qtyB", "int", "intB", "center", "warn", "section", "hl", "hlMoney", "hlQty", "hlDate"];
 const STYLE_XF: Record<StyleName, string> = {
   text: '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment vertical="top" wrapText="1"/></xf>',
   bold: '<xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"><alignment vertical="top" wrapText="1"/></xf>',
@@ -106,14 +106,18 @@ const STYLE_XF: Record<StyleName, string> = {
   center: '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="center"/></xf>',
   warn: '<xf numFmtId="0" fontId="5" fillId="4" borderId="0" xfId="0" applyFont="1" applyFill="1"/>',
   section: '<xf numFmtId="0" fontId="1" fillId="3" borderId="0" xfId="0" applyFont="1" applyFill="1"/>',
+  hl: '<xf numFmtId="0" fontId="0" fillId="5" borderId="0" xfId="0" applyFill="1"><alignment vertical="top" wrapText="1"/></xf>',
+  hlMoney: '<xf numFmtId="164" fontId="0" fillId="5" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1"/>',
+  hlQty: '<xf numFmtId="167" fontId="0" fillId="5" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1"/>',
+  hlDate: '<xf numFmtId="166" fontId="0" fillId="5" borderId="0" xfId="0" applyNumberFormat="1" applyFill="1" applyAlignment="1"><alignment horizontal="center"/></xf>',
 };
 const STYLE_SHEET = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">`
   + `<numFmts count="5"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00;(&quot;$&quot;#,##0.00)"/><numFmt numFmtId="165" formatCode="&quot;៛&quot;#,##0;(&quot;៛&quot;#,##0)"/>`
   + `<numFmt numFmtId="166" formatCode="dd/mm/yyyy"/><numFmt numFmtId="167" formatCode="#,##0.###;(#,##0.###)"/><numFmt numFmtId="168" formatCode="#,##0;(#,##0)"/></numFmts>`
   + `<fonts count="6"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="16"/><name val="Calibri"/></font>`
   + `<font><b/><sz val="12"/><name val="Calibri"/></font><font><i/><sz val="9"/><color rgb="FF666666"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFB00020"/><name val="Calibri"/></font></fonts>`
-  + `<fills count="5"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7EAF0"/><bgColor indexed="64"/></patternFill></fill>`
-  + `<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4D6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/><bgColor indexed="64"/></patternFill></fill></fills>`
+  + `<fills count="6"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7EAF0"/><bgColor indexed="64"/></patternFill></fill>`
+  + `<fill><patternFill patternType="solid"><fgColor rgb="FFFFF4D6"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFDECEC"/><bgColor indexed="64"/></patternFill></fill><fill><patternFill patternType="solid"><fgColor rgb="FFFFFF00"/><bgColor indexed="64"/></patternFill></fill></fills>`
   + `<borders count="3"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"/><right style="thin"/><top style="thin"/><bottom style="thin"/><diagonal/></border>`
   + `<border><left/><right/><top style="thin"/><bottom style="double"/><diagonal/></border></borders>`
   + `<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="${STYLES.length}">${STYLES.map((s) => STYLE_XF[s]).join("")}</cellXfs>`

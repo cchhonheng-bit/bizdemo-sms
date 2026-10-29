@@ -9,12 +9,12 @@ function cell(c: XCell): { text: string; s: string; num: boolean } {
   const s = o.s ?? "", v = o.v;
   if (v === null || v === undefined || v === "") return { text: "", s, num: false };
   if (typeof v === "number") {
-    if (s === "money" || s === "moneyB") return { text: money(v, "$", 2), s, num: true };
+    if (s === "money" || s === "moneyB" || s === "hlMoney") return { text: money(v, "$", 2), s, num: true };
     if (s === "khr" || s === "khrB") return { text: money(v, "៛", 0), s, num: true };
     if (s === "int" || s === "intB") return { text: money(v, "", 0), s, num: true };
     return { text: qty(v), s, num: true };
   }
-  return { text: s === "date" ? dmy(v) : String(v), s, num: false };
+  return { text: s === "date" || s === "hlDate" ? dmy(v) : String(v), s, num: false };
 }
 const BOLD = new Set(["bold", "moneyB", "khrB", "qtyB", "intB", "title", "sub"]);
 
@@ -35,7 +35,7 @@ export function SheetView({ rows, testid = "sheet-table" }: { rows: XCell[][]; t
                 {Array.from({ length: width }, (_, j) => {
                   const x = cs[j] ?? { text: "", s: "", num: false };
                   if (head) return <th key={j} className="bg-[#E7EAF0] border border-grey-line px-2 py-1.5 text-center font-semibold whitespace-pre-line align-middle">{x.text}</th>;
-                  return <td key={j} className={`px-2 py-1 align-top ${x.num ? "text-right whitespace-nowrap" : "break-words"} ${BOLD.has(x.s) ? "font-semibold" : ""} ${x.s === "center" || x.s === "date" ? "text-center whitespace-nowrap" : ""}`}>{x.text}</td>;
+                  return <td key={j} className={`px-2 py-1 align-top ${x.s.startsWith("hl") ? "bg-[#FFF59D]" : ""} ${x.num ? "text-right whitespace-nowrap" : "break-words"} ${BOLD.has(x.s) ? "font-semibold" : ""} ${x.s === "center" || x.s === "date" ? "text-center whitespace-nowrap" : ""}`}>{x.text}</td>;
                 })}
               </tr>
             );

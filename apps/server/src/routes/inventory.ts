@@ -2,7 +2,7 @@
 // Stock in = a direct entry (the item is made on its first entry); stock out = the Admin records what a technician collects.
 import type { FastifyPluginAsync } from "fastify";
 import { z } from "zod";
-import { adjust, card, items, listLocations, monthEnd, payables, reconcile, removeItem, setReorder, stockAccounts, stockIn, stockOut, supplierPay } from "../services/inventory.js";
+import { adjust, card, items, listLocations, listOpenWithdrawals, monthEnd, payables, reconcile, recordVariance, removeItem, returnStock, setReorder, stockAccounts, stockIn, stockOut, supplierPay } from "../services/inventory.js";
 import { featureOn } from "../lib/features.js";
 import { SUPPLIER_KINDS } from "@sms/shared";
 import { listDebtAccounts, listSupplierDebts } from "../services/account-map.js";
@@ -40,6 +40,11 @@ export const inventoryRoutes: FastifyPluginAsync = async (app) => {
   // D-144 stock out: item · qty · technician · the job (or the project / borey / house no.) · date → the balance left
   app.post("/out", manage, async (req) => stockOut(req.user!, req.ip, z.object({ item_id: id, qty, technician_id: id, booking_id: id.nullable().optional(),
     place: z.string().max(120).nullable().optional(), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
+  // D-189: what each technician still holds per job / place · leftovers back («ត្រឡប់ចូលស្តុក») · a job's stock recorded as lost / broken
+  app.get("/withdrawn", manage, async (req) => listOpenWithdrawals(req.user!, z.object({ technician: id.optional(), booking: id.optional() }).parse(req.query ?? {})));
+  app.post("/return", manage, async (req) => returnStock(req.user!, req.ip, z.object({ item_id: id, qty, technician_id: id, booking_id: id.nullable().optional(),
+    place: z.string().max(120).nullable().optional(), date: day.nullable().optional(), note: z.string().max(300).nullable().optional() }).strict().parse(req.body)));
+  app.post("/variance", manage, async (req) => recordVariance(req.user!, req.ip, z.object({ booking_id: id, account_id: id, qty, reason: z.string().max(300) }).strict().parse(req.body)));
   app.post("/adjust", manage, async (req) => adjust(req.user!, req.ip, z.object({ item_id: id,
     qty: z.number().min(-1_000_000).max(1_000_000).multipleOf(0.001).refine((x) => x !== 0, "QTY_ZERO"), reason: z.string().max(300).default(""), unit_cost: cents.nullable().optional(), date: day.nullable().optional() }).strict().parse(req.body)));
   app.get("/card", view, async (req) => {

@@ -176,6 +176,9 @@ export type StockInInput = { item_id?: string | null; name?: string | null; code
   supplier_kind?: "ac" | "washing" | "other" | null;
   /** D-181: the debt account picked for what stays owed (none → as last time) */
   payable_account_id?: string | null };
+/** D-189: a technician still holds this (withdrawn − returned) for a job or a place */
+export type OpenWithdrawal = { booking_id: string | null; booking_number: string | null; place: string | null; technician_id: string; technician: string; item_id: string; code: string | null; name: string; unit: string | null; withdrawn: number; returned: number; left: number };
+export type BookingMismatch = { booking_id: string; number: string; notes: string[]; invoiced: boolean; flags: { account_id: string; code: string; name: string; unit: string | null; out: number; invoiced: number; variance: number; short: number }[] };
 export type Payable = { supplier: string; owed: number; purchases: number; opening: number; paid: number; invoices: string[]; last_purchase: string | null; last_payment: string | null;
   /** D-183: ជំពាក់សុទ្ធ · ជំពាក់ខ្លះ · ទូទាត់ហើយ */
   pay_status: "unpaid" | "partial" | "paid";
@@ -371,8 +374,8 @@ export const api = {
     forBooking: async (bookingId: string) => (await get<InvoiceRow[]>(`/api/invoices?booking=${bookingId}`)).find((i) => i.status !== "void") ?? null,
     get: (id: string) => get<Invoice>(`/api/invoices/${id}`),
     journal: (id: string) => get<InvoiceJournal[]>(`/api/invoices/${id}/journal`),
-    prefill: (bookingId: string) => get<InvoicePrefill>(`/api/invoices/prefill?booking=${bookingId}`),
-    create: (v: { booking_id?: string; customer_id?: string; lines: QuoteLine[]; notes: string }) => post<{ id: string; number: string }>("/api/invoices", v),
+    prefill: (bookingId: string, extra = false) => get<InvoicePrefill>(`/api/invoices/prefill?booking=${bookingId}${extra ? "&extra=1" : ""}`), // D-189: extra = an extra invoice for a job already invoiced
+    create: (v: { booking_id?: string; customer_id?: string; lines: QuoteLine[]; notes: string; extra?: boolean }) => post<{ id: string; number: string }>("/api/invoices", v),
     update: (id: string, v: { lines: QuoteLine[]; notes: string }) => put(`/api/invoices/${id}`, v),
     /** D-126: an earlier invoice date (unlocked period only; a reason when more than 3 days back) */
     issue: (id: string, v: { date?: string; reason?: string } = {}) => post(`/api/invoices/${id}/issue`, v),
@@ -440,6 +443,11 @@ export const api = {
     reorder: (itemId: string, reorder_level: number | null) => post(`/api/inventory/items/${itemId}/reorder`, { reorder_level }),
     stockIn: (v: StockInInput) => post<{ id: number; item_id: string; created: boolean; total: number; paid: number | null; owed: number; balance: number }>("/api/inventory/in", v),
     payables: () => get<Payable[]>("/api/inventory/payables"),
+    /** D-189: what technicians still hold per job / place · leftovers back · lost / broken · the jobs still to settle */
+    withdrawn: (q: { technician?: string; booking?: string }) => get<OpenWithdrawal[]>(`/api/inventory/withdrawn?${new URLSearchParams(q as Record<string, string>).toString()}`),
+    returnStock: (v: { item_id: string; qty: number; technician_id: string; booking_id?: string | null; place?: string | null; date?: string; note?: string | null }) => post<{ id: number; balance: number; left: number }>("/api/inventory/return", v),
+    variance: (v: { booking_id: string; account_id: string; qty: number; reason: string }) => post<{ id: number }>("/api/inventory/variance", v),
+    mismatches: (from: string, to: string) => get<BookingMismatch[]>(`/api/export/by-booking/mismatches?from=${from}&to=${to}`),
     supplierPay: (v: { supplier: string; amount: number; currency: "usd" | "khr"; method: "cash_usd" | "cash_khr" | "aba" | "acleda"; date: string; note: string | null; account_id?: string | null }) => post<{ id: string; usd_cents: number; owed: number }>("/api/inventory/supplier-pay", v),
     debtAccounts: () => get<DebtAccount[]>("/api/inventory/debt-accounts"), // D-181
     supplierDebts: (supplier: string) => get<SupplierDebt[]>(`/api/inventory/supplier-debts?supplier=${encodeURIComponent(supplier)}`),

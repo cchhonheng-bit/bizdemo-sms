@@ -7,7 +7,7 @@ import { toast } from "@/lib/toast";
 import type { PayStatus } from "@sms/shared";
 
 export type ExportReport = "tech-withdrawals" | "account-report" | "coa" | "trial-balance" | "income-statement" | "balance-sheet" | "journal" | "expenses" | "stock-balance" | "stock-moves" | "payables"
-  | "stock-reconcile" | "bookings" | "invoices" | "payments" | "receivables" | "tech-performance" | "customers" | "attendance"
+  | "stock-reconcile" | "bookings" | "invoices" | "payments" | "receivables" | "tech-performance" | "customers" | "attendance" | "by-booking"
   | "boreys" | "requests" | "catalog" | "broadcasts" | "subscribers" | "notifications" | "leave-mine" | "leave-approve" | "payroll-runs" | "payroll-salaries" | "reminders" | "cash-close" | "verification" | "audit" | "quotes" | "uninvoiced" | "users"; // D-172
 export type ExportParams = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[]; customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
   month?: string; zone?: string; q?: string; closed?: "0" | "1"; cancelled?: "0" | "1"; inactive?: "0" | "1"; list?: string;
@@ -15,7 +15,9 @@ export type ExportParams = { from?: string; to?: string; asof?: string; technici
   /** D-183: a debt's state (account report on a debt account · invoices · receivables · payables) */
   paystatus?: PayStatus;
   /** D-185 the account report: movement · transaction types · people (tokens from the facets) · items */
-  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[] };
+  dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[];
+  /** D-189 «By Booking»: the bookings picked · only the mismatches */
+  bk?: string[]; mismatch?: "0" | "1" };
 export const exportUrl = (report: ExportReport, p: ExportParams = {}): string => {
   const qs = Object.entries(p).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`).join("&");
   return `/api/export/${report}.xlsx${qs ? `?${qs}` : ""}`;
