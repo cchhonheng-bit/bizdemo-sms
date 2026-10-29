@@ -403,7 +403,8 @@ async function trialBalanceSheet(ctx: Ctx, q: Q): Promise<Built> {
   const filters = [`ខែ ${month.slice(5, 7)}/${month.slice(0, 4)} · ឆ្នាំសារពើពន្ធចាប់ពី ${dmy(tb.fiscal_year_start)}`];
   const cols: Col[] = [{ h: "កូដ", w: 8 }, { h: "គណនី", w: 34 }, { h: "ប្រភេទ", w: 7 }, { h: "ខែនេះ · ឥណពន្ធ", w: 14, s: "money" }, { h: "ខែនេះ · ឥណទាន", w: 14, s: "money" },
     { h: "ដើមឆ្នាំដល់ខែមុន · ឥណពន្ធ", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែមុន · ឥណទាន", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែនេះ · ឥណពន្ធ", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែនេះ · ឥណទាន", w: 15, s: "money" }];
-  const body = tb.rows.map((r) => [r.code, r.computed ? `${r.name_km} (ដើមឆ្នាំដល់ចុងខែមុន)` : r.name_km, r.statement, M(r.period.debit), // D-188: the computed profit line M(r.period.credit), M(r.ytd_prev.debit), M(r.ytd_prev.credit), M(r.ytd.debit), M(r.ytd.credit)] as XCell[]);
+  // D-188: the computed profit line of the month column says what it is
+  const body = tb.rows.map((r) => [r.code, r.computed ? `${r.name_km} (ដើមឆ្នាំដល់ចុងខែមុន)` : r.name_km, r.statement, M(r.period.debit), M(r.period.credit), M(r.ytd_prev.debit), M(r.ytd_prev.credit), M(r.ytd.debit), M(r.ytd.credit)] as XCell[]);
   const t = tb.totals, ok = t.period.debit === t.period.credit && t.ytd_prev.debit === t.ytd_prev.credit && t.ytd.debit === t.ytd.credit;
   const extra: XCell[][] = [[B(ok ? "ឥណពន្ធ = ឥណទាន ✓" : "⚠ ឥណពន្ធ ≠ ឥណទាន"), null, null, M(t.period.debit, true), M(t.period.credit, true), M(t.ytd_prev.debit, true), M(t.ytd_prev.credit, true), M(t.ytd.debit, true), M(t.ytd.credit, true)]];
   return { title_km: km, title_en: en, filters, rows: tb.rows.length, stamp: month, sheets: [table(ctx, "Trial Balance", { title_km: km, title_en: en, filters }, cols, body, { extra, noTotals: true, landscape: true })] };
