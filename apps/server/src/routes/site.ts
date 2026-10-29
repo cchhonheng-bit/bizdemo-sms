@@ -85,7 +85,7 @@ export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
   // D-192: a link with lines (older pages, «change») opens the service page of its first line
   const first = refs?.length ? d.services.find((x) => x.id === refs[0]!.id) : null;
   if (first) return reply.redirect(`/s/${first.web_category ?? "other"}?items=${webLinesParam(refs!)}`, 302);
-  return html(reply, 200, homePage(d, lang, pathOf(req), null, { signed: !!s }));
+  return html(reply, 200, homePage(d, lang, pathOf(req), { signed: !!s }));
 }
 /** an unknown address on the public side: the site's own «not found» for browsers, JSON for everything else */
 export async function siteNotFound(req: FastifyRequest, reply: FastifyReply) {
@@ -145,7 +145,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get("/book", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
     // D-121: the bot's «📅» opens /book — the service picker itself (never "/")
-    if (!refs) return html(reply, 200, homePage(d, lang, pathOf(req), null, { start: true, signed: (await prefillOf(req, reply)).signed }));
+    if (!refs) return html(reply, 200, homePage(d, lang, pathOf(req), { start: true, signed: (await prefillOf(req, reply)).signed }));
     const q = req.query as { items?: string; from?: string };
     if (!q.items) return reply.redirect(`/book?items=${webLinesParam(refs)}`, 302); // an older ?service= link
     const r = await resolveLines(sql, d.companyId, refs).catch(() => null);

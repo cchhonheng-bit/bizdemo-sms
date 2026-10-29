@@ -290,7 +290,7 @@ const svcPrice = (t: T, s: SiteService) => (s.quote_only ? t.quote : s.from_pric
 
 // ---------- 1 · home ----------
 /** start: the /book screen of the bot's «📅» (D-121) — the services without the shop presentation; signed: a customer session */
-export function homePage(d: SiteView, lang: SiteLang, path = "/", _prefill: WebLineRef[] | null = null, o: { start?: boolean; signed?: boolean } = {}): string {
+export function homePage(d: SiteView, lang: SiteLang, path = "/", o: { start?: boolean; signed?: boolean } = {}): string {
   const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
   const cats = catsOf(d.services);

@@ -279,26 +279,29 @@ describe("catalog: CEO / CFO / Admin / GM edit; Excel template → preview → a
   });
 });
 
-describe("home: category tiles → item dropdown + quantity (+ more lines); unpriced items still bookable (CEO); quote-only → quote screen", () => {
-  it("tiles of the website categories, the item dropdown by category, the stepper and «add a service»; never the sell price, products, inactive, hidden or foreign items", async () => {
+describe("home (D-192): one round icon per website category → its page with every service, price + stepper; unpriced items still bookable (CEO); quote-only → quote screen", () => {
+  it("the categories on the home page; a category page lists its services with price and stepper; never the sell price, products, inactive, hidden or foreign items", async () => {
     const h = (await page("/")).body;
-    for (const c of ["ម៉ាស៊ីនត្រជាក់", "ទឹក", "ភ្លើង", "កាមេរ៉ា CCTV", "សំណង់"]) expect(h).toContain(`<span class="tn">${c}</span>`);
-    expect(h).toMatch(/data-cat="ac" aria-pressed="true"/);
-    expect(h).toContain('<optgroup label="ម៉ាស៊ីនត្រជាក់">'); expect(h).toContain("លាងម៉ាស៊ីនត្រជាក់ · ចាប់ពី $15"); expect(h).toContain("ចង់ទិញម៉ាស៊ីនត្រជាក់ · ស្នើសុំតម្លៃ");
-    expect(h).toContain('data-q="1"'); expect(h).toContain('data-maxq="20"'); expect(h).toContain("បន្ថែមសេវា");
-    expect(h).toContain("តម្លៃប្រហែល ចាប់ពី $15"); expect(h).toContain(`href="/book?items=${ID["AC-CLEAN"]}:1"`);
-    expect(h).toContain("លាងម៉ាស៊ីនត្រជាក់ធំ"); // no price → still offered
-    for (const x of ["ទុយោ PVC", "សេវាចាស់", "សេវាខាងក្នុង", "ក្រុមហ៊ុន B", "ជួសជុលកាមេរ៉ា"]) expect(h).not.toContain(x); // CC-REPAIR was switched off by the import
-    expect(h).not.toContain("$33.33"); expect(h).not.toContain("$2.50"); // never a sell price
+    for (const c of ["ម៉ាស៊ីនត្រជាក់", "ទឹក", "ភ្លើង", "កាមេរ៉ា CCTV", "សំណង់"]) expect(h).toContain(`<b>${c}</b>`);
+    expect(h).toContain('href="/s/ac"'); expect(h).toContain("ចាប់ពី $15");
+    const p = (await page("/s/ac")).body;
+    expect(p).toContain("លាងម៉ាស៊ីនត្រជាក់"); expect(p).toContain("ចាប់ពី $15"); expect(p).toContain(`href="/quote?items=${ID["AC-BUY"]}:1"`);
+    expect(p).toContain('data-q="1"'); expect(p).toContain('data-maxq="20"'); expect(p).toContain('id="go"');
+    expect(p).toContain("លាងម៉ាស៊ីនត្រជាក់ធំ"); // no price → still offered
+    const cc = (await page("/s/cctv")).body;
+    for (const x of ["ទុយោ PVC", "សេវាចាស់", "សេវាខាងក្នុង", "ក្រុមហ៊ុន B"]) { expect(h).not.toContain(x); expect(p).not.toContain(x); }
+    expect(cc).not.toContain("ជួសជុលកាមេរ៉ា"); // CC-REPAIR was switched off by the import
+    for (const x of [h, p]) { expect(x).not.toContain("$33.33"); expect(x).not.toContain("$2.50"); } // never a sell price
   });
 
   it("an item without a «from» price is bookable and says «price confirmed on contact» (CEO); quote-only items go to the quote screen; older ?service= links still work", async () => {
-    const h = (await page(`/?items=${ID.NOPRICE}:2`)).body;
-    expect(h).toContain("តម្លៃបញ្ជាក់ពេលទាក់ទង"); expect(h).toContain(`href="/book?items=${ID.NOPRICE}:2"`);
+    expect((await page(`/?items=${ID.NOPRICE}:2`)).headers.location).toBe(`/s/ac?items=${ID.NOPRICE}:2`); // an older link opens its category
+    const h = (await page(`/s/ac?items=${ID.NOPRICE}:2`)).body;
+    expect(h).toContain("តម្លៃបញ្ជាក់ពេលទាក់ទង"); expect(h).toMatch(new RegExp(`class="pkg on" data-id="${ID.NOPRICE}"`));
     const b = await page(`/book?items=${ID.NOPRICE}:2`);
     expect(b.statusCode).toBe(200); expect(b.body).toContain("តម្លៃបញ្ជាក់ពេលទាក់ទង"); expect(b.body).toContain("លាងម៉ាស៊ីនត្រជាក់ធំ ×2");
     expect((await page(`/book?items=${ID["AC-BUY"]}:1`)).headers.location).toBe(`/quote?items=${ID["AC-BUY"]}:1`);
-    expect((await page(`/?items=${ID["CN-QUOTE"]}:1`)).body).toContain(`href="/quote?items=${ID["CN-QUOTE"]}:1"`);
+    expect((await page("/s/construction")).body).toContain(`href="/quote?items=${ID["CN-QUOTE"]}:1"`);
     expect((await page(`/book?service=${ID["AC-CLEAN"]}`)).headers.location).toBe(`/book?items=${ID["AC-CLEAN"]}:1`);
     for (const x of [ID.PRODUCT, ID.OFF, ID.HIDDEN]) expect((await page(`/book?items=${x}:1`)).headers.location).toBe("/");
     expect(await code(pub("GET", `/api/public/slots?items=${ID["AC-BUY"]}:1`))).toEqual([400, "QUOTE_ONLY"]);
@@ -310,7 +313,9 @@ describe("home: category tiles → item dropdown + quantity (+ more lines); unpr
     expect(km).toContain("កក់សេវា"); expect(km).toContain("ដំណើរការដោយ"); expect(km).not.toContain("Book a service"); expect(km).not.toContain("AC cleaning");
     const r = await page("/?lang=en");
     expect(String(r.headers["set-cookie"])).toContain("sl=en");
-    expect(r.body).toContain("Book a service"); expect(r.body).toContain("AC cleaning · From $15"); expect(r.body).toContain("Air conditioner"); expect(r.body).toContain("Powered by");
+    expect(r.body).toContain("Book a service"); expect(r.body).toContain("Air conditioner"); expect(r.body).toContain("Powered by");
+    const en = (await page("/s/ac?lang=en")).body;
+    expect(en).toContain("AC cleaning"); expect(en).toContain("From $15"); expect(en).not.toContain("លាងម៉ាស៊ីនត្រជាក់");
     expect(r.body).not.toContain("កក់សេវា"); expect(r.body).not.toContain("ដំណើរការដោយ");
     await page("/?lang=km");
   });
@@ -1049,7 +1054,7 @@ describe("D-121 customer pages: the bot opens exact addresses; skeleton first; i
 
   it("«📅» opens /book — the service picker itself, not \"/\"; no customer address ever serves the staff app", async () => {
     const b = await page("/book");
-    expect(b.statusCode).toBe(200); expect(b.body).toContain('data-page="home"'); expect(b.body).toContain('id="lines"'); expect(b.body).not.toContain('class="trust"');
+    expect(b.statusCode).toBe(200); expect(b.body).toContain('data-page="home"'); expect(b.body).toContain('class="sgrid"'); expect(b.body).not.toContain('id="banner"');
     expect(b.body).not.toContain('data-signed="1"'); expect(loginForm(b.body)).toBe(false);
     for (const u of ["/my", "/my/bookings", "/my/login", "/book", `/book?items=${ac()}`, "/quote"]) {
       const r = await page(u);
