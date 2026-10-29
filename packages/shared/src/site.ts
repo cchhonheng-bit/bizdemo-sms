@@ -23,6 +23,8 @@ export const WEB_TIMER_HOURS = { from: 8, to: 20 } as const;
 /** date chips on the booking screen */
 export const WEB_DAYS = 7;
 export const WEB_MAX_PHOTOS = 5;
+/** D-192: photos of the problem on an online booking (FixME: up to 4) */
+export const WEB_MAX_BOOKING_PHOTOS = 4;
 /** one booking: at most this many service lines, each 1…WEB_MAX_QTY */
 export const WEB_MAX_LINES = 8;
 export const WEB_MAX_QTY = 20;

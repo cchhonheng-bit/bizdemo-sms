@@ -23,11 +23,11 @@
   }
   // D-134: the home page's work photos load when the visitor comes near them, not with the page (a slow phone network got ~3.7 MB at once)
   (function () {
-    var gal = $$(".gal img[data-src]");
+    var gal = $$("img[data-src]"); // work photos, the banner's slides (D-192)
     if (!gal.length) return;
     var show = function (img) { img.src = img.dataset.src; img.removeAttribute("data-src"); };
     if (!("IntersectionObserver" in window)) return gal.forEach(show);
-    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } }); }, { rootMargin: "300px 0px" });
+    var io = new IntersectionObserver(function (es) { es.forEach(function (e) { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } }); }, { rootMargin: "300px 420px" });
     gal.forEach(function (img) { io.observe(img); });
   })();
   // D-137: phone fields take Khmer digits too — shown as Latin digits at once, nothing but digits, spaces and «+» (the server
@@ -279,6 +279,59 @@
   }
 
   // ---- day chips + time slots (server-rendered on the booking screen, drawn here for a reschedule request)
+  // ---- photos (quote request; D-192 also the booking's «photos of the problem»): made smaller in the browser, at most `max`
+  function photosUI(err, max) {
+    var box = $("#photos"), add = $("#add"), file = $("#file"), photos = [];
+    if (!box || !add || !file) return { list: function () { return []; } };
+    function shrink(f) {
+      return new Promise(function (resolve, reject) {
+        if (!/^image\//.test(f.type)) return reject(new Error("type"));
+        var url = URL.createObjectURL(f), img = new Image();
+        img.onload = function () {
+          // a fresh JPEG (no camera position, no comments), smaller until it is under ~1 MB
+          var steps = [[1600, 0.82], [1280, 0.72], [1024, 0.6]], b64 = "";
+          for (var i = 0; i < steps.length; i++) {
+            var k = Math.min(1, steps[i][0] / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
+            c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+            var data = c.toDataURL("image/jpeg", steps[i][1]);
+            b64 = data.slice(data.indexOf(",") + 1);
+            if (b64.length <= 1300000) break;
+          }
+          URL.revokeObjectURL(url);
+          if (b64.length > 1300000) return reject(new Error("size"));
+          resolve(b64);
+        };
+        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("image")); };
+        img.src = url;
+      });
+    }
+    function draw() {
+      $(".pt", box).forEach(function (n) { n.remove(); });
+      photos.forEach(function (b64, i) {
+        var d = document.createElement("div"), x = document.createElement("button");
+        d.className = "pt"; d.style.backgroundImage = "url(data:image/jpeg;base64," + b64 + ")";
+        x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", box.dataset.remove);
+        x.addEventListener("click", function () { photos.splice(i, 1); draw(); });
+        d.appendChild(x); box.insertBefore(d, add);
+      });
+      add.hidden = photos.length >= max;
+    }
+    add.addEventListener("click", function () { file.click(); });
+    file.addEventListener("change", function () {
+      var list = Array.prototype.slice.call(file.files || []);
+      file.value = "";
+      hideErr(err);
+      list.reduce(function (p, f) {
+        return p.then(function () {
+          if (photos.length >= max) return showErr(err, "TOO_MANY_PHOTOS");
+          return shrink(f).then(function (b64) { photos.push(b64); draw(); }).catch(function () { showErr(err, "BAD_IMAGE"); });
+        });
+      }, Promise.resolve());
+    });
+    return { list: function () { return photos.slice(); } };
+  }
+
   function bindPicker(root, onPick) {
     var state = { at: null, label: null };
     root.addEventListener("click", function (e) {
@@ -322,21 +375,61 @@
   }
 
   // ---- 1 · home: category tiles → item + quantity (+ more lines) → «book» (or «request a quote» for quote-only items)
-  if (page === "home") linesUI(function (lines, byId) {
-    var go = $("#go"), price = $("#price");
-    if (!go) return;
-    var quote = lines.some(function (l) { return byId[l.id].q; });
-    var priced = lines.length && lines.every(function (l) { return byId[l.id].p != null; });
-    if (price) price.textContent = priced ? String(M.price_from).replace("{p}", money(lines.reduce(function (a, l) { return a + byId[l.id].p * l.qty; }, 0))) : M.price_contact;
-    go.href = lines.length ? (quote ? "/quote" : "/book") + "?items=" + param(lines) : "/quote";
-    var label = $("span", go); if (label) label.textContent = quote || !lines.length ? M.quote : M.book;
-  });
+  // ---- 1 · home (D-192): the banner slides by itself every 5 s (it stops once the visitor touches it); the dots follow
+  if (page === "home") (function () {
+    var box = $("#slides"), dots = $$("#dots i"), slides = box ? $$(".slide", box) : [];
+    if (!box || dots.length < 2 || slides.length < 2) return;
+    var at = 0, touched = false;
+    var step = function () { return Math.max(1, slides[1].offsetLeft - slides[0].offsetLeft); };
+    box.addEventListener("scroll", function () {
+      at = Math.round(box.scrollLeft / step());
+      dots.forEach(function (d, k) { d.classList.toggle("on", k === at); });
+    }, { passive: true });
+    ["touchstart", "pointerdown", "wheel"].forEach(function (ev) { box.addEventListener(ev, function () { touched = true; }, { passive: true }); });
+    var still = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (!still) setInterval(function () {
+      if (touched || document.visibilityState !== "visible") return;
+      box.scrollTo({ left: ((at + 1) % slides.length) * step(), behavior: "smooth" });
+    }, 5000);
+  })();
 
+  // ---- D-192 one service category: a quantity per service → the total → «continue» = the time and the place (/book?items=…)
+  if (page === "cat") (function () {
+    var box = $("#pkgs"), go = $("#go"), total = $("#total");
+    if (!box) return;
+    var maxL = Number(box.dataset.max) || 5, maxQ = Number(box.dataset.maxq) || 20, rows = $$(".pkg:not(.q)", box);
+    function state() {
+      return rows.map(function (r) { return { id: r.dataset.id, qty: Number($("[data-qty]", r).textContent) || 0, p: r.dataset.p === "" ? null : Number(r.dataset.p), f: r.dataset.f === "1" }; })
+        .filter(function (x) { return x.qty > 0; });
+    }
+    function sync() {
+      var s = state();
+      rows.forEach(function (r) { var q = Number($("[data-qty]", r).textContent) || 0; r.classList.toggle("on", q > 0); $('[data-q="-1"]', r).disabled = q === 0; });
+      if (go) go.disabled = !s.length;
+      if (!total) return;
+      if (!s.length) { total.textContent = "—"; return; }
+      var sum = s.reduce(function (a, x) { return a + (x.p || 0) * x.qty; }, 0);
+      total.textContent = !s.every(function (x) { return x.p != null; }) ? total.dataset.none : (s.every(function (x) { return x.f; }) ? "" : total.dataset.from + " ") + money(sum);
+    }
+    box.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-q]");
+      if (!b) return;
+      var r = b.closest(".pkg"), out = $("[data-qty]", r), q = Number(out.textContent) || 0, d = Number(b.dataset.q);
+      if (d > 0 && q === 0 && state().length >= maxL) return; // at most maxL different services in one booking
+      out.textContent = String(Math.max(0, Math.min(maxQ, q + d)));
+      sync();
+    });
+    if (go) go.addEventListener("click", function () {
+      var s = state();
+      if (s.length) location.assign("/book?items=" + s.map(function (x) { return x.id + ":" + x.qty; }).join(","));
+    });
+    sync();
+  })();
   // ---- 2 + 3 · choose a time + location → your details → ONE tap: book (D-191: then the tracking page offers the account)
   if (page === "book") (function () {
     var s2 = $("#s2"), s3 = $("#s3"), pick = $("#pick"), next = $("#next"), err = $("#err"), err3 = $("#err3");
     var st = bindPicker($("#picker"), function (p) { pick.textContent = p.label || "—"; hideErr(err); });
-    var loc = locUI(err);
+    var loc = locUI(err), ph = photosUI(err3, Number(($("#photos") || { dataset: {} }).dataset.max) || 4);
     // «book again»: the place of the earlier booking
     if (body.dataset.addr !== undefined) { $("#addr").value = body.dataset.addr; if (loc && body.dataset.lat && body.dataset.lng) loc.set(body.dataset.lat, body.dataset.lng, null); }
     clearOnEdit(s2, err); clearOnEdit(s3, err3);
@@ -377,7 +470,7 @@
       busy(btn, true);
       var where = loc.value();
       send("POST", "/api/public/bookings", { items: body.dataset.items, at: st.at, address: $("#addr").value.trim(), lat: where.lat, lng: where.lng, accuracy: where.accuracy, name: name, phone: phone,
-        note: $("#note").value.trim(), consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
+        note: $("#note").value.trim(), photos: ph.list(), consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
         if (r.ok) {
           if (!r.json.ref) return location.assign("/");
           // the account form on the next page is filled with what was just typed — handed over in this tab only
@@ -432,56 +525,10 @@
 
   // ---- 5 · quote request: tiles + items (optional), description, up to 5 photos (made smaller in the browser), location, ONE tap
   if (page === "quote") (function () {
-    var err = $("#err"), box = $("#photos"), add = $("#add"), file = $("#file"), photos = [];
+    var err = $("#err"), ph = photosUI(err, 5);
     var ui = linesUI(function () { /* nothing to show */ });
     var loc = locUI(err);
     clearOnEdit($("main"), err);
-    function shrink(f) {
-      return new Promise(function (resolve, reject) {
-        if (!/^image\//.test(f.type)) return reject(new Error("type"));
-        var url = URL.createObjectURL(f), img = new Image();
-        img.onload = function () {
-          // a fresh JPEG (no camera position, no comments), smaller until it is under ~1 MB
-          var steps = [[1600, 0.82], [1280, 0.72], [1024, 0.6]], b64 = "";
-          for (var i = 0; i < steps.length; i++) {
-            var k = Math.min(1, steps[i][0] / Math.max(img.naturalWidth, img.naturalHeight)), c = document.createElement("canvas");
-            c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
-            c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
-            var data = c.toDataURL("image/jpeg", steps[i][1]);
-            b64 = data.slice(data.indexOf(",") + 1);
-            if (b64.length <= 1300000) break;
-          }
-          URL.revokeObjectURL(url);
-          if (b64.length > 1300000) return reject(new Error("size"));
-          resolve(b64);
-        };
-        img.onerror = function () { URL.revokeObjectURL(url); reject(new Error("image")); };
-        img.src = url;
-      });
-    }
-    function draw() {
-      $$(".pt", box).forEach(function (n) { n.remove(); });
-      photos.forEach(function (b64, i) {
-        var d = document.createElement("div"), x = document.createElement("button");
-        d.className = "pt"; d.style.backgroundImage = "url(data:image/jpeg;base64," + b64 + ")";
-        x.type = "button"; x.textContent = "×"; x.setAttribute("aria-label", box.dataset.remove);
-        x.addEventListener("click", function () { photos.splice(i, 1); draw(); });
-        d.appendChild(x); box.insertBefore(d, add);
-      });
-      add.hidden = photos.length >= 5;
-    }
-    add.addEventListener("click", function () { file.click(); });
-    file.addEventListener("change", function () {
-      var list = Array.prototype.slice.call(file.files || []);
-      file.value = "";
-      hideErr(err);
-      list.reduce(function (p, f) {
-        return p.then(function () {
-          if (photos.length >= 5) return showErr(err, "TOO_MANY_PHOTOS");
-          return shrink(f).then(function (b64) { photos.push(b64); draw(); }).catch(function () { showErr(err, "BAD_IMAGE"); });
-        });
-      }, Promise.resolve());
-    });
     $("#send").addEventListener("click", function () {
       var btn = this, desc = $("#desc").value.trim(), name = $("#name").value.trim(), phone = $("#phone").value.trim(), addr = $("#addr").value.trim();
       var lines = ui ? ui.state() : [];
@@ -492,7 +539,7 @@
       if (addr.length < 3 && !loc.has()) return showErr(err, "LOCATION_REQUIRED");
       busy(btn, true);
       var where = loc.value();
-      send("POST", "/api/public/quotes", { items: lines.length ? param(lines) : null, category: (ui && ui.cat()) || body.dataset.cat || "other", description: desc, photos: photos, name: name, phone: phone,
+      send("POST", "/api/public/quotes", { items: lines.length ? param(lines) : null, category: (ui && ui.cat()) || body.dataset.cat || "other", description: desc, photos: ph.list(), name: name, phone: phone,
         location: addr, lat: where.lat, lng: where.lng, accuracy: where.accuracy, consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
         if (r.ok) {
           if (!r.json.ref) return location.assign("/");

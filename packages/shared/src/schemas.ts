@@ -110,6 +110,8 @@ export const catalogItemSchema = z.object({
   from_price: z.number().int().min(0).max(100_000_000).nullable().optional(),
   show_on_website: z.boolean().optional(),
   quote_only: z.boolean().optional(),
+  /** D-192: the website shows the price as exact («$15»), not «from $15» */
+  price_fixed: z.boolean().optional(),
 });
 export type CatalogItemInput = z.infer<typeof catalogItemSchema>;
 

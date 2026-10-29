@@ -35,7 +35,9 @@ export const shopSetupInput = z.object({
     cost_price: z.number().int().min(0).max(100_000_000).nullable().optional(), is_active: z.boolean().optional(),
     /** D-144: a line the shop does not have yet (made with these; a price-list line, never stock) + its stock group for the reconciliation («ភ្ជាប់កូដស្តុក», an account code) */
     name_km: z.string().trim().min(1).max(120).optional(), kind: z.enum(["service", "product"]).optional(), unit: z.string().trim().max(20).optional(), stock_link: z.string().regex(/^[1-9][0-9]{3,5}$/).nullable().optional(),
-    show_on_website: z.boolean().optional() }).strict()).max(500).optional(),
+    show_on_website: z.boolean().optional(),
+    /** D-192: quote only (never booked online) · the website price is exact («$15», not «from $15») */
+    quote_only: z.boolean().optional(), price_fixed: z.boolean().optional() }).strict()).max(500).optional(),
   /** D-144: the day the books are meant to start (the CFO's form opens on it) */
   books_start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   /** staff accounts turned off / on by username — the Users page's rules: never the platform account, a CEO account only by a CEO */
@@ -51,8 +53,10 @@ export const shopSetupInput = z.object({
   test: z.object({ customers: z.array(z.string().max(40)).max(100).default([]), bookings: z.array(z.string().max(20)).max(100).default([]) }).strict().optional(),
 }).strict();
 
-type CatRow = { id: string; code: string; name_km: string; name_en: string | null; kind: string; category: string; unit: string; sell_price: number; cost_price: number | null; duration_min: number; from_price: number | null; is_active: boolean };
-const catRows = (companyId: string, code?: string) => sql<CatRow[]>`select id, code, name_km, name_en, kind::text as kind, category::text as category, unit, sell_price, cost_price, duration_min, from_price, is_active
+type CatRow = { id: string; code: string; name_km: string; name_en: string | null; kind: string; category: string; unit: string; sell_price: number; cost_price: number | null; duration_min: number; from_price: number | null; is_active: boolean;
+  show_on_website: boolean; quote_only: boolean; price_fixed: boolean };
+const catRows = (companyId: string, code?: string) => sql<CatRow[]>`select id, code, name_km, name_en, kind::text as kind, category::text as category, unit, sell_price, cost_price, duration_min, from_price, is_active,
+  show_on_website, quote_only, price_fixed
   from catalog_items where company_id = ${companyId} and ${code ? sql`code = ${code}` : sql`code is not null`}`;
 const show = (k: string, v: unknown) => (v == null || v === "" ? "—" : /_price$/.test(k) && typeof v === "number" ? `$${(v / 100).toFixed(2)}` : typeof v === "string" ? v : JSON.stringify(v));
 
@@ -124,7 +128,7 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
       if (!it && !planned.has(p.code) && !p.name_km) throw new Error(`catalog: no item with code ${p.code} (give name_km to make it)`);
       if (!it && p.name_km) { out.push(`catalog ${p.code} new: ${p.name_km} · ${p.kind ?? "service"} · ${p.unit ?? "unit"} · sell $${((p.sell_price ?? 0) / 100).toFixed(2)}${p.stock_link ? ` · stock link ${p.stock_link}` : ""}`); continue; }
       const after: Record<string, unknown> = { ...(it ?? {}), ...(planned.get(p.code) ?? {}) };
-      const ch = (["duration_min", "from_price", "sell_price", "cost_price", "is_active"] as const).filter((k) => p[k] !== undefined).map((k) => `${k} ${show(k, after[k])} → ${show(k, p[k])}`);
+      const ch = (["duration_min", "from_price", "sell_price", "cost_price", "is_active", "show_on_website", "quote_only", "price_fixed"] as const).filter((k) => p[k] !== undefined).map((k) => `${k} ${show(k, after[k])} → ${show(k, p[k])}`);
       out.push(`catalog ${p.code}: ${ch.join(" · ") || "nothing to change"}`);
     }
   }
@@ -219,7 +223,8 @@ export async function shopSetup(slug: string, raw: unknown, apply: boolean): Pro
     if (!it) throw new Error(`catalog: no item with code ${p.code}`);
     await upsertItem(user, null, { id: it.id, code: it.code, name_km: it.name_km, name_en: it.name_en ?? "", kind: it.kind as CatalogItemInput["kind"], category: it.category as CatalogItemInput["category"],
       unit: it.unit, sell_price: p.sell_price ?? it.sell_price, duration_min: p.duration_min ?? it.duration_min, ...(p.from_price !== undefined ? { from_price: p.from_price } : {}),
-      ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}) }, p.cost_price !== undefined);
+      ...(p.cost_price !== undefined ? { cost_price: p.cost_price } : {}), ...(p.show_on_website !== undefined ? { show_on_website: p.show_on_website } : {}),
+      ...(p.quote_only !== undefined ? { quote_only: p.quote_only } : {}), ...(p.price_fixed !== undefined ? { price_fixed: p.price_fixed } : {}) }, p.cost_price !== undefined);
     if (p.is_active !== undefined) await setItemActive(user, null, it.id, p.is_active);
   }
   if (input.books_start) await setPlannedStart(user, c.id, input.books_start);

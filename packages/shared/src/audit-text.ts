@@ -99,7 +99,7 @@ export const AUDIT_FIELD: Record<string, AuditText & { kind?: AuditKind }> = {
   counted_usd: { ...T("រាប់បាន $", "Counted $"), kind: "usd" }, counted_khr: { ...T("រាប់បាន ៛", "Counted ៛"), kind: "khr" },
   method: { ...T("វិធីបង់", "Method"), kind: "method" }, rate: T("អត្រា (៛ / $)", "Rate (៛ / $)"), fx_rate_khr: T("អត្រាប្តូរប្រាក់", "Exchange rate"),
   duration_min: T("រយៈពេលការងារ (នាទី)", "Job length (minutes)"), reminder_months: T("រំលឹករៀងរាល់ (ខែ)", "Remind every (months)"),
-  show_on_website: { ...T("បង្ហាញលើគេហទំព័រ", "Shown on the website"), kind: "bool" }, quote_only: { ...T("ស្នើសុំតម្លៃប៉ុណ្ណោះ", "Quote only"), kind: "bool" },
+  show_on_website: { ...T("បង្ហាញលើគេហទំព័រ", "Shown on the website"), kind: "bool" }, quote_only: { ...T("ស្នើសុំតម្លៃប៉ុណ្ណោះ", "Quote only"), kind: "bool" }, price_fixed: { ...T("តម្លៃថេរ", "Fixed price"), kind: "bool" },
   is_active: { ...T("សកម្ម", "Active"), kind: "bool" }, is_lead: { ...T("មេជាង", "Lead technician"), kind: "bool" },
   is_test: { ...T("សាកល្បង", "Test"), kind: "bool" }, must_change_password: { ...T("ប្ដូរពាក្យសម្ងាត់ពេលចូល", "New password at sign-in"), kind: "bool" },
   temp_password_expires_at: { ...T("ពាក្យសម្ងាត់ដំបូងផុតកំណត់", "First password ends"), kind: "time" }, tracks_attendance: { ...T("កត់វត្តមាន", "Tracks attendance"), kind: "bool" }, test_phones: { ...T("លេខសាកល្បង", "Test phones"), kind: "list" },

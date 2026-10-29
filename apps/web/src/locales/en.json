@@ -465,6 +465,8 @@
     "from_hint": "Empty = \"Price confirmed when we contact you\" (still bookable)",
     "show_on_website": "Show on the website",
     "quote_only": "Quote only (not booked online)",
+    "price_fixed": "Fixed price (the website shows «$15», not «from $15»)",
+    "from_short": "from {{price}}",
     "sample": "Sample — please confirm",
     "last_change": "Last changed: {{name}} · {{at}}",
     "excel_template": "Download Excel template",

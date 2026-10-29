@@ -3,7 +3,7 @@
 // details + the one-tap consent · 4 request sent · 5 quote request · 6 customer home · privacy / terms. Server-rendered,
 // everything escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in
 // /pub/site.css, the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). [Brackets] in the design = data.
-import { CUSTOMER_PASSWORD_HINT, fillCompany, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
+import { CUSTOMER_PASSWORD_HINT, fillCompany, WEB_MAX_BOOKING_PHOTOS, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
   type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
@@ -51,6 +51,9 @@ const TXT = {
     pw_title: "ប្ដូរលេខសម្ងាត់", pw_make: "បង្កើតលេខសម្ងាត់", pw_cur: "លេខសម្ងាត់បច្ចុប្បន្ន", pw_new: "លេខសម្ងាត់ថ្មី", pw_new2: "លេខសម្ងាត់ថ្មីម្ដងទៀត", pw_save: "រក្សាទុក", logout_all: "ចាកចេញពីឧបករណ៍ទាំងអស់", n_link: "ភ្ជាប់ Telegram ដើម្បីទទួលដំណឹងការកក់", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
     g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
+    menu: "ម៉ឺនុយ", tab_home: "ទំព័រដើម", tab_bookings: "ការកក់", tab_help: "ជំនួយ", tab_account: "គណនី", services: "សេវាកម្ម", pick_service: "ជ្រើសសេវា", total: "សរុប",
+    quote_photo: "ផ្ញើរូបថតដើម្បីស្នើសុំតម្លៃ", help_h: "ជំនួយ", problem: "ពិពណ៌នាបញ្ហា", problem_ph: "ឧ. ម៉ាស៊ីនត្រជាក់មិនត្រជាក់ មានទឹកស្រក់ · ជាន់ទី ២ ទ្វារពណ៌ខៀវ",
+    problem_photos: "រូបថតបញ្ហា", max4: `(មិនចាំបាច់ · អតិបរមា ${kmDigits(WEB_MAX_BOOKING_PHOTOS)})`, price_exact: (p: string) => `តម្លៃ ${p}`,
     acct_h: "បង្កើតគណនី ដើម្បីតាមដានការកក់", acct_p: "ពេលក្រោយ បើកគេហទំព័រនេះ ឃើញការកក់របស់អ្នកភ្លាម។", pin: "លេខសម្ងាត់ ៤ ខ្ទង់", pin2: "បញ្ចូលម្ដងទៀត",
     acct_go: "រួចរាល់", skip: "រំលង", acct_open: "បង្កើតគណនី", acct_exists: "លេខនេះមានគណនីរួចហើយ", acct_signin: "ចូលគណនី ដើម្បីតាមដាន", view_booking: "មើលការកក់",
     my_h: "ការកក់របស់ខ្ញុំ", history: "ប្រវត្តិ", your_tech: "ជាងរបស់អ្នក", tech_wait: "យើងនឹងចាត់ជាងឆាប់ៗ",
@@ -104,6 +107,9 @@ const TXT = {
     pw_title: "Change PIN", pw_make: "Create a PIN", pw_cur: "Current PIN", pw_new: "New PIN", pw_new2: "New PIN again", pw_save: "Save", logout_all: "Sign out on all devices", n_link: "Connect Telegram to get booking news", l_staff: "Staff: open the work app",
     track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
     g_start: "Please open the shop on Telegram and tap START first",
+    menu: "Menu", tab_home: "Home", tab_bookings: "Bookings", tab_help: "Help", tab_account: "Account", services: "Services", pick_service: "Choose a service", total: "Total",
+    quote_photo: "Send photos for a quote", help_h: "Help", problem: "Describe the problem", problem_ph: "e.g. the AC does not cool and drips water · 2nd floor, blue door",
+    problem_photos: "Photos of the problem", max4: `(optional · up to ${WEB_MAX_BOOKING_PHOTOS})`, price_exact: (p: string) => `Price ${p}`,
     acct_h: "Create an account to track your booking", acct_p: "Next time this website shows your bookings straight away.", pin: "4-digit PIN", pin2: "PIN again",
     acct_go: "Done", skip: "Skip", acct_open: "Create an account", acct_exists: "This number already has an account", acct_signin: "Sign in to track", view_booking: "See the booking",
     my_h: "My bookings", history: "History", your_tech: "Your technician", tech_wait: "We will assign a technician soon",
@@ -144,6 +150,7 @@ const I = {
   play: '<circle cx="12" cy="12" r="10"/><path d="m10 8 6 4-6 4z"/>',
   bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/>', key: '<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6M15.5 7.5l3 3L22 7l-3-3"/>',
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
   eyeOff: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="m1 1 22 22"/>',
 };
 type Cat = (typeof WEB_CATEGORIES)[number] | "other";
@@ -173,7 +180,7 @@ function partsOf(d: Date, tz: string): Parts {
 /** «ច័ន្ទ 5 តុលា · 09:00» */
 const whenText = (t: T, p: Parts) => `${t.wd[p.dow - 1]} ${p.day} ${t.mon[p.month - 1]} · ${p.time}`;
 const hoursText = (minutes: number, lang: SiteLang) => { const h = String(Math.round(minutes / 6) / 10); return lang === "km" ? kmDigits(h) : h; };
-const priceText = (t: T, cents: number | null) => (cents == null ? t.price_contact : t.price_from(fromPriceText(cents)));
+const priceText = (t: T, cents: number | null, fixed = false) => (cents == null ? t.price_contact : fixed ? t.price_exact(fromPriceText(cents)) : t.price_from(fromPriceText(cents)));
 
 // ---------- shell + shared pieces ----------
 type Shell = { title: string; page: string; body: string; path: string; index?: boolean; description?: string; data?: Record<string, string>; msg?: boolean; json?: Record<string, unknown> };
@@ -183,7 +190,7 @@ function shell(d: SiteView, lang: SiteLang, o: Shell): string {
   const json = (id: string, v: unknown) => `<script type="application/json" id="${id}">${JSON.stringify(v).replace(/</g, "\\u003c")}</script>`;
   const msg = o.msg === false ? "" : json("msg", { ...t.msg, wd: t.wd, wds: t.wds, mon: t.mon, gps_ok: t.gps_ok, price_contact: t.price_contact, price_from: t.price_from("{p}"), from: t.from, quote: t.quote, book: t.book, pick_none: t.pick_none });
   const extra = Object.entries(o.json ?? {}).map(([k, v]) => json(k, v)).join("");
-  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#EEF6F5">
+  return `<!doctype html><html lang="${lang}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#314075">
 <title>${esc(o.title)}</title>${o.description ? `<meta name="description" content="${esc(o.description)}">` : ""}${noindex ? '<meta name="robots" content="noindex,nofollow">' : ""}
 ${o.index ? `<link rel="canonical" href="${esc(base)}/${lang === "en" ? "?lang=en" : ""}"><link rel="alternate" hreflang="km" href="${esc(base)}/"><link rel="alternate" hreflang="en" href="${esc(base)}/?lang=en"><meta property="og:type" content="website"><meta property="og:title" content="${esc(o.title)}">${o.description ? `<meta property="og:description" content="${esc(o.description)}">` : ""}` : ""}
 <link rel="icon" href="${APP_BASE}/favicon.png"><link rel="stylesheet" href="/pub/site.css?v=${assets.v}"></head>
@@ -251,35 +258,103 @@ function linesBlock(t: T, lang: SiteLang, o: { lines: WebLineRef[]; optional: bo
 }
 const lineHref = (lines: WebLineRef[]) => lines.map((l) => `${l.id}:${l.qty}`).join(",");
 
+// ---------- D-192 the app frame (FixME-style, One Team navy): header band, bottom tab bar ----------
+/** the navy band on top: the shop (or a back arrow + title) and the account pill */
+const band = (d: SiteView, lang: SiteLang, o: { back?: string; attr?: string; title?: string; sub?: string; signed?: boolean; hello?: string; tall?: boolean } = {}) => {
+  const t = TXT[lang], n = names(d, lang);
+  const left = o.back
+    ? `<a class="back w" href="${esc(o.back)}"${o.attr ?? ""} aria-label="${t.back}">${svg(I.back, 18, 2.4)}</a><div class="ttl w">${o.title ?? ""}${o.sub ? `<small>${o.sub}</small>` : ""}</div>`
+    : `<a class="brand w" href="/?tab=home">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a>`;
+  const right = o.back ? "" : o.signed ? `<a class="pill w" href="/my">${svg(I.user, 14)}${t.account}</a>` : `<a class="pill w" href="/my">${svg(I.user, 14)}${t.login}</a>`;
+  return `<header class="band${o.tall ? " tall" : ""}"><div class="bandtop">${left}${right}</div>${o.hello ? `<p class="hi">${o.hello}</p>` : ""}</header>`;
+};
+type Tab = "home" | "bookings" | "help" | "account";
+/** the bottom bar of every customer page that has no booking bar of its own */
+const tabbar = (t: T, on: Tab) => {
+  const tab = (k: Tab, href: string, icon: string, label: string) => `<a href="${href}"${k === on ? ' aria-current="page"' : ""}>${svg(icon, 22, k === on ? 2.4 : 2)}<span>${label}</span></a>`;
+  return `<nav class="tabbar" aria-label="${t.menu}">${tab("home", "/?tab=home", I.home, t.tab_home)}${tab("bookings", "/my/bookings", I.cal, t.tab_bookings)}${tab("help", "/help", I.help, t.tab_help)}${tab("account", "/my", I.user, t.tab_account)}</nav>`;
+};
+/** the shop's promises (FixME's «commitments» row) — only what the system itself keeps */
+const promises = (t: T, lang: SiteLang) => {
+  const months = String(Math.max(1, Math.round(WARRANTY_DAYS / 30)));
+  return `<section class="promise"><div><span>${svg(I.clock)}</span><b>${t.t1}</b></div><div><span>${svg(I.shield)}</span><b>${t.t2(lang === "km" ? kmDigits(months) : months)}</b></div><div><span>${svg(I.send)}</span><b>${t.t3}</b></div></section>`;
+};
+/** a category's line under its icon: «from $15», «request a quote» or the number of services */
+const catSub = (t: T, list: SiteService[]) => {
+  const priced = list.filter((s) => s.from_price != null && !s.quote_only);
+  return priced.length ? `${t.from} ${fromPriceText(Math.min(...priced.map((s) => s.from_price!)))}` : list.every((s) => s.quote_only) ? t.quote : t.n_items(list.length);
+};
+const catsOf = (services: SiteService[]) => [...WEB_CATEGORIES, "other" as const].filter((c) => services.some((s) => catOf(s) === c));
+/** the price of one service as the customer reads it: exact (D-192 «តម្លៃថេរ»), «from», or told on contact */
+const svcPrice = (t: T, s: SiteService) => (s.quote_only ? t.quote : s.from_price == null ? t.price_contact : s.price_fixed ? fromPriceText(s.from_price) : `${t.from} ${fromPriceText(s.from_price)}`);
+
 // ---------- 1 · home ----------
-/** start: the /book screen of the bot's «📅» (D-121) — the service picker without the shop presentation; signed: a customer session */
-export function homePage(d: SiteView, lang: SiteLang, path = "/", prefill: WebLineRef[] | null = null, o: { start?: boolean; signed?: boolean } = {}): string {
+/** start: the /book screen of the bot's «📅» (D-121) — the services without the shop presentation; signed: a customer session */
+export function homePage(d: SiteView, lang: SiteLang, path = "/", _prefill: WebLineRef[] | null = null, o: { start?: boolean; signed?: boolean } = {}): string {
   const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
-  const known = (prefill ?? []).filter((l) => d.services.some((s) => s.id === l.id));
-  const lb = linesBlock(t, lang, { lines: known, optional: false, services: d.services });
-  const chosen = lb.lines.map((l) => ({ ...l, s: d.services.find((s) => s.id === l.id)! })).filter((x) => x.s);
-  const quote = chosen.some((x) => x.s.quote_only);
-  const price = chosen.length && chosen.every((x) => x.s.from_price != null) ? chosen.reduce((a, x) => a + x.s.from_price! * x.qty, 0) : null;
-  const go = chosen.length ? `${quote ? "/quote" : "/book"}?items=${lineHref(lb.lines)}` : "/quote";
-  const months = String(Math.max(1, Math.round(WARRANTY_DAYS / 30)));
+  const cats = catsOf(d.services);
   const area = [pick(w.area_km, w.area_en), pick(w.hours_km, w.hours_en)].filter(Boolean).join(" · ");
   const about = pick(w.about_km, w.about_en), points = ((lang === "en" ? w.highlights_en : w.highlights_km) ?? []).map((x) => x.trim()).filter(Boolean);
+  const tagline = pick(w.tagline_km, w.tagline_en);
+  // the banner: the shop's own slide first (tagline + «book»), then its work photos (they load when the slide comes near — D-134)
+  const photos = (w.gallery ?? []).slice(0, 6);
+  const banner = `<section class="banner" id="banner" aria-roledescription="carousel"><div class="slides" id="slides">
+<div class="slide own">${w.hero ? `<img src="/pub/img/${esc(w.hero)}" alt="" decoding="async">` : ""}<div class="bt"><b>${esc(tagline || t.h1)}</b><span>${t.sub}</span><a class="btn w sm" href="#svc">${svg(I.cal, 15, 2.2)}<span>${t.book}</span></a></div></div>
+${photos.map((g) => `<div class="slide ph"><img data-src="/pub/img/${esc(g)}" alt="" decoding="async"></div>`).join("")}</div>
+${photos.length ? `<div class="dots" id="dots">${[0, ...photos].map((_, i) => `<i${i === 0 ? ' class="on"' : ""}></i>`).join("")}</div>` : ""}</section>`;
+  const grid = `<section class="card svc3" id="svc"><h2 class="h2">${t.services}</h2>${d.services.length ? `<div class="sgrid">${cats.map((c) => {
+    const list = d.services.filter((s) => catOf(s) === c);
+    return `<a class="sv" href="/s/${c}" data-cat="${c}"><span class="si">${svg(CAT_ICON[c], 26, 1.8)}</span><b>${esc(catLabel(c, lang))}</b><small>${esc(catSub(t, list))}</small></a>`;
+  }).join("")}</div>` : `<p class="sub">${t.none}</p>`}</section>`;
   const extra = [
-    about || points.length ? `<section class="card s"><h2 class="h2">${t.about}</h2>${w.hero ? `<img class="hero" src="/pub/img/${esc(w.hero)}" alt="" loading="lazy">` : ""}${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</section>` : "",
-    // D-134: the work photos load when the visitor comes near them (site.js), not with the page — 11 photos were ~3.7 MB at once on a slow network
-    (w.gallery ?? []).length ? `<section class="card s"><h2 class="h2">${t.gallery}</h2><div class="gal">${w.gallery!.map((g) => `<img data-src="/pub/img/${esc(g)}" alt="" decoding="async">`).join("")}</div></section>` : "",
-    d.info.address || d.office || w.facebook || phones.length > 1 ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}${d.office ? `<iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe><a class="ln" href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a>` : ""}</section>` : "",
+    about || points.length ? `<section class="card s"><h2 class="h2">${t.about}</h2>${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</section>` : "",
+    (w.gallery ?? []).length ? `<section class="card s"><div class="hr"><h2 class="h2">${t.gallery}</h2></div><div class="gal2">${w.gallery!.map((g) => `<img data-src="/pub/img/${esc(g)}" alt="" decoding="async">`).join("")}</div></section>` : "",
   ].join("");
-  const body = `<main class="scr home">
-<header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a>${o.signed ? `<a class="pill" href="/my/bookings">${svg(I.cal, 14)}${t.mine}</a>` : `<a class="pill" href="/my">${svg(I.user, 14)}${t.login}</a>`}</header>
-${steps(t, 1)}
-<section class="card" id="pick"><div><h1>${t.h1}</h1><p class="sub">${t.sub}</p></div>
-${d.services.length ? `${lb.html}<p class="price" id="price">${esc(priceText(t, price))}</p>` : `<p class="sub">${t.none}</p>`}
-<a class="btn" id="go" href="${esc(go)}">${svg(I.cal, 16, 2.2)}<span>${quote || !chosen.length ? t.quote : t.book}</span></a>
-${phones[0] || d.bot ? `<div class="row2">${phones[0] ? `<a class="ob" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div>` : ""}</section>
-${o.start ? "" : `<section class="trust"><div><span class="tl">${svg(I.clock)}</span><span>${t.t1}</span></div><div><span class="tl">${svg(I.shield)}</span><span>${t.t2(lang === "km" ? kmDigits(months) : months)}</span></div><div><span class="gd">${svg(I.send)}</span><span>${t.t3}</span></div></section>\n${extra}`}${footer(t, lang, path, o.start ? "" : area)}</main>`;
-  return shell(d, lang, { title: `${n.full} — ${t.book}`, description: pick(w.tagline_km, w.tagline_en) || t.sub, page: "home", path, index: !o.start, body, json: { items: lb.items }, data: o.signed ? { signed: "1" } : {} });
+  const body = `<main class="scr home v3 tabs">
+${band(d, lang, { signed: o.signed, hello: o.start ? t.pick_service : t.h1, tall: !o.start })}
+${o.start ? "" : banner}
+${grid}
+${o.start ? "" : `${promises(t, lang)}\n${extra}`}
+${phones[0] || d.bot ? `<section class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</section>` : ""}
+${footer(t, lang, path, o.start ? "" : area)}
+${tabbar(t, "home")}</main>`;
+  return shell(d, lang, { title: `${n.full} — ${t.book}`, description: tagline || t.sub, page: "home", path, index: !o.start, body, data: o.signed ? { signed: "1" } : {} });
+}
+
+/** D-192 one service category (FixME's service page): the promises, every service of the category as a row with its price and a
+ *  quantity stepper (quote-only rows ask for a quote), the total + «continue» → the time and place (/book?items=…) */
+export function categoryPage(d: SiteView, lang: SiteLang, cat: Cat, pre: WebLineRef[], path: string, signed = false): string {
+  const t = TXT[lang], n = names(d, lang), list = d.services.filter((s) => catOf(s) === cat);
+  const qty = (id: string) => pre.find((l) => l.id === id)?.qty ?? 0;
+  const bookable = list.filter((s) => !s.quote_only);
+  const rows = list.map((s) => {
+    const q = qty(s.id);
+    return `<div class="pkg${q ? " on" : ""}${s.quote_only ? " q" : ""}" data-id="${s.id}" data-p="${s.from_price ?? ""}" data-f="${s.price_fixed ? 1 : 0}">
+<span class="si sm">${svg(CAT_ICON[cat], 20, 1.9)}</span><div class="tx"><b>${esc(svcName(s, lang))}</b><span>${esc(svcPrice(t, s))}${s.quote_only ? "" : ` · ${t.about_h(hoursText(s.duration_min, lang))}`}</span></div>
+${s.quote_only ? `<a class="sb p" href="/quote?items=${s.id}:1">${t.quote}</a>`
+    : `<div class="qty" role="group" aria-label="${t.qty}"><button type="button" class="qb" data-q="-1" aria-label="${t.less}"${q ? "" : " disabled"}>${svg(I.minus, 16, 2.4)}</button><output data-qty>${q}</output><button type="button" class="qb" data-q="1" aria-label="${t.more_q}">${svg(I.plus, 16, 2.4)}</button></div>`}</div>`;
+  }).join("");
+  const body = `<main class="scr bar-pad v3">
+${band(d, lang, { back: "/?tab=home", title: esc(catLabel(cat, lang)), sub: esc(catSub(t, list)) })}
+${promises(t, lang)}
+<section class="card s pkgs" id="pkgs" data-max="${WEB_MAX_LINES}" data-maxq="${WEB_MAX_QTY}"><h2 class="h2">${t.pick_service}</h2>${rows || `<p class="sub">${t.none}</p>`}</section>
+${list.some((s) => s.quote_only) && bookable.length === 0 ? `<a class="ob b" href="/quote">${svg(I.photo, 15)}${t.quote_photo}</a>` : ""}
+${bookable.length ? `<div class="bar"><div class="sel"><small>${t.total}</small><b id="total" data-from="${esc(t.from)}" data-none="${esc(t.price_contact)}">—</b></div><button type="button" class="btn go" id="go" disabled>${t.next}</button></div>` : tabbar(t, "home")}</main>`;
+  return shell(d, lang, { title: `${catLabel(cat, lang)} — ${n.full}`, page: "cat", path, body, data: signed ? { signed: "1" } : {} });
+}
+
+/** D-192 «ជំនួយ» (the tab bar's support): call, Telegram, where we are, how-to videos, the rules */
+export function helpPage(d: SiteView, lang: SiteLang, path: string, signed = false): string {
+  const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
+  const body = `<main class="scr v3 tabs">
+${band(d, lang, { signed, hello: t.help_h })}
+<section class="card s g8">${phones.map((p) => `<a class="ob m" href="${esc(tel(p))}">${svg(I.phone, 15)}${esc(p)}</a>`).join("")}${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</section>
+${d.info.address || d.office ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${d.office ? `<iframe title="map" loading="lazy" referrerpolicy="no-referrer" src="https://maps.google.com/maps?q=${d.office.lat},${d.office.lng}&amp;z=15&amp;output=embed"></iframe><a class="ln" href="https://www.google.com/maps/search/?api=1&amp;query=${d.office.lat},${d.office.lng}" rel="noopener">${t.map}</a>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}</section>` : ""}
+<section class="card s g8"><a class="ln" href="/guide">${svg(I.play, 15)}${t.guide_h}</a><a class="ln" href="/my/reset">${svg(I.key, 15)}${t.l_forgot}</a><a class="ln" href="/privacy">${t.privacy}</a><a class="ln" href="/terms">${t.terms}</a></section>
+${footer(t, lang, path)}
+${tabbar(t, "help")}</main>`;
+  return shell(d, lang, { title: `${t.help_h} — ${n.full}`, page: "help", path, body, msg: false });
 }
 
 // ---------- 2 + 3 · choose a time + location, your details (one document, two steps) ----------
@@ -299,23 +374,25 @@ const linesSummary = (lines: Lines, lang: SiteLang) => esc(lang === "en" ? lines
 export function bookPage(d: SiteView, lang: SiteLang, o: { lines: Lines; days: WebDay[]; token: string; path: string; prefill: Prefill | null; night?: boolean; signed?: boolean }): string {
   const t = TXT[lang], n = names(d, lang), r = o.lines, phones = phonesOf(d);
   const items = lineHref(r.lines);
-  const price = priceText(t, r.price), free = o.days.some((x) => x.slots.some((y) => y.free));
-  const first = d.services.find((s) => s.id === r.lines[0]!.id);
-  const body = `<main class="scr bar-pad" id="s2">
-${backHeader(t, `/?items=${esc(items)}`, t.book)}
+  const price = priceText(t, r.price, r.fixed), free = o.days.some((x) => x.slots.some((y) => y.free));
+  const first = d.services.find((s) => s.id === r.lines[0]!.id), cat: Cat = first ? catOf(first) : "other";
+  const body = `<main class="scr bar-pad v3" id="s2">
+${band(d, lang, { back: `/s/${cat}?items=${items}`, title: t.book })}
 ${steps(t, 2)}
-<div class="svc"><span class="ic sm">${svg(CAT_ICON[first ? catOf(first) : "other"], 16)}</span><div class="tx"><b>${linesSummary(r, lang)}</b><span>${esc(price)} · ${t.about_h(hoursText(r.minutes, lang))}</span></div><a href="/?items=${esc(items)}">${t.change}</a></div>
+<div class="svc"><span class="ic sm">${svg(CAT_ICON[cat], 16)}</span><div class="tx"><b>${linesSummary(r, lang)}</b><span>${esc(price)} · ${t.about_h(hoursText(r.minutes, lang))}</span></div><a href="/s/${cat}?items=${esc(items)}">${t.change}</a></div>
 <section class="card s" id="picker">${picker(t, o.days)}</section>
 ${locationCard(t)}
 ${errBox()}
 <div class="bar"><div class="sel"><small>${t.chosen}</small><b id="pick">—</b></div>${phones[0] && !free ? `<a class="btn go" href="${esc(tel(phones[0]))}">${t.call}</a>` : `<button type="button" class="btn go" id="next">${t.next}</button>`}</div></main>
-<main class="scr bar-pad" id="s3" hidden>
-${backHeader(t, "#", t.details, "", " data-back")}
+<main class="scr bar-pad v3" id="s3" hidden>
+${band(d, lang, { back: "#", attr: " data-back", title: t.details })}
 ${steps(t, 3)}
 <section class="sum"><div><span>${t.r_svc}</span><b>${linesSummary(r, lang)}</b></div><div><span>${t.r_when}</span><b id="sum-when">—</b></div><div><span>${t.r_loc}</span><b id="sum-loc">—</b></div><div class="pr"><span>${t.r_price}</span><b>${esc(price)}</b></div></section>
 <section class="card s"><div class="f"><label class="lb s" for="name">${t.name}</label><input class="in" id="name" maxlength="80" autocomplete="name" placeholder="${t.name_ph}" value="${esc(o.prefill?.name ?? "")}"></div>
 <div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="12 345 678" value="${esc(o.prefill?.phone ?? "")}"></div></div>
-<div class="f"><label class="lb s" for="note">${t.note} <span class="opt">${t.opt}</span></label><textarea class="ta" id="note" rows="2" maxlength="500" placeholder="${t.note_ph}"></textarea></div>${honeypot}</section>
+<div class="f"><label class="lb s" for="note">${t.problem} <span class="opt">${t.opt}</span></label><textarea class="ta" id="note" rows="3" maxlength="500" placeholder="${t.problem_ph}"></textarea></div>
+<div class="lb s">${t.problem_photos} <span class="opt">${t.max4}</span></div>
+<div class="photos" id="photos" data-remove="${t.remove_photo}" data-max="${WEB_MAX_BOOKING_PHOTOS}"><button type="button" class="pa" id="add" aria-label="${t.q_add_aria}">${svg(I.photo)}${t.q_add}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" multiple hidden>${honeypot}</section>
 ${consent(d, t, lang, t.send)}
 ${errBox("err3")}
 <div class="bar col"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.send}</span></button><div class="sla">${esc(o.night ? t.sla_night : t.sla(n.short))}</div></div></main>`;
@@ -360,8 +437,8 @@ export function donePage(d: SiteView, lang: SiteLang, b: DoneInfo, path: string,
   const acct = b.account === "offer" ? accountCard(t, b.fresh)
     : b.account === "exists" ? `<section class="card s g8"><h2 class="h2">${t.acct_exists}</h2><a class="btn" href="/my/login?next=${encodeURIComponent(`/my/b/${b.id}`)}">${svg(I.user, 16)}<span>${t.acct_signin}</span></a></section>`
     : b.account === "mine" ? `<a class="btn" href="/my/b/${esc(b.id)}">${t.view_booking}</a>` : "";
-  const body = `<main class="scr end">
-<header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header>
+  const body = `<main class="scr end v3">
+${band(d, lang, {})}
 <section class="ok"><div class="okc${bad ? " r" : ""}">${svg(bad ? I.x : I.check, 28, 2.5)}</div><h1>${head[0]}</h1><p>${head[1]}</p></section>
 <section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}" id="st-pill">${t.st[b.state]}</span></div>
 <div><span>${t.r_svc}</span><b>${esc(lang === "en" ? b.service_en : b.service_km)}</b></div><div><span>${t.r_when}</span><b>${whenText(t, partsOf(b.at, d.tz))}</b></div></section>
@@ -376,8 +453,8 @@ ${tgBlock(t, b.linked, b.link)}
 export function quotePage(d: SiteView, lang: SiteLang, o: { lines: Lines | null; token: string; path: string; prefill: Prefill | null; signed?: boolean }): string {
   const t = TXT[lang], n = names(d, lang);
   const lb = linesBlock(t, lang, { lines: o.lines?.lines.map((l) => ({ id: l.id, qty: l.qty })) ?? [], optional: true, services: d.services, mini: true });
-  const body = `<main class="scr bar-pad">
-${backHeader(t, "/", t.quote, t.q_sub)}
+  const body = `<main class="scr bar-pad v3">
+${band(d, lang, { back: "/?tab=home", title: t.quote, sub: t.q_sub })}
 <section class="card s g8" id="pick">${d.services.length ? lb.html : ""}
 <div class="f"><label class="lb s" for="desc">${t.q_desc} <span class="opt">${o.lines ? t.opt : ""}</span></label><textarea class="ta" id="desc" rows="2" maxlength="600" placeholder="${t.q_desc_ph}"></textarea></div>
 <div class="lb s">${t.q_photos} <span class="opt">${t.q_max}</span></div>
@@ -392,7 +469,7 @@ ${errBox()}
 }
 export function quoteDonePage(d: SiteView, lang: SiteLang, v: { linked: boolean; link: string | null }, path: string): string {
   const t = TXT[lang], n = names(d, lang);
-  const body = `<main class="scr end"><header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header>
+  const body = `<main class="scr end v3">${band(d, lang, {})}
 <section class="ok"><div class="okc">${svg(I.check, 28, 2.5)}</div><h1>${t.q_sent}</h1><p>${t.q_sent_p}</p></section>
 ${tgBlock(t, v.linked, v.link)}
 <a class="ob b" href="/">${t.home}</a></main>`;
@@ -420,7 +497,7 @@ export function loginPage(d: SiteView, lang: SiteLang, path: string, next = "/my
   const t = TXT[lang], n = names(d, lang);
   // D-191: phone + the customer's own 4-digit PIN. Whatever fails, the page says the same thing; «forgot» → /my/reset (a code by
   // Telegram or from the shop — never a PIN sent anywhere)
-  const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
+  const body = `<main class="scr end v3">${band(d, lang, {})}
 <section class="card s"><div class="okc mid">${svg(I.user, 26)}</div><h1 class="ctr">${t.l_h1}</h1><p class="sub ctr">${t.l_p}</p>
 <div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="username" placeholder="12 345 678"></div></div>
 <div class="f"><label class="lb s" for="pw">${t.l_pw}</label>${pinIn(t, "pw", "current-password", 64)}</div>
@@ -436,8 +513,8 @@ ${errBox()}
  *  the shop read out) + the new PIN twice → signed in */
 export function resetPage(d: SiteView, lang: SiteLang, path: string): string {
   const t = TXT[lang], n = names(d, lang);
-  const body = `<main class="scr end">
-${backHeader(t, "/my/login", t.r_h)}
+  const body = `<main class="scr end v3">
+${band(d, lang, { back: "/my/login", title: t.r_h })}
 <section class="card s g8" id="r1"><p class="sub">${t.r_p}</p>
 <div class="f"><label class="lb s" for="r-phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="r-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="12 345 678"></div></div>
 ${errBox("r1-err")}<p class="note g" id="r-sent" hidden>${t.r_sent}</p>
@@ -475,9 +552,8 @@ ${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingA
   const toggle = (id: string, label: string, on: boolean, disabled = false) => `<label class="sw"><span>${label}</span><input type="checkbox" role="switch" id="${id}"${on ? " checked" : ""}${disabled ? " disabled" : ""}><i aria-hidden="true"></i></label>`;
   const notify = prefs ? `${toggle("n-service", t.n_service, prefs.service)}${toggle("n-promo", t.n_promo, prefs.promo, !prefs.service)}`
     : h.linked ? `<p class="hint">${t.n_off}</p>` : `<p class="hint">${t.n_link}</p>${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}`;
-  const body = `<main class="scr bar-pad">
-${view === "bookings" ? `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${esc(h.name)}</small><b>${t.my_h}</b></span></div><a class="pill" href="/my">${svg(I.user, 14)}${t.account}</a></header>`
-    : `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div>${h.linked ? `<span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span>` : `<a class="pill" href="/my/bookings">${svg(I.cal, 14)}${t.my_h}</a>`}</header>`}
+  const body = `<main class="scr v3 tabs">
+${band(d, lang, { signed: true, hello: view === "bookings" ? t.my_h : `${t.hello} ${esc(h.name)}` })}
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
@@ -491,8 +567,9 @@ ${h.has_pin ? `<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</labe
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
 <div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></div>
 <button type="button" class="ob m w" id="logout">${t.logout}</button><button type="button" class="lk mid" id="logout-all">${t.logout_all}</button></section>`}
+<a class="btn" href="/?tab=home#svc">${svg(I.plus, 16, 2.2)}${t.new}</a>
 <footer class="ft low"><nav><a href="/guide">${t.guide}</a><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>
-<div class="bar"><a class="btn" href="/book">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
+${tabbar(t, view === "bookings" ? "bookings" : "account")}</main>`;
   return shell(d, lang, { title: `${view === "bookings" ? t.my_h : t.account} — ${n.full}`, page: "my", path, body, data: { view } });
 }
 
@@ -502,8 +579,8 @@ export function bookingPage(d: SiteView, lang: SiteLang, b: MyBooking, path: str
   const svc = esc(lang === "en" && b.service_en ? b.service_en : b.service_km);
   const initial = b.technician ? esc([...new Intl.Segmenter(lang, { granularity: "grapheme" }).segment(b.technician.trim())][0]?.segment ?? "") : "";
   const stars = (on: number) => [1, 2, 3, 4, 5].map((i) => `<button type="button" class="star${i <= on ? " on" : ""}" data-star="${i}" aria-label="${esc(t.stars(i))}" aria-pressed="${i <= on}">★</button>`).join("");
-  const body = `<main class="scr end" data-booking="${b.id}">
-${backHeader(t, "/my/bookings", `#${esc(b.number)}`, svc)}
+  const body = `<main class="scr end v3" data-booking="${b.id}">
+${band(d, lang, { back: "/my/bookings", title: `#${esc(b.number)}`, sub: svc })}
 <section class="card s"><div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${svc}</b><span>${p ? p.time : ""}</span></div><span class="pl sm ${pillOf(b.state)}" id="st-pill">${t.st[b.state]}</span></div></section>
 <section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
 <section class="card s g8"><h2 class="h2">${t.your_tech}</h2><div class="tech">${b.technician ? `<span class="av t">${initial}</span><b>${esc(b.technician)}</b>` : `<span class="sub">${t.tech_wait}</span>`}</div>

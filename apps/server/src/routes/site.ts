@@ -13,7 +13,7 @@ import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { CUSTOMER_SESSION_DAYS, formatKhPhone, isAllowedMapsHost, isNight, overridesSchema, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
+import { CUSTOMER_SESSION_DAYS, formatKhPhone, isAllowedMapsHost, WEB_CATEGORIES, WEB_MAX_BOOKING_PHOTOS, isNight, overridesSchema, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { clock } from "../lib/clock.js";
@@ -26,7 +26,7 @@ import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookingPage, bookPage, donePage, gatePage, guidePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
+import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
 import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
@@ -79,8 +79,13 @@ const safeNext = (v: unknown) => (typeof v === "string" && (NEXT_OK.has(v) || /^
 export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
   const lang = langOf(req, reply);
   // D-191: a device signed in to its account opens «ការកក់របស់ខ្ញុំ» straight away (the plain address only — a link with lines books)
-  if (!req.url.includes("?") && (await sessionOf(req, reply))?.customerId) return reply.redirect("/my/bookings", 302);
-  return html(reply, 200, homePage(await site(), lang, pathOf(req), linesOf(req)));
+  const s = await sessionOf(req, reply);
+  if (!req.url.includes("?") && s?.customerId) return reply.redirect("/my/bookings", 302);
+  const d = await site(), refs = linesOf(req);
+  // D-192: a link with lines (older pages, «change») opens the service page of its first line
+  const first = refs?.length ? d.services.find((x) => x.id === refs[0]!.id) : null;
+  if (first) return reply.redirect(`/s/${first.web_category ?? "other"}?items=${webLinesParam(refs!)}`, 302);
+  return html(reply, 200, homePage(d, lang, pathOf(req), null, { signed: !!s }));
 }
 /** an unknown address on the public side: the site's own «not found» for browsers, JSON for everything else */
 export async function siteNotFound(req: FastifyRequest, reply: FastifyReply) {
@@ -117,7 +122,7 @@ const coord = { lat: z.number().min(-90).max(90).nullable().optional(), lng: z.n
 const formGuard = { ts: z.string().max(60).optional(), company_url: z.string().max(300).optional(), lang: z.enum(["km", "en"]).optional(), consent: z.boolean().optional(), init_data: z.string().max(4000).nullable().optional() };
 const items = z.string().max(400);
 const bookingBody = z.object({ items, at: z.string().max(40), address: z.string().max(500).default(""), ...coord, name: z.string().max(200).default(""), phone: z.string().max(40).default(""),
-  note: z.string().max(600).nullable().optional(), ...formGuard }).strict();
+  note: z.string().max(600).nullable().optional(), photos: z.array(z.string().max(1_400_000)).max(WEB_MAX_BOOKING_PHOTOS + 2).optional(), ...formGuard }).strict();
 const quoteBody = z.object({ items: items.nullable().optional(), category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(),
   name: z.string().max(200).default(""), phone: z.string().max(40).default(""), location: z.string().max(500).optional(), ...coord, ...formGuard }).strict();
 
@@ -159,6 +164,14 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (v.account === "mine") return reply.redirect(`/my/b/${v.id}`, 302); // signed in to its account: the booking's own page
     return html(reply, 200, donePage(await site(), lang, v, pathOf(req), ref.data.ref), "no-store");
   });
+  /** D-192 one service category (FixME's service page): its services with price + quantity → «continue» → /book?items=… */
+  app.get("/s/:cat", async (req, reply) => {
+    const lang = langOf(req, reply), d = await site(), cat = String((req.params as { cat?: string }).cat ?? "");
+    if (!([...WEB_CATEGORIES, "other"] as string[]).includes(cat) || !d.services.some((x) => (x.web_category ?? "other") === cat)) return reply.redirect("/?tab=home", 302);
+    return html(reply, 200, categoryPage(d, lang, cat as (typeof WEB_CATEGORIES)[number] | "other", linesOf(req) ?? [], pathOf(req), !!(await sessionOf(req, reply))));
+  });
+  /** D-192 «ជំនួយ» — the tab bar's support page */
+  app.get("/help", async (req, reply) => html(reply, 200, helpPage(await site(), langOf(req, reply), pathOf(req), !!(await sessionOf(req, reply)))));
   app.get("/quote", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
     const r = refs ? await resolveLines(sql, d.companyId, refs).catch(() => null) : null;
@@ -216,7 +229,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     return publicSlots(z.object({ items }).parse(req.query).items);
   });
   /** ONE tap: save (pending, slot held) + consent + the bot link — or, signed in / inside Telegram, linked at once */
-  app.post("/api/public/bookings", async (req) => {
+  app.post("/api/public/bookings", { bodyLimit: 6_500_000, onRequest: async (req) => { if (!checkRate(`site:book-try:ip:${req.ip}`, 30, 3600)) throw new AppError("RATE_LIMITED", 429); } }, async (req) => {
     const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
     const r = await submitWebBooking(req.ip, bookingBody.parse(req.body), { session: s });
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush")); // Admin + GM hear about it right away

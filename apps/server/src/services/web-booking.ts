@@ -20,7 +20,7 @@
 //  * Quote requests: the same lines + a description + up to 5 photos (type and size checked, metadata stripped) → the GM; the same
 //    one-tap link.
 import { createHmac, randomBytes } from "node:crypto";
-import { customerText, formatKhPhone, isNight, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN,
+import { customerText, formatKhPhone, isNight, kmDigits, normalizeKhPhone, parseWebLines, pinUrl, SITE_CONSENT_VERSION, WEB_CATEGORY_GROUP, WEB_CONFIRM_MIN, WEB_DAYS, WEB_ESCALATE_MIN, WEB_MAX_BOOKING_PHOTOS,
   WEB_LEAD_MIN, WEB_MAX_PHOTOS, webHours, webSlotStarts, workingMinutes, type ConsentSource, type ServiceCategory, type WebCategory, type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, tx, type Db } from "../db.js";
@@ -52,15 +52,16 @@ export type WebDay = { date: string; dow: number; open: boolean; slots: WebSlot[
 
 // ---------- the website catalog ----------
 export type WebItem = { id: string; code: string | null; name_km: string; name_en: string | null; category: ServiceCategory; web_category: WebCategory | null; unit: string;
-  from_price: number | null; duration_min: number; quote_only: boolean };
-const ITEM = (db: Db) => db`id, code, name_km, name_en, category::text as category, web_category, unit, from_price, duration_min, quote_only`;
+  from_price: number | null; duration_min: number; quote_only: boolean; price_fixed: boolean };
+const ITEM = (db: Db) => db`id, code, name_km, name_en, category::text as category, web_category, unit, from_price, duration_min, quote_only, price_fixed`;
 /** what a visitor can choose: active services shown on the website */
 export async function websiteItems(db: Db, companyId: string): Promise<WebItem[]> {
   return db<WebItem[]>`select ${ITEM(db)} from catalog_items where company_id = ${companyId} and kind = 'service' and is_active and show_on_website
     order by web_category nulls last, quote_only, (from_price is null), code nulls last, name_km limit 120`;
 }
-export type Line = { id: string; code: string | null; name_km: string; name_en: string | null; qty: number; minutes: number; from_price: number | null; quote_only: boolean };
-export type Lines = { lines: Line[]; minutes: number; price: number | null; quote: boolean; category: ServiceCategory; text_km: string; text_en: string };
+export type Line = { id: string; code: string | null; name_km: string; name_en: string | null; qty: number; minutes: number; from_price: number | null; quote_only: boolean; price_fixed: boolean };
+/** fixed: every line has an exact price (D-192) — the total is shown without «from» */
+export type Lines = { lines: Line[]; minutes: number; price: number | null; fixed: boolean; quote: boolean; category: ServiceCategory; text_km: string; text_en: string };
 const lineText = (l: { name: string; qty: number }) => (l.qty > 1 ? `${l.name} ×${l.qty}` : l.name);
 export const linesText = (lines: Pick<Line, "name_km" | "name_en" | "qty">[], lang: "km" | "en") => lines.map((l) => lineText({ name: lang === "en" && l.name_en ? l.name_en : l.name_km, qty: l.qty })).join(" · ");
 /** the lines a visitor chose → items of the website catalog (else SERVICE_NOT_BOOKABLE), the job length, the price, quote or booking */
@@ -71,11 +72,11 @@ export async function resolveLines(db: Db, companyId: string, refs: WebLineRef[]
   const lines = refs.map((r): Line => {
     const i = items.get(r.id);
     if (!i) throw new AppError("SERVICE_NOT_BOOKABLE", 404);
-    return { id: i.id, code: i.code, name_km: i.name_km, name_en: i.name_en, qty: r.qty, minutes: i.duration_min, from_price: i.from_price, quote_only: i.quote_only };
+    return { id: i.id, code: i.code, name_km: i.name_km, name_en: i.name_en, qty: r.qty, minutes: i.duration_min, from_price: i.from_price, quote_only: i.quote_only, price_fixed: i.price_fixed };
   });
   const first = items.get(refs[0]!.id)!;
   return { lines, minutes: lines.reduce((s, l) => s + l.minutes, 0), price: lines.every((l) => l.from_price != null) ? lines.reduce((s, l) => s + l.from_price! * l.qty, 0) : null,
-    quote: lines.some((l) => l.quote_only), category: first.web_category ? WEB_CATEGORY_GROUP[first.web_category] : first.category, text_km: linesText(lines, "km"), text_en: linesText(lines, "en") };
+    fixed: lines.every((l) => l.price_fixed && l.from_price != null), quote: lines.some((l) => l.quote_only), category: first.web_category ? WEB_CATEGORY_GROUP[first.web_category] : first.category, text_km: linesText(lines, "km"), text_en: linesText(lines, "en") };
 }
 
 // ---------- capacity + slots ----------
@@ -210,6 +211,8 @@ async function linkAfterSave(target: { bookingId?: string; requestId?: string },
 
 // ---------- submit ----------
 export type WebBookingInput = { items: string; at: string; address: string; lat?: number | null; lng?: number | null; accuracy?: number | null; name: string; phone: string; note?: string | null;
+  /** D-192: photos of the problem (≤ 4; checked + cleaned like a quote's; private to the staff who see the request) */
+  photos?: string[];
   consent?: boolean; ts?: string; company_url?: string; lang?: "km" | "en"; init_data?: string | null };
 
 /** honeypot / too-fast → looks like success, nothing stored; a stale page → FORM_EXPIRED */
@@ -247,7 +250,11 @@ export async function submitWebBooking(ip: string, v: WebBookingInput, who: { se
   const test = await isTestPhone(sql, companyId, phone); // D-120: the CEO's test phones are not held to the per-phone daily limit
   if (!checkRate(`site:book:ip:${ip}`, 5, 3600) || (!test && !checkRate(`site:book:phone:${phone}`, 3, 86400))) throw new AppError("RATE_LIMITED", 429);
   const note = v.note?.trim().slice(0, 500) || null, source = consentSource({ ...who, initData: v.init_data });
+  if ((v.photos ?? []).length > WEB_MAX_BOOKING_PHOTOS) throw new AppError("TOO_MANY_PHOTOS", 400);
+  const images = (v.photos ?? []).map((p) => checkImage(p, undefined, "BAD_IMAGE", true)); // every photo is checked and cleaned before anything is stored
   const accuracy = gps && v.accuracy != null ? Math.min(100_000, Math.max(0, Math.round(v.accuracy))) : null;
+  const files: { id: string; rel: string; mime: string; bytes: number }[] = [];
+  for (const img of images) files.push(await writeImage(companyId, img));
   const saved = await tx(null, async (t) => {
     // one web booking at a time per company: the slot is checked and taken under this lock (race-safe)
     await t`select pg_advisory_xact_lock(hashtextextended(${`web-booking:${companyId}`}, 0))`;
@@ -272,12 +279,13 @@ export async function submitWebBooking(ip: string, v: WebBookingInput, who: { se
     const consent = { at: new Date().toISOString(), version: SITE_CONSENT_VERSION, source };
     await audit(t, { companyId, userId: null, action: "booking.create", source: "system", table: "bookings", rowId: id, new: { number, origin: "website", customer_id: customerId, scheduled_at: at, ends_at: end, lines: r.lines.length, ...(test ? { test } : {}) }, ip });
     await audit(t, { companyId, userId: null, action: "customer.consent", source: "system", table: "customers", rowId: customerId, new: consent, ip });
-    const text = [`🛠 ${r.text_km}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${kmDigits(Math.round(r.minutes / 6) / 10)} ម៉ោង`, ...place(v, address), note ? `📝 ${note}` : null].filter(Boolean).join("\n");
-    const textEn = [`🛠 ${r.text_en}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${Math.round(r.minutes / 6) / 10} h`, ...place(v, address), note ? `📝 ${note}` : null].filter(Boolean).join("\n");
+    const text = [`🛠 ${r.text_km}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${kmDigits(Math.round(r.minutes / 6) / 10)} ម៉ោង`, ...place(v, address), note ? `📝 ${note}` : null, files.length ? `📷 ${kmDigits(files.length)}` : null].filter(Boolean).join("\n");
+    const textEn = [`🛠 ${r.text_en}`, `🕒 ${fmtLocal(at, c.tz || "Asia/Phnom_Penh")} · ${Math.round(r.minutes / 6) / 10} h`, ...place(v, address), note ? `📝 ${note}` : null, files.length ? `📷 ${files.length}` : null].filter(Boolean).join("\n");
     const rid = (await t<{ id: string }[]>`insert into service_requests (company_id, source, kind, booking_id, customer_id, name, phone, text, is_test, meta)
       values (${companyId}, 'website', 'booking', ${id}, ${customerId}, ${name}, ${phone}, ${text.slice(0, 1000)}, ${test},
         ${t.json({ service_item_id: r.lines[0]!.id, service: r.text_km, lines: r.lines, at: at.toISOString(), minutes: r.minutes, lat: v.lat ?? null, lng: v.lng ?? null, accuracy,
-          lang: v.lang === "en" ? "en" : "km", consent } as never)}) returning id`)[0]!.id;
+          lang: v.lang === "en" ? "en" : "km", consent, photos: files.length } as never)}) returning id`)[0]!.id;
+    for (const f of files) await t`insert into service_request_files (id, company_id, request_id, path, mime, bytes) values (${f.id}, ${companyId}, ${rid}, ${f.rel}, ${f.mime}, ${f.bytes})`;
     // D-119: made at night → «confirm at 8 am» (the customer is told the same) and the alert has no sound (notifyRequestStaff)
     const night = isNight(clock.now(), c.tz || "Asia/Phnom_Penh", clock.day);
     const ask = night ? { km: "⏱ ការកក់ពេលយប់ · សូមបញ្ជាក់ម៉ោង ៨ ព្រឹក", en: "⏱ Night booking · please confirm at 8 am" }

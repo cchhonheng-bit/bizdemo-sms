@@ -26,6 +26,8 @@ export default function CatalogPage() {
   const qc = useQueryClient();
   const { can } = useAuth();
   const websiteOn = useFeature("website");
+  /** the website price as the customer sees it (D-192: «$15» when fixed, else «from $15») */
+  const webPrice = (i: CatalogItem) => (i.price_fixed ? formatUsd(i.from_price!) : t("catalog.from_short", { price: formatUsd(i.from_price!) }));
   const [editing, setEditing] = useState<CatalogItem | "new" | null>(null);
   const [toggle, setToggle] = useState<CatalogItem | null>(null);
   const [q, setQ] = useState("");
@@ -93,7 +95,7 @@ export default function CatalogPage() {
                     {i.kind === "service" && <span>⏱ {i.duration_min} min</span>}
                   </div>
                   <div className="text-sm tabular">{i.sell_price != null ? formatUsd(i.sell_price) : "—"}{showCost && i.cost_price != null ? <span className="text-muted"> · {formatUsd(i.cost_price)}</span> : null} <span className="text-muted">/ {i.unit}</span></div>
-                  {websiteOn && i.kind === "service" && <div className="text-xs text-muted">🌐 {i.show_on_website ? (i.quote_only ? t("catalog.quote_only") : i.from_price != null ? formatUsd(i.from_price) : "—") : "✕"}</div>}
+                  {websiteOn && i.kind === "service" && <div className="text-xs text-muted">🌐 {i.show_on_website ? (i.quote_only ? t("catalog.quote_only") : i.from_price != null ? webPrice(i) : "—") : "✕"}</div>}
                 </div>
                 {edit && <div className="flex flex-col items-end">
                   <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(i)} />
@@ -116,7 +118,7 @@ export default function CatalogPage() {
                     <td className="text-right tabular">{i.kind === "service" ? i.duration_min : "—"}</td>
                     <td className="text-right tabular">{i.sell_price != null ? formatUsd(i.sell_price) : "—"}</td>
                     {showCost && <td className="text-right tabular text-muted">{i.cost_price != null ? formatUsd(i.cost_price) : "—"}</td>}
-                    {websiteOn && <td className="text-right tabular">{i.kind !== "service" ? "" : !i.show_on_website ? "✕" : i.quote_only ? t("catalog.quote_only") : i.from_price != null ? formatUsd(i.from_price) : "—"}</td>}
+                    {websiteOn && <td className="text-right tabular">{i.kind !== "service" ? "" : !i.show_on_website ? "✕" : i.quote_only ? t("catalog.quote_only") : i.from_price != null ? webPrice(i) : "—"}</td>}
                     {edit && <td className="text-right whitespace-nowrap">
                       <RowAction icon={<Pencil size={16} />} label={t("app.edit")} onClick={() => setEditing(i)} />
                       <RowAction icon={<Power size={16} />} label={i.is_active ? t("app.deactivate") : t("app.activate")} onClick={() => setToggle(i)} />
@@ -185,6 +187,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
   const [fromPrice, setFromPrice] = useState(item?.from_price != null ? String(fromCents(item.from_price)) : "");
   const [shown, setShown] = useState(item?.show_on_website ?? true);
   const [quoteOnly, setQuoteOnly] = useState(item?.quote_only ?? false);
+  const [fixed, setFixed] = useState(item?.price_fixed ?? false); // D-192: «$15» on the website, not «from $15»
   const remindersOn = useFeature("reminders");
   const can = useAuth((s) => s.can);
   const acctOn = useFeature("accounting") && can("accounting.view"); // D-92: the income account the item posts to
@@ -211,7 +214,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
     try {
       await api.upsertCatalogItem({ id: item?.id, name_km: v.name_km, name_en: v.name_en || null, kind: v.kind, category: v.category, unit: v.unit || null, sell_price: sellC, cost_price: costC, duration_min: v.kind === "service" ? mins : undefined,
         reminder_months: remindersOn && v.kind === "service" ? months : undefined, income_account_id: acctOn ? incomeAcc || null : undefined, stock_link_account_id: acctOn ? stockLink || null : undefined, code: code.trim().toUpperCase() || null,
-        ...(websiteOn && v.kind === "service" ? { web_category: (webCategory || null) as WebCategory | null, from_price: fromC, show_on_website: shown, quote_only: quoteOnly } : {}) });
+        ...(websiteOn && v.kind === "service" ? { web_category: (webCategory || null) as WebCategory | null, from_price: fromC, show_on_website: shown, quote_only: quoteOnly, price_fixed: fixed } : {}) });
       void qc.invalidateQueries({ queryKey: ["catalog"] });
       toast.success(t("app.saved"));
       onClose();
@@ -253,6 +256,7 @@ export function ItemDialog({ item, showCost, websiteOn, onClose }: { item: Catal
             </div>
             <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={shown} onChange={(e) => setShown(e.target.checked)} data-testid="cat-shown" /> {t("catalog.show_on_website")}</label>
             <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={quoteOnly} onChange={(e) => setQuoteOnly(e.target.checked)} data-testid="cat-quote" /> {t("catalog.quote_only")}</label>
+            <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={fixed && !quoteOnly} disabled={quoteOnly} onChange={(e) => setFixed(e.target.checked)} data-testid="cat-fixed" /> {t("catalog.price_fixed")}</label>
           </div>
         )}
         {remindersOn && service && (

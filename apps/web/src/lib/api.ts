@@ -20,7 +20,7 @@ export type CatalogItem = {
   is_stock?: boolean; stock_link_account_id?: string | null;
   /** D-106 website catalog: «from» price (cents; null = told on contact, still bookable), code (the Excel key), website category,
    *  shown on the website, quote only, sample (seeded for a new shop until its own Excel or an edit replaces it) */
-  from_price: number | null; code?: string | null; web_category?: WebCategory | null; show_on_website?: boolean; quote_only?: boolean; is_sample?: boolean;
+  from_price: number | null; code?: string | null; web_category?: WebCategory | null; show_on_website?: boolean; quote_only?: boolean; price_fixed?: boolean; is_sample?: boolean;
 };
 export type CatalogPreviewRow = { row: number; code: string; name: string; action: "new" | "changed" | "same" | "error"; errors: string[]; changes: Record<string, [unknown, unknown]> };
 export type CatalogPreview = { counts: { new: number; changed: number; same: number; error: number }; file_errors: string[]; rows: CatalogPreviewRow[] };
@@ -314,11 +314,11 @@ export const api = {
   /** D-142: the next item code under a stock account (sub codes), or the account's own code (one item) */
   catalogNextCode: (account: string) => get<{ code: string; sub_codes: boolean; taken: boolean }>(`/api/catalog/next-code?account=${account}`),
   upsertCatalogItem: async (v: { id?: string | null; name_km: string; name_en?: string | null; kind: "service" | "product"; category: ServiceCategory; unit?: string | null; sell_price: number; cost_price?: number | null; duration_min?: number; reminder_months?: number | null; income_account_id?: string | null; stock_link_account_id?: string | null; inventory_account_id?: string | null;
-    code?: string | null; web_category?: WebCategory | null; from_price?: number | null; show_on_website?: boolean; quote_only?: boolean }) =>
+    code?: string | null; web_category?: WebCategory | null; from_price?: number | null; show_on_website?: boolean; quote_only?: boolean; price_fixed?: boolean }) =>
     (await post<{ id: string }>("/api/catalog", { id: v.id ?? null, name_km: v.name_km, name_en: v.name_en ?? "", kind: v.kind, category: v.category, unit: v.unit ?? "", sell_price: v.sell_price, cost_price: v.cost_price ?? null, duration_min: v.duration_min, reminder_months: v.reminder_months,
       ...(v.income_account_id !== undefined ? { income_account_id: v.income_account_id } : {}), ...(v.inventory_account_id !== undefined ? { inventory_account_id: v.inventory_account_id } : {}),
       ...(v.stock_link_account_id !== undefined ? { stock_link_account_id: v.stock_link_account_id } : {}), ...(v.code !== undefined ? { code: v.code ?? "" } : {}), ...(v.web_category !== undefined ? { web_category: v.web_category } : {}),
-      ...(v.from_price !== undefined ? { from_price: v.from_price } : {}), ...(v.show_on_website !== undefined ? { show_on_website: v.show_on_website } : {}), ...(v.quote_only !== undefined ? { quote_only: v.quote_only } : {}) })).id,
+      ...(v.from_price !== undefined ? { from_price: v.from_price } : {}), ...(v.show_on_website !== undefined ? { show_on_website: v.show_on_website } : {}), ...(v.quote_only !== undefined ? { quote_only: v.quote_only } : {}), ...(v.price_fixed !== undefined ? { price_fixed: v.price_fixed } : {}) })).id,
   setCatalogActive: (id: string, active: boolean) => post(`/api/catalog/${id}/active`, { active }),
   catalogMeta: () => get<{ last: { name: string; at: string } | null; can_edit: boolean }>("/api/catalog/meta"),
   /** «កែប្រែចុងក្រោយ» on Settings / Website / Users (CEO 04-10) */
