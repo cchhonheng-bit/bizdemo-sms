@@ -1,7 +1,7 @@
-import { type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect, useState } from "react";
+import { type ButtonHTMLAttributes, type ChangeEvent, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes, forwardRef, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Eye, EyeOff, X } from "lucide-react";
-import { phoneFieldText } from "@sms/shared";
+import { latinNumber, phoneFieldText } from "@sms/shared";
 import { useToast } from "@/lib/toast";
 
 // ---------- Button ----------
@@ -33,9 +33,19 @@ export function Field({ label, error, hint, children, required }: { label: strin
     </div>
   );
 }
+/** D-186 (client 29-10): a number typed on the Khmer keyboard (១.៥) is the same number (1.5) in every number field. The browser's own
+ *  number field drops Khmer digits before any code sees them, so a number field is a text field with the numeric keyboard. */
+const NUMERIC_MODES = new Set(["decimal", "numeric"]);
 export const Input = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }>(
-  function Input({ invalid, className = "", ...rest }, ref) {
-    return <input ref={ref} className={`input ${invalid ? "input-error" : ""} ${className}`} {...rest} />;
+  function Input({ invalid, className = "", type, inputMode, onChange, ...rest }, ref) {
+    const numeric = type === "number" || (type !== "tel" && !!inputMode && NUMERIC_MODES.has(inputMode));
+    const change = numeric ? (e: ChangeEvent<HTMLInputElement>) => {
+      const el = e.target, v = latinNumber(el.value);
+      if (v !== el.value) { const at = el.selectionStart; el.value = v; if (at != null) el.setSelectionRange(at, at); }
+      onChange?.(e);
+    } : onChange;
+    return <input ref={ref} type={numeric ? "text" : type} inputMode={numeric ? (inputMode ?? "decimal") : inputMode} onChange={change}
+      className={`input ${invalid ? "input-error" : ""} ${className}`} {...rest} />;
   },
 );
 /** every password field (CEO 08-10, D-136): hidden at first; the eye button shows / hides it and says what a tap will do (44 px) */

@@ -158,7 +158,7 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
   });
   const bigBody = { bodyLimit: 3_000_000 }; // base64 of a ≤ 2 MB compressed photo
   app.post("/:id/photos", bigBody, async (req) => {
-    const v = z.object({ kind: z.enum(["before", "after"]), data: z.string().min(10), client_key: z.string().max(40).optional() }).strict().parse(req.body);
+    const v = z.object({ kind: z.enum(["before", "after", "paper"]), data: z.string().min(10), client_key: z.string().max(40).optional() }).strict().parse(req.body); // D-186: paper = the work sheet
     return addPhoto(req.user!, req.perms, req.ip, idParam.parse(req.params).id, v.kind, v.data, v.client_key);
   });
   app.delete("/:id/photos/:fid", async (req) => {

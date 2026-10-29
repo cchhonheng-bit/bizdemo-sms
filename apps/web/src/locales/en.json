@@ -867,7 +867,8 @@
       "NOT_PENDING_REVIEW": "Not waiting for review",
       "FORBIDDEN": "No permission",
       "NETWORK": "No internet",
-      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO"
+      "PERIOD_LOCKED": "This period is locked in the books — use a later date or ask the CFO",
+      "TOO_MANY_PHOTOS": "Too many work sheet photos (10 at most)"
     },
     "pick_item": "Search by name or code…",
     "edit_report": "Correct the report",
@@ -879,7 +880,9 @@
     "offline_saved": "Saved on the phone · sent by itself when the internet is back",
     "offline_hint": "Sent by itself when online — do not remove the app",
     "queued_photos": "{{n}} photo(s) waiting to send",
-    "sync_failed": "Could not send: {{what}} — {{error}}"
+    "sync_failed": "Could not send: {{what}} — {{error}}",
+    "photos_paper": "Paper work sheet",
+    "photos_paper_hint": "Take or pick photos of the work sheet filled in on site (optional · up to 10)"
   },
   "quote": {
     "title": "Quotes",

@@ -1,8 +1,9 @@
 // Money helpers: USD stored as integer cents, KHR as integer riel (Architecture §4.1).
+import { latinNumber } from "./phone";
 export type Cents = number;
 
 export function toCents(usd: number | string): Cents {
-  const cleaned = typeof usd === "string" ? usd.replace(/[,$\s]/g, "") : usd;
+  const cleaned = typeof usd === "string" ? latinNumber(usd).replace(/[,$\s]/g, "") : usd; // D-186: «១៥.៥០» = 15.50
   // B-M2-01: "abc" must not silently become 0 — only digits, one dot and a sign are accepted
   if (typeof cleaned === "string" && !/^-?\d+(\.\d+)?$/.test(cleaned)) throw new Error("INVALID_AMOUNT");
   const n = typeof cleaned === "string" ? Number(cleaned) : cleaned;

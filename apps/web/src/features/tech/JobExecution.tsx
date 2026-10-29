@@ -3,7 +3,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Camera, Check, Eraser, MapPinOff, Send, Trash2, WifiOff } from "lucide-react";
+import { Camera, Check, Eraser, FileText, MapPinOff, Send, Trash2, WifiOff } from "lucide-react";
 import { api, errCode, fmtDateTime, type Booking, type JobInfo } from "@/lib/api";
 import { compressPhoto, newKey, queued, readGps, sendCheckpoint, sendOrQueue, useOffline, clearFailures } from "@/lib/offline";
 import { ActionBar, Button, Card, Field, Skeleton } from "@/components/ui";
@@ -46,7 +46,19 @@ export function CheckpointList({ info }: { info: JobInfo }) {
   );
 }
 
-export function PhotoGrid({ photos, kind, onRemove }: { photos: JobInfo["photos"]; kind: "before" | "after"; onRemove?: (id: string) => void }) {
+export type PhotoKind = "before" | "after" | "paper";
+/** D-155: each photo shrunk and sent — or kept on the phone without internet (sent in order later); how many were kept */
+async function sendPhotos(bookingId: string, kind: PhotoKind, files: FileList, label: string): Promise<number> {
+  let kept = 0;
+  for (const f of Array.from(files)) {
+    const data = await compressPhoto(f), client_key = newKey();
+    const r = await sendOrQueue({ bookingId, kind: "photo", at: new Date().toISOString(), label, body: { kind, client_key } }, () => api.job.photo(bookingId, kind, data, client_key), data);
+    if (r.status === "queued") kept++;
+  }
+  return kept;
+}
+
+export function PhotoGrid({ photos, kind, onRemove }: { photos: JobInfo["photos"]; kind: PhotoKind; onRemove?: (id: string) => void }) {
   const list = photos.filter((p) => p.kind === kind);
   if (!list.length) return null;
   return (
@@ -124,6 +136,7 @@ function NotesFix({ booking, info, onDone, blocked }: { booking: Booking; info: 
   return (
     <Card title={t("job.fix_title")}>
       <p className="text-xs text-muted mb-2">{t("job.fix_hint")}</p>
+      <PaperPhotos booking={booking} info={info} onDone={onDone} />
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} data-testid="notes-fix" /></Field>
       {blocked && <p className="text-xs text-warning mb-2" role="status" data-testid="notes-fix-blocked">{t("job.add_first")}</p>}
       <Button variant="primary" disabled={blocked || notes === (info.report?.notes ?? "")} loading={save.isPending} onClick={() => save.mutate()} data-testid="notes-fix-save">{t("app.save")}</Button>
@@ -139,18 +152,12 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
   const canSubmit = booking.status === "work_done" || booking.status === "revision";
 
   const offline = useOffline(booking.id);
-  const queuedPhotos = (kind: "before" | "after") => offline.pending.filter((a) => a.kind === "photo" && a.body.kind === kind).length;
-  const upload = async (kind: "before" | "after", files: FileList | null) => {
+  const queuedPhotos = (kind: PhotoKind) => offline.pending.filter((a) => a.kind === "photo" && a.body.kind === kind).length;
+  const upload = async (kind: PhotoKind, files: FileList | null) => {
     if (!files?.length) return;
     setUploading(kind);
     try {
-      let kept = 0;
-      for (const f of Array.from(files)) {
-        const data = await compressPhoto(f), client_key = newKey();
-        const r = await sendOrQueue({ bookingId: booking.id, kind: "photo", at: new Date().toISOString(), label: t(`job.photos_${kind}`), body: { kind, client_key } },
-          () => api.job.photo(booking.id, kind, data, client_key), data);
-        if (r.status === "queued") kept++;
-      }
+      const kept = await sendPhotos(booking.id, kind, files, t(`job.photos_${kind}`));
       if (kept) toast.info(t("job.offline_saved")); else onDone();
     }
     catch (e) { toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
@@ -182,6 +189,7 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
           {queuedPhotos(kind) > 0 && <p className="text-xs text-warning mt-1" data-testid={`queued-${kind}`}>⏳ {t("job.queued_photos", { n: queuedPhotos(kind) })}</p>}
         </Field>
       ))}
+      <PaperPhotos booking={booking} info={info} onDone={onDone} />
       <Field label={t("job.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field>
       <Field label={t("job.signature")} required hint={t("job.signature_hint")}><SignaturePad ref={sig} /></Field>
       <ActionBar>
@@ -189,6 +197,31 @@ function ReportForm({ booking, info, onDone, blocked }: { booking: Booking; info
         <Button variant="primary" className="flex-1 sm:flex-none" disabled={!canSubmit || blocked} loading={submit.isPending} onClick={() => submit.mutate()} data-testid="report-submit"><Send size={16} /> {canSubmit ? t("job.submit") : t("job.finish_first")}</Button>
       </ActionBar>
     </Card>
+  );
+}
+
+/** D-186 (client 29-10): photos of the paper work sheet — optional, camera or gallery; in the report and still while it waits for review */
+function PaperPhotos({ booking, info, onDone }: { booking: Booking; info: JobInfo; onDone: () => void }) {
+  const { t } = useTranslation();
+  const offline = useOffline(booking.id);
+  const [busy, setBusy] = useState(false);
+  const waiting = offline.pending.filter((a) => a.kind === "photo" && a.body.kind === "paper").length;
+  const upload = async (files: FileList | null) => {
+    if (!files?.length) return;
+    setBusy(true);
+    try { if (await sendPhotos(booking.id, "paper", files, t("job.photos_paper"))) toast.info(t("job.offline_saved")); else onDone(); }
+    catch (e) { toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })); }
+    setBusy(false);
+  };
+  return (
+    <Field label={t("job.photos_paper")} hint={t("job.photos_paper_hint")}>
+      <label className="btn-secondary w-full cursor-pointer !mb-0">
+        <FileText size={18} /> {busy ? t("app.loading") : t("job.add_photo")}
+        <input type="file" accept="image/*" multiple className="sr-only" disabled={busy} onChange={(e) => { void upload(e.target.files); e.target.value = ""; }} data-testid="photo-paper" />
+      </label>
+      <PhotoGrid photos={info.photos} kind="paper" onRemove={(id) => void api.job.removePhoto(booking.id, id).then(onDone).catch((e) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") })))} />
+      {waiting > 0 && <p className="text-xs text-warning mt-1" data-testid="queued-paper">⏳ {t("job.queued_photos", { n: waiting })}</p>}
+    </Field>
   );
 }
 

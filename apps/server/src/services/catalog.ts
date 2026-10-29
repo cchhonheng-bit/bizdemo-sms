@@ -4,7 +4,7 @@
 // errors) → apply. Rows are matched by code; nothing is ever deleted (an item is switched off with «active»). Sample items for a
 // new shop are seeded with is_sample = true (prices only in demo / test data — never on the live shop).
 import { isStockAccount } from "./account-map.js";
-import { CATALOG_CODE_RE, CATALOG_EDIT_ROLES, WEB_CATEGORIES, WEB_CATEGORY_GROUP, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
+import { CATALOG_CODE_RE, CATALOG_EDIT_ROLES, latinNumber, WEB_CATEGORIES, WEB_CATEGORY_GROUP, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import { readSheet, writeXlsx } from "../lib/xlsx.js";
@@ -204,10 +204,10 @@ export function parseCatalogSheet(rows: string[][]): { header: Partial<Record<Co
     const name_en = get("name_en").slice(0, 120) || null;
     const unit = get("unit").slice(0, 20) || null;
     let from_price: number | null = null;
-    const p = get("from_price").replace(/[$,\s]/g, "");
+    const p = latinNumber(get("from_price")).replace(/[$,\s]/g, ""); // D-186: Khmer digits too
     if (p) { const n = Number(p); if (!Number.isFinite(n) || n < 0 || n > 1_000_000) errors.push("PRICE"); else from_price = Math.round(n * 100); }
     let duration_min: number | null = null;
-    const d = get("duration_min");
+    const d = latinNumber(get("duration_min"));
     if (d) { const n = Number(d); if (!Number.isInteger(n) || n < 15 || n > 1440) errors.push("DURATION"); else duration_min = n; }
     const flags = (["show_on_website", "quote_only", "active"] as const).map((c) => bool(get(c)));
     if (flags.includes("bad")) errors.push("YES_NO");

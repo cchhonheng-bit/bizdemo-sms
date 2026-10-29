@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { addressComplete, composeAddress, geoLabel, type GeoUnit } from "./address";
-import { formatKhPhone, khPhoneLocal, latinDigits, matchesSearch, normalizeKhPhone, phoneSearchDigits, phoneTyping, searchKey } from "./phone";
+import { formatKhPhone, khPhoneLocal, latinDigits, latinNumber, matchesSearch, normalizeKhPhone, phoneSearchDigits, phoneTyping, searchKey } from "./phone";
 import { customerSchema, phoneSchema } from "./schemas";
+import { toCents } from "./money";
 
 describe("phone numbers (D-137)", () => {
   it("Khmer digits, spaces, dashes, +855 → stored +855…; wrong length refused", () => {
@@ -91,5 +92,16 @@ describe("address (D-137)", () => {
       .toBe("ផ្ទះលេខ 12, ផ្លូវលេខ 371, បុរីប៉េងហួត, ភូមិព្រែក, សង្កាត់ច្បារអំពៅទី ១, ខណ្ឌច្បារអំពៅ, រាជធានីភ្នំពេញ");
     expect(addressComplete({ province_code: "12", district_code: "1212", commune_code: null })).toBe(false);
     expect(addressComplete({ province_code: "12", district_code: "1212", commune_code: "121201" })).toBe(true);
+  });
+});
+
+describe("D-186 numbers typed on the Khmer keyboard", () => {
+  it("Khmer digits and the Khmer full stop become the same number; money parses them", () => {
+    expect(latinNumber("១.៥")).toBe("1.5");
+    expect(latinNumber("១។៥")).toBe("1.5");
+    expect(latinNumber("12.75")).toBe("12.75");
+    expect(toCents("១,៥០០.២៥")).toBe(150025);
+    expect(toCents("$១៥")).toBe(1500);
+    expect(() => toCents("១.២.៣")).toThrow();
   });
 });

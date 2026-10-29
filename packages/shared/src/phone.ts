@@ -6,6 +6,8 @@
 const KM_DIGITS = "០១២៣៤៥៦៧៨៩";
 /** «០១២» → «012» (everything else unchanged) */
 export const latinDigits = (s: string): string => s.replace(/[០-៩]/g, (d) => String(KM_DIGITS.indexOf(d)));
+/** D-186 (client 29-10): a number typed on the Khmer keyboard — «១.៥» (or the Khmer full stop «១។៥») → «1.5»; used by every number field */
+export const latinNumber = (s: string): string => latinDigits(s).replace(/។/g, ".");
 
 /** the local form «0» + 8 or 9 digits of a Cambodian number in any common form; null when it is not one */
 function localForm(raw: string): string | null {

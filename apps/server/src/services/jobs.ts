@@ -104,7 +104,7 @@ export async function jobInfo(user: SessionUser, id: string) {
   const checkpoints = await sql<{ step: string; at: Date; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean; offline: boolean; by_name: string | null }[]>`
     select c.step, c.at, c.lat, c.lng, c.accuracy_m as accuracy, c.no_gps, c.offline, u.full_name as by_name
     from booking_checkpoints c left join users u on u.id = c.by_user where c.booking_id = ${id} order by c.at, c.id`;
-  const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey') order by created_at`;
+  const photos = await sql`select id, kind, created_at from job_files where booking_id = ${id} and deleted_at is null and kind in ('before', 'after', 'survey', 'paper') order by created_at`;
   const report = (await sql`select r.notes, r.status, r.version, r.submitted_at, r.review_note, r.reviewed_at, r.signature_file, s.full_name as submitted_by_name, v.full_name as reviewed_by_name,
       r.edited_at, e.full_name as edited_by_name
     from booking_reports r left join users s on s.id = r.submitted_by left join users v on v.id = r.reviewed_by left join users e on e.id = r.edited_by where r.booking_id = ${id}`)[0] ?? null;
@@ -144,13 +144,15 @@ export async function writeImage(companyId: string, img: { buf: Buffer; mime: st
 }
 export const MIME_BY_EXT: Record<string, string> = { jpeg: "image/jpeg", png: "image/png", webp: "image/webp" };
 
-export async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature" | "survey" | "extra", data: string, only?: "image/png"): Promise<string> {
+export async function storeFile(t: Db, user: SessionUser, bookingId: string, kind: "before" | "after" | "signature" | "survey" | "extra" | "paper", data: string, only?: "image/png"): Promise<string> {
   const { id, rel, mime, bytes } = await saveImage(user.companyId, data, only, kind === "signature" ? "SIGNATURE_REQUIRED" : "BAD_IMAGE");
   await t`insert into job_files (id, company_id, booking_id, kind, path, mime, bytes, created_by) values (${id}, ${user.companyId}, ${bookingId}, ${kind}::job_file_kind, ${rel}, ${mime}, ${bytes}, ${user.id})`;
   return id;
 }
 
 export const PHOTO_STATUSES = ["on_site", "working", "work_done", "revision"];
+/** D-186 (client 29-10): photos of the paper work sheet — optional, up to 10 a job; the crew may still add them while the report waits for review */
+const PAPER_STATUSES = [...PHOTO_STATUSES, "pending_review"], MAX_PAPER = 10;
 /** D-146: the office (the Admin, or anyone with job.review — GM, CEO) corrects a sent report itself: notes and before / after photos
  *  while the job waits for review or is reviewed and not invoiced yet — no round trip to the technician */
 const OFFICE_EDIT_STATUSES = ["pending_review", "reviewed"];
@@ -161,17 +163,20 @@ export async function loadForOffice(t: Db, user: SessionUser, id: string): Promi
   if (!b) throw notFound();
   return b;
 }
-export async function addPhoto(user: SessionUser, perms: string[], ip: string | null, id: string, kind: "before" | "after", data: string, clientKey?: string) {
+export async function addPhoto(user: SessionUser, perms: string[], ip: string | null, id: string, kind: "before" | "after" | "paper", data: string, clientKey?: string) {
   return tx(user.id, async (t) => {
     // D-155: the phone sends the same photo again after a lost answer → the first copy is the answer
     if (clientKey) { const dup = (await t<{ id: string }[]>`select id from job_files where booking_id = ${id} and client_key = ${clientKey} and deleted_at is null`)[0]; if (dup) return { id: dup.id, duplicate: true }; }
     const office = isOffice(user, perms) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
     const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
     if (office && OFFICE_EDIT_STATUSES.includes(b.status)) { await touchReport(t, user, b, ip, { photo: kind }); }
+    else if (kind === "paper" && PAPER_STATUSES.includes(b.status)) { if (b.status === "pending_review") await touchReport(t, user, b, ip, { photo: kind }); }
     else {
       if (["pending_review", "reviewed", "invoiced", "partially_paid", "closed"].includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
       if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("NOT_ON_SITE", 400);
     }
+    if (kind === "paper" && Number((await t<{ n: number }[]>`select count(*)::int as n from job_files where booking_id = ${id} and kind = 'paper' and deleted_at is null`)[0]!.n) >= MAX_PAPER)
+      throw new AppError("TOO_MANY_PHOTOS", 400);
     const fid = await storeFile(t, user, id, kind, data);
     if (clientKey) await t`update job_files set client_key = ${clientKey} where id = ${fid}`;
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.photo", table: "job_files", rowId: fid, new: { booking_id: id, kind, offline: !!clientKey }, ip });
@@ -182,14 +187,15 @@ export async function removePhoto(user: SessionUser, perms: string[], id: string
   return tx(user.id, async (t) => {
     const office = isOffice(user, perms) && !(await t`select 1 from booking_technicians where booking_id = ${id} and user_id = ${user.id}`).length;
     const b = office ? await loadForOffice(t, user, id) : await loadForCrew(t, user, id, perms);
+    const f = (await t<{ kind: string }[]>`select kind from job_files where id = ${fileId} and booking_id = ${id} and deleted_at is null`)[0];
+    if (!f) throw notFound();
     if (office && OFFICE_EDIT_STATUSES.includes(b.status)) {
-      // a sent report keeps at least one photo of each kind (OQ-08)
-      const f = (await t<{ kind: string }[]>`select kind from job_files where id = ${fileId} and booking_id = ${id} and deleted_at is null`)[0];
-      if (!f) throw notFound();
-      if (Number((await t<{ n: number }[]>`select count(*)::int as n from job_files where booking_id = ${id} and kind = ${f.kind} and deleted_at is null`)[0]!.n) <= 1) throw new AppError("PHOTOS_REQUIRED", 400);
+      // a sent report keeps at least one before and one after photo (OQ-08); the paper sheet is optional (D-186)
+      if (f.kind !== "paper" && Number((await t<{ n: number }[]>`select count(*)::int as n from job_files where booking_id = ${id} and kind = ${f.kind} and deleted_at is null`)[0]!.n) <= 1) throw new AppError("PHOTOS_REQUIRED", 400);
       await touchReport(t, user, b, ip, { removed_photo: f.kind });
-    } else if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
-    const r = await t`update job_files set deleted_at = now() where id = ${fileId} and booking_id = ${id} and kind in ('before', 'after') and deleted_at is null returning id`;
+    } else if (f.kind === "paper" && PAPER_STATUSES.includes(b.status)) { if (b.status === "pending_review") await touchReport(t, user, b, ip, { removed_photo: f.kind }); }
+    else if (!PHOTO_STATUSES.includes(b.status)) throw new AppError("REPORT_LOCKED", 400);
+    const r = await t`update job_files set deleted_at = now() where id = ${fileId} and booking_id = ${id} and kind in ('before', 'after', 'paper') and deleted_at is null returning id`;
     if (!r.length) throw notFound();
     return { ok: true };
   });

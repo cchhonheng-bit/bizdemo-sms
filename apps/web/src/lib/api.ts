@@ -80,7 +80,7 @@ export type LeaveRow = { id: string; user_id: string; full_name: string; role: s
 export type Checkpoint = { step: "depart" | "arrive" | "start" | "finish" | "return"; at: string; lat: number | null; lng: number | null; accuracy: number | null; no_gps: boolean; offline: boolean; by_name: string | null };
 export type JobInfo = {
   checkpoints: Checkpoint[]; durations: { travel: number | null; wait: number | null; work: number | null; return: number | null };
-  photos: { id: string; kind: "before" | "after" | "survey"; created_at: string }[];
+  photos: { id: string; kind: "before" | "after" | "survey" | "paper"; created_at: string }[]; // D-186: paper = the work sheet
   /** D-140 F: work the technician added on site (prices hidden from technicians) */
   extras?: JobExtra[];
   report: { notes: string | null; status: "submitted" | "reviewed" | "revision"; version: number; submitted_at: string; review_note: string | null; reviewed_at: string | null; signature_file: string | null; submitted_by_name: string | null; reviewed_by_name: string | null;
@@ -341,7 +341,7 @@ export const api = {
   },
   job: {
     info: (id: string) => get<JobInfo>(`/api/bookings/${id}/job`),
-    photo: (id: string, kind: "before" | "after", data: string, client_key?: string) => post<{ id: string; duplicate?: boolean }>(`/api/bookings/${id}/photos`, { kind, data, ...(client_key ? { client_key } : {}) }),
+    photo: (id: string, kind: "before" | "after" | "paper", data: string, client_key?: string) => post<{ id: string; duplicate?: boolean }>(`/api/bookings/${id}/photos`, { kind, data, ...(client_key ? { client_key } : {}) }),
     removePhoto: (id: string, fid: string) => del(`/api/bookings/${id}/photos/${fid}`),
     report: (id: string, notes: string, signature: string) => post(`/api/bookings/${id}/report`, { notes, signature }),
     /** D-146: Admin / GM correct the sent report's notes themselves */

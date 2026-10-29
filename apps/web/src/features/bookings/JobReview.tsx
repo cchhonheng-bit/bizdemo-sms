@@ -10,7 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, Dialog, Field } from "@/components/ui";
 import { compressPhoto } from "@/lib/offline";
 import { toast } from "@/lib/toast";
-import { CheckpointList, PhotoGrid } from "@/features/tech/JobExecution";
+import { CheckpointList, PhotoGrid, type PhotoKind } from "@/features/tech/JobExecution";
 import { ExtrasList } from "./JobExtras";
 
 const SHOW = ["en_route", "on_site", "working", "work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
@@ -28,7 +28,7 @@ export default function JobReview({ booking }: { booking: Booking }) {
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["job", booking.id] }); };
   const onErr = (e: unknown) => toast.error(t(`job.err.${errCode(e)}`, { defaultValue: t("app.error") }));
   const saveNotes = useMutation({ mutationFn: () => api.job.editReport(booking.id, notes), onSuccess: () => { toast.success(t("app.saved")); setEditing(false); refresh(); }, onError: onErr });
-  const addPhoto = async (kind: "before" | "after", files: FileList | null) => {
+  const addPhoto = async (kind: PhotoKind, files: FileList | null) => {
     if (!files?.length) return;
     try { for (const f of Array.from(files)) await api.job.photo(booking.id, kind, await compressPhoto(f)); toast.success(t("app.saved")); refresh(); } catch (e) { onErr(e); }
   };
@@ -60,7 +60,7 @@ export default function JobReview({ booking }: { booking: Booking }) {
             {canEdit && !editing && <Button onClick={() => { setNotes(d.report?.notes ?? ""); setEditing(true); }} data-testid="report-edit"><Pencil size={16} /> {t("job.edit_report")}</Button>}
           </div>
           {editing && <p className="text-xs text-muted">{t("job.edit_hint")}</p>}
-          {(["before", "after"] as const).map((kind) => (
+          {(["before", "after", "paper"] as const).filter((kind) => kind !== "paper" || editing || d.photos.some((p) => p.kind === "paper")).map((kind) => ( // D-186: the paper sheet when there is one
             <div key={kind}><div className="text-muted text-xs">{t(`job.photos_${kind}`)}</div><PhotoGrid photos={d.photos} kind={kind} onRemove={editing ? removePhoto : undefined} />
               {editing && <label className="btn-secondary cursor-pointer mt-2 !mb-0"><Camera size={16} /> {t("job.add_photo")}
                 <input type="file" accept="image/*" multiple className="sr-only" data-testid={`office-photo-${kind}`} onChange={(e) => { void addPhoto(kind, e.target.files); e.target.value = ""; }} /></label>}
