@@ -333,7 +333,7 @@ const atText = (t: T, iso: string, tz: string) => { const p = partsOf(new Date(i
 export function trackHtml(lang: SiteLang, tr: Track, tz: string): string {
   const t = TXT[lang];
   if (tr.ended) return `<p class="trk-end"><span class="pl r">${t.st[tr.ended]}</span></p>`;
-  return `<ol class="trk">${tr.steps.map((x) => `<li class="${x.done ? "ok" : x.now ? "now" : ""}"><i>${x.done ? svg(I.check, 12, 3) : ""}</i><div><b>${t.tk[x.key]}</b>${
+  return `<ol class="trk">${tr.steps.map((x) => `<li class="${x.done ? "dn" : x.now ? "cur" : ""}"><i>${x.done ? svg(I.check, 12, 3) : ""}</i><div><b>${t.tk[x.key]}</b>${
     x.key === "received" && tr.waiting ? `<small>${t.st.pending}</small>` : x.at ? `<small>${atText(t, x.at, tz)}</small>` : ""}</div></li>`).join("")}</ol>`;
 }
 /** a 4-digit PIN field with the eye button */
