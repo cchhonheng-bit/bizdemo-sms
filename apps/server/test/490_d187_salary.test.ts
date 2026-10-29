@@ -11,7 +11,7 @@ import { hashPassword } from "../src/lib/password.js";
 import { roleIds } from "../src/services/accounting.js";
 
 let app: FastifyInstance; let s: Seed;
-let ceo: Client, admin: Client, gm: Client, kim: Client;
+let ceo: Client, admin: Client, gm: Client, kim: Client, cfo: Client;
 let today: string, month: string, nextMonth: string, lina: string;
 const acc = (c: Client, path: string, body?: unknown) => c.req(body === undefined ? "GET" : "POST", `/api/accounting${path}`, body);
 const mapped = async (key: string) => ((await roleIds(sql, s.a)) as Record<string, string>)[key]!;
@@ -22,13 +22,13 @@ beforeAll(async () => {
   await resetDb(); s = await seed(); app = await makeApp();
   s.users.cfo = (await sql<{ id: string }[]>`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, tracks_attendance)
     values (${s.a}, 'cfo', 'CFO', 'cfo', '+85512000900', ${await hashPassword(PW)}, false, false) returning id`)[0]!.id;
-  ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin"); gm = await loginAs(app, "gm01"); kim = await loginAs(app, "kim");
+  ceo = await loginAs(app, "ceo"); admin = await loginAs(app, "admin"); gm = await loginAs(app, "gm01"); kim = await loginAs(app, "kim"); cfo = await loginAs(app, "cfo");
   await ceo.req("POST", "/api/settings/fx", { rate: 4000 });
   expect((await acc(admin, "/accounts")).status).toBe(200);
   today = (await sql<{ t: string }[]>`select (now() at time zone 'Asia/Phnom_Penh')::date::text as t`)[0]!.t;
   month = today.slice(0, 7);
   nextMonth = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 1)).toISOString().slice(0, 7);
-  expect((await acc(admin, "/opening", { date: today, cash_usd: 1000000 })).status).toBe(200);
+  expect((await acc(cfo, "/opening", { date: today, cash_usd: 1000000 })).status).toBe(200);
 });
 afterAll(async () => { config.shop.features = ""; await app.close(); });
 
