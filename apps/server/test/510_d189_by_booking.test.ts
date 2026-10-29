@@ -31,9 +31,11 @@ async function booking(name: string) {
   expect(b, JSON.stringify(b)).toHaveProperty("id");
   return { id: b.id as string, number: (await sql<{ n: string }[]>`select number as n from bookings where id = ${b.id}`)[0]!.n };
 }
+/** the status guard's own path to «reviewed» (only listed transitions are allowed) */
+const toReviewed = async (b: string) => { for (const st of ["assigned", "on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${b}`; };
 const out = (item: string, qty: number, b: string) => inv(admin, "/out", { item_id: item, qty, technician_id: s.users.kim, booking_id: b });
 async function invoice(b: string, lines: { description: string; kind: "service" | "product"; qty: number; unit_price: number; catalog_item_id?: string }[], discount = 0) {
-  await sql`update bookings set status = 'reviewed' where id = ${b}`;
+  await toReviewed(b);
   const r = await admin.req("POST", "/api/invoices", { booking_id: b, lines: lines.map((l) => ({ unit: "", ...l })) });
   expect(r.json, JSON.stringify(r.json)).toHaveProperty("id");
   if (discount) expect((await gm.req("POST", `/api/invoices/${r.json.id}/discount`, { amount: discount })).status).toBe(200);
@@ -139,7 +141,7 @@ describe("D-189 «By Booking»", () => {
   it("an invoice made from a job brings the stock taken for it as linked goods lines; a technician is refused; the file = the screen", async () => {
     const b = await booking("QA five");
     expect((await out(copper, 2, b.id)).status).toBe(200);
-    await sql`update bookings set status = 'reviewed' where id = ${b.id}`;
+    await toReviewed(b.id);
     const pre = (await admin.req("GET", `/api/invoices/prefill?booking=${b.id}`)).json;
     expect(pre.lines).toEqual(expect.arrayContaining([expect.objectContaining({ catalog_item_id: copper, kind: "product", qty: 2 })]));
     expect((await xl(kim)).status).toBe(403);
