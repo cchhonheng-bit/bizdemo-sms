@@ -406,7 +406,8 @@ async function trialBalanceSheet(ctx: Ctx, q: Q): Promise<Built> {
   const filters = [`ខែ ${month.slice(5, 7)}/${month.slice(0, 4)} · ឆ្នាំសារពើពន្ធចាប់ពី ${dmy(tb.fiscal_year_start)}`];
   const cols: Col[] = [{ h: "កូដ", w: 8 }, { h: "គណនី", w: 34 }, { h: "ប្រភេទ", w: 7 }, { h: "ខែនេះ · ឥណពន្ធ", w: 14, s: "money" }, { h: "ខែនេះ · ឥណទាន", w: 14, s: "money" },
     { h: "ដើមឆ្នាំដល់ខែមុន · ឥណពន្ធ", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែមុន · ឥណទាន", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែនេះ · ឥណពន្ធ", w: 15, s: "money" }, { h: "ដើមឆ្នាំដល់ខែនេះ · ឥណទាន", w: 15, s: "money" }];
-  const body = tb.rows.map((r) => [r.code, r.name_km, r.statement, M(r.period.debit), M(r.period.credit), M(r.ytd_prev.debit), M(r.ytd_prev.credit), M(r.ytd.debit), M(r.ytd.credit)] as XCell[]);
+  // D-188: the computed profit line of the month column says what it is
+  const body = tb.rows.map((r) => [r.code, r.computed ? `${r.name_km} (ដើមឆ្នាំដល់ចុងខែមុន)` : r.name_km, r.statement, M(r.period.debit), M(r.period.credit), M(r.ytd_prev.debit), M(r.ytd_prev.credit), M(r.ytd.debit), M(r.ytd.credit)] as XCell[]);
   const t = tb.totals, ok = t.period.debit === t.period.credit && t.ytd_prev.debit === t.ytd_prev.credit && t.ytd.debit === t.ytd.credit;
   const extra: XCell[][] = [[B(ok ? "ឥណពន្ធ = ឥណទាន ✓" : "⚠ ឥណពន្ធ ≠ ឥណទាន"), null, null, M(t.period.debit, true), M(t.period.credit, true), M(t.ytd_prev.debit, true), M(t.ytd_prev.credit, true), M(t.ytd.debit, true), M(t.ytd.credit, true)]];
   return { title_km: km, title_en: en, filters, rows: tb.rows.length, stamp: month, sheets: [table(ctx, "Trial Balance", { title_km: km, title_en: en, filters }, cols, body, { extra, noTotals: true, landscape: true })] };
@@ -436,7 +437,9 @@ async function balanceSheetSheet(ctx: Ctx, q: { asof: string }): Promise<Built> 
   const ce = bs.current_earnings_account, pe = bs.prior_earnings_account;
   const body: XCell[][] = [[{ v: "ទ្រព្យសកម្ម", s: "section" }], ...bs.assets.map(line), tot("ទ្រព្យសកម្មសរុប", bs.assets_total, bs.previous.assets_total),
     [{ v: "បំណុល", s: "section" }], ...bs.liabilities.map(line), tot("បំណុលសរុប", bs.liabilities_total, bs.previous.liabilities_total),
-    [{ v: "មូលធន", s: "section" }], ...bs.equity.map(line), [ce?.code ?? "", ce?.name_km ?? "ចំណេញ/ខាត ក្នុងឆ្នាំ", M(bs.current_earnings), M(bs.previous.current_earnings), M(bs.current_earnings - bs.previous.current_earnings)],
+    [{ v: "មូលធន", s: "section" }], ...bs.equity.map(line), // D-188: this year to last month on the account, then this month
+    [ce?.code ?? "", ce?.name_km ?? "ចំណេញ/ខាត ក្នុងឆ្នាំ", M(bs.year_earnings), M(bs.previous.year_earnings), M(bs.year_earnings - bs.previous.year_earnings)],
+    ["", "ចំណេញ/ខាត(-) ប្រចាំខែ", M(bs.month_earnings), M(bs.previous.month_earnings), M(bs.month_earnings - bs.previous.month_earnings)],
     ...(bs.prior_earnings || bs.previous.prior_earnings ? [[pe?.code ?? "", `${pe?.name_km ?? "ចំណេញ/ខាត ឆ្នាំមុន"} (មិនទាន់បិទ)`, M(bs.prior_earnings), M(bs.previous.prior_earnings), M(bs.prior_earnings - bs.previous.prior_earnings)] as XCell[]] : []),
     tot("មូលធនសរុប", bs.equity_total + bs.current_earnings + bs.prior_earnings, bs.previous.equity_total + bs.previous.current_earnings + bs.previous.prior_earnings),
     tot("បំណុល + មូលធន", bs.liabilities_total + bs.equity_total + bs.current_earnings + bs.prior_earnings, bs.previous.liabilities_total + bs.previous.equity_total + bs.previous.current_earnings + bs.previous.prior_earnings)];

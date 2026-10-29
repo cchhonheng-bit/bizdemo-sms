@@ -87,7 +87,9 @@ function BS({ to, onPick }: { to: string; onPick: (r: AcctRow) => void }) {
       <Card title={t("acct.type.liability")}><BsRows rows={b.liabilities} fx={b.fx_rate_khr} onPick={onPick} />
         <Total label={t("acct.liabilities_total")} cents={b.liabilities_total} khr={b.liabilities_total_khr} sub={prev(b.liabilities_total, b.previous.liabilities_total)} /></Card>
       <Card title={t("acct.type.equity")}><BsRows rows={b.equity} fx={b.fx_rate_khr} onPick={onPick} />
-        <div className="flex justify-between gap-3 py-2 text-sm"><span>{b.current_earnings_account ? `${b.current_earnings_account.code} · ${(i18n.language === "en" && b.current_earnings_account.name_en) || b.current_earnings_account.name_km}` : t("acct.current_earnings")}</span><Amount cents={b.current_earnings} fx={b.fx_rate_khr} /></div>
+        {/* D-188 (client 29-10): this year to the end of last month on the account (30002), then this month's result */}
+        <div className="flex justify-between gap-3 py-2 text-sm" data-testid="bs-year"><span>{b.current_earnings_account ? `${b.current_earnings_account.code} · ${(i18n.language === "en" && b.current_earnings_account.name_en) || b.current_earnings_account.name_km}` : t("acct.current_earnings")} <span className="text-xs text-muted">({t("acct.to_last_month")})</span></span><Amount cents={b.year_earnings} fx={b.fx_rate_khr} /></div>
+        <div className="flex justify-between gap-3 py-2 text-sm" data-testid="bs-month"><span>{t("acct.month_earnings")}</span><Amount cents={b.month_earnings} fx={b.fx_rate_khr} /></div>
         {(b.prior_earnings !== 0 || b.previous.prior_earnings !== 0) && <div className="flex justify-between gap-3 py-2 text-sm" data-testid="bs-prior"><span>{b.prior_earnings_account ? `${b.prior_earnings_account.code} · ` : ""}{t("acct.prior_earnings")}</span><span className="tabular">{signedUsd(b.prior_earnings)}</span></div>}
         <Total label={t("acct.le_total")} cents={le} khr={b.liabilities_total_khr + b.equity_total_khr + b.current_earnings_khr + b.prior_earnings_khr} sub={prev(le, lePrev)} /></Card>
       <p className={`flex items-center gap-2 text-sm ${ok ? "text-success" : "text-danger"}`}>{ok ? <CheckCircle2 size={16} /> : <XCircle size={16} />} {ok ? t("acct.bs_ok") : t("acct.bs_bad")}</p>
@@ -117,8 +119,8 @@ function TB({ month, onPick }: { month: string; onPick: (r: AcctRow) => void }) 
               </thead>
               <tbody className="divide-y divide-grey-line">
                 {tb.rows.map((r) => (
-                  <tr key={r.account_id} className="cursor-pointer" onClick={() => onPick({ account_id: r.account_id, code: r.code, name_km: r.name_km, name_en: r.name_en, type: r.type, amount: 0 })}>
-                    <td className="py-2 pr-2 break-words min-w-[12rem]">{name(r)}</td>
+                  <tr key={r.account_id + (r.computed ? "-c" : "")} className={r.computed ? "italic" : "cursor-pointer"} onClick={r.computed ? undefined : () => onPick({ account_id: r.account_id, code: r.code, name_km: r.name_km, name_en: r.name_en, type: r.type, amount: 0 })} data-testid={r.computed ? "tb-computed" : undefined}>
+                    <td className="py-2 pr-2 break-words min-w-[12rem]">{name(r)}{r.computed && <span className="block text-xs text-muted not-italic">{t("acct.to_last_month")}</span>}</td>
                     {COLS.map((k) => <Fragment key={k}>{pair(r[k])}</Fragment>)}
                   </tr>
                 ))}
