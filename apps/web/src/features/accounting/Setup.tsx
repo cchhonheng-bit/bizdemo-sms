@@ -1,17 +1,17 @@
 // Books setup (D-88 · D-92): opening balances once at go-live (cash, each bank, stock value, retained earnings, old customer debts,
 // supplier debts — open invoices, stock and deposits already in the app are added automatically) · fiscal year start · lock date
 // (CFO: nothing on or before it can be posted) · year-end closing (CFO: income and expenses reset into retained earnings).
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatUsd, fromCents } from "@sms/shared";
 import { CalendarCheck, Lock, Plus, Trash2 } from "lucide-react";
 import { api, type BooksInfo, type OpeningValues } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { Button, Card, ConfirmDialog, Field, Input, Select } from "@/components/ui";
+import { Button, Card, ConfirmDialog, Field, Input, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
 import { shiftDay } from "@/features/reports/range";
-import { cents, signedUsd, useAcctErr } from "./acct";
+import { cents, signedUsd, useAccName, useAcctErr } from "./acct";
 import AccountMapping from "./AccountMapping"; // D-178
 
 const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
@@ -76,24 +76,73 @@ function LockCard({ info }: { info: BooksInfo }) {
   );
 }
 
-/** D-92: close the first fiscal year that has ended and is not closed yet */
+/** D-92 · D-190 (client 29-10): the year-end closing — try it first (nothing posted), edit the lines (amounts, accounts, add / delete;
+ *  it must balance), post exactly that; the last closed year can be opened again to correct and close again */
+type CloseRow = { account_id: string; debit: string; credit: string };
 function CloseYear({ info }: { info: BooksInfo }) {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const onErr = useAcctErr();
-  const [confirm, setConfirm] = useState(false);
+  const name = useAccName();
+  const [open, setOpen] = useState(false), [confirm, setConfirm] = useState(false), [reopenAsk, setReopenAsk] = useState(false);
+  const plan = useQuery({ queryKey: ["closing-plan"], queryFn: api.accounting.closingPlan, enabled: open });
+  const accs = useQuery({ queryKey: ["acct-accounts"], queryFn: api.accounting.accounts, enabled: open });
+  const fromPlan = () => (plan.data?.lines ?? []).map((l) => ({ account_id: l.account_id, debit: l.debit ? (l.debit / 100).toFixed(2) : "", credit: l.credit ? (l.credit / 100).toFixed(2) : "" }));
+  const [rows, setRows] = useState<CloseRow[] | null>(null);
+  useEffect(() => { if (plan.data && rows === null) setRows(fromPlan()); }, [plan.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const list = rows ?? [];
+  const set = (i: number, v: Partial<CloseRow>) => setRows(list.map((r, j) => (j === i ? { ...r, ...v } : r)));
+  const amt = (s: string) => (s.trim() ? cents(s) : 0);
+  const dr = list.reduce((s, r) => s + (amt(r.debit) || 0), 0), cr = list.reduce((s, r) => s + (amt(r.credit) || 0), 0);
+  const ok = list.length >= 2 && dr === cr && dr > 0 && list.every((r) => r.account_id && (amt(r.debit) > 0) !== (amt(r.credit) > 0));
+  const done = () => { setConfirm(false); setReopenAsk(false); setOpen(false); setRows(null); void qc.invalidateQueries(); };
   const close = useMutation({
-    mutationFn: () => api.accounting.closeYear(info.next_year_end!),
-    onSuccess: (r) => { toast.success(t("acct.close_done", { net: signedUsd(r.net_profit) })); setConfirm(false); void qc.invalidateQueries(); },
+    mutationFn: () => api.accounting.closeYear(plan.data!.year_end, list.map((r) => (amt(r.debit) > 0 ? { account_id: r.account_id, debit: amt(r.debit) } : { account_id: r.account_id, credit: amt(r.credit) }))),
+    onSuccess: (r) => { toast.success(t("acct.close_done", { net: signedUsd(r.net_profit) })); done(); },
     onError: (e) => { setConfirm(false); onErr(e); },
   });
+  const reopen = useMutation({ mutationFn: api.accounting.reopenYear, onSuccess: () => { toast.success(t("acct.reopen_done")); done(); }, onError: (e) => { setReopenAsk(false); onErr(e); } });
+  const p = plan.data;
   return (
     <Card title={t("acct.close_title")}>
       <p className="text-xs text-muted mb-2">{t("acct.close_hint")}</p>
       {info.next_year_end && <p className="text-sm mb-3" data-testid="close-next">{t("acct.close_next", { date: info.next_year_end })}</p>}
-      <Button variant="primary" className="w-full sm:w-auto" disabled={!info.can_close} onClick={() => setConfirm(true)} data-testid="close-year">
-        <CalendarCheck size={16} /> {info.can_close ? t("acct.close_btn", { date: info.next_year_end }) : t("acct.close_wait")}</Button>
-      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => close.mutate()} loading={close.isPending} title={t("acct.close_title")} text={t("acct.close_btn", { date: info.next_year_end })} />
+      <div className="flex flex-wrap gap-2">
+        {!open && <Button variant="primary" onClick={() => setOpen(true)} data-testid="close-try"><CalendarCheck size={16} /> {t("acct.close_try")}</Button>}
+        {info.books_closed_through && <Button variant="danger" onClick={() => setReopenAsk(true)} data-testid="reopen-year">{t("acct.reopen_btn", { date: info.books_closed_through })}</Button>}
+      </div>
+      {open && (!p || !rows ? <Skeleton /> : (
+        <div className="mt-3" data-testid="close-plan">
+          <p className="text-sm font-semibold">{t("acct.close_plan", { from: p.year_start, to: p.year_end, net: signedUsd(p.net_profit) })}</p>
+          {!p.ended && <p className="text-xs text-warning mb-1" data-testid="close-test-note">{t("acct.close_test_note", { date: p.upto })}</p>}
+          <p className="text-xs text-muted mb-2">{t("acct.close_edit_hint")}</p>
+          {list.map((r, i) => (
+            <div key={i} className="grid grid-cols-[1fr_6.5rem_6.5rem_auto] gap-2 mb-2 items-center" data-testid={`close-line-${i}`}>
+              <Select value={r.account_id} onChange={(e) => set(i, { account_id: e.target.value })} aria-label={t("acct.account")}>
+                <option value="">{t("acct.pick_account")}</option>
+                {(accs.data ?? []).filter((a) => !a.is_group && (a.is_active || a.id === r.account_id)).map((a) => <option key={a.id} value={a.id}>{name(a)}</option>)}
+              </Select>
+              <Input inputMode="decimal" placeholder={t("acct.debit")} value={r.debit} onChange={(e) => set(i, { debit: e.target.value })} aria-label={t("acct.debit")} />
+              <Input inputMode="decimal" placeholder={t("acct.credit")} value={r.credit} onChange={(e) => set(i, { credit: e.target.value })} aria-label={t("acct.credit")} />
+              <button type="button" className="min-h-[44px] min-w-[44px] grid place-items-center text-muted" aria-label={t("app.delete")} onClick={() => setRows(list.filter((_, j) => j !== i))}><Trash2 size={16} /></button>
+            </div>
+          ))}
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setRows([...list, { account_id: "", debit: "", credit: "" }])} data-testid="close-add"><Plus size={16} /> {t("acct.add_line")}</Button>
+            <Button onClick={() => setRows(fromPlan())}>{t("acct.close_reset")}</Button>
+          </div>
+          <div className={`flex justify-between text-sm mt-3 tabular ${ok ? "text-success" : "text-danger"}`} data-testid="close-diff">
+            <span>{t("acct.debit")} {formatUsd(dr)} · {t("acct.credit")} {formatUsd(cr)}</span>
+            <span>{dr === cr ? (dr > 0 ? t("acct.balanced") : "") : t("acct.diff", { amount: formatUsd(Math.abs(dr - cr)) })}</span>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            <Button onClick={() => { setOpen(false); setRows(null); }}>{t("app.cancel")}</Button>
+            <Button variant="primary" disabled={!p.ended || !ok} onClick={() => setConfirm(true)} data-testid="close-year">{p.ended ? t("acct.close_post") : t("acct.close_wait")}</Button>
+          </div>
+        </div>
+      ))}
+      <ConfirmDialog open={confirm} onClose={() => setConfirm(false)} onConfirm={() => close.mutate()} loading={close.isPending} title={t("acct.close_title")} text={t("acct.close_btn", { date: p?.year_end ?? "" })} />
+      <ConfirmDialog open={reopenAsk} onClose={() => setReopenAsk(false)} onConfirm={() => reopen.mutate()} loading={reopen.isPending} danger title={t("acct.reopen_btn", { date: info.books_closed_through ?? "" })} text={t("acct.reopen_text")} />
     </Card>
   );
 }

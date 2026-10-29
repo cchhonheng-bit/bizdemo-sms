@@ -894,7 +894,54 @@ export async function setFiscalYear(user: SessionUser, ip: string | null, v: { s
 /** year-end closing (accounting.close): the first fiscal year not closed yet, once it has ended — one «closing» entry dated the year end
  *  resets every income and expense account and moves the net result to retained earnings; balance sheet accounts carry forward; the
  *  books lock through that day. The entry is never reversed by hand (the year would have to be re-opened — not offered). */
-export async function closeYear(user: SessionUser, ip: string | null, v: { year_end: string }) {
+/** D-190 (client 29-10): the year-end closing as they want to run it — first try it (any time, nothing posted), edit it (amounts,
+ *  accounts, added or deleted lines — it must balance), post exactly that; a closed year can be opened again (its closing entry
+ *  reversed, the year unlocked) to correct and close again. The plan: each income / expense account's result of the first open year
+ *  (to its end, or to today while it runs) back to zero, the net on retained earnings (map «retained», One Team 30003) */
+type ClosingLine = { account_id: string; code: string; name_km: string; name_en: string | null; debit: number; credit: number };
+async function planLines(db: Db, companyId: string, upto: string): Promise<{ lines: ClosingLine[]; net: number }> {
+  const R = await roleIds(db, companyId);
+  // every entry to the day, closings included: a year already closed nets to zero, so only the open year is left
+  const pl = await db<{ id: string; code: string; name_km: string; name_en: string | null; n: string }[]>`select a.id, a.code, a.name_km, a.name_en, sum(l.debit_cents - l.credit_cents)::text as n
+    from journal_lines l join journal_entries e on e.id = l.entry_id join accounts a on a.id = l.account_id
+    where e.company_id = ${companyId} and a.type in ('income', 'expense') and e.entry_date <= ${upto}::date
+    group by a.id, a.code, a.name_km, a.name_en having sum(l.debit_cents - l.credit_cents) <> 0 order by a.code`;
+  const lines: ClosingLine[] = pl.map((x) => { const n = Number(x.n); return { account_id: x.id, code: x.code, name_km: x.name_km, name_en: x.name_en, debit: n < 0 ? -n : 0, credit: n > 0 ? n : 0 }; });
+  const net = pl.reduce((s, x) => s - Number(x.n), 0); // income (credit) − expenses (debit) = profit
+  if (net) {
+    const r = (await db<{ code: string; name_km: string; name_en: string | null }[]>`select code, name_km, name_en from accounts where id = ${R.retained}`)[0]!;
+    lines.push({ account_id: R.retained, code: r.code, name_km: r.name_km, name_en: r.name_en, debit: net < 0 ? -net : 0, credit: net > 0 ? net : 0 });
+  }
+  return { lines, net };
+}
+export async function closingPlan(user: SessionUser) {
+  const b = await books(sql, user.companyId);
+  if (!b.start) throw new AppError("OPENING_REQUIRED", 400);
+  const end = fyEnd(fyStart(nextOpenYearStart(b), b.fy_month)), upto = end < b.today ? end : b.today;
+  const { lines, net } = await planLines(sql, user.companyId, upto);
+  return { year_start: fyStart(end, b.fy_month), year_end: end, upto, ended: end < b.today, net_profit: net, lines, closed_through: b.closed_through };
+}
+
+/** D-190: open the last closed year again — its closing entry reversed (dated the year end, history kept), the year unlocked back to
+ *  the year before (or the books' start), the closed-through day back one year; audited */
+export async function reopenYear(user: SessionUser, ip: string | null) {
+  return tx(user.id, async (t) => {
+    await t`select 1 from company_settings where company_id = ${user.companyId} for update`;
+    const b = await books(t, user.companyId);
+    if (!b.closed_through) throw new AppError("NOTHING_CLOSED", 400);
+    const end = b.closed_through, prevEnd = dayBefore(fyStart(end, b.fy_month));
+    const prevClosed = b.start && prevEnd >= b.start ? prevEnd : null;
+    const lockTo = prevClosed ?? dayBefore(b.start!);
+    await t`update company_settings set books_closed_through = ${prevClosed}::date, books_locked_until = least(coalesce(books_locked_until, ${lockTo}::date), ${lockTo}::date) where company_id = ${user.companyId}`;
+    const e = (await t<{ id: string; number: string }[]>`select x.id, x.number from journal_entries x where x.company_id = ${user.companyId} and x.source = 'closing' and x.source_id = ${end}
+      and x.reversal_of is null and not exists (select 1 from journal_entries r where r.reversal_of = x.id) order by x.created_at desc`);
+    for (const x of e) await reverseEntry(t, user, x.id, "បើកឆ្នាំឡើងវិញ", end);
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.reopen_year", table: "company_settings", rowId: user.companyId, new: { year_end: end, reversed: e.map((x) => x.number), closed_through: prevClosed, locked_until: lockTo }, ip });
+    return { reopened: end, closed_through: prevClosed, reversed: e.map((x) => x.number) };
+  });
+}
+
+export async function closeYear(user: SessionUser, ip: string | null, v: { year_end: string; lines?: { account_id: string; debit?: number; credit?: number; memo?: string | null }[] }) {
   return tx(user.id, async (t) => {
     await t`select 1 from company_settings where company_id = ${user.companyId} for update`;
     const b = await books(t, user.companyId);
@@ -902,20 +949,18 @@ export async function closeYear(user: SessionUser, ip: string | null, v: { year_
     const end = fyEnd(fyStart(nextOpenYearStart(b), b.fy_month));
     if (v.year_end !== end) throw new AppError(b.closed_through && v.year_end <= b.closed_through ? "ALREADY_CLOSED" : "BAD_YEAR_END", 400, { expected: end });
     if (end >= b.today) throw new AppError("YEAR_NOT_ENDED", 400, { expected: end });
-    const R = await roleIds(t, user.companyId);
-    const pl = (await t<{ id: string; n: string }[]>`select a.id, sum(l.debit_cents - l.credit_cents)::text as n from journal_lines l join journal_entries e on e.id = l.entry_id
-        join accounts a on a.id = l.account_id where e.company_id = ${user.companyId} and a.type in ('income', 'expense') and e.entry_date <= ${end}::date and e.source <> 'closing'
-      group by a.id having sum(l.debit_cents - l.credit_cents) <> 0`).map((x) => ({ id: x.id, n: Number(x.n) }));
-    const net = pl.reduce((s, x) => s - x.n, 0); // credit balances (income) − debit balances (expenses) = net profit
+    // D-190: the lines they edited (must balance, every account this shop's), else the plan — the open year's results to zero, the net on retained
+    const plan = await planLines(t, user.companyId, end);
+    const lines: Line[] = v.lines?.length ? await journalLines(t, user, { date: end, memo: "", lines: v.lines }) : plan.lines.map((x) => ({ account: x.account_id, amount: x.debit - x.credit }));
+    const net = plan.net, edited = !!v.lines?.length;
     let entry: { id: string; number: string } | null = null;
-    if (pl.length) {
+    if (lines.length) {
       // the lock may already cover the year end: the closing is the CFO's own period action, so it passes — and the lock ends ≥ the year end
       await t`update company_settings set books_locked_until = least(books_locked_until, ${end}::date - 1) where company_id = ${user.companyId}`;
-      entry = await post(t, user, { date: end, memo: `${fyStart(end, b.fy_month)} → ${end}`, source: "closing", source_id: end,
-        lines: [...pl.map((x) => ({ account: x.id, amount: -x.n })), { account: R.retained, amount: -net }] });
+      entry = await post(t, user, { date: end, memo: `${fyStart(end, b.fy_month)} → ${end}`, source: "closing", source_id: end, lines });
     }
     await t`update company_settings set books_closed_through = ${end}::date, books_locked_until = greatest(coalesce(books_locked_until, ${end}::date), ${end}::date) where company_id = ${user.companyId}`;
-    await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.close_year", table: "company_settings", rowId: user.companyId, new: { year_end: end, net_profit: net, entry: entry?.number ?? null }, ip });
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "acct.close_year", table: "company_settings", rowId: user.companyId, new: { year_end: end, net_profit: net, entry: entry?.number ?? null, edited, ...(edited ? { lines: v.lines } : {}) }, ip });
     return { year_end: end, net_profit: net, entry };
   });
 }

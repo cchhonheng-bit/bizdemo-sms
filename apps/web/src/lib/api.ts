@@ -253,6 +253,8 @@ export type PayrollLine = { user_id: string; full_name: string; role: string; ba
 export type PayrollRun = { id: string; period: string; status: "draft" | "approved" | "paid" | "void"; created_at: string; approved_at: string | null; paid_at: string | null; pay_method: string | null;
   void_reason: string | null; created_by_name: string | null; approved_by_name: string | null; paid_by_name: string | null; lines: PayrollLine[]; base: number; allowance: number; bonus: number; gross: number; deductions: number; net: number };
 export type PayrollSummary = { id: string; period: string; status: PayrollRun["status"]; people: number; gross: number; deductions: number; net: number };
+export type ClosingPlan = { year_start: string; year_end: string; upto: string; ended: boolean; net_profit: number; closed_through: string | null;
+  lines: { account_id: string; code: string; name_km: string; name_en: string | null; debit: number; credit: number }[] };
 export type Salary = { user_id: string; full_name: string; role: string; base_salary: number; allowance: number; pay_method: PayMethodKey; start_date: string | null; effective_from: string | null;
   next_salary: number | null; next_from: string | null; updated_at: string | null };
 /** D-187: one person's salary on the user form — in force today + every change */
@@ -482,7 +484,10 @@ export const api = {
     /** D-126: the opening balances stay a draft (changeable, logged) until «បញ្ជាក់សមតុល្យដើម» (opening) */
     openingDraft: (v: OpeningValues) => put<{ ok: true; draft: OpeningValues }>("/api/accounting/opening/draft", v),
     setFiscalYear: (start_month: number) => post<{ start_month: number }>("/api/accounting/fiscal-year", { start_month }),
-    closeYear: (year_end: string) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end }),
+    /** D-190: the closing as a test · posted with the lines edited (or the plan) · the last closed year opened again */
+    closingPlan: () => get<ClosingPlan>("/api/accounting/year-end/preview"),
+    closeYear: (year_end: string, lines?: { account_id: string; debit?: number; credit?: number }[]) => post<{ year_end: string; net_profit: number; entry: { id: string; number: string } | null }>("/api/accounting/close-year", { year_end, ...(lines ? { lines } : {}) }),
+    reopenYear: () => post<{ reopened: string; closed_through: string | null; reversed: string[] }>("/api/accounting/reopen-year", {}),
     accounts: () => get<Account[]>("/api/accounting/accounts"),
     mapping: () => get<{ can_edit: boolean; keys: AccountMapRow[] }>("/api/accounting/mapping"), // D-178
     setMapping: (key: string, account_id: string) => put<{ ok: true }>("/api/accounting/mapping", { key, account_id }),

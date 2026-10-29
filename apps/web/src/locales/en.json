@@ -1723,7 +1723,8 @@
       "RANGE_TOO_LONG": "Date range too long",
       "ACCOUNT_IS_GROUP": "A group header takes no entries · choose an account under it",
       "NOT_BS_ACCOUNT": "Not an active balance-sheet account",
-      "STAFF_REQUIRED": "Pick a staff member"
+      "STAFF_REQUIRED": "Pick a staff member",
+      "NOTHING_CLOSED": "No year is closed yet"
     },
     "rate_label": "Exchange rate",
     "added_by_system": "Added by the system",
@@ -1819,7 +1820,16 @@
     "who_supplier": "Supplier…",
     "who_supplier_name": "Supplier name",
     "to_last_month": "from the year start to the end of last month",
-    "month_earnings": "Profit / loss (−) this month"
+    "month_earnings": "Profit / loss (−) this month",
+    "close_try": "Try / preview",
+    "close_test_note": "The year has not ended — this is only a test, nothing is posted (counted to {{date}}).",
+    "close_plan": "Year {{from}} → {{to}} · profit / loss {{net}}",
+    "close_edit_hint": "Change amounts or accounts, add or delete lines — debit = credit before it can close.",
+    "close_reset": "Back to the app's lines",
+    "close_post": "Close with the lines above",
+    "reopen_btn": "Reopen year {{date}}",
+    "reopen_text": "The closing entry is reversed (history kept) and the year opens for corrections. You can close it again afterwards.",
+    "reopen_done": "Year reopened"
   },
   "print": {
     "invoice": "INVOICE",

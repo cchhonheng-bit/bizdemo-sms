@@ -6,7 +6,7 @@ import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { AppError } from "../lib/errors.js";
 import {
-  balanceSheet, closeYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
+  balanceSheet, closeYear, closingPlan, reopenYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
   reverseJournal, saveAccount, saveOpening, saveOpeningDraft, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport, listPending } from "../services/accounting.js";
 import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, saveSalary, voidRun } from "../services/payroll.js";
 import { salaryInputSchema } from "@sms/shared";
@@ -100,7 +100,10 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
   });
   // D-92: fiscal year start month · year-end closing (accounting.close)
   app.post("/fiscal-year", close, async (req) => setFiscalYear(req.user!, req.ip, z.object({ start_month: z.number().int().min(1).max(12) }).strict().parse(req.body)));
-  app.post("/close-year", close, async (req) => closeYear(req.user!, req.ip, z.object({ year_end: day }).strict().parse(req.body)));
+  // D-190: the closing as a test (nothing posted) · posted with the lines they edited (balanced) or the plan · the last closed year opened again
+  app.get("/year-end/preview", view, async (req) => closingPlan(req.user!));
+  app.post("/close-year", close, async (req) => closeYear(req.user!, req.ip, z.object({ year_end: day, lines: z.array(line).min(2).max(200).optional() }).strict().parse(req.body)));
+  app.post("/reopen-year", close, async (req) => reopenYear(req.user!, req.ip));
   app.get("/:kind.csv", view, async (req, reply) => {
     const { kind } = z.object({ kind: z.enum(["trial-balance", "pl", "income-statement", "balance-sheet", "ledger", "journal"]) }).parse(req.params);
     const q = z.object({ from: day.optional(), to: day, account: id.optional(), code: accountCode.optional(), month: ym.optional() }).parse(req.query ?? {});
