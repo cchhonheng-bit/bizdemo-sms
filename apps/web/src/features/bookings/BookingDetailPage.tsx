@@ -92,6 +92,13 @@ export default function BookingDetailPage() {
               <dt className="text-muted">{t("booking.created_by")}</dt><dd>{nameOf(bk.created_by) || "—"} · {fmtDateTime(bk.created_at)}</dd>
             </dl>
           </Card>
+          {bk.rating && (
+            <Card title={t("booking.rating")}>
+              <p className="text-lg text-warning" data-testid="booking-rating" aria-label={t("booking.rating_stars", { n: bk.rating.stars })}>{"★".repeat(bk.rating.stars)}<span className="text-grey-line">{"★".repeat(5 - bk.rating.stars)}</span></p>
+              {bk.rating.comment && <p className="text-sm whitespace-pre-wrap">{bk.rating.comment}</p>}
+              <p className="text-xs text-muted">{fmtDateTime(bk.rating.at)}</p>
+            </Card>
+          )}
           {(bk.warranty || bk.warranty_of) && (
             <Card title={t("booking.warranty")}>
               {bk.warranty_of && <p className="text-sm">🛡 {t("booking.warranty_job_of")} <Link className="text-blue underline font-mono" to={`/bookings/${bk.warranty_of}`}>{bk.warranty_of_number}</Link> · {t("booking.warranty_free")}</p>}

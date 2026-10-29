@@ -124,13 +124,56 @@
     if (ph && !ph.value && r.json.phone) ph.value = r.json.phone;
   }).catch(function () { /* the form works without it */ });
 
-  // ---- after saving: to the shop bot with the single-use link; the history entry becomes the «sent» screen (back from
-  //      Telegram lands there) and, when Telegram opened as an app, the page itself turns into it
-  function toTelegram(link, donePath) {
-    try { history.replaceState(null, "", donePath); } catch (e) { /* old browser */ }
-    location.href = link;
-    setTimeout(function () { location.replace(donePath); }, 1800);
+  // ---- a booking card (list and the booking's own page): cancel with a reason, ask for another time
+  function bindBooking(card) {
+    var id = card.dataset.booking, err = $(".err", card), pc = $('[data-panel="cancel"]', card), pm = $('[data-panel="move"]', card), st = null;
+    function close() { if (pc) pc.hidden = true; if (pm) pm.hidden = true; hideErr(err); }
+    $$("[data-close]", card).forEach(function (b) { b.addEventListener("click", close); });
+    var c = $("[data-cancel]", card), cg = $("[data-cancel-go]", card), m = $("[data-move]", card), mg = $("[data-move-go]", card);
+    if (c) c.addEventListener("click", function () { close(); pc.hidden = false; $("textarea", pc).focus(); });
+    if (cg) cg.addEventListener("click", function () {
+      var why = $("textarea", pc).value.trim();
+      if (why.length < 3) return showErr(err, "REASON_REQUIRED");
+      cg.disabled = true;
+      send("POST", "/api/my/bookings/" + id + "/cancel", { reason: why }).then(function (r) {
+        if (r.ok) return location.reload();
+        cg.disabled = false; showErr(err, r.json.error || "ERROR");
+      }).catch(function () { cg.disabled = false; showErr(err, "ERROR"); });
+    });
+    if (m) m.addEventListener("click", function () {
+      close(); pm.hidden = false;
+      var pk = $(".pk", pm);
+      send("GET", "/api/my/bookings/" + id + "/slots").then(function (r) {
+        if (!r.ok) return showErr(err, r.json.error || "ERROR");
+        renderPicker(pk, r.json.days || [], { day: pk.dataset.day, time: pk.dataset.time });
+        if (st) { st.at = null; st.label = null; } else st = bindPicker(pk, function () { hideErr(err); });
+      }).catch(function () { showErr(err, "ERROR"); });
+    });
+    if (mg) mg.addEventListener("click", function () {
+      if (!st || !st.at) return showErr(err, "PICK_SLOT");
+      mg.disabled = true;
+      send("POST", "/api/my/bookings/" + id + "/reschedule", { at: st.at, reason: $("input", pm).value.trim() }).then(function (r) {
+        if (r.ok) return location.reload();
+        mg.disabled = false; showErr(err, r.json.error || "ERROR");
+      }).catch(function () { mg.disabled = false; showErr(err, "ERROR"); });
+    });
   }
+  /** D-191: the timeline of a moving booking refreshes itself every 30 s (only while the page is in front); a new state reloads
+   *  the page — unless the visitor is typing into a form on it */
+  var FINAL = { done: 1, declined: 1, cancelled: 1, expired: 1 };
+  function follow(url, busyNow) {
+    if (FINAL[body.dataset.state]) return;
+    setInterval(function () {
+      if (document.visibilityState !== "visible") return;
+      send("GET", url).then(function (r) {
+        if (!r.ok) return;
+        var tl = $("#tl");
+        if (tl && r.json.html) tl.innerHTML = r.json.html;
+        if (r.json.state && r.json.state !== body.dataset.state && !busyNow()) location.reload();
+      }).catch(function () { /* next time */ });
+    }, 30000);
+  }
+  var PIN = /^[0-9០-៩]{4}$/;
 
   // ---- category tiles + item lines (home, quote)
   function linesUI(onChange) {
@@ -232,7 +275,7 @@
         if (r.ok && typeof r.json.lat === "number") ok(r.json.lat, r.json.lng, null); else showErr(err, r.json.error || "MAP_LINK_INVALID");
       }).catch(function () { go.disabled = false; showErr(err, "MAP_LINK_INVALID"); });
     });
-    return { has: function () { return !!$("#lat").value; }, value: function () { return { lat: num("#lat"), lng: num("#lng"), accuracy: num("#acc") }; } };
+    return { has: function () { return !!$("#lat").value; }, value: function () { return { lat: num("#lat"), lng: num("#lng"), accuracy: num("#acc") }; }, set: ok };
   }
 
   // ---- day chips + time slots (server-rendered on the booking screen, drawn here for a reschedule request)
@@ -289,11 +332,13 @@
     var label = $("span", go); if (label) label.textContent = quote || !lines.length ? M.quote : M.book;
   });
 
-  // ---- 2 + 3 · choose a time + location → your details → ONE tap: book + Telegram
+  // ---- 2 + 3 · choose a time + location → your details → ONE tap: book (D-191: then the tracking page offers the account)
   if (page === "book") (function () {
     var s2 = $("#s2"), s3 = $("#s3"), pick = $("#pick"), next = $("#next"), err = $("#err"), err3 = $("#err3");
     var st = bindPicker($("#picker"), function (p) { pick.textContent = p.label || "—"; hideErr(err); });
     var loc = locUI(err);
+    // «book again»: the place of the earlier booking
+    if (body.dataset.addr !== undefined) { $("#addr").value = body.dataset.addr; if (loc && body.dataset.lat && body.dataset.lng) loc.set(body.dataset.lat, body.dataset.lng, null); }
     clearOnEdit(s2, err); clearOnEdit(s3, err3);
     function step(n) { s2.hidden = n !== 2; s3.hidden = n !== 3; window.scrollTo(0, 0); }
     if (location.hash === "#details") history.replaceState(null, "", location.pathname + location.search); // a reload starts at the time
@@ -335,9 +380,9 @@
         note: $("#note").value.trim(), consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
         if (r.ok) {
           if (!r.json.ref) return location.assign("/");
-          var done = "/book/done/" + r.json.ref;
-          if (r.json.link && !r.json.linked) return toTelegram(r.json.link, done);
-          return location.assign(done);
+          // the account form on the next page is filled with what was just typed — handed over in this tab only
+          try { sessionStorage.setItem("acct:" + r.json.ref, JSON.stringify({ name: name, phone: phone, addr: $("#addr").value.trim(), lat: where.lat, lng: where.lng, acc: where.accuracy })); } catch (e) { /* private mode */ }
+          return location.assign("/book/done/" + r.json.ref);
         }
         busy(btn, false);
         var code = r.json.error || "ERROR";
@@ -347,8 +392,43 @@
     });
   })();
 
-  // ---- 4 · request sent: while it waits for the answer, the screen refreshes itself
-  if (page === "done" && body.dataset.state === "pending") setInterval(function () { if (document.visibilityState === "visible") location.reload(); }, 30000);
+  // ---- 4 · request sent = the guest's tracking page (D-191): the timeline follows the booking; the account right here (or «skip»)
+  if (page === "done") (function () {
+    var ref = body.dataset.ref, acct = $("#acct"), open = $("#a-open"), err = $("#a-err");
+    follow("/api/public/track/" + ref, function () { return !!(acct && !acct.hidden && ($("#a-pin").value || $("#a-pin2").value)); });
+    if (!acct) return;
+    var key = "acct:" + ref, skipKey = "acct-skip:" + ref, loc = locUI(err);
+    function keep(k, v) { try { if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+    function kept(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+    // what the visitor typed on the booking screen (this tab only) — the server never puts it in the page
+    var given = null;
+    try { given = JSON.parse(sessionStorage.getItem(key) || "null"); } catch (e) { given = null; }
+    if (given) {
+      if ($("#a-name") && given.name) $("#a-name").value = given.name;
+      if (given.phone) $("#a-phone").value = given.phone;
+      if ($("#addr") && given.addr) $("#addr").value = given.addr;
+      if (loc && given.lat != null && given.lng != null) loc.set(given.lat, given.lng, given.acc);
+    }
+    function shown(on) { acct.hidden = !on; open.hidden = on; }
+    if (kept(skipKey)) shown(false);
+    $("#a-skip").addEventListener("click", function () { keep(skipKey, "1"); shown(false); });
+    open.addEventListener("click", function () { keep(skipKey, null); shown(true); });
+    clearOnEdit(acct, err);
+    $("#a-go").addEventListener("click", function () {
+      var btn = this, nm = $("#a-name"), name = nm ? nm.value.trim() : "", phone = $("#a-phone").value.trim(), pin = $("#a-pin").value.trim(), pin2 = $("#a-pin2").value.trim();
+      hideErr(err);
+      if (nm && name.length < 2) return showErr(err, "NAME_REQUIRED");
+      if (phone.replace(/\D/g, "").length < 8) return showErr(err, "INVALID_PHONE");
+      if (!PIN.test(pin)) return showErr(err, "PIN_FORMAT");
+      if (pin !== pin2) return showErr(err, "PIN_MISMATCH");
+      busy(btn, true);
+      var where = loc ? loc.value() : { lat: null, lng: null };
+      send("POST", "/api/public/account", { ref: ref, name: name, phone: phone, address: $("#addr") ? $("#addr").value.trim() : null, lat: where.lat, lng: where.lng, pin: pin, pin2: pin2 }).then(function (r) {
+        if (r.ok) { try { sessionStorage.removeItem(key); } catch (e) { /* ignore */ } return location.assign(r.json.next || "/my/bookings"); }
+        busy(btn, false); showErr(err, r.json.error || "ERROR");
+      }).catch(function () { busy(btn, false); showErr(err, "ERROR"); });
+    });
+  })();
 
   // ---- 5 · quote request: tiles + items (optional), description, up to 5 photos (made smaller in the browser), location, ONE tap
   if (page === "quote") (function () {
@@ -416,16 +496,14 @@
         location: addr, lat: where.lat, lng: where.lng, accuracy: where.accuracy, consent: true, ts: body.dataset.ts, company_url: $("#company_url").value, lang: lang, init_data: initData() }).then(function (r) {
         if (r.ok) {
           if (!r.json.ref) return location.assign("/");
-          var done = "/quote/done/" + r.json.ref;
-          if (r.json.link && !r.json.linked) return toTelegram(r.json.link, done);
-          return location.assign(done);
+          return location.assign("/quote/done/" + r.json.ref); // Telegram is offered there (optional — D-191)
         }
         busy(btn, false); showErr(err, r.json.error || "ERROR");
       }).catch(function () { busy(btn, false); showErr(err, "ERROR"); });
     });
   })();
 
-  // ---- sign in: phone + password (a new password comes from the bot — «forgot password» is a link to it)
+  // ---- sign in: phone + PIN (D-191; «forgot» → /my/reset)
   if (page === "login") (function () {
     var next = body.dataset.next || "/my";
     if (inTelegram) return location.replace(next + location.hash); // inside Telegram the launch data signs in — never this form (D-121)
@@ -436,7 +514,7 @@
       if ($("#phone").value.replace(/\D/g, "").length < 8) return showErr(err, "INVALID_PHONE");
       if (!pw) return showErr(err, "INVALID_CREDENTIALS");
       busy(go, true);
-      send("POST", "/api/public/login", { phone: $("#phone").value.trim(), password: pw }).then(function (r) {
+      send("POST", "/api/public/login", { phone: $("#phone").value.trim(), pin: pw }).then(function (r) {
         if (r.ok) return location.assign(next);
         busy(go, false);
         var code = r.json.error || "ERROR";
@@ -466,10 +544,44 @@
     if (ref === location.origin && history.length > 1) { e.preventDefault(); history.back(); } // came from this site: back; else the link goes to "/"
   }); }
 
-  // ---- 6 · customer home: notifications, password, sign out, cancel with a reason, ask for another time
+  // ---- forgot PIN (D-191): 1 a code by Telegram (or the one the shop read out) · 2 the code + the new PIN twice → signed in
+  if (page === "reset") (function () {
+    var r1 = $("#r1"), r2 = $("#r2"), e1 = $("#r1-err"), e2 = $("#r2-err");
+    clearOnEdit(r1, e1); clearOnEdit(r2, e2);
+    function second() { r2.hidden = false; $("#r-code").focus(); }
+    $("#r-have").addEventListener("click", second);
+    $("#r-send").addEventListener("click", function () {
+      var btn = this, phone = $("#r-phone").value.trim();
+      if (phone.replace(/\D/g, "").length < 8) return showErr(e1, "INVALID_PHONE");
+      busy(btn, true);
+      send("POST", "/api/public/pin-code", { phone: phone }).then(function (r) {
+        busy(btn, false);
+        if (!r.ok) return showErr(e1, r.json.error || "ERROR");
+        $("#r-sent").hidden = false; second();
+      }).catch(function () { busy(btn, false); showErr(e1, "ERROR"); });
+    });
+    $("#r-go").addEventListener("click", function () {
+      var btn = this, phone = $("#r-phone").value.trim(), code = $("#r-code").value.trim(), pin = $("#r-pin").value.trim(), pin2 = $("#r-pin2").value.trim();
+      if (phone.replace(/\D/g, "").length < 8) return showErr(e1, "INVALID_PHONE");
+      if (!/^[0-9០-៩]{6}$/.test(code)) return showErr(e2, "CODE_INVALID");
+      if (!PIN.test(pin)) return showErr(e2, "PIN_FORMAT");
+      if (pin !== pin2) return showErr(e2, "PIN_MISMATCH");
+      busy(btn, true);
+      send("POST", "/api/public/pin-reset", { phone: phone, code: code, pin: pin, pin2: pin2 }).then(function (r) {
+        if (r.ok) return location.assign("/my/bookings");
+        busy(btn, false);
+        var c = r.json.error || "ERROR";
+        showErr(e2, c);
+        if (c === "LOCKED" && r.json.details) e2.textContent = msg(c).replace("{n}", r.json.details.minutes);
+      }).catch(function () { busy(btn, false); showErr(e2, "ERROR"); });
+    });
+  })();
+
+  // ---- 6 · customer home: notifications, PIN, sign out (here / everywhere), the booking cards
   if (page === "my") (function () {
-    var out = $("#logout");
+    var out = $("#logout"), all = $("#logout-all");
     if (out) out.addEventListener("click", function () { send("POST", "/api/my/logout", {}).then(function () { location.assign("/"); }); });
+    if (all) all.addEventListener("click", function () { send("POST", "/api/my/logout-all", {}).then(function () { location.assign("/my/login"); }); });
     // notification settings — the shop bot's subscription (service messages / promotions)
     var ns = $("#n-service"), np = $("#n-promo"), nok = $("#n-ok"), nerr = $("#n-err");
     function savePrefs() {
@@ -482,56 +594,49 @@
     }
     if (ns) ns.addEventListener("change", function () { if (!ns.checked) np.checked = false; np.disabled = !ns.checked; savePrefs(); });
     if (np) np.addEventListener("change", savePrefs);
-    // profile → change password (needs the current one)
+    // profile → change the PIN (the current one first, when there is one)
     var card = $("#pw-card"), perr = $("#pw-err"), pok = $("#pw-ok");
     if (card) {
-    $("#pw-open").addEventListener("click", function () { card.hidden = !card.hidden; pok.hidden = true; hideErr(perr); if (!card.hidden) $("#pw-cur").focus(); });
-    $("#pw-close").addEventListener("click", function () { card.hidden = true; });
-    clearOnEdit(card, perr);
-    $("#pw-save").addEventListener("click", function () {
-      var btn = this, cur = $("#pw-cur").value, next = $("#pw-new").value;
-      pok.hidden = true;
-      if (next.length < 4) return showErr(perr, "PASSWORD_TOO_SHORT");
-      btn.disabled = true;
-      send("POST", "/api/my/password", { current: cur, next: next }).then(function (r) {
-        btn.disabled = false;
-        if (!r.ok) return showErr(perr, r.json.error || "ERROR");
-        $("#pw-cur").value = ""; $("#pw-new").value = ""; hideErr(perr); pok.hidden = false;
-      }).catch(function () { btn.disabled = false; showErr(perr, "ERROR"); });
-    });
+      $("#pw-open").addEventListener("click", function () { card.hidden = !card.hidden; pok.hidden = true; hideErr(perr); if (!card.hidden) ($("#pw-cur") || $("#pw-new")).focus(); });
+      $("#pw-close").addEventListener("click", function () { card.hidden = true; });
+      clearOnEdit(card, perr);
+      $("#pw-save").addEventListener("click", function () {
+        var btn = this, cur = $("#pw-cur") ? $("#pw-cur").value : "", next = $("#pw-new").value.trim(), next2 = $("#pw-new2").value.trim();
+        pok.hidden = true;
+        if (!PIN.test(next)) return showErr(perr, "PIN_FORMAT");
+        if (next !== next2) return showErr(perr, "PIN_MISMATCH");
+        btn.disabled = true;
+        send("POST", "/api/my/pin", { current: cur, next: next, next2: next2 }).then(function (r) {
+          btn.disabled = false;
+          if (!r.ok) return showErr(perr, r.json.error || "ERROR");
+          if ($("#pw-cur")) $("#pw-cur").value = "";
+          $("#pw-new").value = ""; $("#pw-new2").value = ""; hideErr(perr); pok.hidden = false;
+        }).catch(function () { btn.disabled = false; showErr(perr, "ERROR"); });
+      });
     }
-    $$("[data-booking]").forEach(function (card) {
-      var id = card.dataset.booking, err = $(".err", card), pc = $('[data-panel="cancel"]', card), pm = $('[data-panel="move"]', card), st = null;
-      function close() { if (pc) pc.hidden = true; if (pm) pm.hidden = true; hideErr(err); }
-      $$("[data-close]", card).forEach(function (b) { b.addEventListener("click", close); });
-      var c = $("[data-cancel]", card), cg = $("[data-cancel-go]", card), m = $("[data-move]", card), mg = $("[data-move-go]", card);
-      if (c) c.addEventListener("click", function () { close(); pc.hidden = false; $("textarea", pc).focus(); });
-      if (cg) cg.addEventListener("click", function () {
-        var why = $("textarea", pc).value.trim();
-        if (why.length < 3) return showErr(err, "REASON_REQUIRED");
-        cg.disabled = true;
-        send("POST", "/api/my/bookings/" + id + "/cancel", { reason: why }).then(function (r) {
-          if (r.ok) return location.reload();
-          cg.disabled = false; showErr(err, r.json.error || "ERROR");
-        }).catch(function () { cg.disabled = false; showErr(err, "ERROR"); });
-      });
-      if (m) m.addEventListener("click", function () {
-        close(); pm.hidden = false;
-        var pk = $(".pk", pm);
-        send("GET", "/api/my/bookings/" + id + "/slots").then(function (r) {
-          if (!r.ok) return showErr(err, r.json.error || "ERROR");
-          renderPicker(pk, r.json.days || [], { day: pk.dataset.day, time: pk.dataset.time });
-          if (st) { st.at = null; st.label = null; } else st = bindPicker(pk, function () { hideErr(err); });
-        }).catch(function () { showErr(err, "ERROR"); });
-      });
-      if (mg) mg.addEventListener("click", function () {
-        if (!st || !st.at) return showErr(err, "PICK_SLOT");
-        mg.disabled = true;
-        send("POST", "/api/my/bookings/" + id + "/reschedule", { at: st.at, reason: $("input", pm).value.trim() }).then(function (r) {
-          if (r.ok) return location.reload();
-          mg.disabled = false; showErr(err, r.json.error || "ERROR");
-        }).catch(function () { mg.disabled = false; showErr(err, "ERROR"); });
-      });
+    $$("[data-booking]").forEach(bindBooking);
+  })();
+
+  // ---- D-191 one booking: the timeline follows the job; cancel / move; rate it 1–5 with a comment
+  if (page === "booking") (function () {
+    var id = body.dataset.id;
+    follow("/api/my/bookings/" + id, function () { return !!document.querySelector(".pn:not([hidden])") || !!($("#rate-text") && $("#rate-text") === document.activeElement); });
+    var main = $("main[data-booking]");
+    if (main) bindBooking(main);
+    var rate = $("#rate");
+    if (!rate) return;
+    var box = $(".stars", rate), on = Number(box.dataset.stars) || 0, rerr = $("#rate-err"), rok = $("#rate-ok");
+    var paint = function () { $$(".star", box).forEach(function (s) { var n = Number(s.dataset.star); s.classList.toggle("on", n <= on); s.setAttribute("aria-pressed", n <= on ? "true" : "false"); }); };
+    box.addEventListener("click", function (e) { var s = e.target.closest(".star"); if (!s) return; on = Number(s.dataset.star); paint(); hideErr(rerr); rok.hidden = true; });
+    $("#rate-go").addEventListener("click", function () {
+      var btn = this;
+      if (!on) return showErr(rerr, "PICK_STARS");
+      busy(btn, true);
+      send("POST", "/api/my/bookings/" + id + "/rating", { stars: on, comment: $("#rate-text").value.trim() }).then(function (r) {
+        busy(btn, false);
+        if (!r.ok) return showErr(rerr, r.json.error || "ERROR");
+        rok.hidden = false;
+      }).catch(function () { busy(btn, false); showErr(rerr, "ERROR"); });
     });
   })();
 })();

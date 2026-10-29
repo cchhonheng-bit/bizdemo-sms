@@ -17,10 +17,10 @@ export const siteUrl = (path = "/") => `${config.publicUrl}${path}`;
 export const webOn = () => featureOn("website") && https();
 /** D-121 (CEO): every bot entry opens its exact customer page — never "/" and never the staff app: the chat's menu button → the
  *  customer home /my, «📍» → /my/bookings, «📅» → /book */
-export const CUSTOMER_PATHS = { home: "/my", track: "/my/bookings", book: "/book" } as const;
+export const CUSTOMER_PATHS = { home: "/my", track: "/my/bookings", book: "/book", reset: "/my/reset" } as const;
 export const menuUrl = () => (webOn() ? siteUrl(CUSTOMER_PATHS.home) : null);
 
-/** the grid: 📅 book · 📍 track / 🎁 promotions · 🔑 new password / 🔕 stop notifications */
+/** the grid: 📅 book · 📍 track / 🎁 promotions · 🔑 forgot PIN (D-191) / 🔕 stop notifications */
 export function customerGrid(): KbButton[][] | null {
   if (!webOn()) return null;
   return [[{ text: CUSTOMER_MENU.book, web_app: siteUrl(CUSTOMER_PATHS.book) }, { text: CUSTOMER_MENU.track, web_app: siteUrl(CUSTOMER_PATHS.track) }],
@@ -33,12 +33,14 @@ export const btn = {
   again: () => webApp(CUSTOMER_BTN.again, CUSTOMER_PATHS.book),
   book: () => webApp(CUSTOMER_BTN.book, CUSTOMER_PATHS.book),
   login: (): Btn | null => (https() ? { text: CUSTOMER_BTN.login, url: siteUrl(CUSTOMER_PATHS.home) } : null),
+  /** D-191: the website's «change PIN» page — the code is typed there, never carried in the address */
+  pin: (): Btn | null => (https() ? { text: CUSTOMER_BTN.pin, url: siteUrl(CUSTOMER_PATHS.reset) } : null),
 };
 /** one row of the buttons that exist (null = left out) */
 export const row = (...b: (Btn | null)[]): Btn[][] | undefined => { const x = b.filter((y): y is Btn => !!y); return x.length ? [x] : undefined; };
 
 /** a message to one subscriber of this shop through the hub — only while that person's service messages are on (the hub
- *  decides, A4). Never through the outbox table: the text may carry a password. Best effort, never throws, at most 4 s. */
+ *  decides, A4). Never through the outbox table: the text may carry a PIN reset code. Best effort, never throws, at most 4 s. */
 export async function tellSubscriber(subscriberId: number, m: CustomerMsg): Promise<boolean> {
   if (!hubConfigured()) return false;
   const body = { subscriber_id: subscriberId, text: m.text.slice(0, 1000), ...(m.buttons?.length ? { buttons: m.buttons } : {}), ...(m.keyboard?.length ? { keyboard: m.keyboard } : {}),

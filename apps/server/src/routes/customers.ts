@@ -10,7 +10,7 @@ import { AppError, notFound } from "../lib/errors.js";
 import { checkPlace } from "../lib/gazetteer.js";
 import { audit } from "../services/audit.js";
 import { boreyFor } from "../services/boreys.js";
-import { unlockCustomerLogin } from "../services/customer-auth.js";
+import { staffPinCode, unlockCustomerLogin } from "../services/customer-auth.js";
 import { customerHistory } from "../services/customers.js";
 import { customersApply, customersExport, customersPreview, customersSample } from "../services/customer-import.js";
 
@@ -86,6 +86,12 @@ export const customersRoutes: FastifyPluginAsync = async (app) => {
 
   /** D-104: clear the wrong-password lock of this customer's website login (Admin / GM); written to the audit log */
   app.post("/:id/unlock-login", { preHandler: app.requirePerm("customer.manage") }, async (req) => unlockCustomerLogin(req.user!, req.ip, z.object({ id: z.string().uuid() }).parse(req.params).id));
+  /** D-191: a one-time code the Admin / GM reads to the customer on the phone → the customer sets a new PIN on the website (the PIN
+   *  itself is never shown or sent); clears the locks too; audited without the code */
+  app.post("/:id/pin-code", { preHandler: app.requirePerm("customer.manage") }, async (req, reply) => {
+    reply.header("Cache-Control", "no-store");
+    return staffPinCode(req.user!, req.ip, z.object({ id: z.string().uuid() }).parse(req.params).id);
+  });
 
   app.post("/:id/active", { preHandler: app.requirePerm("customer.manage") }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);

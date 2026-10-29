@@ -1,30 +1,32 @@
 // Public shop website (flag "website", D-96 · final combined brief D-106) — no staff login anywhere here.
-//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done/<ref> · /my · /my/bookings · /my/login · /privacy · /terms · /robots.txt
-//   public API /api/public/slots · bookings · quotes · login · tg-login · maps   (form token, honeypot, rate limits, locks)
+//   pages      /  (wired in app.ts) · /book · /book/done/<ref> · /quote · /quote/done/<ref> · /my · /my/bookings · /my/b/<id> · /my/login · /my/reset · /privacy · /terms · /robots.txt
+//   public API /api/public/slots · bookings · quotes · login · account · pin-code · pin-reset · track · tg-login · maps   (form token, honeypot, rate limits, locks)
 //   Telegram   /api/customer/tg-auth — the Mini App's launch data → customer session, BEFORE the page is shown (D-121)
 //   customer   /api/my …                                                  (customer session cookie "otc" — own data only)
 //   files      /pub/<file> + /pub/fonts/<file> (the site's css, js, fonts) · /pub/img/<id> (website photos) · /pub/logo
 // And the staff side: Settings → Website, and the customer requests inbox with its decisions (confirm / decline / approve / reject).
-// CEO (D-106): a new password comes only from the bot — the website has no reset form; its «forgot password» opens the bot.
+// D-191 (owner): the customer account = phone + a 4-digit PIN chosen on the website; nothing is ever sent by Telegram but a one-time
+// reset code. Customer form posts from another site are refused (Origin check) on top of the SameSite cookie.
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
-import { formatKhPhone, isAllowedMapsHost, isNight, overridesSchema, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
+import { CUSTOMER_SESSION_DAYS, formatKhPhone, isAllowedMapsHost, isNight, overridesSchema, parseLatLng, parseWebLines, webLinesParam } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { clock } from "../lib/clock.js";
 import { AppError, unauthenticated } from "../lib/errors.js";
 import { checkRate } from "../lib/rate-limit.js";
-import { changeCustomerPassword, passwordLogin } from "../services/customer-auth.js";
-import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myHome, myPrefs, mySlots, requestReschedule, resolveCustomerSession, setMyPrefs } from "../services/customer-home.js";
+import { changeCustomerPin, createAccountFromBooking, logoutEverywhere, pinLogin, resetPinWithCode, sendPinCode } from "../services/customer-auth.js";
+import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myBookingDetail, myHome, myPrefs, mySlots, rateBooking, rebookPlace, requestReschedule, resolveCustomerSession,
+  setMyPrefs, type CustomerSession } from "../services/customer-home.js";
 import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookPage, donePage, gatePage, guidePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, robotsTxt, type Prefill, type SiteLang } from "../site/pages.js";
+import { assets, bookingPage, bookPage, donePage, gatePage, guidePage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
 import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
@@ -45,29 +47,39 @@ async function site(): Promise<SiteView> {
   if (!d) throw new AppError("NOT_FOUND", 404);
   return d;
 }
-const customerCookie = () => ({ path: "/", httpOnly: true, sameSite: "lax" as const, secure: secure(), maxAge: config.sessionDays * 86400 });
+const customerCookie = () => ({ path: "/", httpOnly: true, sameSite: "lax" as const, secure: secure(), maxAge: CUSTOMER_SESSION_DAYS * 86400 });
+/** the customer session of this device; a session renewed just now gets its cookie again (180 days from today — D-191) */
+async function sessionOf(req: FastifyRequest, reply: FastifyReply): Promise<CustomerSession | null> {
+  const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+  if (s?.renewed) reply.setCookie(CUSTOMER_COOKIE, req.cookies[CUSTOMER_COOKIE]!, customerCookie());
+  return s;
+}
 /** the lines of the address: ?items=<id>:<qty>,… (or ?service=<id> of older links) */
 const linesOf = (req: FastifyRequest) => {
   const q = (req.query as { items?: string; service?: string } | undefined) ?? {};
   return parseWebLines(q.items ?? (q.service && /^[0-9a-f-]{36}$/.test(q.service) ? `${q.service}:1` : null));
 };
-/** the customer record linked to a Telegram subscriber: name + phone for the booking form */
-async function customerOf(companyId: string, subscriberId: number): Promise<Prefill | null> {
-  const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${companyId} and tg_subscriber_id = ${subscriberId} and is_active order by created_at limit 1`)[0];
+/** the session's customer record (its PIN account, else the record linked to its Telegram chat): name + phone for the booking form */
+async function customerOf(companyId: string, who: { customerId?: string | null; subscriberId?: number | null }): Promise<Prefill | null> {
+  if (!who.customerId && !who.subscriberId) return null;
+  const c = (await sql<{ name: string; phone: string | null }[]>`select name, phones[1] as phone from customers where company_id = ${companyId} and is_active and
+    ${who.customerId ? sql`id = ${who.customerId}` : sql`tg_subscriber_id = ${who.subscriberId!}`} order by created_at limit 1`)[0];
   return c ? { name: c.name, phone: formatKhPhone(c.phone) } : null;
 }
 /** a signed-in customer: name and phone are filled in, and the booking is linked at once (signed = there is a customer session) */
-async function prefillOf(req: FastifyRequest): Promise<{ prefill: Prefill | null; signed: boolean }> {
-  const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
-  return s ? { prefill: await customerOf(s.companyId, s.subscriberId), signed: true } : { prefill: null, signed: false };
+async function prefillOf(req: FastifyRequest, reply: FastifyReply): Promise<{ prefill: Prefill | null; signed: boolean; s: CustomerSession | null }> {
+  const s = await sessionOf(req, reply);
+  return s ? { prefill: await customerOf(s.companyId, s), signed: true, s } : { prefill: null, signed: false, s: null };
 }
 /** D-121: where the sign-in page returns to — a customer page only (never another site) */
 const NEXT_OK = new Set(["/my", "/my/bookings", "/book"]);
-const safeNext = (v: unknown) => (typeof v === "string" && NEXT_OK.has(v) ? v : "/my");
+const safeNext = (v: unknown) => (typeof v === "string" && (NEXT_OK.has(v) || /^\/my\/b\/[0-9a-f-]{36}$/.test(v)) ? v : "/my");
 
 /** screen 1 — "/" (app.ts) */
 export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
   const lang = langOf(req, reply);
+  // D-191: a device signed in to its account opens «ការកក់របស់ខ្ញុំ» straight away (the plain address only — a link with lines books)
+  if (!req.url.includes("?") && (await sessionOf(req, reply))?.customerId) return reply.redirect("/my/bookings", 302);
   return html(reply, 200, homePage(await site(), lang, pathOf(req), linesOf(req)));
 }
 /** an unknown address on the public side: the site's own «not found» for browsers, JSON for everything else */
@@ -111,6 +123,13 @@ const quoteBody = z.object({ items: items.nullable().optional(), category: z.str
 
 export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.addHook("preHandler", app.requireFeature("website"));
+  // D-191 (CSRF): a customer form sent from another site is refused — the browser always names the page's origin on a POST
+  const own = new URL(config.publicUrl).origin;
+  app.addHook("preHandler", async (req) => {
+    if (req.method !== "POST" || !req.url.startsWith("/api/")) return;
+    const o = req.headers.origin;
+    if (o && o !== own) throw new AppError("FORBIDDEN", 403);
+  });
   const customer = async (req: FastifyRequest) => {
     const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
     if (!s) throw unauthenticated();
@@ -121,24 +140,29 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get("/book", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
     // D-121: the bot's «📅» opens /book — the service picker itself (never "/")
-    if (!refs) return html(reply, 200, homePage(d, lang, pathOf(req), null, { start: true, signed: (await prefillOf(req)).signed }));
-    const q = req.query as { items?: string };
+    if (!refs) return html(reply, 200, homePage(d, lang, pathOf(req), null, { start: true, signed: (await prefillOf(req, reply)).signed }));
+    const q = req.query as { items?: string; from?: string };
     if (!q.items) return reply.redirect(`/book?items=${webLinesParam(refs)}`, 302); // an older ?service= link
     const r = await resolveLines(sql, d.companyId, refs).catch(() => null);
     if (!r) return reply.redirect("/", 302);
     if (r.quote) return reply.redirect(`/quote?items=${webLinesParam(refs)}`, 302); // quote-only items: the quote screen
-    const who = await prefillOf(req);
-    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill: who.prefill, signed: who.signed, night: isNight(clock.now(), d.tz, clock.day) }));
+    const who = await prefillOf(req, reply);
+    // D-191 «book again»: the place of that earlier booking — only when it is this session's own
+    const place = who.s && q.from && /^[0-9a-f-]{36}$/.test(q.from) ? await rebookPlace(who.s, q.from) : null;
+    const prefill = place ? { name: who.prefill?.name ?? "", phone: who.prefill?.phone ?? "", ...place } : who.prefill;
+    return html(reply, 200, bookPage(d, lang, { lines: r, days: await slotGrid(sql, d.companyId, r.minutes), token: formToken(), path: pathOf(req), prefill, signed: who.signed, night: isNight(clock.now(), d.tz, clock.day) }));
   });
   app.get("/book/done/:ref", async (req, reply) => {
     const lang = langOf(req, reply), ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).safeParse(req.params);
     if (!ref.success) throw new AppError("NOT_FOUND", 404);
-    return html(reply, 200, donePage(await site(), lang, await doneView(ref.data.ref), pathOf(req)), "no-store");
+    const v = await doneView(ref.data.ref, await sessionOf(req, reply));
+    if (v.account === "mine") return reply.redirect(`/my/b/${v.id}`, 302); // signed in to its account: the booking's own page
+    return html(reply, 200, donePage(await site(), lang, v, pathOf(req), ref.data.ref), "no-store");
   });
   app.get("/quote", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), refs = linesOf(req);
     const r = refs ? await resolveLines(sql, d.companyId, refs).catch(() => null) : null;
-    const who = await prefillOf(req);
+    const who = await prefillOf(req, reply);
     return html(reply, 200, quotePage(d, lang, { lines: r, token: formToken(), path: pathOf(req), prefill: who.prefill, signed: who.signed }));
   });
   app.get("/quote/done/:ref", async (req, reply) => {
@@ -152,16 +176,26 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   // first, never the staff app. /my = the menu button (bookings + settings) · /my/bookings = «📍» (the bookings and their status).
   const customerPage = (view: "home" | "bookings") => async (req: FastifyRequest, reply: FastifyReply) => {
     const lang = langOf(req, reply), d = await site(), path = view === "home" ? "/my" : "/my/bookings";
-    const s = await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE]);
+    const s = await sessionOf(req, reply);
     if (!s) return html(reply, 200, gatePage(d, lang, path), "no-store");
     return html(reply, 200, myPage(d, lang, await myHome(s), view === "home" ? await myPrefs(s) : null, path, view), "no-store");
   };
   app.get("/my", customerPage("home"));
   app.get("/my/bookings", customerPage("bookings"));
+  /** D-191 one booking (Grab-style): own bookings only — another one is «not found»; without a session the skeleton as on /my */
+  app.get("/my/b/:id", async (req, reply) => {
+    const lang = langOf(req, reply), d = await site(), id = z.object({ id: uuid }).safeParse(req.params);
+    if (!id.success) throw new AppError("NOT_FOUND", 404);
+    const s = await sessionOf(req, reply);
+    if (!s) return html(reply, 200, gatePage(d, lang, `/my/b/${id.data.id}`), "no-store");
+    return html(reply, 200, bookingPage(d, lang, await myBookingDetail(s, id.data.id), pathOf(req)), "no-store");
+  });
+  /** D-191 forgot PIN: a code by Telegram (or from the shop) → a new PIN */
+  app.get("/my/reset", async (req, reply) => html(reply, 200, resetPage(await site(), langOf(req, reply), pathOf(req)), "no-store"));
   /** outside Telegram only: phone + password, then back to the page that asked (a live session goes there at once) */
   app.get("/my/login", async (req, reply) => {
     const lang = langOf(req, reply), d = await site(), next = safeNext((req.query as { next?: unknown } | undefined)?.next);
-    if (await resolveCustomerSession(req.cookies[CUSTOMER_COOKIE])) return reply.redirect(next, 302);
+    if (await sessionOf(req, reply)) return reply.redirect(next, 302);
     return html(reply, 200, loginPage(d, lang, pathOf(req), next), "no-store");
   });
   // D-129: the customers' video guide — public; the videos keep in any cache (the address carries the file's version)
@@ -207,12 +241,36 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (!p) throw new AppError("MAP_LINK_INVALID", 400);
     return p;
   });
-  /** browser login (D-103): phone + password. Every failure looks the same; the locks are per phone (services/customer-auth.ts) */
+  /** browser sign-in (D-191): phone + PIN (an older password still works). Every failure looks the same; 5 wrong → 15 minutes */
   app.post("/api/public/login", async (req, reply) => {
-    const b = z.object({ phone: z.string().max(40), password: z.string().max(200) }).strict().parse(req.body);
-    const r = await passwordLogin(req.ip, b.phone, b.password);
+    const b = z.object({ phone: z.string().max(40), pin: z.string().max(200).optional(), password: z.string().max(200).optional() }).strict().parse(req.body);
+    const r = await pinLogin(req.ip, b.phone, b.pin ?? b.password ?? "");
     reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
     return { ok: true };
+  });
+  /** D-191 right after a booking: the account (PIN twice) — the booking's own address is the key; this device is signed in */
+  app.post("/api/public/account", async (req, reply) => {
+    const b = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/), name: z.string().max(200).default(""), phone: z.string().max(40), address: z.string().max(500).nullable().optional(), ...coord,
+      pin: z.string().max(20), pin2: z.string().max(20) }).strict().parse(req.body);
+    const r = await createAccountFromBooking(req.ip, b);
+    reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
+    return { ok: true, next: `/my/b/${r.booking_id}` };
+  });
+  /** D-191 forgot PIN: a code into the Telegram chat linked to the number (the same answer for every number) */
+  app.post("/api/public/pin-code", async (req) => sendPinCode(req.ip, z.object({ phone: z.string().max(40) }).strict().parse(req.body).phone));
+  app.post("/api/public/pin-reset", async (req, reply) => {
+    const b = z.object({ phone: z.string().max(40), code: z.string().max(20), pin: z.string().max(20), pin2: z.string().max(20) }).strict().parse(req.body);
+    const r = await resetPinWithCode(req.ip, b);
+    reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
+    return { ok: true };
+  });
+  /** D-191 the guest's tracking page asks every 30 s: the state + the timeline (no personal data) */
+  app.get("/api/public/track/:ref", async (req, reply) => {
+    if (!checkRate(`site:track:ip:${req.ip}`, 120, 60)) throw new AppError("RATE_LIMITED", 429);
+    const ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).parse(req.params).ref, d = await site(), lang = langOf(req, reply);
+    const v = await doneView(ref);
+    reply.header("Cache-Control", "no-store");
+    return { state: v.state, html: trackHtml(lang, v.track, d.tz) };
   });
   /** opened inside Telegram (Mini App): the launch data is the login (D-121: the page calls this BEFORE it shows anything). A live
    *  session of the same person is kept. Answers with the linked customer's name + phone for the booking form. /api/public/tg-login
@@ -223,7 +281,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if ("error" in r) throw new AppError(r.error === "nolink" ? "NOT_LINKED" : "INVALID_CREDENTIALS", r.error === "nolink" ? 409 : 401);
     if (r.token) reply.setCookie(CUSTOMER_COOKIE, r.token, customerCookie());
     reply.header("Cache-Control", "no-store");
-    const c = await customerOf(r.companyId, r.subscriberId);
+    const c = await customerOf(r.companyId, { subscriberId: r.subscriberId });
     return { ok: true, name: c?.name ?? null, phone: c?.phone || null };
   };
   app.post("/api/customer/tg-auth", tgAuth);
@@ -231,17 +289,37 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
 
   // ---- customer home API: every call is bound to the session's own bookings ----
   app.get("/api/my", async (req, reply) => { reply.header("Cache-Control", "no-store"); return myHome(await customer(req)); });
+  /** D-191 one booking + its timeline as HTML (the page swaps it in every 30 s) */
+  app.get("/api/my/bookings/:id", async (req, reply) => {
+    const s = await customer(req), d = await site();
+    const b = await myBookingDetail(s, z.object({ id: uuid }).parse(req.params).id);
+    reply.header("Cache-Control", "no-store");
+    return { ...b, html: trackHtml(langOf(req, reply), b.track, d.tz) };
+  });
+  app.post("/api/my/bookings/:id/rating", async (req) => {
+    const s = await customer(req);
+    const b = z.object({ stars: z.number().int().min(1).max(5), comment: z.string().max(500).default("") }).strict().parse(req.body);
+    return rateBooking(s, req.ip, z.object({ id: uuid }).parse(req.params).id, b.stars, b.comment);
+  });
+  /** sign out on every device (this one too) */
+  app.post("/api/my/logout-all", async (req, reply) => {
+    const r = await logoutEverywhere(await customer(req), req.ip);
+    reply.clearCookie(CUSTOMER_COOKIE, { path: "/" });
+    return r;
+  });
   app.post("/api/my/logout", async (req, reply) => {
     await customerLogout(req.cookies[CUSTOMER_COOKIE]);
     reply.clearCookie(CUSTOMER_COOKIE, { path: "/" });
     return { ok: true };
   });
-  /** profile → change password: needs the current one; the other sessions of this customer end */
-  app.post("/api/my/password", async (req) => {
+  /** profile → change the PIN (the current one first; a Telegram session without a PIN makes one); the other sessions end */
+  const changePin = async (req: FastifyRequest) => {
     const s = await customer(req);
-    const b = z.object({ current: z.string().max(200), next: z.string().max(200) }).strict().parse(req.body);
-    return changeCustomerPassword(s, req.ip, b.current, b.next);
-  });
+    const b = z.object({ current: z.string().max(200).default(""), next: z.string().max(20), next2: z.string().max(20).optional() }).strict().parse(req.body);
+    return changeCustomerPin(s, req.ip, b.current, b.next, b.next2);
+  };
+  app.post("/api/my/pin", changePin);
+  app.post("/api/my/password", changePin); // pages loaded before D-191
   /** notification settings (service messages / promotions) — kept by the hub with its consent log */
   app.get("/api/my/prefs", async (req) => (await myPrefs(await customer(req))) ?? { service: false, promo: false });
   app.post("/api/my/prefs", async (req) => {

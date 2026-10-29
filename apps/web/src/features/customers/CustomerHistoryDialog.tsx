@@ -24,6 +24,8 @@ export default function CustomerHistoryDialog({ customer, onClose }: { customer:
     onSuccess: () => { toast.success(t("customers.login_unlocked")); void qc.invalidateQueries({ queryKey: ["customer-history", customer.id] }); },
     onError: () => toast.error(t("app.error")),
   });
+  // D-191: a one-time code to read to the customer on the phone — shown here once, never sent by the app
+  const pinCode = useMutation({ mutationFn: () => api.customerPinCode(customer.id), onError: () => toast.error(t("app.error")) });
   const d = q.data;
   return (
     <Dialog open onClose={onClose} title={`${t("customers.history")} · ${customer.name}`}>
@@ -33,6 +35,15 @@ export default function CustomerHistoryDialog({ customer, onClose }: { customer:
             <div className="rounded-md p-3 bg-warning-50 text-warning flex flex-wrap items-center gap-2 text-sm" data-testid="login-locked">
               <span>🔒 {t(`customers.login_locked_${d.login.locked}`)}</span>
               {can("customer.manage") && <Button className="ml-auto" loading={unlock.isPending} onClick={() => unlock.mutate()} data-testid="login-unlock">{t("customers.login_unlock")}</Button>}
+            </div>
+          )}
+          {can("customer.manage") && (customer.phones ?? []).length > 0 && (
+            <div className="rounded-md p-3 bg-grey-bg text-sm space-y-2" data-testid="pin-reset">
+              <div className="flex flex-wrap items-center gap-2">
+                {d.login?.has_password && <Badge tone="green">{t("customers.has_account")}</Badge>}
+                <Button className="ml-auto" loading={pinCode.isPending} onClick={() => pinCode.mutate()} data-testid="pin-code-btn">🔑 {t("customers.pin_reset")}</Button>
+              </div>
+              {pinCode.data && <div data-testid="pin-code"><p>{t("customers.pin_code")}: <b className="font-mono text-lg tracking-widest">{pinCode.data.code}</b></p><p className="text-xs text-muted">{t("customers.pin_code_help", { minutes: pinCode.data.minutes })}</p></div>}
             </div>
           )}
           {d.warranties.length > 0 && (

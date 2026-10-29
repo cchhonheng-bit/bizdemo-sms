@@ -32,10 +32,10 @@ import { sha256 } from "../lib/secure.js";
 import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { assignWithin, cancelBookingIn, dropUnacceptedAccount, nextBookingNumber } from "./bookings.js";
-import { issueInitialPassword } from "./customer-auth.js";
 import { btn, customerGrid, menuUrl, row, tellSubscriber, type CustomerMsg } from "./customer-bot.js";
 import type { CustomerSession } from "./customer-home.js";
 import { tellCustomer } from "./customer-notify.js";
+import { trackOf } from "./customer-track.js";
 import { hubCall, hubConfigured, shopBotUsername } from "./hub-client.js";
 import { checkImage, writeImage } from "./jobs.js";
 import { customerByPhone, notifyRequestStaff } from "./requests.js";
@@ -143,8 +143,10 @@ const token = (key: string) => `b-${createHmac("sha256", config.sessionSecret).u
 const bookingToken = (id: string) => token(`booking-link:${id}`);
 const requestToken = (id: string) => token(`request-link:${id}`);
 export const botLink = async (tok: string) => { const bot = await shopBotUsername().catch(() => null); return bot ? `https://t.me/${bot}?start=${tok}` : null; };
+/** D-191: a booking's own Telegram link (optional notifications) — for the tracking pages */
+export const bookingBotLink = (id: string) => botLink(bookingToken(id));
 
-type Linked = { number: string | null; quote: boolean; password: string | null; already: boolean; night?: boolean };
+type Linked = { number: string | null; quote: boolean; already: boolean; night?: boolean };
 /** the chat `sub` takes the booking: the booking-level link at once; the customer RECORD only when that is safe — the staff
  *  already confirmed it, or the record exists only because of this booking (a phone number alone opens nobody's history) */
 async function linkBookingIn(t: Db, bookingId: string, sub: number, via: "token" | "miniapp" | "session"): Promise<Linked> {
@@ -156,7 +158,7 @@ async function linkBookingIn(t: Db, bookingId: string, sub: number, via: "token"
   const fresh = (await t`select 1 from bookings b2 where b2.customer_id = ${b.customer_id} and b2.id <> ${bookingId} and b2.status <> 'cancelled' limit 1`).length === 0;
   const linked = !already && (b.web_status === "confirmed" || fresh) && (await t`update customers set tg_subscriber_id = ${sub} where id = ${b.customer_id} and tg_subscriber_id is null returning id`).length > 0;
   await audit(t, { companyId: b.company_id, userId: null, action: "booking.tg_link", source: via === "session" ? "system" : "telegram", table: "bookings", rowId: bookingId, new: { via, customer_linked: linked } });
-  return { number: b.number, quote: false, password: linked ? await issueInitialPassword(t, b.customer_id) : null, already, night: b.web_status === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day) };
+  return { number: b.number, quote: false, already, night: b.web_status === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day) };
 }
 async function linkRequestIn(t: Db, requestId: string, sub: number, via: "token" | "miniapp" | "session"): Promise<Linked> {
   const r = (await t<{ company_id: string; customer_id: string | null; made: boolean; csub: string | null }[]>`select r.company_id, r.customer_id, coalesce((r.meta->>'new_customer')::boolean, false) as made,
@@ -166,13 +168,13 @@ async function linkRequestIn(t: Db, requestId: string, sub: number, via: "token"
   const already = !!r.customer_id && r.csub === String(sub);
   const linked = !already && r.made && !!r.customer_id && (await t`update customers set tg_subscriber_id = ${sub} where id = ${r.customer_id} and tg_subscriber_id is null returning id`).length > 0;
   await audit(t, { companyId: r.company_id, userId: null, action: "service.request_tg_link", source: via === "session" ? "system" : "telegram", table: "service_requests", rowId: requestId, new: { via, customer_linked: linked } });
-  return { number: null, quote: true, password: linked ? await issueInitialPassword(t, r.customer_id!) : null, already };
+  return { number: null, quote: true, already };
 }
-/** the bot's answer after a link: «linked» (+ the first password) with the keyboard grid; a customer who was linked before just
+/** the bot's answer after a link: «linked» with the keyboard grid (D-191: never a password); a customer who was linked before just
  *  hears that the booking arrived */
 function linkedMsg(l: Linked): CustomerMsg {
-  const text = l.already && !l.password ? (l.quote ? customerText.quoteReceived : customerText.received(l.number!, l.night)) : l.quote ? customerText.linkedQuote(l.password) : customerText.linked(l.number, l.password, l.night);
-  return { text, keyboard: customerGrid(), hint: l.password ? customerText.hint : null, menu_url: menuUrl() };
+  const text = l.already ? (l.quote ? customerText.quoteReceived : customerText.received(l.number!, l.night)) : l.quote ? customerText.linkedQuote : customerText.linked(l.number, l.night);
+  return { text, keyboard: customerGrid(), menu_url: menuUrl() };
 }
 
 /** the hub: somebody opened t.me/<bot>?start=b-<token> (the website button was the consent). Single use. */
@@ -202,7 +204,7 @@ async function linkAfterSave(target: { bookingId?: string; requestId?: string },
   const via = who.session ? "session" : "miniapp";
   const l = await tx(null, (t) => (target.bookingId ? linkBookingIn(t, target.bookingId, sub, via) : linkRequestIn(t, target.requestId!, sub, via)));
   const m = linkedMsg(l);
-  await tellSubscriber(sub, l.already ? { text: m.text, buttons: row(btn.track()), hint: m.hint } : m);
+  await tellSubscriber(sub, l.already ? { text: m.text, buttons: row(btn.track()) } : m);
   return { linked: true, link: null };
 }
 
@@ -299,17 +301,23 @@ export function customerState(status: string, webStatus: string | null): Custome
   return ["new", "survey", "quoted", "assigned"].includes(status) ? "confirmed" : "done";
 }
 type StoredLine = { name_km: string; name_en: string | null; qty: number };
-export async function doneView(ref: string) {
+/** D-191 the guest's tracking page: the timeline, and the account offer — «offer» (no PIN on the booking's record yet, the booking is
+ *  at most 7 days old), «exists» (sign in instead), «mine» (this device is signed in to it: the account's booking page) */
+export async function doneView(ref: string, session: CustomerSession | null = null) {
   const companyId = await siteCompanyId();
-  const b = companyId ? (await sql<{ id: string; number: string; status: string; web_status: string | null; service_text: string; web_lines: StoredLine[] | null; name_en: string | null; scheduled_at: Date; linked: boolean; token_live: boolean | null; tz: string }[]>`
-    select b.id, b.number, b.status, b.web_status, b.service_text, b.web_lines, i.name_en, b.scheduled_at, b.web_subscriber_id is not null as linked,
+  const b = companyId ? (await sql<{ id: string; number: string; status: string; web_status: string | null; service_text: string; web_lines: StoredLine[] | null; name_en: string | null; scheduled_at: Date; linked: boolean; token_live: boolean | null; tz: string;
+      customer_id: string; has_pin: boolean; recent: boolean; fresh: boolean }[]>`
+    select b.id, b.number, b.status, b.web_status, b.service_text, b.web_lines, i.name_en, b.scheduled_at, b.web_subscriber_id is not null as linked, b.customer_id,
+      c.password_hash is not null as has_pin, b.created_at > now() - interval '7 days' as recent, not exists (select 1 from bookings o where o.customer_id = b.customer_id and o.id <> b.id) as fresh,
       (select k.used_at is null and k.expires_at > now() from booking_link_tokens k where k.booking_id = b.id) as token_live, co.timezone as tz
-    from bookings b join companies co on co.id = b.company_id left join catalog_items i on i.id = b.service_item_id where b.web_ref = ${ref} and b.company_id = ${companyId}`)[0] : null;
+    from bookings b join customers c on c.id = b.customer_id join companies co on co.id = b.company_id left join catalog_items i on i.id = b.service_item_id where b.web_ref = ${ref} and b.company_id = ${companyId}`)[0] : null;
   if (!b) throw notFound();
   const state = customerState(b.status, b.web_status);
   const lines = b.web_lines ?? [{ name_km: b.service_text, name_en: b.name_en, qty: 1 }];
-  return { number: b.number, state, service_km: linesText(lines, "km"), service_en: linesText(lines, "en"), at: b.scheduled_at, linked: b.linked, night: state === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day),
-    link: b.token_live && !b.linked && (state === "pending" || state === "confirmed") ? await botLink(bookingToken(b.id)) : null };
+  const account = session?.customerId === b.customer_id ? "mine" : b.has_pin ? "exists" : b.recent ? "offer" : null;
+  return { id: b.id, number: b.number, state, service_km: linesText(lines, "km"), service_en: linesText(lines, "en"), at: b.scheduled_at, linked: b.linked, night: state === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day),
+    link: b.token_live && !b.linked && (state === "pending" || state === "confirmed") ? await botLink(bookingToken(b.id)) : null,
+    account: account as "mine" | "exists" | "offer" | null, fresh: b.fresh, track: await trackOf(sql, b.id) };
 }
 
 // ---------- Admin / GM: confirm (the job length may change) or decline ----------
@@ -328,7 +336,6 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
       from service_requests r left join bookings b on b.id = r.booking_id where r.id = ${requestId} and r.company_id = ${user.companyId} and r.kind = 'booking' and r.status = 'new' for update of r`)[0];
     if (!r?.booking_id) throw notFound();
     if (r.web_status !== "pending") throw new AppError("NOT_PENDING", 409);
-    let account: { subscriber: number; password: string } | null = null;
     if (decision === "confirm") {
       if (!o.lead && !(o.assistants ?? []).length) throw new AppError("TEAM_REQUIRED", 400); // confirm always sends a technician
       // CEO: Admin / GM may change the job length while confirming — only while a technician can still take the longer job
@@ -340,18 +347,16 @@ export async function decideWebBooking(user: SessionUser, ip: string | null, req
       }
       // the crew for the (new) length: every availability rule runs; assigning a waiting website booking confirms it (D-96) and
       // queues the job message for the group + each technician — all or nothing with the confirmation
-      account = (await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: o.vehicle_id ?? null, scheduled_at: null, ends_at: null, overrides: o.overrides })).account;
+      await assignWithin(t, user, ip, r.booking_id, { lead: o.lead ?? null, assistants: o.assistants ?? [], vehicle_id: o.vehicle_id ?? null, scheduled_at: null, ends_at: null, overrides: o.overrides });
     } else { // cancelled with the reason: the slot is free again; the request closes as «declined» inside
       await cancelBookingIn(t, { companyId: user.companyId, userId: user.id, name: { km: user.fullName, en: user.fullName } }, ip, r.booking_id, reason);
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.web_decline", table: "bookings", rowId: r.booking_id, new: { web_status: "declined", reason }, ip });
     }
-    return { bookingId: r.booking_id, account };
+    return { bookingId: r.booking_id };
   });
   await tellCustomer(done.bookingId, (b) => (decision === "confirm"
     ? { text: customerText.confirmed(b.number, b.day, b.time, b.technician), buttons: row(btn.track()) }
     : { text: customerText.declined(b.number, reason), buttons: row(btn.rebook()) }));
-  // the customer record was linked by this confirmation → its first password, to that chat only (D-103)
-  if (done.account) await tellSubscriber(done.account.subscriber, { text: customerText.password(done.account.password), hint: customerText.hint, buttons: row(btn.login()) });
   return { ok: true };
 }
 

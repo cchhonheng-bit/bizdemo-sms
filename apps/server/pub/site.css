@@ -278,3 +278,24 @@ select.in{padding-right:8px;text-overflow:ellipsis}
 @supports (-webkit-touch-callout:none){.in,.ta{font-size:16px}}
 /* wider screens: the same phone-width column, centred */
 @media (min-width:480px){.scr{box-shadow:0 0 0 1px #DCEAE8}}
+
+/* D-191 customer account + tracking: timeline, PIN fields, technician, rating */
+a.bk{color:inherit;text-decoration:none}a.bk .go{margin-left:auto;color:#94A3B8}
+.tl{list-style:none;margin:0;padding:0;position:relative}
+.tl li{display:flex;gap:12px;align-items:flex-start;padding:0 0 14px;position:relative}
+.tl li:not(:last-child)::before{content:"";position:absolute;left:11px;top:24px;bottom:0;width:2px;background:#D9E4E2}
+.tl li.ok:not(:last-child)::before{background:#0F766E}
+.tl i{width:24px;height:24px;flex:none;border-radius:12px;border:2px solid #CBD5E1;background:#FFF;display:flex;align-items:center;justify-content:center;color:#FFF}
+.tl li.ok i{background:#0F766E;border-color:#0F766E}
+.tl li.now i{border-color:#0F766E;box-shadow:0 0 0 4px rgba(15,118,110,.15)}
+.tl b{display:block;font-size:14px;font-weight:600;color:#94A3B8}
+.tl li.ok b,.tl li.now b{color:#14213D}
+.tl small{display:block;font-size:12px;color:#64748B}
+.tl-end{margin:0}
+.in.pin{letter-spacing:.35em;font-size:20px;font-weight:700}
+.acct{border:2px solid #0F766E}
+.tech{display:flex;gap:10px;align-items:center;min-height:40px}
+.av.t{width:40px;height:40px;border-radius:20px;background:#0F766E;font-size:16px}
+.stars{display:flex;gap:6px}
+.star{border:0;background:none;font-size:34px;line-height:1;color:#CBD5E1;padding:2px;min-width:44px;min-height:44px}
+.star.on{color:#C9A227}

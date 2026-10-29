@@ -3,18 +3,19 @@
 // details + the one-tap consent · 4 request sent · 5 quote request · 6 customer home · privacy / terms. Server-rendered,
 // everything escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in
 // /pub/site.css, the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). [Brackets] in the design = data.
-import { CUSTOMER_MENU, CUSTOMER_PASSWORD_HINT, fillCompany, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
+import { CUSTOMER_PASSWORD_HINT, fillCompany, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
   type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
 import { APP_BASE } from "../lib/app-url.js";
 import { WARRANTY_DAYS } from "../services/bookings.js";
-import type { MyHome, NotifyPrefs } from "../services/customer-home.js";
+import type { MyBooking, MyHome, NotifyPrefs } from "../services/customer-home.js";
+import type { Track, TrackStep } from "../services/customer-track.js";
 import { shortName, type SiteService, type SiteView } from "../services/site.js";
 import type { CustomerState, Lines, WebDay } from "../services/web-booking.js";
 
 export type SiteLang = "km" | "en";
-export type Prefill = { name: string; phone: string };
+export type Prefill = { name: string; phone: string; address?: string; lat?: number | null; lng?: number | null };
 /** version of /pub/site.css + /pub/site.js (hash of the files, set when the routes start) */
 export const assets = { v: "0" };
 
@@ -31,32 +32,42 @@ const TXT = {
     gps: "ប្រើទីតាំងបច្ចុប្បន្ន", gps_ok: "បានចាប់ទីតាំង", map_view: "មើលលើផែនទី", paste_open: "ឬបិទភ្ជាប់តំណ Google Maps", paste_ph: "បិទភ្ជាប់តំណ Google Maps នៅទីនេះ", paste_go: "យក",
     addr: "អាសយដ្ឋាន", addr_ph: "ផ្ទះលេខ ផ្លូវ សង្កាត់ ...", chosen: "បានជ្រើស", next: "បន្ត", full: "មិនមានម៉ោងទំនេរក្នុង ៧ ថ្ងៃខាងមុខទេ។ សូមហៅទូរស័ព្ទមកយើង។",
     details: "ព័ត៌មានរបស់អ្នក", r_svc: "សេវា", r_when: "ពេលវេលា", r_loc: "ទីតាំង", r_price: "តម្លៃ", name: "ឈ្មោះ", name_ph: "ឈ្មោះរបស់អ្នក", phone: "លេខទូរស័ព្ទ", note: "កំណត់ចំណាំ", opt: "(មិនចាំបាច់)",
-    note_ph: "ឧ. ជាន់ទី ២ ទ្វារពណ៌ខៀវ", send: "កក់ និងភ្ជាប់ Telegram", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, sla_night: NIGHT_CONFIRM.km,
-    sent: "បានផ្ញើសំណើកក់", held: "ម៉ោងនេះត្រូវបានរក្សាទុកសម្រាប់អ្នក។", no: "លេខកក់", status: "ស្ថានភាព", tg: "ចុចប៊ូតុងខាងក្រោម ដើម្បីទទួលការបញ្ជាក់ និងពាក្យសម្ងាត់ក្នុង Telegram", tg_btn: "បើក Telegram",
+    note_ph: "ឧ. ជាន់ទី ២ ទ្វារពណ៌ខៀវ", send: "កក់ឥឡូវ", sla: (shop: string) => `${shop} នឹងបញ្ជាក់ក្នុងរយៈពេល ${kmDigits(WEB_CONFIRM_MIN)} នាទី`, sla_night: NIGHT_CONFIRM.km,
+    sent: "បានផ្ញើសំណើកក់", held: "ម៉ោងនេះត្រូវបានរក្សាទុកសម្រាប់អ្នក។", no: "លេខកក់", status: "ស្ថានភាព", tg: "ទទួលដំណឹងការកក់តាម Telegram (មិនចាំបាច់)", tg_btn: "បើក Telegram",
     tg_ok: "បានភ្ជាប់ Telegram", mine: "មើលការកក់របស់ខ្ញុំ", home: "ត្រឡប់ទំព័រដើម",
     h_confirmed: "ការកក់បានបញ្ជាក់", p_confirmed: "យើងនឹងរំលឹកអ្នកមួយថ្ងៃមុន ហើយជូនដំណឹងពេលជាងចេញដំណើរ។", h_declined: "មិនអាចទទួលការកក់នេះបានទេ", p_declined: "សូមជ្រើសម៉ោងផ្សេង ឬហៅទូរស័ព្ទមកយើង។",
     h_cancelled: "ការកក់ត្រូវបានបោះបង់", p_cancelled: "អ្នកអាចកក់ម្ដងទៀតបានគ្រប់ពេល។", h_done: "ការងាររួចរាល់", p_done: "សូមអរគុណ។", h_expired: "ការកក់នេះផុតពេល", p_expired: "សូមកក់ម៉ោងថ្មី ឬហៅទូរស័ព្ទមកយើង។",
     st: { pending: "រង់ចាំបញ្ជាក់", confirmed: "បានបញ្ជាក់", on_the_way: "ជាងកំពុងធ្វើដំណើរ", working: "កំពុងធ្វើការ", done: "រួចរាល់", declined: "មិនអាចទទួលបាន", cancelled: "បានបោះបង់", expired: "ផុតពេល" } as Record<CustomerState, string>,
     q_sub: "ផ្ញើរូបថត ហើយយើងនឹងទាក់ទងវិញ", q_desc: "ពិពណ៌នាការងារ", q_desc_ph: "ឧ. ចង់ធ្វើពិដានបន្ទប់ទទួលភ្ញៀវ ទំហំប្រហែល 4×5 ម៉ែត្រ", q_photos: "រូបថត", q_max: `(អតិបរមា ${kmDigits(WEB_MAX_PHOTOS)})`,
-    q_add: "បន្ថែម", q_add_aria: "បន្ថែមរូបថត", q_send: "ផ្ញើ និងភ្ជាប់ Telegram", q_sent: "បានផ្ញើសំណើតម្លៃ", q_sent_p: "យើងនឹងមើលរូបថត ហើយទាក់ទងអ្នកវិញឆាប់ៗ។", remove_photo: "ដករូបចេញ",
+    q_add: "បន្ថែម", q_add_aria: "បន្ថែមរូបថត", q_send: "ផ្ញើសំណើ", q_sent: "បានផ្ញើសំណើតម្លៃ", q_sent_p: "យើងនឹងមើលរូបថត ហើយទាក់ទងអ្នកវិញឆាប់ៗ។", remove_photo: "ដករូបចេញ",
     hello: "សួស្តី", upcoming: "ការកក់ខាងមុខ", tech: (n: string) => `ជាង ${n}`, resched: "ស្នើប្ដូរម៉ោង", cancel: "បោះបង់", past: "ការងារមុនៗ", until: (d: string) => `ធានាដល់ ${d}`, expired: "ផុតការធានា",
     again: "កក់ម្ដងទៀត", call_shop: (shop: string) => `ហៅ ${shop}`, new: "កក់សេវាថ្មី", no_up: "មិនមានការកក់ខាងមុខទេ។", logout: "ចាកចេញ", pending_move: "សំណើប្ដូរម៉ោងកំពុងរង់ចាំការឆ្លើយតប",
     why_cancel: "មូលហេតុបោះបង់", confirm_cancel: "បញ្ជាក់ការបោះបង់", keep: "មិនបោះបង់", new_time: "ជ្រើសម៉ោងថ្មី", why_move: "មូលហេតុ (មិនចាំបាច់)", send_move: "ផ្ញើសំណើប្ដូរម៉ោង", close: "បិទ",
-    l_h1: "ចូលគណនី", l_p: "ប្រើលេខទូរស័ព្ទរបស់អ្នក និងពាក្យសម្ងាត់ដែលអ្នកបានទទួលតាម Telegram។", l_pw: "ពាក្យសម្ងាត់", l_go: "ចូល", l_forgot: "ភ្លេចពាក្យសម្ងាត់?",
-    show_pw: "បង្ហាញពាក្យសម្ងាត់", hide_pw: "លាក់ពាក្យសម្ងាត់",
-    l_forgot_p: "បើក Telegram រួចចុច «{b}»", l_link: "សូមភ្ជាប់ Telegram ជាមុនសិន",
-    l_link_p: "មិនទាន់មានគណនី? សូមកក់សេវា រួចចុច «កក់ និងភ្ជាប់ Telegram»។ ពាក្យសម្ងាត់នឹងមកដល់ក្នុង Telegram របស់អ្នក។", l_open: "បើក Telegram របស់ហាង",
+    l_h1: "ចូលគណនី", l_p: "ប្រើលេខទូរស័ព្ទ និងលេខសម្ងាត់ ៤ ខ្ទង់របស់អ្នក។", l_pw: "លេខសម្ងាត់", l_go: "ចូល", l_forgot: "ភ្លេចលេខសម្ងាត់?",
+    show_pw: "បង្ហាញលេខសម្ងាត់", hide_pw: "លាក់លេខសម្ងាត់",
+    l_link: "មិនទាន់មានគណនី?",
+    l_link_p: "កក់សេវា រួចបង្កើតលេខសម្ងាត់នៅទំព័របន្ទាប់។", l_open: "បើក Telegram របស់ហាង",
     settings: "ការកំណត់", n_title: "ដំណឹងតាម Telegram", n_service: "ដំណឹងអំពីការកក់របស់ខ្ញុំ", n_promo: "ប្រូម៉ូសិន", n_off: "ការកំណត់ដំណឹងមិនអាចប្រើបានពេលនេះ",
-    pw_title: "ប្ដូរពាក្យសម្ងាត់", pw_cur: "ពាក្យសម្ងាត់បច្ចុប្បន្ន", pw_new: "ពាក្យសម្ងាត់ថ្មី", pw_save: "រក្សាទុក", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
+    pw_title: "ប្ដូរលេខសម្ងាត់", pw_make: "បង្កើតលេខសម្ងាត់", pw_cur: "លេខសម្ងាត់បច្ចុប្បន្ន", pw_new: "លេខសម្ងាត់ថ្មី", pw_new2: "លេខសម្ងាត់ថ្មីម្ដងទៀត", pw_save: "រក្សាទុក", logout_all: "ចាកចេញពីឧបករណ៍ទាំងអស់", n_link: "ភ្ជាប់ Telegram ដើម្បីទទួលដំណឹងការកក់", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
     g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
+    acct_h: "បង្កើតគណនី ដើម្បីតាមដានការកក់", acct_p: "ពេលក្រោយ បើកគេហទំព័រនេះ ឃើញការកក់របស់អ្នកភ្លាម។", pin: "លេខសម្ងាត់ ៤ ខ្ទង់", pin2: "បញ្ចូលម្ដងទៀត",
+    acct_go: "រួចរាល់", skip: "រំលង", acct_open: "បង្កើតគណនី", acct_exists: "លេខនេះមានគណនីរួចហើយ", acct_signin: "ចូលគណនី ដើម្បីតាមដាន", view_booking: "មើលការកក់",
+    my_h: "ការកក់របស់ខ្ញុំ", history: "ប្រវត្តិ", your_tech: "ជាងរបស់អ្នក", tech_wait: "យើងនឹងចាត់ជាងឆាប់ៗ",
+    rate_h: "វាយតម្លៃសេវា", rate_ph: "មតិយោបល់ (មិនចាំបាច់)", rate_go: "ផ្ញើការវាយតម្លៃ", rated: "សូមអរគុណសម្រាប់ការវាយតម្លៃ", rate_btn: "វាយតម្លៃ", stars: (n: number) => `${kmDigits(n)} ផ្កាយ`,
+    r_h: "កំណត់លេខសម្ងាត់ថ្មី", r_p: "យើងនឹងផ្ញើលេខកូដ ៦ ខ្ទង់ ទៅ Telegram ដែលភ្ជាប់នឹងលេខនេះ។", r_send: "ផ្ញើលេខកូដ", r_sent: "បើលេខនេះភ្ជាប់ Telegram លេខកូដនឹងមកដល់ឆាប់ៗ។",
+    r_shop: "មិនមាន Telegram? សូមហៅហាង ពួកគេនឹងប្រាប់លេខកូដអ្នក។", r_have: "ខ្ញុំមានលេខកូដហើយ", r_code: "លេខកូដ ៦ ខ្ទង់", r_go: "រក្សាទុកលេខសម្ងាត់ថ្មី",
+    tk: { received: "បានទទួល", assigned: "បានចាត់ជាង", on_the_way: "ជាងកំពុងមក", arrived: "ដល់ហើយ", working: "កំពុងធ្វើ", done: "រួចរាល់", invoice: "វិក្កយបត្រ", paid: "បានបង់" } as Record<TrackStep, string>,
     nf: "រកមិនឃើញទំព័រនេះទេ", version: "កំណែ", wd: ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"], wds: ["ច", "អ", "ពុ", "ព្រ", "សុ", "ស", "អា"],
     mon: ["មករា", "កុម្ភៈ", "មីនា", "មេសា", "ឧសភា", "មិថុនា", "កក្កដា", "សីហា", "កញ្ញា", "តុលា", "វិច្ឆិកា", "ធ្នូ"],
     msg: { PICK_SLOT: "សូមជ្រើសថ្ងៃ និងម៉ោង", ADDRESS_REQUIRED: "សូមចុច «ប្រើទីតាំងបច្ចុប្បន្ន» ឬសរសេរអាសយដ្ឋាន", LOCATION_REQUIRED: "សូមចុច «ប្រើទីតាំងបច្ចុប្បន្ន» ឬសរសេរទីតាំង", NAME_REQUIRED: "សូមបញ្ចូលឈ្មោះ", INVALID_PHONE: "សូមបញ្ចូលលេខទូរស័ព្ទឲ្យត្រឹមត្រូវ",
       CONSENT_REQUIRED: "សូមចុចប៊ូតុងខាងក្រោមម្ដងទៀត", SLOT_TAKEN: "ម៉ោងនេះទើបតែមានគេកក់។ សូមជ្រើសម៉ោងផ្សេង។", SLOT_INVALID: "ម៉ោងនេះលែងកក់បានហើយ។ សូមជ្រើសម៉ោងផ្សេង។", RATE_LIMITED: "សំណើច្រើនពេក។ សូមព្យាយាមម្ដងទៀតពេលក្រោយ ឬហៅទូរស័ព្ទមកយើង។", TOO_MANY_PENDING: "ពេលនេះមានការកក់រង់ចាំច្រើន។ សូមហៅទូរស័ព្ទមកយើង។",
-      INVALID_CREDENTIALS: "លេខទូរស័ព្ទ ឬពាក្យសម្ងាត់មិនត្រឹមត្រូវ", LOCKED: "សូមព្យាយាមម្ដងទៀតក្រោយ {n} នាទី", LOCKED_PERMANENT: "សូមកំណត់ពាក្យសម្ងាត់ថ្មីតាម Telegram",
+      INVALID_CREDENTIALS: "លេខទូរស័ព្ទ ឬលេខសម្ងាត់មិនត្រឹមត្រូវ", LOCKED: "សូមព្យាយាមម្ដងទៀតក្រោយ {n} នាទី", LOCKED_PERMANENT: "សូមកំណត់ពាក្យសម្ងាត់ថ្មីតាម Telegram",
       WEAK_PASSWORD: "ពាក្យសម្ងាត់នេះងាយទាយពេក សូមជ្រើសលេខផ្សេង", WRONG_PASSWORD: "ពាក្យសម្ងាត់បច្ចុប្បន្នមិនត្រឹមត្រូវ", PASSWORD_TOO_SHORT: "ពាក្យសម្ងាត់ត្រូវមានយ៉ាងតិច ៤ តួ", PASSWORD_TOO_LONG: "ពាក្យសម្ងាត់វែងពេក",
-      NOT_LINKED: "សូមភ្ជាប់ Telegram ជាមុនសិន", PW_CHANGED: "បានប្ដូរពាក្យសម្ងាត់", SAVED: "បានរក្សាទុក", HUB_DOWN: "មិនអាចរក្សាទុកបានពេលនេះ។ សូមព្យាយាមម្ដងទៀត។",
+      NOT_LINKED: "សូមភ្ជាប់ Telegram ជាមុនសិន", PW_CHANGED: "បានប្ដូរលេខសម្ងាត់",
+      PIN_FORMAT: "សូមបញ្ចូលលេខ ៤ ខ្ទង់", WEAK_PIN: "លេខនេះងាយទាយពេក សូមជ្រើសលេខផ្សេង", PIN_MISMATCH: "លេខសម្ងាត់ទាំងពីរមិនដូចគ្នា", WRONG_PIN: "លេខសម្ងាត់បច្ចុប្បន្នមិនត្រឹមត្រូវ",
+      ACCOUNT_EXISTS: "លេខនេះមានគណនីរួចហើយ។ សូមចូលគណនី។", PHONE_TAKEN: "លេខនេះមានគណនីផ្សេងរួចហើយ។ សូមចូលគណនី ឬហៅហាង។", PHONE_LOCKED: "លេខទូរស័ព្ទនេះមិនអាចប្ដូរនៅទីនេះបានទេ",
+      CODE_INVALID: "លេខកូដមិនត្រឹមត្រូវ ឬផុតកំណត់", NOT_DONE: "អាចវាយតម្លៃបាន ពេលការងាររួចរាល់", PICK_STARS: "សូមជ្រើសផ្កាយ", NOT_FOUND: "រកមិនឃើញការកក់នេះទេ", SAVED: "បានរក្សាទុក", HUB_DOWN: "មិនអាចរក្សាទុកបានពេលនេះ។ សូមព្យាយាមម្ដងទៀត។",
       FORM_EXPIRED: "ទំព័រនេះបើកយូរពេក។ សូមបើកម្ដងទៀត។", DESCRIPTION_REQUIRED: "សូមពិពណ៌នាការងារ ឬជ្រើសសេវា", TOO_MANY_PHOTOS: "រូបថតច្រើនបំផុត ៥ សន្លឹក", BAD_IMAGE: "ឯកសារនេះមិនមែនជារូបថតទេ", IMAGE_TOO_LARGE: "រូបថតធំពេក",
       REASON_REQUIRED: "សូមសរសេរមូលហេតុ", ALREADY_REQUESTED: "អ្នកបានស្នើប្ដូរម៉ោងរួចហើយ។ សូមរង់ចាំការឆ្លើយតប។", SAME_TIME: "នេះជាម៉ោងដដែល", BOOKING_LOCKED: "ការកក់នេះលែងប្ដូរបានហើយ។ សូមហៅទូរស័ព្ទមកយើង។",
       BOOKING_NOT_CANCELLABLE: "ការកក់នេះលែងបោះបង់បានហើយ។ សូមហៅទូរស័ព្ទមកយើង។", GPS_FAILED: "មិនអាចចាប់ទីតាំងបានទេ។ សូមបិទភ្ជាប់តំណ Google Maps ឬសរសេរអាសយដ្ឋាន។",
@@ -75,32 +86,42 @@ const TXT = {
     gps: "Use my current location", gps_ok: "Location added", map_view: "View on the map", paste_open: "or paste a Google Maps link", paste_ph: "Paste a Google Maps link here", paste_go: "Use",
     addr: "Address", addr_ph: "House no., street, sangkat ...", chosen: "Selected", next: "Continue", full: "No free time in the next 7 days. Please call us.",
     details: "Your details", r_svc: "Service", r_when: "Time", r_loc: "Location", r_price: "Price", name: "Name", name_ph: "Your name", phone: "Phone number", note: "Note", opt: "(optional)",
-    note_ph: "e.g. 2nd floor, blue door", send: "Book and connect Telegram", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`, sla_night: NIGHT_CONFIRM.en,
-    sent: "Booking request sent", held: "This time is held for you.", no: "Booking no.", status: "Status", tg: "Tap the button below to get the confirmation and your password on Telegram", tg_btn: "Open Telegram",
+    note_ph: "e.g. 2nd floor, blue door", send: "Book now", sla: (shop: string) => `${shop} will confirm within ${WEB_CONFIRM_MIN} minutes`, sla_night: NIGHT_CONFIRM.en,
+    sent: "Booking request sent", held: "This time is held for you.", no: "Booking no.", status: "Status", tg: "Get booking news on Telegram (optional)", tg_btn: "Open Telegram",
     tg_ok: "Telegram connected", mine: "See my bookings", home: "Back to the home page",
     h_confirmed: "Booking confirmed", p_confirmed: "We will remind you a day before and tell you when the technician is on the way.", h_declined: "We cannot take this booking", p_declined: "Please choose another time or call us.",
     h_cancelled: "Booking cancelled", p_cancelled: "You can book again at any time.", h_done: "Job completed", p_done: "Thank you.", h_expired: "This booking expired", p_expired: "Please book a new time or call us.",
     st: { pending: "Waiting for confirmation", confirmed: "Confirmed", on_the_way: "Technician on the way", working: "In progress", done: "Completed", declined: "Not possible", cancelled: "Cancelled", expired: "Expired" } as Record<CustomerState, string>,
     q_sub: "Send photos and we will get back to you", q_desc: "Describe the work", q_desc_ph: "e.g. a new ceiling for the living room, about 4×5 m", q_photos: "Photos", q_max: `(up to ${WEB_MAX_PHOTOS})`,
-    q_add: "Add", q_add_aria: "Add a photo", q_send: "Send and connect Telegram", q_sent: "Quote request sent", q_sent_p: "We will look at the photos and contact you shortly.", remove_photo: "Remove photo",
+    q_add: "Add", q_add_aria: "Add a photo", q_send: "Send request", q_sent: "Quote request sent", q_sent_p: "We will look at the photos and contact you shortly.", remove_photo: "Remove photo",
     hello: "Hello", upcoming: "Upcoming booking", tech: (n: string) => `Technician ${n}`, resched: "Ask to reschedule", cancel: "Cancel", past: "Past jobs", until: (d: string) => `Warranty until ${d}`, expired: "Warranty ended",
     again: "Book again", call_shop: (shop: string) => `Call ${shop}`, new: "New booking", no_up: "No upcoming booking.", logout: "Sign out", pending_move: "Your reschedule request is waiting for an answer",
     why_cancel: "Reason for cancelling", confirm_cancel: "Confirm cancellation", keep: "Keep the booking", new_time: "Choose a new time", why_move: "Reason (optional)", send_move: "Send reschedule request", close: "Close",
-    l_h1: "Sign in", l_p: "Use your phone number and the password you received on Telegram.", l_pw: "Password", l_go: "Sign in", l_forgot: "Forgot password?",
-    show_pw: "Show password", hide_pw: "Hide password",
-    l_forgot_p: "Open Telegram, then tap \"{b}\"", l_link: "Please connect Telegram first",
-    l_link_p: "No account yet? Book a service and tap \"Book and connect Telegram\". The password arrives in your Telegram.", l_open: "Open the shop on Telegram",
+    l_h1: "Sign in", l_p: "Use your phone number and your 4-digit PIN.", l_pw: "PIN", l_go: "Sign in", l_forgot: "Forgot your PIN?",
+    show_pw: "Show PIN", hide_pw: "Hide PIN",
+    l_forgot_p: "Open Telegram, then tap \"{b}\"", l_link: "No account yet?",
+    l_link_p: "Book a service, then choose a PIN on the next screen.", l_open: "Open the shop on Telegram",
     settings: "Settings", n_title: "Telegram notifications", n_service: "News about my bookings", n_promo: "Promotions", n_off: "Notification settings are not available right now",
-    pw_title: "Change password", pw_cur: "Current password", pw_new: "New password", pw_save: "Save", l_staff: "Staff: open the work app",
+    pw_title: "Change PIN", pw_make: "Create a PIN", pw_cur: "Current PIN", pw_new: "New PIN", pw_new2: "New PIN again", pw_save: "Save", logout_all: "Sign out on all devices", n_link: "Connect Telegram to get booking news", l_staff: "Staff: open the work app",
     track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
     g_start: "Please open the shop on Telegram and tap START first",
+    acct_h: "Create an account to track your booking", acct_p: "Next time this website shows your bookings straight away.", pin: "4-digit PIN", pin2: "PIN again",
+    acct_go: "Done", skip: "Skip", acct_open: "Create an account", acct_exists: "This number already has an account", acct_signin: "Sign in to track", view_booking: "See the booking",
+    my_h: "My bookings", history: "History", your_tech: "Your technician", tech_wait: "We will assign a technician soon",
+    rate_h: "Rate the service", rate_ph: "Comment (optional)", rate_go: "Send the rating", rated: "Thank you for your rating", rate_btn: "Rate", stars: (n: number) => `${n} ${n === 1 ? "star" : "stars"}`,
+    r_h: "Set a new PIN", r_p: "We send a 6-digit code to the Telegram linked to this number.", r_send: "Send the code", r_sent: "If this number is linked to Telegram, the code arrives shortly.",
+    r_shop: "No Telegram? Call the shop — they will tell you a code.", r_have: "I have a code", r_code: "6-digit code", r_go: "Save the new PIN",
+    tk: { received: "Received", assigned: "Technician assigned", on_the_way: "On the way", arrived: "Arrived", working: "Working", done: "Done", invoice: "Invoice", paid: "Paid" } as Record<TrackStep, string>,
     nf: "Page not found", version: "Version", wd: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], wds: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
     mon: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
     msg: { PICK_SLOT: "Please choose a day and a time", ADDRESS_REQUIRED: "Please tap \"Use my current location\" or type the address", LOCATION_REQUIRED: "Please tap \"Use my current location\" or type the location", NAME_REQUIRED: "Please enter your name", INVALID_PHONE: "Please enter a valid phone number",
       CONSENT_REQUIRED: "Please tap the button below again", SLOT_TAKEN: "This time was just taken. Please choose another one.", SLOT_INVALID: "This time can no longer be booked. Please choose another one.", RATE_LIMITED: "Too many requests. Please try again later or call us.", TOO_MANY_PENDING: "Many bookings are waiting right now. Please call us.",
-      INVALID_CREDENTIALS: "Wrong phone number or password", LOCKED: "Please try again in {n} minutes", LOCKED_PERMANENT: "Please set a new password through Telegram",
+      INVALID_CREDENTIALS: "Wrong phone number or PIN", LOCKED: "Please try again in {n} minutes", LOCKED_PERMANENT: "Please set a new password through Telegram",
       WEAK_PASSWORD: "This password is too easy to guess. Please choose other digits.", WRONG_PASSWORD: "The current password is not correct", PASSWORD_TOO_SHORT: "The password needs at least 4 characters", PASSWORD_TOO_LONG: "The password is too long",
-      NOT_LINKED: "Please connect Telegram first", PW_CHANGED: "Password changed", SAVED: "Saved", HUB_DOWN: "Could not save right now. Please try again.",
+      NOT_LINKED: "Please connect Telegram first", PW_CHANGED: "PIN changed",
+      PIN_FORMAT: "Please enter 4 digits", WEAK_PIN: "This PIN is too easy to guess. Please choose other digits.", PIN_MISMATCH: "The two PINs are not the same", WRONG_PIN: "The current PIN is not correct",
+      ACCOUNT_EXISTS: "This number already has an account. Please sign in.", PHONE_TAKEN: "This number already has another account. Please sign in or call us.", PHONE_LOCKED: "This phone number cannot be changed here",
+      CODE_INVALID: "The code is wrong or expired", NOT_DONE: "You can rate once the job is done", PICK_STARS: "Please choose the stars", NOT_FOUND: "This booking was not found", SAVED: "Saved", HUB_DOWN: "Could not save right now. Please try again.",
       FORM_EXPIRED: "This page was open too long. Please open it again.", DESCRIPTION_REQUIRED: "Please describe the work or choose a service", TOO_MANY_PHOTOS: "At most 5 photos", BAD_IMAGE: "This file is not a photo", IMAGE_TOO_LARGE: "The photo is too large",
       REASON_REQUIRED: "Please write the reason", ALREADY_REQUESTED: "You already asked to reschedule. Please wait for the answer.", SAME_TIME: "This is the same time", BOOKING_LOCKED: "This booking can no longer be changed. Please call us.",
       BOOKING_NOT_CANCELLABLE: "This booking can no longer be cancelled. Please call us.", GPS_FAILED: "Could not get your location. Please paste a Google Maps link or type the address.",
@@ -127,8 +148,6 @@ const I = {
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   eyeOff: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="m1 1 22 22"/>',
 };
-/** a password field with the eye button (CEO 08-10, D-136): hidden at first; site.js swaps the type, the icon and the label */
-const pwIn = (t: T, id: string, cls: string, autocomplete: string) => `<div class="pwf"><input class="${cls}" id="${id}" type="password" inputmode="numeric" maxlength="64" autocomplete="${autocomplete}"><button type="button" class="eye" data-eye="${id}" aria-label="${t.show_pw}" data-show="${t.show_pw}" data-hide="${t.hide_pw}">${svg(I.eye)}${svg(I.eyeOff)}</button></div>`;
 type Cat = (typeof WEB_CATEGORIES)[number] | "other";
 const CAT_ICON: Record<Cat, string> = { ac: I.ac, water: I.drop, electric: I.bolt, cctv: I.cam, construction: I.build, decor: I.brush, other: I.tool };
 const CAT_OTHER = { km: "ផ្សេងៗ", en: "Other" };
@@ -302,26 +321,57 @@ ${steps(t, 3)}
 ${consent(d, t, lang, t.send)}
 ${errBox("err3")}
 <div class="bar col"><button type="button" class="btn" id="send">${svg(I.send, 16, 2.2)}<span>${t.send}</span></button><div class="sla">${esc(o.night ? t.sla_night : t.sla(n.short))}</div></div></main>`;
-  return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { items, ts: o.token, ...(o.signed ? { signed: "1" } : {}) } });
+  return shell(d, lang, { title: `${t.book} — ${n.full}`, page: "book", path: o.path, body, data: { items, ts: o.token, ...(o.signed ? { signed: "1" } : {}),
+    // D-191 «book again»: the place of the earlier booking (the signed-in owner's own) — site.js puts it in the location card
+    ...(o.prefill?.address || o.prefill?.lat != null ? { addr: o.prefill.address ?? "", lat: o.prefill.lat == null ? "" : String(o.prefill.lat), lng: o.prefill.lng == null ? "" : String(o.prefill.lng) } : {}) } });
 }
 
-// ---------- 4 · request sent ----------
+// ---------- 4 · request sent = the guest's tracking page (D-191): the timeline, the account offer, Telegram (optional) ----------
 const tgBlock = (t: T, linked: boolean, link: string | null) => (linked
-  ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div><a class="btn tgb" href="/my/bookings">${t.mine}</a></section>`
+  ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.check, 18, 2.5)}</span><div>${t.tg_ok}</div></div></section>`
   : link ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" id="tg-open" href="${esc(link)}" rel="noopener">${t.tg_btn}</a></section>` : "");
-export function donePage(d: SiteView, lang: SiteLang, b: { number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean }, path: string): string {
+const atText = (t: T, iso: string, tz: string) => { const p = partsOf(new Date(iso), tz); return `${p.day} ${t.mon[p.month - 1]} · ${p.time}`; };
+/** the timeline (also sent alone every 30 s while the booking moves — /api/public/track, /api/my/bookings/<id>) */
+export function trackHtml(lang: SiteLang, tr: Track, tz: string): string {
+  const t = TXT[lang];
+  if (tr.ended) return `<p class="tl-end"><span class="pl r">${t.st[tr.ended]}</span></p>`;
+  return `<ol class="tl">${tr.steps.map((x) => `<li class="${x.done ? "ok" : x.now ? "now" : ""}"><i>${x.done ? svg(I.check, 12, 3) : ""}</i><div><b>${t.tk[x.key]}</b>${
+    x.key === "received" && tr.waiting ? `<small>${t.st.pending}</small>` : x.at ? `<small>${atText(t, x.at, tz)}</small>` : ""}</div></li>`).join("")}</ol>`;
+}
+/** a 4-digit PIN field with the eye button */
+const pinIn = (t: T, id: string, autocomplete: string, max = 4) => `<div class="pwf"><input class="in pin" id="${id}" type="password" inputmode="numeric" maxlength="${max}" autocomplete="${autocomplete}"><button type="button" class="eye" data-eye="${id}" aria-label="${t.show_pw}" data-show="${t.show_pw}" data-hide="${t.hide_pw}">${svg(I.eye)}${svg(I.eyeOff)}</button></div>`;
+/** «បង្កើតគណនី ដើម្បីតាមដានការកក់» — never filled with personal data by the server: the booking screen hands name / number / place
+ *  over in this tab (site.js); a known number (not fresh) shows the number only — its record is not changed here */
+function accountCard(t: T, fresh: boolean): string {
+  return `<section class="card s g8 acct" id="acct"><h2 class="h2">${svg(I.user, 16)} ${t.acct_h}</h2><p class="sub">${t.acct_p}</p>
+${fresh ? `<div class="f"><label class="lb s" for="a-name">${t.name}</label><input class="in" id="a-name" maxlength="80" autocomplete="name" placeholder="${t.name_ph}"></div>` : ""}
+<div class="f"><label class="lb s" for="a-phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="a-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="12 345 678"></div></div>
+${fresh ? locationRow(t) : ""}
+<div class="g2"><div class="f"><label class="lb s" for="a-pin">${t.pin}</label>${pinIn(t, "a-pin", "new-password")}</div><div class="f"><label class="lb s" for="a-pin2">${t.pin2}</label>${pinIn(t, "a-pin2", "new-password")}</div></div>
+<p class="hint">${esc(CUSTOMER_PASSWORD_HINT[t === TXT.km ? "km" : "en"])}</p>${errBox("a-err")}
+<button type="button" class="btn" id="a-go">${svg(I.check, 16, 2.4)}<span>${t.acct_go}</span></button><button type="button" class="lk mid" id="a-skip">${t.skip}</button></section>
+<button type="button" class="ob m" id="a-open" hidden>${svg(I.user, 15)}${t.acct_open}</button>`;
+}
+export type DoneInfo = { id: string; number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean;
+  account: "mine" | "exists" | "offer" | null; fresh: boolean; track: Track };
+export function donePage(d: SiteView, lang: SiteLang, b: DoneInfo, path: string, ref: string): string {
   const t = TXT[lang], n = names(d, lang);
   const head = b.state === "pending" ? [t.sent, `${esc(b.night ? t.sla_night : t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
     : b.state === "declined" ? [t.h_declined, t.p_declined] : b.state === "cancelled" ? [t.h_cancelled, t.p_cancelled] : b.state === "expired" ? [t.h_expired, t.p_expired] : [t.h_done, t.p_done];
   const bad = b.state === "declined" || b.state === "cancelled" || b.state === "expired";
+  const acct = b.account === "offer" ? accountCard(t, b.fresh)
+    : b.account === "exists" ? `<section class="card s g8"><h2 class="h2">${t.acct_exists}</h2><a class="btn" href="/my/login?next=${encodeURIComponent(`/my/b/${b.id}`)}">${svg(I.user, 16)}<span>${t.acct_signin}</span></a></section>`
+    : b.account === "mine" ? `<a class="btn" href="/my/b/${esc(b.id)}">${t.view_booking}</a>` : "";
   const body = `<main class="scr end">
 <header class="hd l"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b></span></a></header>
 <section class="ok"><div class="okc${bad ? " r" : ""}">${svg(bad ? I.x : I.check, 28, 2.5)}</div><h1>${head[0]}</h1><p>${head[1]}</p></section>
-<section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}">${t.st[b.state]}</span></div>
+<section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}" id="st-pill">${t.st[b.state]}</span></div>
 <div><span>${t.r_svc}</span><b>${esc(lang === "en" ? b.service_en : b.service_km)}</b></div><div><span>${t.r_when}</span><b>${whenText(t, partsOf(b.at, d.tz))}</b></div></section>
+<section class="card s"><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
+${acct}
 ${tgBlock(t, b.linked, b.link)}
 <a class="ob b" href="/">${t.home}</a></main>`;
-  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, msg: false, data: { state: b.state } });
+  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, data: { state: b.state, ref, ...(b.account === "offer" ? { fresh: b.fresh ? "1" : "0" } : {}) } });
 }
 
 // ---------- 5 · quote request ----------
@@ -370,56 +420,103 @@ ${card('<i class="w50"></i><i class="w30"></i>')}
 
 export function loginPage(d: SiteView, lang: SiteLang, path: string, next = "/my"): string {
   const t = TXT[lang], n = names(d, lang);
-  // D-103: phone + password (the password comes from the shop's bot). Whatever fails, the page says the same thing. CEO (D-106):
-  // «forgot password» opens the bot — a new password comes only from there, into the linked chat.
-  const bot = d.bot ? `https://t.me/${esc(d.bot)}` : null;
+  // D-191: phone + the customer's own 4-digit PIN. Whatever fails, the page says the same thing; «forgot» → /my/reset (a code by
+  // Telegram or from the shop — never a PIN sent anywhere)
   const body = `<main class="scr end"><header class="hd"><a class="brand" href="/">${mark(d, n)}<span class="bn"><b>${esc(n.short)}</b>${n.rest ? `<span>${esc(n.rest)}</span>` : ""}</span></a></header>
 <section class="card s"><div class="okc mid">${svg(I.user, 26)}</div><h1 class="ctr">${t.l_h1}</h1><p class="sub ctr">${t.l_p}</p>
 <div class="f"><label class="lb s" for="phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="phone" type="tel" inputmode="tel" maxlength="20" autocomplete="username" placeholder="12 345 678"></div></div>
-<div class="f"><label class="lb s" for="pw">${t.l_pw}</label>${pwIn(t, "pw", "in", "current-password")}</div>
+<div class="f"><label class="lb s" for="pw">${t.l_pw}</label>${pinIn(t, "pw", "current-password", 64)}</div>
 ${errBox()}
 <button type="button" class="btn" id="login">${t.l_go}</button>
-${bot ? `<a class="lk mid" id="forgot" href="${bot}" rel="noopener">${t.l_forgot}</a><p class="hint ctr">${esc(t.l_forgot_p.replace("{b}", CUSTOMER_MENU.password))}</p>` : ""}</section>
-<section class="card s"><h2 class="h2">${t.l_link}</h2><p class="sub">${t.l_link_p}</p>${bot ? `<a class="ob m" href="${bot}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}<a class="ob m" href="/book">${svg(I.cal, 15)}${t.book}</a></section>
+<a class="lk mid" id="forgot" href="/my/reset">${t.l_forgot}</a></section>
+<section class="card s"><h2 class="h2">${t.l_link}</h2><p class="sub">${t.l_link_p}</p><a class="ob m" href="/book">${svg(I.cal, 15)}${t.book}</a></section>
 <footer class="ft"><nav><a href="${APP_BASE}/" rel="nofollow">${t.l_staff}</a><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
   return shell(d, lang, { title: `${t.l_h1} — ${n.full}`, page: "login", path, body, data: { next } });
 }
 
-/** view: "home" = /my (the menu button: bookings + settings) · "bookings" = /my/bookings (the bot's «📍»: the bookings and their status) */
+/** D-191 forgot PIN: 1 the number → a code into its linked Telegram chat (the same answer for every number) · 2 the code (or the one
+ *  the shop read out) + the new PIN twice → signed in */
+export function resetPage(d: SiteView, lang: SiteLang, path: string): string {
+  const t = TXT[lang], n = names(d, lang);
+  const body = `<main class="scr end">
+${backHeader(t, "/my/login", t.r_h)}
+<section class="card s g8" id="r1"><p class="sub">${t.r_p}</p>
+<div class="f"><label class="lb s" for="r-phone">${t.phone}</label><div class="ph"><span class="cc">+855</span><input class="in" id="r-phone" type="tel" inputmode="tel" maxlength="20" autocomplete="tel-national" placeholder="12 345 678"></div></div>
+${errBox("r1-err")}<p class="note g" id="r-sent" hidden>${t.r_sent}</p>
+<button type="button" class="btn" id="r-send">${svg(I.send, 16, 2.2)}<span>${t.r_send}</span></button>
+<p class="hint">${t.r_shop}</p><button type="button" class="lk mid" id="r-have">${t.r_have}</button></section>
+<section class="card s g8" id="r2" hidden>
+<div class="f"><label class="lb s" for="r-code">${t.r_code}</label><input class="in" id="r-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
+<div class="g2"><div class="f"><label class="lb s" for="r-pin">${t.pin_new}</label>${pinIn(t, "r-pin", "new-password")}</div><div class="f"><label class="lb s" for="r-pin2">${t.pin2}</label>${pinIn(t, "r-pin2", "new-password")}</div></div>
+<p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p>${errBox("r2-err")}
+<button type="button" class="btn" id="r-go">${t.r_go}</button></section>
+<footer class="ft"><nav><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;
+  return shell(d, lang, { title: `${t.r_h} — ${n.full}`, page: "reset", path, body });
+}
+
+/** cancel with a reason / ask for another time — on the list and on the booking's own page */
+const bookingActions = (t: T, b: { id: string; can_cancel: boolean; can_reschedule: boolean; reschedule_pending: boolean }) => (b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<button type="button" class="sb" data-move="${b.id}"${b.reschedule_pending ? " disabled" : ""}>${t.resched}</button>` : ""}${b.can_cancel ? `<button type="button" class="sb d" data-cancel="${b.id}">${t.cancel}</button>` : ""}</div>
+<div class="pn" data-panel="cancel" hidden><label class="lb s" for="why-${b.id}">${t.why_cancel}</label><textarea class="ta" id="why-${b.id}" rows="2" maxlength="200"></textarea><div class="row2"><button type="button" class="sb" data-close>${t.keep}</button><button type="button" class="sb d" data-cancel-go="${b.id}">${t.confirm_cancel}</button></div></div>
+<div class="pn" data-panel="move" hidden><div class="pk" data-day="${t.day}" data-time="${t.new_time}"></div><label class="lb s" for="mv-${b.id}">${t.why_move}</label><input class="in sm" id="mv-${b.id}" maxlength="200"><div class="row2"><button type="button" class="sb" data-close>${t.close}</button><button type="button" class="sb p" data-move-go="${b.id}">${t.send_move}</button></div></div>
+<p class="err" role="alert" hidden></p>` : "");
+const pillOf = (s: CustomerState) => (s === "pending" ? "w" : s === "declined" || s === "cancelled" || s === "expired" ? "r" : "g");
+
+/** view: "home" = /my (the menu button: bookings + settings) · "bookings" = /my/bookings («ការកក់របស់ខ្ញុំ»: what comes, then the history) */
 export function myPage(d: SiteView, lang: SiteLang, h: MyHome, prefs: NotifyPrefs | null, path: string, view: "home" | "bookings" = "home"): string {
   const t = TXT[lang], n = names(d, lang), phones = phonesOf(d);
   const up = h.upcoming.map((b) => {
     const p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
-    return `<section class="card s" data-booking="${b.id}"><div class="hr"><h2 class="h2">${t.upcoming}</h2><span class="pl sm ${b.status === "pending" ? "w" : "g"}">${t.st[b.status]}</span></div>
-<div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${esc(lang === "en" && b.service_en ? b.service_en : b.service_km)}</b><span>${p ? p.time : ""}${b.technician ? ` · ${esc(t.tech(b.technician))}` : ""}</span><span>#${esc(b.number)}</span></div></div>
-${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}
-${b.can_cancel || b.can_reschedule ? `<div class="row2">${b.can_reschedule ? `<button type="button" class="sb" data-move="${b.id}"${b.reschedule_pending ? " disabled" : ""}>${t.resched}</button>` : ""}${b.can_cancel ? `<button type="button" class="sb d" data-cancel="${b.id}">${t.cancel}</button>` : ""}</div>
-<div class="pn" data-panel="cancel" hidden><label class="lb s" for="why-${b.id}">${t.why_cancel}</label><textarea class="ta" id="why-${b.id}" rows="2" maxlength="200"></textarea><div class="row2"><button type="button" class="sb" data-close>${t.keep}</button><button type="button" class="sb d" data-cancel-go="${b.id}">${t.confirm_cancel}</button></div></div>
-<div class="pn" data-panel="move" hidden><div class="pk" data-day="${t.day}" data-time="${t.new_time}"></div><label class="lb s" for="mv-${b.id}">${t.why_move}</label><input class="in sm" id="mv-${b.id}" maxlength="200"><div class="row2"><button type="button" class="sb" data-close>${t.close}</button><button type="button" class="sb p" data-move-go="${b.id}">${t.send_move}</button></div></div>
-<p class="err" role="alert" hidden></p>` : ""}</section>`;
+    return `<section class="card s" data-booking="${b.id}"><div class="hr"><h2 class="h2">${t.upcoming}</h2><span class="pl sm ${pillOf(b.status)}">${t.st[b.status]}</span></div>
+<a class="bk" href="/my/b/${b.id}"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${esc(lang === "en" && b.service_en ? b.service_en : b.service_km)}</b><span>${p ? p.time : ""}${b.technician ? ` · ${esc(t.tech(b.technician))}` : ""}</span><span>#${esc(b.number)}</span></div><span class="go">${svg(I.chev, 16)}</span></a>
+${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingActions(t, b)}</section>`;
   }).join("");
   const dm = (s: string | Date | null) => { if (!s) return ""; const p = typeof s === "string" ? { day: Number(s.slice(8, 10)), month: Number(s.slice(5, 7)) } : partsOf(s, d.tz); return `${p.day} ${t.mon[p.month - 1]}`; };
-  const past = h.past.length ? `<section class="card s g4"><h2 class="h2">${t.past}</h2>${h.past.map((j) => `<div class="pj"><span class="ic m">${svg(I.tool, 16)}</span><div class="tx"><b>${esc(lang === "en" && j.service_en ? j.service_en : j.service_km)}</b><span>${dm(j.date)} · ${j.warranty?.active ? `<span class="w">${t.until(dm(j.warranty.until))}</span>` : t.expired}</span></div><a href="${esc(j.rebook)}">${t.again}</a></div>`).join("")}</section>` : "";
+  const past = h.past.length ? `<section class="card s g4"><h2 class="h2">${t.history}</h2>${h.past.map((j) => `<div class="pj"><span class="ic m">${svg(I.tool, 16)}</span><a class="tx" href="/my/b/${j.id}"><b>${esc(lang === "en" && j.service_en ? j.service_en : j.service_km)}</b><span>${dm(j.date)} · ${
+    j.status === "done" ? (j.warranty?.active ? `<span class="w">${t.until(dm(j.warranty.until))}</span>` : j.warranty ? t.expired : t.st.done) : `<span class="pl sm ${pillOf(j.status)}">${t.st[j.status]}</span>`}</span></a>${
+    j.can_rate ? `<a href="/my/b/${j.id}#rate">${t.rate_btn}</a>` : `<a href="${esc(j.rebook)}">${t.again}</a>`}</div>`).join("")}</section>` : "";
   const toggle = (id: string, label: string, on: boolean, disabled = false) => `<label class="sw"><span>${label}</span><input type="checkbox" role="switch" id="${id}"${on ? " checked" : ""}${disabled ? " disabled" : ""}><i aria-hidden="true"></i></label>`;
+  const notify = prefs ? `${toggle("n-service", t.n_service, prefs.service)}${toggle("n-promo", t.n_promo, prefs.promo, !prefs.service)}`
+    : h.linked ? `<p class="hint">${t.n_off}</p>` : `<p class="hint">${t.n_link}</p>${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}`;
   const body = `<main class="scr bar-pad">
-${view === "bookings" ? `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${esc(h.name)}</small><b>${t.track_h}</b></span></div><a class="pill" href="/my">${svg(I.user, 14)}${t.account}</a></header>`
-    : `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div><span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span></header>`}
+${view === "bookings" ? `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${esc(h.name)}</small><b>${t.my_h}</b></span></div><a class="pill" href="/my">${svg(I.user, 14)}${t.account}</a></header>`
+    : `<header class="hd"><div class="brand">${mark(d, n)}<span class="bn"><small>${t.hello}</small><b>${esc(h.name)}</b></span></div>${h.linked ? `<span class="tgp">${svg(I.send, 12, 2.2)}Telegram</span>` : `<a class="pill" href="/my/bookings">${svg(I.cal, 14)}${t.my_h}</a>`}</header>`}
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
 ${view === "bookings" ? "" : `<section class="card s g8" id="settings"><h2 class="h2">${t.settings}</h2>
-<div class="lb s">${svg(I.bell, 14)} ${t.n_title}</div>${prefs ? `${toggle("n-service", t.n_service, prefs.service)}${toggle("n-promo", t.n_promo, prefs.promo, !prefs.service)}` : `<p class="hint">${t.n_off}</p>`}
+<div class="lb s">${svg(I.bell, 14)} ${t.n_title}</div>${notify}
 <p class="note g" id="n-ok" hidden>${t.msg.SAVED}</p><p class="err" id="n-err" role="alert" hidden></p>
-<button type="button" class="ob m w" id="pw-open">${svg(I.key, 14)}${t.pw_title}</button>
+<button type="button" class="ob m w" id="pw-open">${svg(I.key, 14)}${h.has_pin ? t.pw_title : t.pw_make}</button>
 <div class="pn" id="pw-card" hidden>
-<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</label>${pwIn(t, "pw-cur", "in sm", "current-password")}</div>
-<div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label>${pwIn(t, "pw-new", "in sm", "new-password")}</div>
+${h.has_pin ? `<div class="f"><label class="lb s" for="pw-cur">${t.pw_cur}</label>${pinIn(t, "pw-cur", "current-password", 64)}</div>` : ""}
+<div class="g2"><div class="f"><label class="lb s" for="pw-new">${t.pw_new}</label>${pinIn(t, "pw-new", "new-password")}</div><div class="f"><label class="lb s" for="pw-new2">${t.pw_new2}</label>${pinIn(t, "pw-new2", "new-password")}</div></div>
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p><p class="err" id="pw-err" role="alert" hidden></p><p class="note g" id="pw-ok" hidden>${t.msg.PW_CHANGED}</p>
 <div class="row2"><button type="button" class="sb" id="pw-close">${t.close}</button><button type="button" class="sb p" id="pw-save">${t.pw_save}</button></div></div>
-<button type="button" class="ob m w" id="logout">${t.logout}</button></section>`}
+<button type="button" class="ob m w" id="logout">${t.logout}</button><button type="button" class="lk mid" id="logout-all">${t.logout_all}</button></section>`}
 <footer class="ft low"><nav><a href="/guide">${t.guide}</a><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer>
 <div class="bar"><a class="btn" href="/book">${svg(I.plus, 16, 2.2)}${t.new}</a></div></main>`;
-  return shell(d, lang, { title: `${view === "bookings" ? t.track_h : t.upcoming} — ${n.full}`, page: "my", path, body, data: { view } });
+  return shell(d, lang, { title: `${view === "bookings" ? t.my_h : t.account} — ${n.full}`, page: "my", path, body, data: { view } });
+}
+
+/** D-191 one booking (Grab-style): when, the timeline (live), the technician, call / Telegram, cancel / move, rate, book again */
+export function bookingPage(d: SiteView, lang: SiteLang, b: MyBooking, path: string): string {
+  const t = TXT[lang], n = names(d, lang), phones = phonesOf(d), p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
+  const svc = esc(lang === "en" && b.service_en ? b.service_en : b.service_km);
+  const initial = b.technician ? esc([...new Intl.Segmenter(lang, { granularity: "grapheme" }).segment(b.technician.trim())][0]?.segment ?? "") : "";
+  const stars = (on: number) => [1, 2, 3, 4, 5].map((i) => `<button type="button" class="star${i <= on ? " on" : ""}" data-star="${i}" aria-label="${esc(t.stars(i))}" aria-pressed="${i <= on}">★</button>`).join("");
+  const body = `<main class="scr end" data-booking="${b.id}">
+${backHeader(t, "/my/bookings", `#${esc(b.number)}`, svc)}
+<section class="card s"><div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${svc}</b><span>${p ? p.time : ""}</span></div><span class="pl sm ${pillOf(b.state)}" id="st-pill">${t.st[b.state]}</span></div></section>
+<section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
+<section class="card s g8"><h2 class="h2">${t.your_tech}</h2><div class="tech">${b.technician ? `<span class="av t">${initial}</span><b>${esc(b.technician)}</b>` : `<span class="sub">${t.tech_wait}</span>`}</div>
+<div class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${esc(t.call_shop(n.short))}</a>` : ""}${b.telegram ? `<a class="ob m" href="${esc(b.telegram)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
+${b.can_cancel || b.can_reschedule ? `<section class="card s">${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingActions(t, b)}</section>` : ""}
+${b.can_rate ? `<section class="card s g8" id="rate"><h2 class="h2">${t.rate_h}</h2><div class="stars" data-stars="${b.rating?.stars ?? 0}">${stars(b.rating?.stars ?? 0)}</div>
+<textarea class="ta" id="rate-text" rows="2" maxlength="500" placeholder="${t.rate_ph}">${esc(b.rating?.comment ?? "")}</textarea><p class="err" id="rate-err" role="alert" hidden></p><p class="note g" id="rate-ok"${b.rating ? "" : " hidden"}>${t.rated}</p>
+<button type="button" class="btn" id="rate-go">${t.rate_go}</button></section>` : ""}
+${b.warranty ? `<p class="hint ctr">${b.warranty.active ? t.until(`${Number(b.warranty.until.slice(8, 10))} ${t.mon[Number(b.warranty.until.slice(5, 7)) - 1]}`) : t.expired}</p>` : ""}
+<a class="ob b" href="${esc(b.rebook)}">${svg(I.cal, 15)}${t.again}</a></main>`;
+  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "booking", path, body, data: { id: b.id, state: b.state } });
 }
 
 // ---------- privacy / terms: public pages of the site (D-106) — back to where the visitor came from, else "/" ----------

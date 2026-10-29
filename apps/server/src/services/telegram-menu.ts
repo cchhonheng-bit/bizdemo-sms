@@ -3,7 +3,7 @@
 // may see — the same permissions as the app, technicians only their own jobs, never prices for technicians (AC-01).
 // A screen = { text, buttons (inline), keyboard (reply keyboard), ask_location, remove_keyboard, lang }. Labels are Khmer with
 // icons (English for English-mode staff); a label is dispatched by its text. Location sending happens only in private chats.
-import { CUSTOMER_MENU, customerText, formatKhPhone, formatUsd, searchParts } from "@sms/shared";
+import { CUSTOMER_MENU, CUSTOMER_MENU_OLD, customerText, formatKhPhone, formatUsd, searchParts } from "@sms/shared";
 import { config } from "../config.js";
 import { sql } from "../db.js";
 import { APP_BASE } from "../lib/app-url.js";
@@ -21,7 +21,7 @@ import { items as stockItems } from "./inventory.js";
 import { recordCheckpoint, reviewReport, STEPS, type Step } from "./jobs.js";
 import { permissionsFor } from "./permissions.js";
 import { createRequest, markRequestDone } from "./requests.js";
-import { resetPasswordFromBot } from "./customer-auth.js";
+import { pinCodeFromBot } from "./customer-auth.js";
 import { btn, customerGrid, menuUrl, row, webOn } from "./customer-bot.js";
 import { decideReschedule } from "./customer-home.js";
 import { decideWebBooking } from "./web-booking.js";
@@ -571,10 +571,10 @@ export async function botText(chatId: number, text: string, subscriberId?: numbe
     if (t === CUSTOMER_MENU.book) return cr({ text: customerText.useButtons, buttons: row(btn.book()) });
     if (t === CUSTOMER_MENU.track) return cr({ text: customerText.useButtons, buttons: row(btn.track()) });
     if (t === CUSTOMER_MENU.promo) return cr(await customerPromos());
-    if (t === CUSTOMER_MENU.password) {
-      if (!c) return cr({ text: customerText.passwordLater, buttons: row(btn.track()) });
-      const m = await resetPasswordFromBot(c.company_id, subscriberId!); // the new password goes to this chat only; never logged
-      return cr({ text: m.text, buttons: m.buttons, after: m.hint ?? null });
+    if (t === CUSTOMER_MENU.password || t === CUSTOMER_MENU_OLD.password) { // D-191 «🔑 ភ្លេច PIN» (and the old keyboards' «🔑 new password»)
+      if (!c) return cr({ text: customerText.pinLater, buttons: row(btn.track()) });
+      const m = await pinCodeFromBot(c.company_id, subscriberId!); // a one-time code into this chat only; never logged
+      return cr({ text: m.text, buttons: m.buttons });
     }
     if (t === CUSTOMER_MENU.stop) return { kind: "customer_menu" }; // the hub owns the subscription (normally it answers before asking)
     return cr({ text: customerText.useButtons, keyboard: await customerKeyboard() });

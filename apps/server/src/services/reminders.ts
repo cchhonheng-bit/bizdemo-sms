@@ -9,7 +9,7 @@ import { audit } from "./audit.js";
 import { hubCall, shopBotUsername } from "./hub-client.js";
 import { randomCode } from "../lib/secure.js";
 import { customerText } from "@sms/shared";
-import { issueInitialPassword } from "./customer-auth.js";
+import { verifyAccount } from "./customer-auth.js";
 import { customerGrid, menuUrl } from "./customer-bot.js";
 
 const FINISHED = ["work_done", "pending_review", "revision", "reviewed", "invoiced", "partially_paid", "closed"];
@@ -138,9 +138,9 @@ export async function customerSubscribed(code: string, subscriberId: number) {
     await t`update customer_tg_codes set used_at = now() where code = ${code}`;
     await t`update customers set tg_subscriber_id = ${subscriberId} where id = ${k.customer_id}`;
     await audit(t, { companyId: k.company_id, userId: null, action: "customer.tg_link", source: "telegram", table: "customers", rowId: k.customer_id, new: { via: "code" } });
-    return { ok: true as const, customer: k.name, password: await issueInitialPassword(t, k.customer_id) };
+    await verifyAccount(t, k.customer_id); // the staff gave this link to this customer (D-191)
+    return { ok: true as const, customer: k.name };
   });
   if (!r.ok) return { ok: false, error: r.error, text: customerText.linkUsed };
-  return { ok: true, customer: r.customer, text: r.password ? customerText.linked(null, r.password) : customerText.linkedKnown, hint: r.password ? customerText.hint : null,
-    keyboard: customerGrid(), menu_url: menuUrl() };
+  return { ok: true, customer: r.customer, text: customerText.linkedKnown, keyboard: customerGrid(), menu_url: menuUrl() };
 }

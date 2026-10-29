@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { consentText, CONSENT_VERSION } from "./legal";
 import { customerText, NIGHT_CONFIRM } from "./customer-text";
 import { normalizeKhPhone } from "./phone";
-import { customerLockFor, fromPriceText, isNight, kmDigits, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT,
+import { customerLockFor, customerPinProblem, fromPriceText, isNight, pinDigits, kmDigits, parseWebLines, SITE_CONSENT_VERSION, siteConsentLines, weakCustomerPassword, webHours, webLinesParam, webSlotStarts, WEB_HOURS_DEFAULT,
   workingMinutes } from "./site";
 
 describe("public website helpers (D-96…)", () => {
@@ -23,10 +23,14 @@ describe("public website helpers (D-96…)", () => {
     expect(weakCustomerPassword("5999", "012345999")).toBe(true);  // last 4 of the phone
     for (const pw of ["1212", "2580", "4827", "1357", "9070", "1122"]) expect(weakCustomerPassword(pw, "012345999")).toBe(false);
   });
-  it("lock steps: 10 → 3 min, 15 → 5 min, 20 → 30 min, 30 → until reset; nothing in between", () => {
-    expect(customerLockFor(9)).toBeNull(); expect(customerLockFor(10)).toEqual({ minutes: 3 }); expect(customerLockFor(11)).toBeNull();
-    expect(customerLockFor(15)).toEqual({ minutes: 5 }); expect(customerLockFor(20)).toEqual({ minutes: 30 }); expect(customerLockFor(29)).toBeNull();
-    expect(customerLockFor(30)).toEqual({ minutes: null }); expect(customerLockFor(31)).toEqual({ minutes: null });
+  it("D-191 lock: every 5th wrong PIN → 15 minutes; nothing in between", () => {
+    expect(customerLockFor(4)).toBeNull(); expect(customerLockFor(5)).toEqual({ minutes: 15 }); expect(customerLockFor(6)).toBeNull();
+    expect(customerLockFor(10)).toEqual({ minutes: 15 }); expect(customerLockFor(0)).toBeNull();
+  });
+  it("D-191 PIN: exactly 4 digits (Khmer digits too), never an easy one", () => {
+    expect(customerPinProblem("4827", ["+85512345999"])).toBeNull(); expect(customerPinProblem("៤៨២៧", [])).toBeNull(); expect(pinDigits(" ៤៨២៧ ")).toBe("4827");
+    for (const p of ["123", "12345", "abcd", "48 7"]) expect(customerPinProblem(p, [])).toBe("PIN_FORMAT");
+    for (const p of ["0000", "1111", "1234", "4321", "5999"]) expect(customerPinProblem(p, ["+85512345999"])).toBe("WEAK_PIN");
   });
 });
 

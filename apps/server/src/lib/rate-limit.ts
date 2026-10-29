@@ -24,8 +24,27 @@ export function refundRate(key: string): void {
   if (b && b.count > 0) b.count -= 1;
 }
 
+// lockouts (D-191): `tries` failures → refused for `minutes`, counted again from zero afterwards
+const locks = new Map<string, { failed: number; until: number }>();
+/** minutes left while the key is locked, else 0 */
+export function lockedFor(key: string, now = Date.now()): number {
+  const l = locks.get(key);
+  return l && l.until > now ? Math.ceil((l.until - now) / 60_000) : 0;
+}
+/** one more failure; returns the minutes of the lock that starts now, else 0 */
+export function failLock(key: string, tries: number, minutes: number, now = Date.now()): number {
+  const l = locks.get(key) ?? { failed: 0, until: 0 };
+  l.failed += 1;
+  if (l.failed >= tries) { l.failed = 0; l.until = now + minutes * 60_000; }
+  locks.set(key, l);
+  if (locks.size > 50_000) for (const [k, v] of locks) if (v.until < now && v.failed === 0) locks.delete(k);
+  return l.until > now ? minutes : 0;
+}
+export const clearLock = (key: string): void => { locks.delete(key); };
+
 /** test helper */
 export function resetRateLimits(): void {
   buckets.clear();
+  locks.clear();
 }
 

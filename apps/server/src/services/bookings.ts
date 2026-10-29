@@ -3,13 +3,12 @@
 // R3 no start in the past, end time, no overlaps — the exclusion constraints of 0003 are the last line under concurrency
 // R4 cancel with a reason · R5 lead technician optional, crew ≥ 1.
 // Every function takes companyId + the acting user; technicians only see bookings they are assigned to (D-18).
-import { CANCELLABLE_STATUSES, customerText, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
+import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
-import { issueInitialPassword } from "./customer-auth.js";
-import { btn, row, tellSubscriber } from "./customer-bot.js";
+import { verifyAccount } from "./customer-auth.js";
 import { assertQuoteAccepted } from "./quotes.js";
 import { enqueueBookingCancelled, enqueueBookingConfirmed, enqueueBookingRescheduled, notifyUser } from "./telegram.js";
 import { seesTests, testTitle } from "./test-mode.js";
@@ -26,6 +25,7 @@ function baseSelect(db: Db) {
          b.vehicle_id, v.code as vehicle_code, b.notes, b.survey_notes, b.surveyed_at, b.parent_booking_id, b.cancel_reason, b.cancelled_at, b.cancelled_by, b.closed_at, b.origin, b.web_status, b.is_test, b.web_lines,
          b.created_by, b.created_at, b.updated_at, b.parent_booking_id as warranty_of, pb.number as warranty_of_number,
          ${warrantyJson(db)} as warranty,
+         (select json_build_object('stars', r.stars, 'comment', r.comment, 'at', r.updated_at) from booking_ratings r where r.booking_id = b.id) as rating,
          (select json_agg(json_build_object('id', cu.id, 'label', cu.label) order by cu.label) from booking_units bu join customer_units cu on cu.id = bu.unit_id where bu.booking_id = b.id) as units,
          (select json_agg(json_build_object('user_id', t.user_id, 'role', t.role, 'full_name', u.full_name) order by t.role, u.full_name)
             from booking_technicians t join users u on u.id = t.user_id where t.booking_id = b.id) as technicians
@@ -337,7 +337,6 @@ export type AssignInput = { lead: string | null; assistants: string[]; vehicle_i
   overrides?: { user_id: string; reason: string }[] };
 export async function assignBooking(user: SessionUser, ip: string | null, id: string, a: AssignInput) {
   const out = await tx(user.id, (t) => assignWithin(t, user, ip, id, a));
-  if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) }); // the customer record was linked just now
   return { id: out.id, status: out.status, conflicts: out.conflicts };
 }
 /** the assignment inside the caller's transaction — also «confirm» of a website request (CEO 04-10: confirm = confirmed + assigned) */
@@ -372,22 +371,21 @@ export async function assignWithin(t: Db, user: SessionUser, ip: string | null, 
     new: { lead: a.lead, assistants: a.assistants, vehicle_id: a.vehicle_id, scheduled_at: w.start, ends_at: w.end }, ip });
   await enqueueBookingConfirmed(t, id, reason);
   // D-96: sending a technician to a website booking that still waits for an answer IS the confirmation
-  const account = b.origin === "website" && b.web_status === "pending" ? await confirmWebBookingIn(t, user.companyId, user.id, id, ip) : null;
-  return { id, status: "assigned" as const, conflicts: [] as unknown[], account };
+  if (b.origin === "website" && b.web_status === "pending") await confirmWebBookingIn(t, user.companyId, user.id, id, ip);
+  return { id, status: "assigned" as const, conflicts: [] as unknown[] };
 }
 
 /** D-96: a website booking is confirmed — its request is done, and the Telegram chat that holds the booking's link becomes the
- *  customer's own link when the customer has none yet (the staff called the number before confirming). A record linked here gets
- *  its first password (D-103): returned so the caller sends it to that chat AFTER the transaction — never stored in plain. */
-export async function confirmWebBookingIn(t: Db, companyId: string, userId: string, bookingId: string, ip: string | null): Promise<{ subscriber: number; password: string } | null> {
+ *  customer's own link when the customer has none yet (the staff called the number before confirming). D-191: the number counts as
+ *  verified — the record's account sees its whole history; nothing is sent (no password any more). */
+export async function confirmWebBookingIn(t: Db, companyId: string, userId: string, bookingId: string, ip: string | null): Promise<void> {
   const b = (await t<{ customer_id: string; web_subscriber_id: string | null }[]>`update bookings set web_status = 'confirmed', web_decided_by = ${userId}, web_decided_at = now()
     where id = ${bookingId} and company_id = ${companyId} and web_status = 'pending' returning customer_id, web_subscriber_id::text`)[0];
-  if (!b) return null;
-  const linked = b.web_subscriber_id ? (await t`update customers set tg_subscriber_id = ${b.web_subscriber_id}::bigint where id = ${b.customer_id} and tg_subscriber_id is null returning id`).length > 0 : false;
+  if (!b) return;
+  if (b.web_subscriber_id) await t`update customers set tg_subscriber_id = ${b.web_subscriber_id}::bigint where id = ${b.customer_id} and tg_subscriber_id is null`;
+  await verifyAccount(t, b.customer_id);
   await t`update service_requests set status = 'done', outcome = 'confirmed', handled_by = ${userId}, handled_at = now() where booking_id = ${bookingId} and kind = 'booking' and status = 'new'`;
   await audit(t, { companyId, userId, action: "booking.web_confirm", table: "bookings", rowId: bookingId, new: { web_status: "confirmed" }, ip });
-  const password = linked ? await issueInitialPassword(t, b.customer_id) : null;
-  return password ? { subscriber: Number(b.web_subscriber_id), password } : null;
 }
 
 // ---------- reschedule (D2) ------------------------------------------------------------------------------
@@ -472,7 +470,7 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
     if (IN_PROGRESS.includes(b.status) && (timeChanged || teamChanged || vehicleChanged) && !e.confirm_in_progress) throw new AppError("IN_PROGRESS_CONFIRM", 409);
     if (customerChanged && !EDITABLE.includes(b.status)) throw new AppError("CUSTOMER_LOCKED", 400);
     if (teamChanged && !canAssign) throw new AppError("FORBIDDEN", 403);
-    if (!any && !notesChanged) return { id, changed: [] as string[], rescheduled: false, account: null };
+    if (!any && !notesChanged) return { id, changed: [] as string[], rescheduled: false };
 
     const oldV: Record<string, unknown> = {}, newV: Record<string, unknown> = {};
     const note = (k: string, o: unknown, n: unknown) => { oldV[k] = o ?? null; newV[k] = n ?? null; };
@@ -540,9 +538,8 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
       await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.reschedule", table: "bookings", rowId: id,
         old: { scheduled_at: b.scheduled_at, ends_at: b.ends_at }, new: { scheduled_at: w.start, ends_at: w.end, requested_by: e.requested_by, reason: e.reason!.trim() }, ip });
     }
-    let account: { subscriber: number; password: string } | null = null;
     if (teamChanged && EDITABLE.includes(b.status)) {
-      account = (await assignWithin(t, user, ip, id, { lead, assistants: help, vehicle_id: vehicle, scheduled_at: null, ends_at: null, overrides: e.team!.overrides })).account;
+      await assignWithin(t, user, ip, id, { lead, assistants: help, vehicle_id: vehicle, scheduled_at: null, ends_at: null, overrides: e.team!.overrides });
     } else if (teamChanged) { // in progress (confirmed): the new crew takes over, the status stays
       if (lead && help.includes(lead)) throw new AppError("LEAD_IN_ASSISTANTS", 400);
       const team = [...(lead ? [lead] : []), ...help];
@@ -560,9 +557,8 @@ export async function editBooking(user: SessionUser, ip: string | null, id: stri
     if (timeChanged && (!teamChanged ? oldTeam.length > 0 : !EDITABLE.includes(b.status))) await enqueueBookingRescheduled(t, id, { oldStart: b.scheduled_at, requestedBy: e.requested_by!, reason: e.reason!.trim() });
 
     await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.update", table: "bookings", rowId: id, old: oldV, new: newV, ip });
-    return { id, changed: Object.keys(newV), rescheduled: timeChanged, account };
+    return { id, changed: Object.keys(newV), rescheduled: timeChanged };
   });
-  if (out.account) await tellSubscriber(out.account.subscriber, { text: customerText.password(out.account.password), hint: customerText.hint, buttons: row(btn.login()) });
   return { id: out.id, changed: out.changed, rescheduled: out.rescheduled };
 }
 

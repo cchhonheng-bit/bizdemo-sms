@@ -5,13 +5,15 @@ import { kmDigits, WEB_CONFIRM_MIN } from "./site";
 
 /** the customer keyboard (reply keyboard grid — the only customer menu) */
 export const CUSTOMER_MENU = {
-  book: "📅 កក់សេវា", track: "📍 តាមដានការកក់", promo: "🎁 ប្រូម៉ូសិន", password: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី", stop: "🔕 ឈប់ទទួលដំណឹង",
+  book: "📅 កក់សេវា", track: "📍 តាមដានការកក់", promo: "🎁 ប្រូម៉ូសិន", password: "🔑 ភ្លេចលេខសម្ងាត់", stop: "🔕 ឈប់ទទួលដំណឹង",
 } as const;
+/** labels of keyboards sent before D-191 — still answered like today's button */
+export const CUSTOMER_MENU_OLD = { password: "🔑 កំណត់ពាក្យសម្ងាត់ថ្មី" } as const;
 /** inline buttons under customer messages */
 export const CUSTOMER_BTN = {
   track: "📍 តាមដានការកក់", rebook: "កក់ម៉ោងផ្សេង", again: "កក់ម្ដងទៀត", book: "📅 កក់សេវា", login: "ចូលគណនី", resume: "🔔 បើកវិញ",
   stopPromo: "ឈប់ទទួលប្រូម៉ូសិន", stopPromoOnly: "ឈប់តែប្រូម៉ូសិន", stopAll: "ឈប់ទាំងអស់", cancel: "បោះបង់", resumePromo: "🎁 បើកប្រូម៉ូសិនវិញ",
-  resumeAll: "🔔 បើកដំណឹងវិញ", share: "📱 ផ្ញើលេខទូរស័ព្ទ",
+  resumeAll: "🔔 បើកដំណឹងវិញ", share: "📱 ផ្ញើលេខទូរស័ព្ទ", pin: "🔑 ប្ដូរលេខសម្ងាត់", invoice: "🧾 មើលវិក្កយបត្រ",
 } as const;
 
 export const KM_WEEKDAYS = ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"] as const;
@@ -29,21 +31,20 @@ export const kmDate = (iso: string): string => `${Number(iso.slice(8, 10))} ${KM
 const wait = `(≤${kmDigits(WEB_CONFIRM_MIN)} នាទី)`;
 /** D-119: a booking made 20:00–08:00 is confirmed in the morning — the owner's exact words */
 export const NIGHT_CONFIRM: { km: string; en: string } = { km: "យើងនឹងបញ្ជាក់ ម៉ោង ៨ ព្រឹក", en: "We will confirm at 8 am" };
-const pwLines = (pw: string) => [`🔑 ពាក្យសម្ងាត់៖ ${pw}`, "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់នេះ"];
 const lines = (...l: (string | null | false | undefined)[]) => l.filter((x): x is string => !!x).join("\n");
 
 export const customerText = {
-  /** the chat was linked (website link, Mini App, shared phone): the booking that waits and — when made just now — the password.
-   *  night (D-119): «we confirm at 8 am» instead of «≤30 minutes» */
-  linked: (no: string | null, pw: string | null, night = false) =>
-    lines("✅ ភ្ជាប់រួចរាល់", no && (night ? `ការកក់ #${no} · ${NIGHT_CONFIRM.km}` : `ការកក់ #${no} រង់ចាំបញ្ជាក់ ${wait}`), ...(pw ? pwLines(pw) : [])),
-  linkedQuote: (pw: string | null) => lines("✅ ភ្ជាប់រួចរាល់", "សំណើតម្លៃរបស់អ្នកបានទទួលហើយ", ...(pw ? pwLines(pw) : [])),
-  /** linked by the shared phone, and the account already had a password */
-  linkedKnown: lines("✅ ភ្ជាប់រួចរាល់", "ចូលដោយលេខទូរស័ព្ទ + ពាក្យសម្ងាត់ដែលមានស្រាប់"),
-  /** the first password, sent when the staff confirmed (the record was linked only then) */
-  password: (pw: string) => lines(...pwLines(pw)),
-  /** the silent line after every password the bot sends (CEO D-127); the birthday / phone hint is only on the change form */
-  hint: "អាចប្ដូរជាលេខដែលងាយចាំ ក្នុង «គណនីរបស់ខ្ញុំ»",
+  /** the chat was linked (website link, Mini App, shared phone): the booking that waits. D-191: never a password — the customer
+   *  chooses a PIN on the website. night (D-119): «we confirm at 8 am» instead of «≤30 minutes» */
+  linked: (no: string | null, night = false) =>
+    lines("✅ ភ្ជាប់រួចរាល់", no && (night ? `ការកក់ #${no} · ${NIGHT_CONFIRM.km}` : `ការកក់ #${no} រង់ចាំបញ្ជាក់ ${wait}`), "ដំណឹងការកក់នឹងមកដល់ទីនេះ"),
+  linkedQuote: lines("✅ ភ្ជាប់រួចរាល់", "សំណើតម្លៃរបស់អ្នកបានទទួលហើយ"),
+  /** linked by the shared phone (Telegram vouches for the number) */
+  linkedKnown: lines("✅ ភ្ជាប់រួចរាល់", "ដំណឹងការកក់នឹងមកដល់ទីនេះ"),
+  /** D-191 «🔑 ភ្លេចលេខសម្ងាត់» / the website's «forgot PIN»: a one-time code into the linked chat — never the PIN itself */
+  pinCode: (code: string, minutes: number) => lines(`🔑 លេខកូដប្ដូរលេខសម្ងាត់៖ ${code}`, `ប្រើក្នុង ${kmDigits(minutes)} នាទី · កុំប្រាប់អ្នកណា`),
+  /** a chat that holds only a booking link (no customer record yet) */
+  pinLater: lines("🔑 សូមបង្កើតលេខសម្ងាត់", "នៅទំព័រតាមដានការកក់របស់អ្នក"),
   /** a customer who is already linked booked again (signed in, or inside Telegram) */
   received: (no: string, night = false) => lines(`✅ បានទទួលការកក់ #${no}`, night ? NIGHT_CONFIRM.km : `រង់ចាំបញ្ជាក់ ${wait}`),
   quoteReceived: lines("✅ បានទទួលសំណើតម្លៃ", "យើងនឹងទាក់ទងអ្នកវិញឆាប់ៗ"),
@@ -55,8 +56,6 @@ export const customerText = {
   done: (no: string, until: string | null, items: string[] = []) => lines(`✅ ការងាររួចរាល់ #${no}`, ...items.map((x) => `• ${x}`), until && `ធានាដល់ ${until}`),
   rescheduled: (no: string, day: string, time: string) => lines(`🔁 បានប្ដូរម៉ោង #${no}`, `${day} ម៉ោង ${time}`),
   rescheduleKept: (no: string, day: string, time: string) => lines(`ℹ️ មិនអាចប្ដូរម៉ោង #${no}`, `ម៉ោងនៅដដែល៖ ${day} ម៉ោង ${time}`),
-  newPassword: (pw: string) => `🔑 ពាក្យសម្ងាត់ថ្មី៖ ${pw}`,
-  passwordLater: lines("🔑 ពាក្យសម្ងាត់នឹងមកដល់", "ពេលការកក់របស់អ្នកបានបញ្ជាក់"),
   tooManyResets: lines("⏳ អ្នកបានស្នើច្រើនដងពេក", "សូមព្យាយាមម្ដងទៀតក្រោយ ១ ម៉ោង"),
   unsubscribed: (which: "promo" | "all") => lines(`🔕 បានឈប់ ${which === "promo" ? "តែប្រូម៉ូសិន" : "ទាំងអស់"}`, "បើកវិញបានគ្រប់ពេល"),
   resumed: (which: "promo" | "all") => (which === "promo" ? "🔔 បានបើកប្រូម៉ូសិនវិញ" : "🔔 បានបើកដំណឹងវិញ"),

@@ -134,13 +134,14 @@ const KM_DIGITS = "០១២៣៤៥៦៧៨៩";
 /** 30 → "៣០" (the Khmer page writes counts in Khmer numerals; dates, times and prices stay in Latin digits) */
 export const kmDigits = (n: number | string): string => String(n).replace(/[0-9]/g, (d) => KM_DIGITS[Number(d)]!);
 
-// ---------- customer login: phone + password, the password is sent to the linked Telegram chat ----------
-/** shown only on the website's change-password form (CEO D-127; the bot's password messages say where to change it) — the owner's exact text */
+// ---------- customer account (D-191): phone + a 4-digit PIN the customer chooses; nothing is ever sent by Telegram ----------
+/** shown where a PIN is chosen — the owner's exact text (D-127) */
 export const CUSTOMER_PASSWORD_HINT = {
   km: "កុំប្រើថ្ងៃកំណើត ឬលេខ៤ខ្ទង់ចុងទូរស័ព្ទ",
   en: "Do not use your birthday or the last 4 digits of your phone number",
 } as const;
 export const CUSTOMER_PASSWORD_MIN = 4;
+/** older accounts may still hold a longer password (D-103 … D-190): the sign-in takes up to this many characters */
 export const CUSTOMER_PASSWORD_MAX = 64;
 /** too easy to guess: the last 4 digits of the own phone, one character repeated (1111), a straight run of digits up or
  *  down (1234, 4321, 7890). Repeats like 1212 are allowed. */
@@ -155,11 +156,24 @@ export function weakCustomerPassword(pw: string, phone: string): boolean {
   }
   return false;
 }
-/** wrong passwords per phone → lock: [failures reached, minutes] (null = until a reset through Telegram or an unlock by Admin / GM) */
-export const CUSTOMER_LOGIN_LOCKS: readonly (readonly [number, number | null])[] = [[30, null], [20, 30], [15, 5], [10, 3]];
-export function customerLockFor(failed: number): { minutes: number | null } | null {
-  const hit = CUSTOMER_LOGIN_LOCKS.find(([n]) => failed === n);
-  return hit ? { minutes: hit[1] } : failed > 30 ? { minutes: null } : null;
+/** «៤៨២៧» → «4827» (a PIN typed on a Khmer keyboard) */
+export const pinDigits = (pin: string): string => pin.trim().replace(/[០-៩]/g, (d) => String(d.charCodeAt(0) - 0x17e0));
+/** a new PIN: exactly 4 digits (Khmer digits count), never an easy one; null = fine */
+export function customerPinProblem(pin: string, phones: string[]): "PIN_FORMAT" | "WEAK_PIN" | null {
+  const p = pinDigits(pin);
+  if (!/^\d{4}$/.test(p)) return "PIN_FORMAT";
+  return (phones.length ? phones : [""]).some((ph) => weakCustomerPassword(p, ph)) ? "WEAK_PIN" : null;
 }
-/** a new password from the bot: at most this many per hour */
+/** D-191 (owner): 5 wrong PINs → 15 minutes locked, per phone and per visitor */
+export const CUSTOMER_PIN_TRIES = 5;
+export const CUSTOMER_PIN_LOCK_MIN = 15;
+/** wrong PINs of a phone so far → the lock that starts now (every 5th failure), else null */
+export function customerLockFor(failed: number): { minutes: number } | null {
+  return failed > 0 && failed % CUSTOMER_PIN_TRIES === 0 ? { minutes: CUSTOMER_PIN_LOCK_MIN } : null;
+}
+/** PIN reset codes (bot or shop): at most this many per hour and phone; a code lives this long and takes this many tries */
 export const CUSTOMER_RESETS_PER_HOUR = 3;
+export const PIN_CODE_MINUTES = { bot: 10, staff: 30 } as const;
+export const PIN_CODE_TRIES = 5;
+/** D-191: the customer's sign-in on a device lasts this long and is renewed while it is used */
+export const CUSTOMER_SESSION_DAYS = 180;

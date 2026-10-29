@@ -32,6 +32,8 @@ export type Booking = {
   notes: string | null; survey_notes?: string | null; surveyed_at?: string | null; cancel_reason: string | null; cancelled_at: string | null; closed_at: string | null; created_by: string | null; created_at: string; updated_at: string;
   technicians: Technician[] | null;
   warranty_of?: string | null; warranty_of_number?: string | null; warranty?: { until: string; days_left: number; active: boolean } | null;
+  /** D-191: the customer's own rating on the website */
+  rating?: { stars: number; comment: string | null; at: string } | null;
   units?: { id: string; label: string }[] | null;
   /** D-96: made on the public website; "pending" = waits for Admin / GM to confirm or decline (Customer requests) */
   origin?: "staff" | "website"; web_status?: "pending" | "confirmed" | "declined" | null;
@@ -412,6 +414,8 @@ export const api = {
   },
   customerHistory: (id: string) => get<CustomerHistory>(`/api/customers/${id}/history`),
   unlockCustomerLogin: (id: string) => post<{ ok: true }>(`/api/customers/${id}/unlock-login`),
+  /** D-191: a one-time code to read to the customer (they set a new PIN on the website) */
+  customerPinCode: (id: string) => post<{ code: string; minutes: number }>(`/api/customers/${id}/pin-code`),
   fx: {
     get: () => get<{ current: number; history: { rate: number; note: string | null; set_at: string; set_by_name: string | null }[] }>("/api/settings/fx"),
     set: (rate: number, note: string) => post("/api/settings/fx", { rate, note }),
