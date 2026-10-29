@@ -447,7 +447,7 @@ ${errBox("r1-err")}<p class="note g" id="r-sent" hidden>${t.r_sent}</p>
 <p class="hint">${t.r_shop}</p><button type="button" class="lk mid" id="r-have">${t.r_have}</button></section>
 <section class="card s g8" id="r2" hidden>
 <div class="f"><label class="lb s" for="r-code">${t.r_code}</label><input class="in" id="r-code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></div>
-<div class="g2"><div class="f"><label class="lb s" for="r-pin">${t.pin_new}</label>${pinIn(t, "r-pin", "new-password")}</div><div class="f"><label class="lb s" for="r-pin2">${t.pin2}</label>${pinIn(t, "r-pin2", "new-password")}</div></div>
+<div class="g2"><div class="f"><label class="lb s" for="r-pin">${t.pw_new}</label>${pinIn(t, "r-pin", "new-password")}</div><div class="f"><label class="lb s" for="r-pin2">${t.pin2}</label>${pinIn(t, "r-pin2", "new-password")}</div></div>
 <p class="hint">${esc(CUSTOMER_PASSWORD_HINT[lang])}</p>${errBox("r2-err")}
 <button type="button" class="btn" id="r-go">${t.r_go}</button></section>
 <footer class="ft"><nav><a href="/privacy">${t.privacy}</a>${langLink(t, lang, path)}${powered(t)}</nav></footer></main>`;

@@ -9,7 +9,7 @@
 // D-119 night rule (timers 08:00–20:00, «we confirm at 8 am», silent staff alert) · D-120 test phones (CEO only, hidden, 24 h) ·
 // D-121 customer pages: exact bot URLs, skeleton first, Telegram sign-in before the page, never a login screen in Telegram.
 // The Telegram side (hub: consent, contact, 🔕 menu, promotions) is in 40_hub_telegram; here the hub is a stub.
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
