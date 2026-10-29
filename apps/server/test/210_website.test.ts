@@ -315,7 +315,7 @@ describe("home (D-192): one round icon per website category → its page with ev
     expect(String(r.headers["set-cookie"])).toContain("sl=en");
     expect(r.body).toContain("Book a service"); expect(r.body).toContain("Air conditioner"); expect(r.body).toContain("Powered by");
     const en = (await page("/s/ac?lang=en")).body;
-    expect(en).toContain("AC cleaning"); expect(en).toContain("From $15"); expect(en).not.toContain("លាងម៉ាស៊ីនត្រជាក់");
+    expect(en).toContain("AC cleaning"); expect(en).toContain("From $15"); expect(en).not.toContain("ចាប់ពី"); // an item without an English name keeps its own name
     expect(r.body).not.toContain("កក់សេវា"); expect(r.body).not.toContain("ដំណើរការដោយ");
     await page("/?lang=km");
   });

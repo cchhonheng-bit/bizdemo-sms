@@ -18,7 +18,9 @@ async function job(minutes: number, o: { revision?: boolean; late?: boolean } = 
   expect((await gm.req("POST", `/api/bookings/${id}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
   const path = ["on_site", "working", "work_done", "pending_review", ...(o.revision ? ["revision", "pending_review"] : []), "reviewed"];
   for (const st of path) await sql`update bookings set status = ${st}::booking_status where id = ${id}`;
-  const start = new Date(Date.now() - (minutes + 30) * 60_000), finish = new Date(start.getTime() + minutes * 60_000);
+  // today in Phnom Penh even just after midnight (a run at 00:20 put the start on yesterday — 30-10)
+  const midnight = (await sql<{ t: Date }[]>`select ((now() at time zone 'Asia/Phnom_Penh')::date::timestamp at time zone 'Asia/Phnom_Penh') as t`)[0]!.t;
+  const start = new Date(Math.max(Date.now() - (minutes + 30) * 60_000, midnight.getTime() + 60_000)), finish = new Date(start.getTime() + minutes * 60_000);
   await sql`insert into booking_checkpoints (booking_id, company_id, step, at, by_user) values (${id}, ${s.a}, 'start', ${start}, ${s.users.kim!}), (${id}, ${s.a}, 'finish', ${finish}, ${s.users.kim!})`;
   if (o.late) await sql`update bookings set late_alerted_at = now() where id = ${id}`;
   return id;

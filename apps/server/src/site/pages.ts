@@ -300,7 +300,7 @@ export function homePage(d: SiteView, lang: SiteLang, path = "/", o: { start?: b
   // the banner: the shop's own slide first (tagline + «book»), then its work photos (they load when the slide comes near — D-134)
   const photos = (w.gallery ?? []).slice(0, 6);
   const banner = `<section class="banner" id="banner" aria-roledescription="carousel"><div class="slides" id="slides">
-<div class="slide own">${w.hero ? `<img src="/pub/img/${esc(w.hero)}" alt="" decoding="async">` : ""}<div class="bt"><b>${esc(tagline || t.h1)}</b><span>${t.sub}</span><a class="btn w sm" href="#svc">${svg(I.cal, 15, 2.2)}<span>${t.book}</span></a></div></div>
+<div class="slide own">${w.hero ? `<img data-src="/pub/img/${esc(w.hero)}" alt="" decoding="async">` : ""}<div class="bt"><b>${esc(tagline || t.h1)}</b><span>${t.sub}</span><a class="btn w sm" href="#svc">${svg(I.cal, 15, 2.2)}<span>${t.book}</span></a></div></div>
 ${photos.map((g) => `<div class="slide ph"><img data-src="/pub/img/${esc(g)}" alt="" decoding="async"></div>`).join("")}</div>
 ${photos.length ? `<div class="dots" id="dots">${[0, ...photos].map((_, i) => `<i${i === 0 ? ' class="on"' : ""}></i>`).join("")}</div>` : ""}</section>`;
   const grid = `<section class="card svc3" id="svc"><h2 class="h2">${t.services}</h2>${d.services.length ? `<div class="sgrid">${cats.map((c) => {
@@ -310,6 +310,8 @@ ${photos.length ? `<div class="dots" id="dots">${[0, ...photos].map((_, i) => `<
   const extra = [
     about || points.length ? `<section class="card s"><h2 class="h2">${t.about}</h2>${about ? `<p class="pre">${esc(about)}</p>` : ""}${points.length ? `<ul class="pts">${points.map((p) => `<li>${esc(p)}</li>`).join("")}</ul>` : ""}</section>` : "",
     (w.gallery ?? []).length ? `<section class="card s"><div class="hr"><h2 class="h2">${t.gallery}</h2></div><div class="gal2">${w.gallery!.map((g) => `<img data-src="/pub/img/${esc(g)}" alt="" decoding="async">`).join("")}</div></section>` : "",
+    // every phone + the address stay on the home page (D-131), the map on «ជំនួយ»
+    d.info.address || phones.length > 1 || w.facebook ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}</section>` : "",
   ].join("");
   const body = `<main class="scr home v3 tabs">
 ${band(d, lang, { signed: o.signed, hello: o.start ? t.pick_service : t.h1, tall: !o.start })}

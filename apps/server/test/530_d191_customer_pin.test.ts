@@ -82,7 +82,7 @@ describe("D-191 the customer account with a PIN", () => {
     // the same device: «/» → its bookings; the sent page → the booking's own page
     const home = await page("/", { cookie: A.cookie! });
     expect(home.statusCode).toBe(302); expect(home.headers.location).toBe("/my/bookings");
-    expect((await page(`/?items=${SVC}:1`, { cookie: A.cookie! })).statusCode).toBe(200); // a link with lines still books
+    expect((await page(`/?items=${SVC}:1`, { cookie: A.cookie! })).headers.location).toBe(`/s/ac?items=${SVC}:1`); // a link with lines still books (D-192: on its category page)
     const done = await page(`/book/done/${refA}`, { cookie: A.cookie! });
     expect(done.headers.location).toBe(`/my/b/${bkA}`);
     const mine = (await page(`/my/b/${bkA}`, { cookie: A.cookie! })).body;
