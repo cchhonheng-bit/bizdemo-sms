@@ -1,13 +1,22 @@
 // Users administration (permission user.manage) — port of v1 admin-users + api.update_user.
-import type { FastifyPluginAsync } from "fastify";
+import type { FastifyPluginAsync, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { createUserSchema, updateUserSchema } from "@sms/shared";
+import { createUserSchema, salaryInputSchema, updateUserSchema, type SalaryInput } from "@sms/shared";
+import { canSeeSalary, getSalary, saveSalary } from "../services/payroll.js";
 import { sql } from "../db.js";
 import { AppError, bad, notFound } from "../lib/errors.js";
 import { hashPassword, tempPassword, validatePassword } from "../lib/password.js";
 import { audit } from "../services/audit.js";
 import { revokeUserSessions } from "../services/auth.js";
 import { insertUser, PLATFORM_LOCKED, updateUser, USER_COLS } from "../services/users.js";
+
+/** D-187: the form's «ប្រាក់ខែ» part, when sent — only from someone who may see salaries */
+function salaryOf(req: FastifyRequest): SalaryInput | null {
+  const raw = (req.body as { salary?: unknown } | null)?.salary;
+  if (raw == null) return null;
+  if (!canSeeSalary(req.user!, req.perms)) throw new AppError("FORBIDDEN", 403);
+  return salaryInputSchema.parse(raw);
+}
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
   // GET /api/users/basic — every authenticated user (names for assign dialogs, vehicle owners)
@@ -29,14 +38,25 @@ export const usersRoutes: FastifyPluginAsync = async (app) => {
     if (generated) password = tempPassword();
     const pwErr = validatePassword(password);
     if (pwErr) throw bad(pwErr);
+    const salary = salaryOf(req); // checked before the user is made
     const id = await insertUser(req.user!, req.ip, b, await hashPassword(password));
+    if (salary) await saveSalary(req.user!, req.ip, id, salary);
     return { id, temp_password: generated ? password : undefined };
+  });
+
+  // D-187: the salary on the user form — only the CEO / CFO / GM / payroll; a technician never (fixed); not in the user list
+  app.get("/:id/salary", { preHandler: app.requireAuth }, async (req) => {
+    if (!canSeeSalary(req.user!, req.perms)) throw new AppError("FORBIDDEN", 403);
+    return getSalary(req.user!, z.object({ id: z.string().uuid() }).parse(req.params).id);
   });
 
   // PATCH /api/users/:id { full_name?, username?, phone?, email?, role?, is_active?, tracks_attendance?, language? }
   app.patch("/:id", { preHandler: app.requirePerm("user.manage") }, async (req) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
-    return updateUser(req.user!, req.ip, id, updateUserSchema.extend({ is_active: z.boolean().optional() }).parse(req.body));
+    const salary = salaryOf(req);
+    const r = await updateUser(req.user!, req.ip, id, updateUserSchema.extend({ is_active: z.boolean().optional() }).parse(req.body));
+    if (salary) await saveSalary(req.user!, req.ip, id, salary);
+    return r;
   });
 
   // POST /api/users/:id/reset-password { password? } → { temp_password? }

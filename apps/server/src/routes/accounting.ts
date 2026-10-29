@@ -8,7 +8,8 @@ import { AppError } from "../lib/errors.js";
 import {
   balanceSheet, closeYear, createJournal, deleteAccount, exportAcct, getEntry, incomeStatement, ledger, listAccounts, listJournal, lockInfo, otherTransaction, readReceipt,
   reverseJournal, saveAccount, saveOpening, saveOpeningDraft, setFiscalYear, setLock, trialBalance, trialBalanceMonth, METHODS, type AcctExport, listPending } from "../services/accounting.js";
-import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, setSalary, voidRun } from "../services/payroll.js";
+import { adjust, approveRun, createRun, getRun, listRuns, payRun, removeAdjustment, salaries, saveSalary, voidRun } from "../services/payroll.js";
+import { salaryInputSchema } from "@sms/shared";
 
 const id = z.string().uuid();
 const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -109,7 +110,8 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
 
   // C6 payroll
   app.get("/payroll/salaries", payroll, async (req) => salaries(req.user!));
-  app.post("/payroll/salary/:userId", payroll, async (req) => setSalary(req.user!, req.ip, z.object({ userId: id }).parse(req.params).userId, z.object({ base_salary: cents }).strict().parse(req.body).base_salary));
+  // D-187: the base alone (from the 1st of this month) or the whole salary — allowance, pay method, start, effective day, note
+  app.post("/payroll/salary/:userId", payroll, async (req) => saveSalary(req.user!, req.ip, z.object({ userId: id }).parse(req.params).userId, salaryInputSchema.parse(req.body)));
   app.get("/payroll", payrollView, async (req) => listRuns(req.user!));
   app.post("/payroll", payroll, async (req) => createRun(req.user!, req.ip, z.object({ period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }).strict().parse(req.body).period));
   app.get("/payroll/:id", payrollView, async (req) => getRun(req.user!, z.object({ id }).parse(req.params).id));
@@ -117,6 +119,6 @@ export const accountingRoutes: FastifyPluginAsync = async (app) => {
     z.object({ user_id: id, kind: z.enum(["bonus", "deduction"]), amount: positive, reason: z.string().max(300) }).strict().parse(req.body)));
   app.post("/payroll/:id/adjust/:adj/remove", payroll, async (req) => { const p = z.object({ id, adj: z.coerce.number().int().positive() }).parse(req.params); return removeAdjustment(req.user!, req.ip, p.id, p.adj); });
   app.post("/payroll/:id/approve", approve, async (req) => approveRun(req.user!, req.ip, z.object({ id }).parse(req.params).id));
-  app.post("/payroll/:id/pay", payroll, async (req) => payRun(req.user!, req.ip, z.object({ id }).parse(req.params).id, z.object({ pay: z.enum(METHODS) }).strict().parse(req.body).pay));
+  app.post("/payroll/:id/pay", payroll, async (req) => payRun(req.user!, req.ip, z.object({ id }).parse(req.params).id, z.object({ pay: z.enum([...METHODS, "each"]) }).strict().parse(req.body).pay)); // D-187: «each» = each person's own method
   app.post("/payroll/:id/void", approve, async (req) => voidRun(req.user!, req.ip, z.object({ id }).parse(req.params).id, z.object({ reason: z.string().max(300) }).parse(req.body ?? {}).reason));
 };

@@ -5,12 +5,13 @@ import { ReportToolbar } from "@/components/ReportToolbar";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type CreateUserInput, createUserSchema, filterList, formatKhPhone, LIST_SPECS, ROLES } from "@sms/shared";
+import { type CreateUserInput, createUserSchema, filterList, formatKhPhone, formatUsd, LIST_SPECS, PAY_METHOD_KEYS, ROLES, toCents, type PayMethodKey, type SalaryInput } from "@sms/shared";
 import { Copy, KeyRound, Pencil, Plus, UserX, UserCheck } from "lucide-react";
 import { api, errCode } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { Badge, Button, Card, ConfirmDialog, Dialog, Empty, ErrorState, Field, Input, PasswordInput, PhoneInput, RowAction, Select, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
+import { useFeature } from "@/lib/config";
 
 type Profile = { id: string; username: string; phone: string | null; email: string | null; full_name: string; role: string; is_active: boolean; telegram_linked: boolean; tracks_attendance: boolean; is_lead: boolean; is_platform: boolean; language: string };
 
@@ -117,11 +118,18 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
   });
   const errText = (code?: string) => (code ? t(`users.err.${code}`, { defaultValue: code }) : undefined);
   const isTech = watch("role") === "tech";
+  // D-187: «ប្រាក់ខែ» — only the CEO / CFO / GM / payroll see it; sent only when touched
+  const { me, can } = useAuth();
+  const salaryOn = useFeature("accounting") && !!me && me.role !== "tech" && (["ceo", "cfo", "gm"].includes(me.role) || can("payroll.manage") || can("payroll.approve"));
+  const [salary, setSalary] = useState<SalaryInput | null | "bad">(null);
 
   const submit = handleSubmit(async (v) => {
     if (user) {
       try {
-        await api.updateUser(user.id, { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks, is_lead: v.role === "tech" && lead });
+        if (salary === "bad") { toast.error(t("users.salary.bad")); return; }
+        await api.updateUser(user.id, { full_name: v.full_name, username: v.username, phone: v.phone ?? "", email: v.email ?? "", role: v.role, tracks_attendance: tracks, is_lead: v.role === "tech" && lead,
+          ...(salary ? { salary } : {}) });
+        void qc.invalidateQueries({ queryKey: ["user-salary", user.id] }); void qc.invalidateQueries({ queryKey: ["payroll-salaries"] });
       } catch (e) { toast.error(errText(errCode(e)) ?? t("app.error")); return; }
       toast.success(t("app.saved"));
       void qc.invalidateQueries({ queryKey: ["profiles"] });
@@ -129,7 +137,8 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
     } else {
       let r: { id: string; temp_password?: string };
       try {
-        r = await api.createUser({ ...v, password: v.password || undefined });
+        if (salary === "bad") { toast.error(t("users.salary.bad")); return; }
+        r = await api.createUser({ ...v, password: v.password || undefined, ...(salary ? { salary } : {}) });
       } catch (e) {
         const code = errCode(e);
         const field = code === "USERNAME_TAKEN" || code === "INVALID_USERNAME" ? "username" : code === "PHONE_TAKEN" || code === "INVALID_PHONE" ? "phone" : code === "EMAIL_TAKEN" ? "email" : code.startsWith("PASSWORD") ? "password" : null;
@@ -161,7 +170,56 @@ function UserDialog({ user, onClose, onCreated }: { user: Profile | null; onClos
         {!user && <Field label={t("users.password_optional")} error={errText(errors.password?.message)}><PasswordInput autoComplete="off" invalid={!!errors.password} {...register("password")} /></Field>}
         <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={tracks} onChange={(e) => setTracks(e.target.checked)} /> {t("users.tracks_attendance")}</label>
         {isTech && <label className="flex items-center gap-2 text-sm text-ink min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={lead} onChange={(e) => setLead(e.target.checked)} /> {t("users.is_lead")}</label>}
+        {salaryOn && <SalarySection userId={user?.id ?? null} onChange={setSalary} />}
       </form>
     </Dialog>
+  );
+}
+
+/** D-187 (owner 29-10): the salary on the user form — base and a fixed allowance per month, the pay method (→ the account map), the start
+ *  day, the day a change takes effect (earlier payroll runs keep their amounts) and the history of changes. Reports a payload only when touched. */
+function SalarySection({ userId, onChange }: { userId: string | null; onChange: (v: SalaryInput | null | "bad") => void }) {
+  const { t } = useTranslation();
+  const q = useQuery({ queryKey: ["user-salary", userId], queryFn: () => api.userSalary(userId!), enabled: !!userId });
+  const cur = q.data?.current ?? null;
+  const first = new Date().toISOString().slice(0, 8) + "01";
+  const [d, setD] = useState<{ base: string; allowance: string; method: PayMethodKey; start: string; from: string; note: string } | null>(null);
+  const v = d ?? { base: cur ? (cur.base_salary / 100).toFixed(2) : "", allowance: cur?.allowance ? (cur.allowance / 100).toFixed(2) : "", method: (cur?.pay_method ?? q.data?.pay_method ?? "cash_usd"),
+    start: q.data?.start_date ?? "", from: cur ? first : "", note: q.data?.note ?? "" };
+  const money = (x: string) => { if (!x.trim()) return 0; try { return toCents(x); } catch { return NaN; } };
+  const set = (p: Partial<typeof v>) => {
+    const n = { ...v, ...p }; setD(n);
+    const base = money(n.base), allowance = money(n.allowance);
+    if (!n.base.trim() && !n.allowance.trim()) { onChange(null); return; }
+    if (!(base >= 0) || !(allowance >= 0)) { onChange("bad"); return; }
+    onChange({ base_salary: base, allowance, pay_method: n.method, start_date: n.start || null, effective_from: n.from || n.start || null, note: n.note.trim() || null });
+  };
+  if (userId && q.isLoading) return <Skeleton />;
+  return (
+    <fieldset className="border-t border-grey-line pt-3 mt-2" data-testid="salary-section">
+      <legend className="font-semibold text-sm">{t("users.salary.title")}</legend>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t("users.salary.base")}><Input inputMode="decimal" value={v.base} onChange={(e) => set({ base: e.target.value })} placeholder="$0.00" data-testid="salary-base" /></Field>
+        <Field label={t("users.salary.allowance")}><Input inputMode="decimal" value={v.allowance} onChange={(e) => set({ allowance: e.target.value })} placeholder="$0.00" data-testid="salary-allowance" /></Field>
+        <Field label={t("users.salary.method")}>
+          <Select value={v.method} onChange={(e) => set({ method: e.target.value as PayMethodKey })} data-testid="salary-method">{PAY_METHOD_KEYS.map((m) => <option key={m} value={m}>{t(`inventory.pay.${m}`)}</option>)}</Select>
+        </Field>
+        <Field label={t("users.salary.start")}><Input type="date" value={v.start} onChange={(e) => set({ start: e.target.value })} data-testid="salary-start" /></Field>
+        <Field label={t("users.salary.from")} hint={t("users.salary.from_hint")}><Input type="date" value={v.from} onChange={(e) => set({ from: e.target.value })} data-testid="salary-from" /></Field>
+        <Field label={t("users.salary.note")}><Input value={v.note} onChange={(e) => set({ note: e.target.value })} maxLength={300} /></Field>
+      </div>
+      {!!q.data?.history.length && (
+        <div className="text-xs mt-1" data-testid="salary-history">
+          <div className="text-muted mb-1">{t("users.salary.history")}</div>
+          <ul className="divide-y divide-grey-line">
+            {q.data.history.map((h) => (
+              <li key={h.id} className="py-1 flex justify-between gap-2"><span className="tabular">{h.effective_from}</span>
+                <span className="tabular">{formatUsd(h.base_salary)}{h.allowance ? ` + ${formatUsd(h.allowance)}` : ""} · {t(`inventory.pay.${h.pay_method}`)}</span>
+                <span className="text-muted break-words">{h.changed_by_name ?? ""}</span></li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </fieldset>
   );
 }

@@ -1,5 +1,5 @@
 // Typed data access — our own REST API (v2, D-43). Shapes are the same the pages used with Supabase views/RPCs.
-import type { BookingStatus, BookingType, FeatureFlag, GeoType, ServiceCategory, WebCategory, Zone } from "@sms/shared";
+import type { BookingStatus, BookingType, FeatureFlag, GeoType, PayMethodKey, SalaryInput, ServiceCategory, WebCategory, Zone } from "@sms/shared";
 import { ApiError, del, get, patch, post, put } from "./http";
 
 export type Customer = {
@@ -246,11 +246,15 @@ export type OpeningValues = { date: string; cash_usd?: number; cash_khr?: number
   receivables?: { customer_id: string; amount: number; note?: string }[]; payables?: { supplier: string; amount: number; account_id?: string | null }[]; others?: { code: string; amount: number }[] };
 export type AcctTxType = "expense" | "purchase" | "supplier_payment" | "other_income" | "owner_contribution" | "owner_withdrawal" | "transfer" | "staff_advance" | "staff_repay"; // D-185
 export type PayrollAdj = { id: number; user_id: string; kind: "bonus" | "deduction"; amount: number; reason: string; by_name: string | null; created_at: string };
-export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] };
+export type PayrollLine = { user_id: string; full_name: string; role: string; base: number; allowance: number; pay_method: PayMethodKey | null; bonus: number; deduction: number; net: number; adjustments: PayrollAdj[] }; // D-187: allowance · pay method
 export type PayrollRun = { id: string; period: string; status: "draft" | "approved" | "paid" | "void"; created_at: string; approved_at: string | null; paid_at: string | null; pay_method: string | null;
-  void_reason: string | null; created_by_name: string | null; approved_by_name: string | null; paid_by_name: string | null; lines: PayrollLine[]; base: number; bonus: number; gross: number; deductions: number; net: number };
+  void_reason: string | null; created_by_name: string | null; approved_by_name: string | null; paid_by_name: string | null; lines: PayrollLine[]; base: number; allowance: number; bonus: number; gross: number; deductions: number; net: number };
 export type PayrollSummary = { id: string; period: string; status: PayrollRun["status"]; people: number; gross: number; deductions: number; net: number };
-export type Salary = { user_id: string; full_name: string; role: string; base_salary: number; updated_at: string | null };
+export type Salary = { user_id: string; full_name: string; role: string; base_salary: number; allowance: number; pay_method: PayMethodKey; start_date: string | null; effective_from: string | null;
+  next_salary: number | null; next_from: string | null; updated_at: string | null };
+/** D-187: one person's salary on the user form — in force today + every change */
+export type SalaryChange = { id: number; effective_from: string; base_salary: number; allowance: number; pay_method: PayMethodKey; note: string | null; changed_by_name: string | null; changed_at: string };
+export type UserSalary = { user_id: string; start_date: string | null; note: string | null; pay_method: PayMethodKey; current: SalaryChange | null; history: SalaryChange[] };
 export type Conflict = { user_id?: string; full_name?: string; vehicle_id?: string; code?: string; number: string; scheduled_at: string; ends_at: string };
 export type CompanySettings = Record<string, unknown> & { company_id: string; fx_rate_khr: number | string; telegram_group_chat_id: number | string | null };
 
@@ -496,7 +500,7 @@ export const api = {
     fileUrl: (id: string) => `/api/accounting/files/${id}`,
     payroll: {
       salaries: () => get<Salary[]>("/api/accounting/payroll/salaries"),
-      setSalary: (userId: string, base_salary: number) => post(`/api/accounting/payroll/salary/${userId}`, { base_salary }),
+      setSalary: (userId: string, v: number | SalaryInput) => post(`/api/accounting/payroll/salary/${userId}`, typeof v === "number" ? { base_salary: v } : v),
       runs: () => get<PayrollSummary[]>("/api/accounting/payroll"),
       create: (period: string) => post<PayrollRun>("/api/accounting/payroll", { period }),
       run: (id: string) => get<PayrollRun>(`/api/accounting/payroll/${id}`),
@@ -515,7 +519,8 @@ export const api = {
 
   usersBasic: async () => (await get<UserBasic[]>("/api/users/basic")).filter((u) => u.is_active),
   users: () => get<UserRow[]>("/api/users"),
-  createUser: (v: { username: string; full_name: string; role: string; phone?: string; email?: string; password?: string }) => post<{ id: string; temp_password?: string }>("/api/users", v),
+  createUser: (v: { username: string; full_name: string; role: string; phone?: string; email?: string; password?: string; salary?: SalaryInput }) => post<{ id: string; temp_password?: string }>("/api/users", v),
+  userSalary: (id: string) => get<UserSalary>(`/api/users/${id}/salary`), // D-187: CEO / CFO / GM / payroll only
   updateUser: (id: string, patchBody: Record<string, unknown>) => patch<{ ok: true }>(`/api/users/${id}`, patchBody),
   resetPassword: (id: string) => post<{ temp_password?: string }>(`/api/users/${id}/reset-password`, {}),
 

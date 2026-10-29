@@ -98,7 +98,7 @@ function RunDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const refresh = () => { void qc.invalidateQueries({ queryKey: ["payroll-run", id] }); void qc.invalidateQueries({ queryKey: ["payroll-runs"] }); };
   const ok = () => { toast.success(t("app.saved")); refresh(); };
   const [adding, setAdding] = useState(false);
-  const [paying, setPaying] = useState(false); const [pay, setPay] = useState("aba");
+  const [paying, setPaying] = useState(false); const [picked, setPay] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false); const [reason, setReason] = useState("");
   const approve = useMutation({ mutationFn: () => api.accounting.payroll.approve(id), onSuccess: ok, onError: onErr });
   const payM = useMutation({ mutationFn: () => api.accounting.payroll.pay(id, pay), onSuccess: () => { setPaying(false); ok(); }, onError: onErr });
@@ -106,6 +106,7 @@ function RunDialog({ id, onClose }: { id: string; onClose: () => void }) {
   const remove = useMutation({ mutationFn: (adj: number) => api.accounting.payroll.removeAdj(id, adj), onSuccess: ok, onError: onErr });
   const r = q.data;
   const draft = r?.status === "draft";
+  const pay = picked ?? (r?.lines.some((l) => l.pay_method) ? "each" : "aba"); // D-187: each person by their own method when the salaries carry one
   return (
     <Dialog open onClose={onClose} title={r ? `${t("acct.tab.payroll")} ${r.period}` : t("app.loading")} footer={<>
       {r && (draft || r.status === "approved") && can("payroll.approve") && <Button variant="danger" onClick={() => setVoiding(true)}><X size={16} /> {t("acct.payroll.void")}</Button>}
@@ -123,7 +124,7 @@ function RunDialog({ id, onClose }: { id: string; onClose: () => void }) {
           {r.lines.map((l) => (
             <li key={l.user_id} className="py-2 text-sm">
               <div className="flex justify-between gap-2"><span className="font-semibold break-words min-w-0">{l.full_name}</span><span className="tabular font-bold">{formatUsd(l.net)}</span></div>
-              <div className="text-xs text-muted tabular">{t("acct.payroll.base")} {formatUsd(l.base)}{l.bonus ? ` · +${formatUsd(l.bonus)}` : ""}{l.deduction ? ` · −${formatUsd(l.deduction)}` : ""}</div>
+              <div className="text-xs text-muted tabular">{t("acct.payroll.base")} {formatUsd(l.base)}{l.allowance ? ` · ${t("acct.payroll.allowance")} ${formatUsd(l.allowance)}` : ""}{l.pay_method ? ` · ${t(`inventory.pay.${l.pay_method}`)}` : ""}{l.bonus ? ` · +${formatUsd(l.bonus)}` : ""}{l.deduction ? ` · −${formatUsd(l.deduction)}` : ""}</div>
               {l.adjustments.map((a) => (
                 <div key={a.id} className="flex items-center gap-2 text-xs mt-1">
                   <Badge tone={a.kind === "bonus" ? "green" : "warning"}>{a.kind === "bonus" ? "+" : "−"}{formatUsd(a.amount)}</Badge>
@@ -141,7 +142,9 @@ function RunDialog({ id, onClose }: { id: string; onClose: () => void }) {
         </div>
         {draft && can("payroll.manage") && (adding ? <AdjustForm run={r} onDone={() => { setAdding(false); ok(); }} /> :
           <Button className="mt-3 w-full" onClick={() => setAdding(true)} data-testid="pr-adjust"><Plus size={16} /> {t("acct.payroll.add_adj")}</Button>)}
-        {paying && (<div className="mt-3"><p className="text-sm mb-1">{t("acct.paid_from")}</p><PayPicker value={pay} onChange={setPay} />
+        {paying && (<div className="mt-3"><p className="text-sm mb-1">{t("acct.paid_from")}</p>
+          <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={pay === "each"} onChange={(e) => setPay(e.target.checked ? "each" : "aba")} data-testid="pr-pay-each" /> {t("acct.payroll.pay_each")}</label>
+          {pay !== "each" && <PayPicker value={pay} onChange={setPay} />}
           <Button variant="primary" className="w-full" loading={payM.isPending} onClick={() => payM.mutate()} data-testid="pr-pay-confirm">{t("acct.payroll.pay")} {formatUsd(r.net)}</Button></div>)}
         {voiding && (<div className="mt-3"><Field label={t("acct.reverse_reason")} required><Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} /></Field>
           <Button variant="danger" className="w-full" disabled={reason.trim().length < 3} loading={voidM.isPending} onClick={() => voidM.mutate()}>{t("acct.payroll.void")}</Button></div>)}

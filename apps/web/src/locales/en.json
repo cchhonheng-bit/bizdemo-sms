@@ -247,7 +247,19 @@
       "PLATFORM_USER": "This account is managed by HangKH"
     },
     "platform_hint": "For technical support",
-    "platform_locked": "Managed by HangKH"
+    "platform_locked": "Managed by HangKH",
+    "salary": {
+      "title": "Salary",
+      "base": "Base salary / month ($)",
+      "allowance": "Fixed allowance / month ($)",
+      "method": "Pay method",
+      "start": "Start date",
+      "from": "Applies from",
+      "from_hint": "Earlier payroll runs keep their amounts",
+      "note": "Note",
+      "history": "Salary history",
+      "bad": "The salary amount is not valid"
+    }
   },
   "settings": {
     "title": "Company settings",
@@ -1621,7 +1633,9 @@
       "staff": "Staff",
       "bonus": "+ Bonus",
       "deduction": "− Deduction",
-      "reason": "Reason"
+      "reason": "Reason",
+      "allowance": "Allowance",
+      "pay_each": "Each person by their own pay method"
     },
     "books": "Books",
     "books_start": "Started",
