@@ -224,7 +224,7 @@ export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; column
   income_total: number; expense_total: number; net: number; income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number };
   previous: { from: string; to: string; income_total: number; expense_total: number; net: number } };
 export type BsRow = AcctRow & { previous: number; variance: number };
-export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; year_earnings: number; month_earnings: number; // D-188: to last month · this month assets_total: number; liabilities_total: number;
+export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; year_earnings: number; month_earnings: number; assets_total: number; liabilities_total: number; // D-188: year = to last month · month = this month
   equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number; year_earnings: number; month_earnings: number; prior_earnings: number };
   /** D-171: earlier years' result not closed yet (this year's runs from the fiscal-year start) */
   prior_earnings: number; prior_earnings_khr: number; prior_earnings_account?: { code: string; name_km: string; name_en: string | null } | null;
