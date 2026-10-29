@@ -224,8 +224,8 @@ export type ProfitLoss = { from: string; to: string; fx_rate_khr: number; column
   income_total: number; expense_total: number; net: number; income_total_khr: number; expense_total_khr: number; net_khr: number; zones: { inside: number; outside: number; none: number };
   previous: { from: string; to: string; income_total: number; expense_total: number; net: number } };
 export type BsRow = AcctRow & { previous: number; variance: number };
-export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; assets_total: number; liabilities_total: number;
-  equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number; prior_earnings: number };
+export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: number; assets: BsRow[]; liabilities: BsRow[]; equity: BsRow[]; current_earnings: number; year_earnings: number; month_earnings: number; // D-188: to last month · this month assets_total: number; liabilities_total: number;
+  equity_total: number; previous: { assets_total: number; liabilities_total: number; equity_total: number; current_earnings: number; year_earnings: number; month_earnings: number; prior_earnings: number };
   /** D-171: earlier years' result not closed yet (this year's runs from the fiscal-year start) */
   prior_earnings: number; prior_earnings_khr: number; prior_earnings_account?: { code: string; name_km: string; name_en: string | null } | null;
   assets_total_khr: number; liabilities_total_khr: number; equity_total_khr: number; current_earnings_khr: number;
@@ -233,7 +233,7 @@ export type BalanceSheet = { to: string; previous_to: string; fx_rate_khr: numbe
   current_earnings_account?: { code: string; name_km: string; name_en: string | null } | null };
 export type DrCr = { debit: number; credit: number };
 export type TrialBalanceMonth = { month: string; from: string; to: string; previous_to: string; fiscal_year_start: string; fx_rate_khr: number; balanced: boolean;
-  rows: { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; statement: "BS" | "PL"; period: DrCr; ytd_prev: DrCr; ytd: DrCr }[];
+  rows: { account_id: string; code: string; name_km: string; name_en: string | null; type: AcctType; statement: "BS" | "PL"; period: DrCr; ytd_prev: DrCr; ytd: DrCr; computed?: true }[]; // D-188: computed = the profit line of the month column
   totals: { period: DrCr; ytd_prev: DrCr; ytd: DrCr } };
 export type LedgerRow = { entry_id: string; number: string; date: string; memo: string; source: string; line_memo: string | null; debit: number; credit: number; balance: number;
   customer_name: string | null; user_name: string | null; supplier: string | null };

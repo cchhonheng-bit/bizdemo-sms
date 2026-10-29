@@ -796,12 +796,18 @@ export async function balanceSheet(user: SessionUser, to: string) {
   const earnings = (xs: Sum[]) => xs.filter((x) => x.type === "income" || x.type === "expense").reduce((a, x) => a + x.c - x.d, 0);
   const current_earnings = earnings(curYear), prior_earnings = earnings(cur) - current_earnings;
   const prev_current = earnings(prevYear), prev_prior = earnings(prev) - prev_current;
+  // D-188 (client 29-10): this year's result in two lines, as the client's own balance sheet — the account «current_profit» (One Team
+  // 30002 «ចំណេញ/ខាត(-) ក្នុងឆ្នាំ») = from the fiscal-year start to the end of last month; «ចំណេញ/ខាត(-) ប្រចាំខែ» = this month
+  const monthOf = (day: string, fyDay: string) => { const m = `${day.slice(0, 8)}01`; return m > fyDay ? m : fyDay; };
+  const [curMonth, prevMonth] = await Promise.all([sums(user.companyId, to, monthOf(to, fy)), sums(user.companyId, prevEnd, monthOf(prevEnd, fyPrev))]);
+  const month_earnings = earnings(curMonth), year_earnings = current_earnings - month_earnings;
+  const prev_month = earnings(prevMonth), prev_year = prev_current - prev_month;
   const assets_total = tot(assets), liabilities_total = tot(liabilities), equity_total = tot(equity);
   // D-141: the year's profit not closed yet is shown on the client's account 30002 «ចំណេញ/ខាត (-) ក្នុងឆ្នាំ»
   const current_earnings_account = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select a.code, a.name_km, a.name_en from account_map m join accounts a on a.id = m.account_id where m.company_id = ${user.companyId} and m.key = 'current_profit'`)[0] ?? null;
   const prior_earnings_account = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select a.code, a.name_km, a.name_en from account_map m join accounts a on a.id = m.account_id where m.company_id = ${user.companyId} and m.key = 'retained'`)[0] ?? null;
-  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, current_earnings_account, prior_earnings, prior_earnings_account, assets_total, liabilities_total, equity_total,
-    previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: prev_current, prior_earnings: prev_prior },
+  return { to, previous_to: prevEnd, fx_rate_khr: fx, assets, liabilities, equity, current_earnings, year_earnings, month_earnings, current_earnings_account, prior_earnings, prior_earnings_account, assets_total, liabilities_total, equity_total,
+    previous: { assets_total: totPrev(assets), liabilities_total: totPrev(liabilities), equity_total: totPrev(equity), current_earnings: prev_current, year_earnings: prev_year, month_earnings: prev_month, prior_earnings: prev_prior },
     prior_earnings_khr: usdToKhr(prior_earnings, fx),
     assets_total_khr: usdToKhr(assets_total, fx), liabilities_total_khr: usdToKhr(liabilities_total, fx), equity_total_khr: usdToKhr(equity_total, fx), current_earnings_khr: usdToKhr(current_earnings, fx) };
 }
@@ -848,11 +854,26 @@ export async function trialBalanceMonth(user: SessionUser, month: string) {
   const from = `${month}-01`, to = monthEnd(month), prevEnd = dayBefore(from), fy = fyStart(to, b.fy_month);
   const fx = await rateAt(user.companyId, to);
   const [mv, prev, ytd] = await Promise.all([sums(user.companyId, to, from, fy), sums(user.companyId, prevEnd, undefined, fy), sums(user.companyId, to, undefined, fy)]);
-  const side = (x: Sum | undefined) => { const n = (x?.d ?? 0) - (x?.c ?? 0); return { debit: Math.max(n, 0), credit: Math.max(-n, 0) }; };
+  const net = (n: number) => ({ debit: Math.max(n, 0), credit: Math.max(-n, 0) });
+  const side = (x: Sum | undefined) => net((x?.d ?? 0) - (x?.c ?? 0));
   const prevOf = new Map(prev.map((x) => [x.id, x])), ytdOf = new Map(ytd.map((x) => [x.id, x]));
-  const rows = mv.map((x) => ({ account_id: x.id, code: x.code, name_km: x.name_km, name_en: x.name_en, type: x.type, statement: statementOf(x.type),
-      period: side(x), ytd_prev: side(prevOf.get(x.id)), ytd: side(ytdOf.get(x.id)) })) // D-180: each account's net on one side, as the client's own trial balance
+  // D-188 (client 29-10): a balance-sheet account's «ខែនេះ» is its balance at the month's end (= «ដើមឆ្នាំដល់ខែនេះ», nothing added up);
+  // an income / expense account keeps the month's movement (D-180: each account's net on one side, as the client's own trial balance)
+  const rows: { account_id: string; code: string; name_km: string; name_en: string | null; type: AccType; statement: "BS" | "PL"; period: { debit: number; credit: number };
+    ytd_prev: { debit: number; credit: number }; ytd: { debit: number; credit: number }; computed?: true }[] = mv.map((x) => ({ account_id: x.id, code: x.code, name_km: x.name_km, name_en: x.name_en, type: x.type,
+      statement: statementOf(x.type), period: statementOf(x.type) === "BS" ? side(ytdOf.get(x.id)) : side(x), ytd_prev: side(prevOf.get(x.id)), ytd: side(ytdOf.get(x.id)) }))
     .filter((r) => r.period.debit || r.period.credit || r.ytd_prev.debit || r.ytd_prev.credit || r.ytd.debit || r.ytd.credit);
+  // …so the «ខែនេះ» column carries the profit already inside those balances: this year's up to last month on «current_profit» (One Team
+  // 30002 «ចំណេញ/ខាត(-) ក្នុងឆ្នាំ»), an earlier year not closed yet on «retained» — computed lines, the month column only
+  const R = await roleIds(sql, user.companyId);
+  const plDc = (xs: Sum[]) => xs.filter((x) => statementOf(x.type) === "PL").reduce((a, x) => a + x.d - x.c, 0);
+  const [yearToPrev, unclosed] = await Promise.all([prevEnd >= fy ? sums(user.companyId, prevEnd, fy).then(plDc) : 0, sums(user.companyId, dayBefore(fy)).then(plDc)]);
+  for (const [key, amount] of [["current_profit", yearToPrev], ["retained", unclosed]] as const) {
+    if (!amount) continue;
+    const a = (await sql<{ code: string; name_km: string; name_en: string | null }[]>`select code, name_km, name_en from accounts where id = ${R[key]}`)[0];
+    if (a) rows.push({ account_id: R[key], code: a.code, name_km: a.name_km, name_en: a.name_en, type: "equity", statement: "BS", period: net(amount), ytd_prev: net(0), ytd: net(0), computed: true });
+  }
+  rows.sort((p, q) => p.code.localeCompare(q.code));
   const tot = (k: "period" | "ytd_prev" | "ytd") => ({ debit: rows.reduce((s, r) => s + r[k].debit, 0), credit: rows.reduce((s, r) => s + r[k].credit, 0) });
   const totals = { period: tot("period"), ytd_prev: tot("ytd_prev"), ytd: tot("ytd") };
   return { month, from, to, previous_to: prevEnd, fiscal_year_start: fy, fx_rate_khr: fx, rows, totals,

@@ -1800,7 +1800,9 @@
     "pick_staff": "Pick a staff member",
     "who": "Who (optional)",
     "who_supplier": "Supplier…",
-    "who_supplier_name": "Supplier name"
+    "who_supplier_name": "Supplier name",
+    "to_last_month": "from the year start to the end of last month",
+    "month_earnings": "Profit / loss (−) this month"
   },
   "print": {
     "invoice": "INVOICE",
