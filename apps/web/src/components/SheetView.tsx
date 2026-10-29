@@ -22,7 +22,7 @@ export function SheetView({ rows, testid = "sheet-table" }: { rows: XCell[][]; t
   const width = Math.max(1, ...rows.map((r) => r.length));
   return (
     <div className="overflow-x-auto -mx-1">
-      <table className="min-w-full text-sm border-collapse tabular" data-testid={testid}>
+      <table className={`${width >= 10 ? "min-w-[1200px]" : "min-w-full"} text-sm border-collapse tabular`} data-testid={testid}>{/* D-189: a wide sheet scrolls sideways instead of squeezing every row tall */}
         <tbody>
           {rows.map((r, i) => {
             if (!r.length) return <tr key={i} aria-hidden="true"><td colSpan={width} className="h-3" /></tr>;
