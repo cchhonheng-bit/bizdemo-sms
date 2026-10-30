@@ -8,7 +8,7 @@ import type { PayStatus } from "@sms/shared";
 
 export type ExportReport = "tech-withdrawals" | "account-report" | "coa" | "trial-balance" | "income-statement" | "balance-sheet" | "journal" | "expenses" | "stock-balance" | "stock-moves" | "payables"
   | "stock-reconcile" | "bookings" | "invoices" | "payments" | "receivables" | "tech-performance" | "customers" | "attendance" | "by-booking"
-  | "boreys" | "requests" | "catalog" | "broadcasts" | "subscribers" | "notifications" | "leave-mine" | "leave-approve" | "payroll-runs" | "payroll-salaries" | "reminders" | "cash-close" | "verification" | "audit" | "quotes" | "uninvoiced" | "users"; // D-172
+  | "boreys" | "requests" | "catalog" | "broadcasts" | "subscribers" | "notifications" | "leave-mine" | "leave-approve" | "payroll-runs" | "payroll-salaries" | "reminders" | "cash-close" | "verification" | "audit" | "quotes" | "uninvoiced" | "users" | "posts"; // D-172 · D-193 posts
 export type ExportParams = { from?: string; to?: string; asof?: string; technician?: string[]; booker?: string[]; account?: string[]; status?: string[]; customer?: string; method?: string; item?: string; location?: string; category?: string; source?: string; kind?: string;
   month?: string; zone?: string; q?: string; closed?: "0" | "1"; cancelled?: "0" | "1"; inactive?: "0" | "1"; list?: string;
   role?: string; all?: "0" | "1"; days?: string; user?: string; type?: string; open?: "0" | "1";
