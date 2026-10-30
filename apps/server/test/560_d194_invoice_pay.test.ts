@@ -84,7 +84,7 @@ describe("D-194 the invoice reaches the customer and is paid from the phone", ()
     expect(linkA).toMatch(/^https:\/\/oneteam\.test\/i\/[0-9a-f-]{36}\.[0-9a-z]{5,8}\.[A-Za-z0-9_-]{32}$/);
     tokA = linkA.split("/i/")[1]!;
     expect(readInvoiceToken(tokA)).toEqual({ id: invA });
-    expect((await sql`select 1 from invoices where id = ${invA} and customer_notified_at is not null`).length).toBe(1);
+    await until(async () => (await sql`select 1 from invoices where id = ${invA} and customer_notified_at is not null`).length === 1); // marked once the hub said yes
     // a customer without a chat: nothing sent, nothing marked
     const before = hubCalls.length, invB = await issued(custB);
     await new Promise((r) => setTimeout(r, 100));
