@@ -102,7 +102,7 @@ describe("D-182 the CEO retires an account in use", () => {
     expect(r.status, JSON.stringify(r.json)).toBe(200); expect(r.json.result).toBe("off");
     expect([await bal("13111"), (await bal("13110")) - before]).toEqual([0, 150000]);
     expect((await sql<{ code: string; acc: string }[]>`select ci.code, a.code as acc from catalog_items ci join accounts a on a.id = ci.inventory_account_id where ci.id = ${item}`)[0]).toMatchObject({ acc: "13110" });
-    expect((await sql<{ code: string }[]>`select code from catalog_items where id = ${item}`)[0]!.code).toMatch(/^13110\d{2}$/);
+    expect((await sql<{ code: string }[]>`select code from catalog_items where id = ${item}`)[0]!.code).toMatch(/^1311\d{2}$/); // D-197: 13110 × 10 + n
     expect((await sql<{ a: boolean }[]>`select is_active as a from accounts where id = ${a}`)[0]!.a).toBe(false);
     expect(await sql`select 1 from journal_entries where company_id = ${s.a} and source = 'manual' and memo = '13111 → 13110'`).toHaveLength(1);
     expect(await tbDiff()).toBe(0);
