@@ -47,7 +47,7 @@ beforeAll(async () => {
   d = (n: number) => new Date(Date.parse(`${today}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
   expect((await acc(cfo, "/opening", { date: d(-10), cash_usd: 500000 })).status).toBe(200); // the books start 10 days ago → dated entries below
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី ខ្មែរ", phones: ["012 111 222"], zone: "inside" })).json.id;
-  const cp = await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 16mm (16*0.72)", kind: "product", category: "mep", unit: "ម៉ែត្រ", sell_price: 1500, code: "1340001", inventory_account_id: await account("13400") });
+  const cp = await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 16mm (16*0.72)", kind: "product", category: "mep", unit: "ម៉ែត្រ", sell_price: 1500, code: "134001", inventory_account_id: await account("13400") });
   expect(cp.json, JSON.stringify(cp.json)).toHaveProperty("id"); copper = cp.json.id;
   const in1 = await inv(admin, "/in", { item_id: copper, qty: 10, unit_cost: 1000, pay: "cash_usd", date: d(-6) }); // 10 m @ $10
   expect(in1.json, JSON.stringify(in1.json)).toMatchObject({ created: false });
@@ -212,7 +212,7 @@ describe("COA — the owner's sample (three sheets)", () => {
 describe("the other reports (smoke)", () => {
   it("stock balance as-of: before the withdrawals the copper shows 10, after 4; stock moves filtered by kind", async () => {
     const before = await xl(admin, "stock-balance", { asof: d(-4) }), after = await xl(admin, "stock-balance", { asof: today });
-    expect(num(findRow(before.rows, (x) => x[0] === "1340001")![5])).toBe(10); expect(num(findRow(after.rows, (x) => x[0] === "1340001")![5])).toBe(4);
+    expect(num(findRow(before.rows, (x) => x[0] === "134001")![5])).toBe(10); expect(num(findRow(after.rows, (x) => x[0] === "134001")![5])).toBe(4);
     expect((await xl(admin, "stock-moves", { from: d(-7), to: today, kind: "out" })).rowsHeader).toBe(2);
     expect((await xl(admin, "stock-moves", { from: d(-7), to: today })).rowsHeader).toBe(4);
   });

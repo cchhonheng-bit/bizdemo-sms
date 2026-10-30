@@ -51,7 +51,7 @@ describe("D-178 one account map, by id", () => {
 
   it("receive stock → the item's own stock account; stock out → cost of goods 50001; the consumables' stock (map «inventory») → 50005", async () => {
     const r = (await inv(admin, "/in", { name: "Daikin 1 HP", account_id: (await account("13210")).id, qty: 2, total: 60000, pay: "cash_usd" })).json;
-    expect(await item(r.item_id)).toEqual({ code: "1321001", acc: "13210" });
+    expect(await item(r.item_id)).toEqual({ code: "132101", acc: "13210" });
     expect(await bal("13210")).toBe(60000);
     expect((await inv(admin, "/out", { item_id: r.item_id, qty: 1, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
     expect([await bal("13210"), await bal("50001")]).toEqual([30000, 30000]);
@@ -61,12 +61,12 @@ describe("D-178 one account map, by id", () => {
   });
 
   it("the account's code / name change in Accounting → the item code, the stock card, the journal and the exports show the new code at once (ids kept)", async () => {
-    const a = await account("13210"), it0 = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '1321001'`)[0]!.id;
+    const a = await account("13210"), it0 = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '132101'`)[0]!.id;
     const r = await acc(cfo, "/accounts", { id: a.id, code: "13250", name_km: "ម៉ាស៊ីនត្រជាក់ Daikin (ថ្មី)", type: "asset" }); // used + holds an item: a recode is allowed
     expect(r.status).toBe(200); expect(r.json.recoded_items).toBe(1);
-    expect(await item(it0)).toEqual({ code: "1325001", acc: "13250" });
+    expect(await item(it0)).toEqual({ code: "132501", acc: "13250" });
     const stock = (await inv(admin, "/items")).json as any[];
-    expect(stock.find((x) => x.item_id === it0)).toMatchObject({ code: "1325001", account_code: "13250", account_name: "ម៉ាស៊ីនត្រជាក់ Daikin (ថ្មី)" });
+    expect(stock.find((x) => x.item_id === it0)).toMatchObject({ code: "132501", account_code: "13250", account_name: "ម៉ាស៊ីនត្រជាក់ Daikin (ថ្មី)" });
     const tb = (await acc(cfo, `/trial-balance?to=${today}`)).json;
     expect(tb.rows.find((x: any) => x.code === "13250")?.balance).toBe(30000);
     expect(tb.rows.some((x: any) => x.code === "13210")).toBe(false);
@@ -75,16 +75,16 @@ describe("D-178 one account map, by id", () => {
     const x = await app.inject({ method: "GET", url: `/api/export/stock-moves.xlsx?from=${today}&to=${today}`, headers: { cookie: admin.cookie! } });
     expect(x.statusCode).toBe(200);
     const rows = readWorkbook(x.rawPayload)[0]!.rows.flat().join(" ");
-    expect(rows).toContain("13250"); expect(rows).toContain("1325001"); expect(rows).not.toContain("1321001");
+    expect(rows).toContain("13250"); expect(rows).toContain("132501"); expect(rows).not.toContain("132101");
     expect((await acc(cfo, "/accounts", { id: a.id, code: "13250", name_km: "x", type: "expense" })).json.error).toBe("ACCOUNT_USED"); // the type stays
   });
 
   it("an item remapped to another stock account: new movements use the new account (new code), the old ones keep theirs", async () => {
-    const it0 = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '1325001'`)[0]!.id;
+    const it0 = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '132501'`)[0]!.id;
     const to = await account("13220");
     const r = await ceo.req("POST", "/api/catalog", { id: it0, name_km: "Daikin 1 HP", kind: "product", category: "mep", unit: "unit", sell_price: 100, inventory_account_id: to.id });
     expect(r.status, JSON.stringify(r.json)).toBe(200);
-    expect(await item(it0)).toEqual({ code: "1322001", acc: "13220" });
+    expect(await item(it0)).toEqual({ code: "132201", acc: "13220" });
     expect((await inv(admin, "/in", { item_id: it0, qty: 1, total: 32000, pay: "cash_usd" })).status).toBe(200);
     expect([await bal("13250"), await bal("13220")]).toEqual([30000, 32000]); // the old receipt and stock out stay on 13250
     const moves = await sql<{ code: string }[]>`select a.code from stock_moves m join accounts a on a.id = m.account_id where m.item_id = ${it0} order by m.id`;

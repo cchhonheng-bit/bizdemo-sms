@@ -6,6 +6,7 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { books, post } from "./accounting.js";
 import { itemRemoval, removeItem } from "./inventory.js";
+import { legacyN, subCode } from "./catalog.js";
 import { setLineKind } from "./invoices.js";
 import { CHART, OLD_TO_NEW, isSubCodeAccount, replaceChart, seedParent, typeOfCode, updateChartV2, type Role } from "./chart.js";
 
@@ -188,6 +189,37 @@ export async function stockItemRemoveCli(slug: string, codes: string[], apply: b
     out.push(`  ${code} «${r.name}»: ${r.action === "delete" ? "deleted (never used)" : "switched off (has history)"}${apply ? " ✓" : ""}`);
   }
   return out;
+}
+
+/** `node dist/cli.mjs item-codes-6 <slug> [--apply]` (D-197, client 30-10): the stock items' D-165 codes (account + 2 digits: 1311001,
+ *  1360010) → 6 digits (account × 10 + n: 131101, 136010) in ONE transaction as HangKH Support; ids stay, so stock, invoices and the books
+ *  follow; a target another item already holds is reported and left alone; idempotent (nothing left → «nothing to do») */
+export async function itemCodes6Cli(slug: string, apply: boolean): Promise<string[]> {
+  const co = (await sql<{ id: string; name: string }[]>`select id, name from companies where slug = ${slug}`)[0];
+  if (!co) throw new Error(`company "${slug}" not found`);
+  const u = (await sql<{ id: string; full_name: string }[]>`select id, full_name from users where company_id = ${co.id} and is_platform and is_active order by created_at limit 1`)[0];
+  if (!u) throw new Error("this shop has no active HangKH Support account (users.is_platform)");
+  const out = [`${co.name} (${slug}) · as ${u.full_name}${apply ? "" : " · DRY RUN — nothing is written (add --apply)"}`];
+  return tx(u.id, async (t) => {
+    const rows = await t<{ id: string; code: string; name: string; acct: string }[]>`select i.id, i.code, i.name_km as name, a.code as acct from catalog_items i
+      join accounts a on a.id = i.inventory_account_id where i.company_id = ${co.id} and a.sub_codes and i.code is not null order by a.code, i.code for update of i`;
+    const plan = rows.flatMap((r) => { const n = legacyN(r.acct, r.code); return n ? [{ ...r, to: subCode(r.acct, n) }] : []; });
+    const held = new Set(rows.filter((r) => !plan.some((p) => p.id === r.id)).map((r) => r.code));
+    for (const r of await t<{ code: string }[]>`select code from catalog_items where company_id = ${co.id} and code is not null and (inventory_account_id is null or inventory_account_id not in (select id from accounts where company_id = ${co.id} and sub_codes))`) held.add(r.code);
+    const seen = new Set<string>();
+    let moved = 0, refused = 0;
+    for (const p of plan) {
+      if (held.has(p.to) || seen.has(p.to)) { refused++; out.push(`  ${p.code} → ${p.to} «${p.name}»: ${p.to} is taken — left as it is`); continue; }
+      seen.add(p.to); moved++;
+      out.push(`  ${p.code} → ${p.to} «${p.name}»${apply ? " ✓" : ""}`);
+      if (apply) {
+        await t`update catalog_items set code = ${p.to} where id = ${p.id}`;
+        await audit(t, { companyId: co.id, userId: u.id, action: "catalog.recode", table: "catalog_items", rowId: p.id, old: { code: p.code }, new: { code: p.to }, ip: null });
+      }
+    }
+    out.push(plan.length ? `${moved} item(s) ${apply ? "re-coded" : "to re-code"}${refused ? ` · ${refused} left (code taken)` : ""}` : "nothing to do — every sub code has 6 digits");
+    return out;
+  });
 }
 
 /** `node dist/cli.mjs invoice-line-kind <slug> <invoice number> <line #> <service|product> [--apply]` (D-184): the invoice screen's «ប្ដូរជាទំនិញ / សេវា»

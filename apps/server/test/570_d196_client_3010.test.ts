@@ -9,6 +9,8 @@ import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
 import { hashPassword } from "../src/lib/password.js";
 import { invoiceToken } from "../src/services/invoice-pay.js";
+import { ensureChart } from "../src/services/accounting.js";
+import { itemCodes6Cli } from "../src/services/chart-replace.js";
 
 let app: FastifyInstance; let s: Seed;
 let ceo: Client, gm: Client, admin: Client, kim: Client, cfo: Client, ceoB: Client;
@@ -120,5 +122,37 @@ describe("D-196 the client's 30-10 requests", () => {
     expect((await admin.req("POST", `/api/bookings/${two}/review`, { decision: "approve" })).status).toBe(403);
     expect((await ceo.req("GET", "/api/settings/review-substitute")).json.active).toBe(false);
     expect((await gm.req("POST", `/api/bookings/${two}/review`, { decision: "approve" })).status).toBe(200); // the GM always can
+  });
+});
+
+// D-197 (client 30-10): stock item sub codes have 6 digits — the account code × 10 + n: 13110 → 131101 … 131109, 131110 …; 13600's
+// tenth item = 136010 (not 1360010). `item-codes-6` re-codes the D-165 codes a shop already holds, once, as HangKH Support.
+describe("D-197 six-digit stock codes", () => {
+  it("next code = account × 10 + n (old codes count); item-codes-6: dry run, apply in one go (audited), then nothing to do", async () => {
+    await ensureChart(sql, s.a);
+    const acc = async (code: string) => (await sql<{ id: string }[]>`select id from accounts where company_id = ${s.a} and code = ${code}`)[0]!.id;
+    const a1 = await acc("13110"), a6 = await acc("13600");
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1}`)).json.code).toBe("131101");
+    // what a shop holds from D-165: 1311001, 1311002 and 1360001 … 1360010 (made here with the new rule, then set back to the old form)
+    const old = [["1311001", a1], ["1311002", a1], ...Array.from({ length: 10 }, (_, k) => [`13600${String(k + 1).padStart(2, "0")}`, a6])] as [string, string][];
+    for (const [code, account] of old) {
+      const next = (await ceo.req("GET", `/api/catalog/next-code?account=${account}`)).json.code;
+      const r = await ceo.req("POST", "/api/catalog", { name_km: `ទំនិញ ${code}`, kind: "product", category: "mep", unit: "គ្រឿង", sell_price: 100, code: next, inventory_account_id: account });
+      expect(r.status, JSON.stringify(r.json)).toBe(200);
+      await sql`update catalog_items set code = ${code} where id = ${r.json.id}`;
+    }
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1}`)).json.code).toBe("131103");
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a6}`)).json.code).toBe("136011"); // 10 → 136010, so the next is 136011 (6 digits)
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, code: "1311003", inventory_account_id: a1 })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // no new 7-digit code
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, code: "131201", inventory_account_id: a1 })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // n = 101: outside
+    await sql`insert into users (company_id, username, full_name, role, phone, password_hash, must_change_password, is_platform) values (${s.a}, 'support', 'HangKH Support', 'ceo', '+85512000099', ${await hashPassword(PW)}, false, true)`;
+    const dry = await itemCodes6Cli("oneteam", false);
+    expect(dry.join("\n")).toContain("1311001 → 131101"); expect(dry.join("\n")).toContain("1360010 → 136010"); expect(dry.at(-1)).toBe("12 item(s) to re-code");
+    expect((await sql`select 1 from catalog_items where company_id = ${s.a} and code = '1360010'`).length).toBe(1); // nothing written
+    expect((await itemCodes6Cli("oneteam", true)).at(-1)).toBe("12 item(s) re-coded");
+    const codes = (await sql<{ code: string }[]>`select code from catalog_items where company_id = ${s.a} and inventory_account_id in (${a1}, ${a6}) order by code`).map((r) => r.code);
+    expect(codes).toEqual(["131101", "131102", "136001", "136002", "136003", "136004", "136005", "136006", "136007", "136008", "136009", "136010"]);
+    expect((await sql`select 1 from audit_log where action = 'catalog.recode'`).length).toBe(12);
+    expect((await itemCodes6Cli("oneteam", true)).at(-1)).toBe("nothing to do — every sub code has 6 digits");
   });
 });

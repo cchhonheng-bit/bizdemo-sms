@@ -55,7 +55,7 @@ describe("weighted-average cost (integer cents, exact to the last cent)", () => 
     expect((await inv(admin, "/in", { item_id: pipe, qty: 1, unit_cost: 500, opening: true })).json.error).toBe("OPENING_EXISTS");
     expect((await inv(admin, "/in", { item_id: pipe, qty: 10, unit_cost: 600, supplier: "ហាងដែក", pay: "cash_usd" })).status).toBe(200); // 10 × $6
     let i = await item(pipe);
-    expect(i).toMatchObject({ qty: 20, value: 11000, avg_cost: 550, code: "1450001", account_code: "14500" });
+    expect(i).toMatchObject({ qty: 20, value: 11000, avg_cost: 550, code: "145001", account_code: "14500" });
     expect((await inv(admin, "/adjust", { item_id: pipe, qty: -5, reason: "ខូច" })).status).toBe(200);
     i = await item(pipe);
     expect(i).toMatchObject({ qty: 15, value: 8250 });

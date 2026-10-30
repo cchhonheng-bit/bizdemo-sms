@@ -53,21 +53,21 @@ describe("5 · item codes on the client's scheme (D-165: the account code + 2 di
     expect((await sql<{ n: number }[]>`select count(*)::int as n from catalog_items where company_id = ${s.a} and is_stock`)[0]!.n).toBe(0);
   });
 
-  it("sub codes: 13110 → 1311001, then 1311002; 13400 → 1340001; the code is editable inside the parent's range, unique; outside is refused", async () => {
+  it("sub codes: 13110 → 131101, then 131102; 13400 → 134001; the code is editable inside the parent's range, unique; outside is refused", async () => {
     const a1 = await account("13110"), a4 = await account("13400");
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json).toEqual({ code: "1311001", sub_codes: true, taken: false });
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a4.id}`)).json).toEqual({ code: "1340001", sub_codes: true, taken: false });
-    expect((await product("ទុយោស្ពាន់ 16mm", { code: "1340001", inventory_account_id: a4.id, unit: "m" })).status).toBe(200); // the copper the later tests use
-    expect((await product("Panasonic 1.5 HP", { code: "1311001", inventory_account_id: a1.id })).status).toBe(200);
-    expect(await itemByCode("1311001")).toMatchObject({ is_stock: true, acc: "13110" }); // D-144: never in the price list
-    expect(((await ceo.req("GET", "/api/catalog")).json as any[]).some((i) => i.code === "1311001")).toBe(false);
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json.code).toBe("1311002");
-    expect((await product("Panasonic 2 HP", { code: "1311004", inventory_account_id: a1.id })).status).toBe(200); // edited by hand, still under 13110
-    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json.code).toBe("1311005");
-    expect((await product("x", { code: "1311004", inventory_account_id: a1.id })).json.error).toBe("CODE_TAKEN");
-    expect((await product("x", { code: "1312001", inventory_account_id: a1.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT");
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json).toEqual({ code: "131101", sub_codes: true, taken: false });
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a4.id}`)).json).toEqual({ code: "134001", sub_codes: true, taken: false });
+    expect((await product("ទុយោស្ពាន់ 16mm", { code: "134001", inventory_account_id: a4.id, unit: "m" })).status).toBe(200); // the copper the later tests use
+    expect((await product("Panasonic 1.5 HP", { code: "131101", inventory_account_id: a1.id })).status).toBe(200);
+    expect(await itemByCode("131101")).toMatchObject({ is_stock: true, acc: "13110" }); // D-144: never in the price list
+    expect(((await ceo.req("GET", "/api/catalog")).json as any[]).some((i) => i.code === "131101")).toBe(false);
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json.code).toBe("131102");
+    expect((await product("Panasonic 2 HP", { code: "131104", inventory_account_id: a1.id })).status).toBe(200); // edited by hand, still under 13110
+    expect((await ceo.req("GET", `/api/catalog/next-code?account=${a1.id}`)).json.code).toBe("131105");
+    expect((await product("x", { code: "131104", inventory_account_id: a1.id })).json.error).toBe("CODE_TAKEN");
+    expect((await product("x", { code: "131201", inventory_account_id: a1.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT");
     expect((await product("x auto", { inventory_account_id: a1.id })).status).toBe(200); // D-178: no code → the account code + the next free 2 digits
-    expect(await itemByCode("1311005")).toMatchObject({ name_km: "x auto", acc: "13110" });
+    expect(await itemByCode("131105")).toMatchObject({ name_km: "x auto", acc: "13110" });
   });
 
   it("an account switched to «no sub codes» IS its one item (code = the account code); the flag is saved by the account form", async () => {
@@ -87,7 +87,7 @@ describe("4 · stock in as a direct entry, stock out to a technician (D-144: the
     const r = await inv(admin, "/in", { name: "ស្កុតបិទ", account_id: a18.id, unit: "pcs", qty: 7.5, unit_cost: 40, pay: "cash_usd" });
     expect(r.json).toMatchObject({ created: true, total: 300, balance: 7.5 }); // (a 500 prints its message here)
     expect(r.status).toBe(200);
-    expect(await itemByCode("1450001")).toMatchObject({ is_stock: true, track_stock: true, acc: "14500" });
+    expect(await itemByCode("145001")).toMatchObject({ is_stock: true, track_stock: true, acc: "14500" });
     expect(await stockOf(r.json.item_id)).toMatchObject({ qty: 7.5, value: 300, account_code: "14500" });
     const svc = (await ceo.req("POST", "/api/catalog", { name_km: "ជួសជុល", kind: "service", category: "mep", unit: "job", sell_price: 3000 })).json.id;
     expect((await inv(admin, "/in", { item_id: svc, qty: 1, unit_cost: 1, pay: "cash_usd" })).json.error).toBe("NOT_STOCK_ITEM");
@@ -95,7 +95,7 @@ describe("4 · stock in as a direct entry, stock out to a technician (D-144: the
   });
 
   it("a job's copper leaves the warehouse when the Admin records the technician's collection (job BK); a sale by the place", async () => {
-    const pipe = (await itemByCode("1340001"))!.id;
+    const pipe = (await itemByCode("134001"))!.id;
     expect((await inv(admin, "/in", { item_id: pipe, qty: 10, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
     const g0 = await bal("50001");
     const job = await jobFor(inside, "ដំឡើង", 40);
@@ -117,9 +117,9 @@ describe("3 · the technician's list has no stock item; «ការងារ/ស
     await sql`update bookings set scheduled_at = ${new Date(start)}, ends_at = ${new Date(start + 2 * H)} where id = ${job}`;
     for (const step of ["depart", "arrive"]) expect((await kim.req("POST", `/api/bookings/${job}/checkpoint`, { step, no_gps: true })).status).toBe(200);
     const list = (await kim.req("GET", "/api/catalog")).json as any[];
-    expect(list.some((i) => i.code === "1340001" || i.is_stock)).toBe(false);
+    expect(list.some((i) => i.code === "134001" || i.is_stock)).toBe(false);
     expect(list.some((i) => i.id === copper)).toBe(true);
-    const ac = (await product("Panasonic 1 HP", { code: "1311002", unit: "គ្រឿង", sell_price: 45000, inventory_account_id: (await account("13110")).id })).json.id; // a stock item, no stock yet
+    const ac = (await product("Panasonic 1 HP", { code: "131102", unit: "គ្រឿង", sell_price: 45000, inventory_account_id: (await account("13110")).id })).json.id; // a stock item, no stock yet
     expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: ac, qty: 1 })).json.error).toBe("SERVICE_NOT_FOUND");
     expect((await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "service", item_id: copper, qty: 4 })).status).toBe(200);
     const x = await kim.req("POST", `/api/bookings/${job}/extras`, { kind: "other", description: "ខ្សែភ្លើង 2.5", qty: 20, unit: "ម៉ែត្រ" });
@@ -161,8 +161,8 @@ describe("1 · «ចង់ទិញម៉ាស៊ីនត្រជាក់» 
 
 describe("6 · the accounting view of an invoice — the $500 example", () => {
   let invoiceId: string;
-  it("AC $450 (item 1311002 on 13110, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13110 300", async () => {
-    const ac = (await itemByCode("1311002"))!.id;
+  it("AC $450 (item 131102 on 13110, cost $300, handed to the technician by the Admin) + service $50, paid $450 by ACLEDA → Dr 11002 450 · Dr 12002 50 · Cr 40001 450 · Cr 40002 50; the stock out: Dr 50001 300 / Cr 13110 300", async () => {
+    const ac = (await itemByCode("131102"))!.id;
     expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់" })).status).toBe(200);
     const before = Object.fromEntries(await Promise.all(["11002", "12002", "40001", "40002", "50001", "13110"].map(async (c) => [c, await bal(c)])));
     expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, place: "ក្រៅបុរី ផ្ទះ 7" })).json.balance).toBe(1);
@@ -202,8 +202,8 @@ describe("6 · the accounting view of an invoice — the $500 example", () => {
 });
 
 describe("D-143 · the cost account follows the item's group", () => {
-  it("job BK: AC 1311002 + copper 1340001 handed out → Dr 50001 for both (D-175); the job's invoice with both lines moves nothing", async () => {
-    const ac = (await itemByCode("1311002"))!.id, pipe = (await itemByCode("1340001"))!.id;
+  it("job BK: AC 131102 + copper 134001 handed out → Dr 50001 for both (D-175); the job's invoice with both lines moves nothing", async () => {
+    const ac = (await itemByCode("131102"))!.id, pipe = (await itemByCode("134001"))!.id;
     const b0 = Object.fromEntries(await Promise.all(["50001", "50005", "13110", "13400"].map(async (c) => [c, await bal(c)])));
     const job = await jobFor(outside, "ដំឡើងម៉ាស៊ីនត្រជាក់", 80);
     expect((await inv(admin, "/out", { item_id: ac, qty: 1, technician_id: s.users.kim, booking_id: job })).json.balance).toBe(0);
@@ -234,7 +234,7 @@ describe("7 · month-end stock check", () => {
     const by = Object.fromEntries(r.json.accounts.map((a: any) => [a.code, a]));
     expect(by["13110"]).toMatchObject({ qty: 0, value: 0, balance: 0, difference: 0 }); // after D-143's job took the last AC
     expect(by["13400"]).toMatchObject({ qty: 3, value: 600, balance: 600, difference: 0 });
-    expect(by["13400"].items.map((i: any) => i.code)).toContain("1340001");
+    expect(by["13400"].items.map((i: any) => i.code)).toContain("134001");
     expect(r.json.difference).toBe(0);
     expect(r.json.stock_total).toBe(r.json.books_total);
     // a hand entry on 13001 without stock behind it → the check shows the gap

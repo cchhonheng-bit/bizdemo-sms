@@ -27,7 +27,7 @@ import { listBots, publicBot, setBot, webhookInfo } from "./hub/bots.js";
 import { ALERT_KINDS, sendAlert, type AlertKind } from "./hub/alerts.js";
 import { seedWebCatalog } from "./services/catalog.js";
 import { shopSetup } from "./services/shop-setup.js";
-import { chartReplaceCli, chartUpdateCli, chartV3Cli, invoiceLineKindCli, stockItemRemoveCli } from "./services/chart-replace.js";
+import { chartReplaceCli, chartUpdateCli, chartV3Cli, invoiceLineKindCli, itemCodes6Cli, stockItemRemoveCli } from "./services/chart-replace.js";
 
 async function createCompany(name: string, slug: string, opts: { ceoName?: string; support?: boolean }) {
   if (!/^[a-z0-9-]{2,40}$/.test(slug)) throw new Error("slug: a-z 0-9 - (2–40)");
@@ -248,6 +248,11 @@ async function main() {
       const k = a[3];
       if (!a[0] || !a[1] || !(Number(a[2]) > 0) || (k !== "service" && k !== "product")) throw new Error("usage: invoice-line-kind <slug> <invoice number> <line #> <service|product> [--apply]");
       for (const line of await invoiceLineKindCli(a[0], a[1], Number(a[2]), k, a.includes("--apply"))) console.log(line);
+      break;
+    }
+    case "item-codes-6": { // D-197: stock item sub codes 1311001 → 131101 (account × 10 + n, 6 digits); --apply writes
+      if (!a[0] || a[0].startsWith("--")) throw new Error("usage: item-codes-6 <slug> [--apply]");
+      for (const line of await itemCodes6Cli(a[0], a.includes("--apply"))) console.log(line);
       break;
     }
     case "list-companies": {

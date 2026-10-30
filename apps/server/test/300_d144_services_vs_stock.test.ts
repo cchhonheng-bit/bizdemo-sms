@@ -59,7 +59,7 @@ beforeAll(async () => {
     ((now() at time zone 'Asia/Phnom_Penh')::date - 3)::text as d3`)[0]!;
   today = d.t; yesterday = d.y; d3 = d.d3;
   a14000 = await account("13400"); a13001 = await account("13110");
-  ac = (await ceo.req("POST", "/api/catalog", { name_km: "Panasonic 1 HP", kind: "product", category: "mep", unit: "គ្រឿង", sell_price: 45000, code: "1311001", inventory_account_id: a13001 })).json.id; // a stock item without stock (D-165: no account is its own item)
+  ac = (await ceo.req("POST", "/api/catalog", { name_km: "Panasonic 1 HP", kind: "product", category: "mep", unit: "គ្រឿង", sell_price: 45000, code: "131101", inventory_account_id: a13001 })).json.id; // a stock item without stock (D-165: no account is its own item)
   inside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្នុងបុរី", phones: ["012 111 222"], zone: "inside" })).json.id;
   outside = (await ceo.req("POST", "/api/customers", { ...PLACE, name: "ក្រៅបុរី", phones: ["012 111 333"], zone: "outside" })).json.id;
   svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "unit", sell_price: 1500, duration_min: 60 })).json.id;
@@ -75,7 +75,7 @@ describe("A · the price list and the stock are separate", () => {
     for (const c of [ceo, admin, kim]) {
       const list = (await c.req("GET", "/api/catalog")).json as any[];
       expect(list.some((i) => i.id === copper)).toBe(true);
-      expect(list.some((i) => i.id === ac || i.code === "1311001" || i.is_stock)).toBe(false); // the stock lives on the stock page
+      expect(list.some((i) => i.id === ac || i.code === "131101" || i.is_stock)).toBe(false); // the stock lives on the stock page
     }
     expect(((await ceo.req("GET", "/api/catalog")).json as any[]).find((i) => i.id === copper)).toMatchObject({ stock_link_account_id: a14000, is_stock: false });
     expect(((await inv(admin, "/items")).json as any[]).some((i) => i.item_id === ac)).toBe(true);
@@ -88,9 +88,9 @@ describe("A · the price list and the stock are separate", () => {
     expect(r.status).toBe(200);
     expect(r.json).toMatchObject({ created: true, total: 2000, balance: 10 });
     pipe = r.json.item_id;
-    expect(await itemByCode("1340001")).toMatchObject({ id: pipe, is_stock: true });
+    expect(await itemByCode("134001")).toMatchObject({ id: pipe, is_stock: true });
     expect(((await ceo.req("GET", "/api/catalog")).json as any[]).some((i) => i.id === pipe)).toBe(false);
-    expect(await stockOf(pipe)).toMatchObject({ code: "1340001", qty: 10, value: 2000, avg_cost: 200, account_code: "13400", unit: "ម៉ែត្រ" });
+    expect(await stockOf(pipe)).toMatchObject({ code: "134001", qty: 10, value: 2000, avg_cost: 200, account_code: "13400", unit: "ម៉ែត្រ" });
     const again = await inv(admin, "/in", { name: "ទុយោស្ពាន់ 6mm", account_id: a14000, qty: 5, unit_cost: 200, pay: "cash_usd" });
     expect(again.json).toMatchObject({ created: false, item_id: pipe, total: 1000, balance: 15 });
     expect((await inv(admin, "/in", { item_id: ac, qty: 2, unit_cost: 30000, pay: "credit", supplier: "ហាងម៉ាស៊ីនត្រជាក់", supplier_kind: "ac" })).json).toMatchObject({ created: false, total: 60000, balance: 2 });

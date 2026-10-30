@@ -43,14 +43,21 @@ function diff(old: Partial<Item> | null, next: Partial<Item>): { old: Record<str
   }
   return Object.keys(n).length ? { old: o, new: n } : null;
 }
-/** D-142 (the client's scheme): an item on a stock account follows the account's code scheme — sub codes: the account's digits without
- *  trailing zeros + 3 digits (14000 → 14001 …); no sub codes: the account code itself, and only one item on that account */
+/** D-197 (client 30-10): a sub code = the account code × 10 + n (n = 1 … 99) — always 6 digits: 13110 → 131101 … 131109, 131110 …;
+ *  13600's tenth item = 136010, not 1360010. (D-165's «account + 2 digits» form is what `item-codes-6` re-codes.) */
+export const subCode = (account: string, n: number) => String(Number(account) * 10 + n);
+/** n of a 6-digit sub code under this account, else 0 */
+export const subN = (account: string, code: string) => { if (!/^\d{6}$/.test(code)) return 0; const n = Number(code) - Number(account) * 10; return n >= 1 && n <= 99 ? n : 0; };
+/** n of a D-165 code (account + 2 digits: 1311001), else 0 */
+export const legacyN = (account: string, code: string) => (code.length === account.length + 2 && code.startsWith(account) && /^\d{2}$/.test(code.slice(account.length)) ? Number(code.slice(account.length)) : 0);
+/** D-142 (the client's scheme): an item on a stock account follows the account's code scheme — sub codes (D-197: account × 10 + n);
+ *  no sub codes: the account code itself, and only one item on that account. An item may keep a D-165 code it already has. */
 export async function assertCodeOnAccount(db: Db, companyId: string, accountId: string, code: string | null, exceptId: string | null) {
   const a = (await db<{ code: string; sub_codes: boolean }[]>`select code, sub_codes from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
   if (!a) return;
   if (a.sub_codes) {
-    const prefix = a.code; // D-165: the code = the account code + 2 digits (13110 → 1311001)
-    if (!code || !new RegExp(`^${prefix}[0-9]{2}$`).test(code)) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix, example: `${prefix}01` });
+    const kept = !!code && !!exceptId && legacyN(a.code, code) > 0 && (await db`select 1 from catalog_items where id = ${exceptId} and code = ${code}`).length > 0;
+    if (!code || (!subN(a.code, code) && !kept)) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix: a.code, example: subCode(a.code, 1) });
   } else {
     if (code !== a.code) throw new AppError("CODE_NOT_IN_ACCOUNT", 400, { prefix: a.code, example: a.code });
     if ((await db`select 1 from catalog_items where company_id = ${companyId} and inventory_account_id = ${accountId} ${exceptId ? db`and id <> ${exceptId}` : db``}`).length) throw new AppError("ONE_ITEM_PER_CODE", 409);
@@ -61,9 +68,13 @@ export async function nextItemCode(db: Db, companyId: string, accountId: string)
   const a = (await db<{ code: string; sub_codes: boolean; is_group: boolean; type: string }[]>`select code, sub_codes, is_group, type::text as type from accounts where id = ${accountId} and company_id = ${companyId}`)[0];
   if (!a || a.is_group || a.type !== "asset" || !(await isStockAccount(db, companyId, accountId))) throw new AppError("NOT_STOCK_ACCOUNT", 400); // D-178: under a mapped stock header
   if (!a.sub_codes) return { code: a.code, sub_codes: false, taken: (await db`select 1 from catalog_items where company_id = ${companyId} and code = ${a.code}`).length > 0 };
-  const prefix = a.code; // D-165: the code = the account code + 2 digits (13110 → 1311001)
-  const last = (await db<{ n: number }[]>`select coalesce(max(substr(code, ${prefix.length + 1})::int), 0)::int as n from catalog_items where company_id = ${companyId} and code ~ ${`^${prefix}[0-9]{2}$`}`)[0]!.n;
-  return { code: `${prefix}${String(last + 1).padStart(2, "0")}`, sub_codes: true, taken: false };
+  // D-197: the next n after the account's own items (old D-165 codes count too), skipping a code another item holds
+  const own = (await db<{ code: string }[]>`select code from catalog_items where company_id = ${companyId} and inventory_account_id = ${accountId} and code is not null`).map((r) => r.code);
+  for (let n = Math.max(0, ...own.map((c) => subN(a.code, c) || legacyN(a.code, c))) + 1; n <= 99; n++) {
+    const code = subCode(a.code, n);
+    if (!(await db`select 1 from catalog_items where company_id = ${companyId} and code = ${code}`).length) return { code, sub_codes: true, taken: false };
+  }
+  throw new AppError("CODES_FULL", 409);
 }
 async function codeFree(db: Db, companyId: string, code: string | null, exceptId: string | null) {
   if (!code) return;

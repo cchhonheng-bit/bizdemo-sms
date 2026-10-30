@@ -93,8 +93,8 @@ describe("D-141 postings on the new codes", () => {
     const pipeAcc = await code("13400");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("50001")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
     expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, inventory_account_id: (await code("13000")).id })).json.error).toBe("NOT_STOCK_ACCOUNT");
-    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, code: "1350001", inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
-    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "1340001", inventory_account_id: pipeAcc.id })).json.id;
+    expect((await ceo.req("POST", "/api/catalog", { name_km: "x", kind: "product", category: "mep", unit: "m", sell_price: 1, code: "135001", inventory_account_id: pipeAcc.id })).json.error).toBe("CODE_NOT_IN_ACCOUNT"); // D-142: 14001 …
+    const pipe = (await ceo.req("POST", "/api/catalog", { name_km: "ទុយោស្ពាន់ 10mm", kind: "product", category: "mep", unit: "m", sell_price: 500, code: "134001", inventory_account_id: pipeAcc.id })).json.id;
     const b0 = await Promise.all(["13400", "14500", "50005", "50001", "11001"].map(bal));
     expect((await admin.req("POST", "/api/inventory/in", { item_id: pipe, qty: 20, unit_cost: 200, pay: "cash_usd" })).status).toBe(200);
     expect((await admin.req("POST", "/api/inventory/in", { name: "ស្កុតបិទ", account_id: (await code("14500")).id, unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).status).toBe(200); // D-144: made on its first entry
