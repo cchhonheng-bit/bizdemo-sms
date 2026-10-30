@@ -96,7 +96,7 @@ describe("D-140 F work added on site", () => {
     await sql`update bookings set status = 'closed', closed_at = now() where id = ${job}`;
     hubCalls.length = 0;
     await customerNotices();
-    const done = hubCalls.find((c) => c.path === "/internal/notify-subscriber" && c.body.subscriber_id === 8001);
+    const done = hubCalls.find((c) => c.path === "/internal/notify-subscriber" && c.body.subscriber_id === 8001 && String(c.body.text).includes("✅ ការងាររួចរាល់")); // D-194: the invoice notice may land here too
     expect(done?.body.text).toContain("✅ ការងាររួចរាល់");
     expect(done?.body.text).toContain("• លាងម៉ាស៊ីនត្រជាក់ ×2");
     expect(done?.body.text).toContain("• ប្ដូរខ្សែភ្លើងចាស់");
