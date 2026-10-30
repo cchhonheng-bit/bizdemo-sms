@@ -307,7 +307,7 @@
       });
     }
     function draw() {
-      $(".pt", box).forEach(function (n) { n.remove(); });
+      $$(".pt", box).forEach(function (n) { n.remove(); });
       photos.forEach(function (b64, i) {
         var d = document.createElement("div"), x = document.createElement("button");
         d.className = "pt"; d.style.backgroundImage = "url(data:image/jpeg;base64," + b64 + ")";
