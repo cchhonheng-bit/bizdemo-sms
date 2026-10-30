@@ -244,7 +244,8 @@ describe("D-195 the invoice reaches every customer of a job", () => {
     const d = (await A.req("GET", `/api/my/bookings/${bk}`)).json;
     expect(d.sig).toBe(`done|${inv}:5000:0`); expect(d.final).toBe(false); expect(d.html).toContain("រង់ចាំការបង់ប្រាក់");
     const p = (await page(`/my/b/${bk}`, A)).body;
-    expect(p.indexOf('id="inv"')).toBeGreaterThan(-1); expect(p.indexOf('id="inv"')).toBeLessThan(p.indexOf('id="tl"'));
+    // D-196 (client): the invoice sits inside the timeline, at its «វិក្កយបត្រ» step — the live update carries it too
+    expect(p.indexOf('class="trk-inv"')).toBeGreaterThan(p.indexOf('id="tl"')); expect(d.html).toContain(`href="/my/invoice/${inv}"`);
     expect(p).toContain(`href="/my/invoice/${inv}"`); expect(p).toContain("មើល / បង់ប្រាក់"); expect(p).toContain("ត្រូវបង់ $50.00");
     const g = await page(`/book/done/${REF}`); // a guest: no cookie
     expect(g.statusCode).toBe(200);

@@ -35,7 +35,7 @@ export async function tellCustomer(bookingId: string, msg: (b: BookingFacts) => 
 /** D-140 F: the job's final lines for «ការងាររួចរាល់» — the issued invoice (booked services, work added on site, materials), «name ×qty» */
 async function finalLines(bookingId: string): Promise<string[]> {
   const rows = await sql<{ description: string; qty: number }[]>`select l.description, l.qty::float as qty from invoices i join invoice_lines l on l.invoice_id = i.id
-    where i.booking_id = ${bookingId} and i.status = 'issued' order by i.issued_at desc nulls last, l.sort limit 12`;
+    where i.booking_id = ${bookingId} and i.status = 'issued' and l.row_type <> 'heading' order by i.issued_at desc nulls last, l.sort limit 12`;
   return rows.map((r) => (r.qty !== 1 ? `${r.description} ×${Number.isInteger(r.qty) ? r.qty : r.qty.toFixed(2)}` : r.description));
 }
 

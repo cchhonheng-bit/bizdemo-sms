@@ -43,7 +43,7 @@ async function invoiceView(companyId: string, id: string) {
       left join bookings b on b.id = i.booking_id
     where i.id = ${id} and i.company_id = ${companyId} and i.status <> 'draft'`)[0];
   if (!i) throw notFound();
-  const lines = (await sql<{ description: string; qty: number; unit: string; unit_price: number }[]>`select description, qty::float as qty, unit, unit_price from invoice_lines
+  const lines = (await sql<{ description: string; qty: number; unit: string; unit_price: number; row_type: "line" | "text" | "heading" }[]>`select description, qty::float as qty, unit, unit_price, row_type from invoice_lines
     where invoice_id = ${id} order by sort, id`).map((l) => ({ ...l, total: Math.round(l.qty * l.unit_price) }));
   const pays = await sql<{ paid_on: string; usd_cents: number; method: PayMethod; live: boolean }[]>`select paid_on::text, usd_cents, method::text as method,
     (voided_at is null and reversal_of is null) as live from payments where invoice_id = ${id} order by created_at, id`;

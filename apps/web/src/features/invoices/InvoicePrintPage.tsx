@@ -30,6 +30,12 @@ export default function InvoicePrintPage() {
   if (q.isError || !q.data) return <ErrorState text={t("app.error")} />;
   const d = q.data;
   const info = { ...DEFAULTS, ...(d.company.company_info ?? {}) } as Record<string, string>;
+  // D-196: how many rows each amount covers — a line + the text rows after it; a text row after a heading (or first) keeps its own empty cell
+  const spans = d.lines.map((l, i) => {
+    if (l.row_type === "heading") return 0;
+    if (l.row_type === "text") { let j = i - 1; while (j >= 0 && d.lines[j]!.row_type === "text") j--; return j >= 0 && d.lines[j]!.row_type !== "heading" ? 0 : 1; }
+    let n = 1; while (i + n < d.lines.length && d.lines[i + n]!.row_type === "text") n++; return n;
+  });
   const crew = bk.data?.technicians ?? [];
   const preparedBy = d.issued_by_name ?? d.created_by_name ?? "";
   const money = (label: string, v: string, strong = false) => (
@@ -78,16 +84,25 @@ export default function InvoicePrintPage() {
             </tr>
           </thead>
           <tbody>
-            {d.lines.map((l, i) => (
-              <tr key={l.id ?? i} className="align-top">
-                <td className="p-2 text-center">{i + 1}</td>
-                <td className="p-2 break-words">{l.description}</td>
-                <td className="p-2 text-center">{l.unit && l.unit !== "unit" ? l.unit : ""}</td>
-                <td className="p-2 text-center tabular">{l.qty === 1 && (!l.unit || l.unit === "unit") ? "" : l.qty}</td>
-                <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.unit_price)}</td>
-                <td className="p-2 text-right tabular whitespace-nowrap">{formatUsd(l.line_total ?? 0)}</td>
-              </tr>
-            ))}
+            {/* D-196 (client 30-10): as their Excel — a heading across the table; text rows inside the price of the line above (one total cell for the block); no «$0.00» */}
+            {d.lines.map((l, i) => {
+              const span = spans[i]!, money = (c: number | undefined) => (c ? formatUsd(c) : "");
+              if (l.row_type === "heading") return (
+                <tr key={l.id ?? i}><td className="p-2 text-center">{i + 1}</td>
+                  <td colSpan={5} className="p-2 text-center font-semibold" style={{ background: "#FCE4D6", WebkitPrintColorAdjust: "exact", printColorAdjust: "exact" }}>{l.description}</td></tr>
+              );
+              const lump = l.row_type === "text" || span > 1;
+              return (
+                <tr key={l.id ?? i} className="align-top">
+                  <td className="p-2 text-center">{i + 1}</td>
+                  <td className="p-2 break-words">{l.description}</td>
+                  <td className="p-2 text-center">{!lump && l.unit && l.unit !== "unit" ? l.unit : ""}</td>
+                  <td className="p-2 text-center tabular">{lump || (l.qty === 1 && (!l.unit || l.unit === "unit")) ? "" : l.qty}</td>
+                  <td className="p-2 text-right tabular whitespace-nowrap">{lump ? "" : money(l.unit_price)}</td>
+                  {span > 0 && <td rowSpan={span} className={`p-2 text-right tabular whitespace-nowrap ${span > 1 ? "align-middle" : ""}`}>{l.row_type === "text" ? "" : money(l.line_total)}</td>}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
         {d.notes && <p className="mt-3 whitespace-pre-wrap break-words text-xs"><b>{t("print.notes")}:</b> {d.notes}</p>}

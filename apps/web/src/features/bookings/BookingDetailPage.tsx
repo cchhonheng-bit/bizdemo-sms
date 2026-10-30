@@ -18,12 +18,15 @@ import { toast } from "@/lib/toast";
 import { addMinutesLocal, joinLocal, splitLocal, timeRange } from "./time";
 import { CrewList } from "./CrewPicker";
 import { conflictText, crewOf, overridesFor, setOverride, useCrewAvailability } from "./crew";
+import { NumberDialog } from "@/components/NumberDialog";
 
 export default function BookingDetailPage() {
   const { t } = useTranslation();
   const { id } = useParams();
   const nav = useNavigate();
   const { can, me } = useAuth();
+  const qcMain = useQueryClient();
+  const [numbering, setNumbering] = useState(false); // D-196: the job's own number
   const [assign, setAssign] = useState(false);
   const [cancel, setCancel] = useState(false);
   const [resched, setResched] = useState(false);
@@ -51,7 +54,8 @@ export default function BookingDetailPage() {
     <div className="max-w-4xl">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 mb-4">
         <Link to="/bookings" className="tap-target rounded hover:bg-grey-bg" aria-label="back"><ArrowLeft size={20} /></Link>
-        <h1 className="font-mono">{bk.number}</h1>
+        <h1 className="font-mono">{bk.number}{can("booking.create") && <button type="button" className="ml-2 align-middle text-muted hover:text-ink" aria-label={t("numbers.edit")} onClick={() => setNumbering(true)} data-testid="booking-number-edit"><Pencil size={16} /></button>}</h1>
+        {numbering && <NumberDialog title={t("numbers.title_booking")} current={bk.number} onSave={(n) => api.setBookingNumber(bk.id, n).then(() => { for (const k of [["booking", bk.id], ["bookings"]]) void qcMain.invalidateQueries({ queryKey: k }); })} onClose={() => setNumbering(false)} />}
         <TypeBadge type={bk.type} /><StatusBadge status={bk.status} />
         <div className="w-full sm:w-auto sm:ml-auto flex flex-wrap gap-2">
           {canEdit && <Button onClick={() => nav(`/bookings/${bk.id}/edit`)}><Pencil size={16} /> {t("app.edit")}</Button>}

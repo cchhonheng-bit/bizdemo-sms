@@ -3,7 +3,7 @@ import { z } from "zod";
 import { assignSchema, bookingEditSchema, bookingSchema, cancelSchema, customerText, rescheduleSchema, BOOKING_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
 import { sql } from "../db.js";
-import { assignBooking, availability, cancelBooking, createBooking, editBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, statusLog, updateBooking } from "../services/bookings.js";
+import { assignBooking, availability, cancelBooking, createBooking, editBooking, getBooking, listBookings, rescheduleBooking, rescheduleHistory, setBookingNumber, statusLog, updateBooking } from "../services/bookings.js";
 import { btn, row } from "../services/customer-bot.js";
 import { tellCustomer } from "../services/customer-notify.js";
 import { flushOutbox } from "../services/telegram.js";
@@ -60,6 +60,9 @@ export const bookingsRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true };
   });
 
+  // D-196: the job's own number (the people who book)
+  app.post("/:id/number", { preHandler: app.requirePerm("booking.create") }, async (req) =>
+    setBookingNumber(req.user!, req.ip, idParam.parse(req.params).id, z.object({ number: z.string().max(40) }).strict().parse(req.body).number));
   // D-140: the one «កែ» screen — everything in one save (Admin / GM / CEO); a new time = reschedule rules, a new crew = assign rules
   app.put("/:id", async (req) => {
     if (!req.perms.includes("booking.create") && !req.perms.includes("booking.assign")) throw new AppError("FORBIDDEN", 403);

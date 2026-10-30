@@ -20,6 +20,7 @@ import { uninvoiced } from "./invoices.js";
 import { items as stockItems } from "./inventory.js";
 import { recordCheckpoint, reviewReport, STEPS, type Step } from "./jobs.js";
 import { permissionsFor } from "./permissions.js";
+import { activeSubstitute } from "./reviewers.js";
 import { createRequest, markRequestDone } from "./requests.js";
 import { pinCodeFromBot } from "./customer-auth.js";
 import { btn, customerGrid, menuUrl, row, webOn } from "./customer-bot.js";
@@ -204,7 +205,7 @@ async function nextStep(bookingId: string): Promise<Step | null> {
 const STEP_LABEL: Record<string, [string, string]> = { depart: ["🚐 ចេញដំណើរ", "🚐 Depart"], arrive: ["📍 ដល់ទីតាំង (ផ្ញើទីតាំង)", "📍 Arrived (send location)"], start: ["▶️ ចាប់ផ្តើម", "▶️ Start"], finish: ["✅ រួចរាល់", "✅ Done"], return: ["↩️ ត្រឡប់", "↩️ Return"] };
 async function canReview(u: Staff, perms?: string[]): Promise<boolean> {
   const p = perms ?? (await permissionsFor(sql, u.company_id, u.role));
-  return p.includes("job.review") || (u.role === "tech" && u.is_lead);
+  return p.includes("job.review") || (u.role === "tech" && u.is_lead) || (u.role !== "tech" && (await activeSubstitute(sql, u.company_id)) === u.id); // D-196
 }
 async function staffJob(u: Staff, id: string, back: string): Promise<Menu> {
   const own = u.role === "tech" ? sql`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = ${u.id})` : sql``;

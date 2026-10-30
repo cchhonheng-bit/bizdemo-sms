@@ -12,6 +12,7 @@ import { MIME_BY_EXT } from "../services/jobs.js";
 import { matrix, setPermission } from "../services/permissions.js";
 import { saveCompanyImage } from "../services/site.js";
 import { getTestPhones, saveTestPhones } from "../services/test-mode.js";
+import { getSubstitute, setSubstitute } from "../services/reviewers.js";
 import { lastChange } from "../services/reports.js";
 import { rateInfo, setRate } from "../services/fx.js";
 
@@ -58,6 +59,13 @@ export const settingsRoutes: FastifyPluginAsync = async (app) => {
   app.put("/test-phones", { preHandler: app.requireAuth }, async (req) => {
     const { phones } = z.object({ phones: z.array(z.string().max(40)).max(50) }).strict().parse(req.body);
     return saveTestPhones(req.user!, req.ip, phones);
+  });
+
+  // D-196 (client 30-10): the substitute reviewer while the GM is away (the CEO — settings.manage)
+  app.get("/review-substitute", { preHandler: app.requirePerm("settings.manage") }, async (req) => getSubstitute(req.user!));
+  app.put("/review-substitute", { preHandler: app.requirePerm("settings.manage") }, async (req) => {
+    const v = z.object({ user_id: z.string().uuid().nullable(), until: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional() }).strict().parse(req.body);
+    return setSubstitute(req.user!, req.ip, { user_id: v.user_id, until: v.until ?? null });
   });
 
   app.patch("/company", { preHandler: app.requirePerm("settings.manage") }, async (req) => {

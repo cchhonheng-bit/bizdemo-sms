@@ -25,20 +25,24 @@ export default function BookingsPage() {
   // CEO 04-10: the board follows the technicians' steps within 15 s (cards move column by themselves)
   const bookings = useQuery({ queryKey: ["bookings"], queryFn: () => api.bookings(), refetchInterval: 15_000 });
   // FR-403: filters — day, category, inside/outside borey, technician
-  const [day, setDay] = useState<"" | "today" | "week" | "date">("");
+  const [day, setDay] = useState<"" | "today" | "week" | "date" | "range">("");
   const [pickDate, setPickDate] = useState(todayLocal());
+  // D-196 (client 30-10): also by stage (the board's columns), by job type, and a from–to range
+  const [from, setFrom] = useState(todayLocal()), [to, setTo] = useState(todayLocal());
+  const [col, setCol] = useState(""), [jobType, setJobType] = useState("");
   const [cat, setCat] = useState("");
   const [zone, setZone] = useState("");
   const [tech, setTech] = useState("");
   const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic, enabled: me?.role !== "tech" }); // technicians never read the staff list
   const techs = (users.data ?? []).filter((u) => u.role === "tech");
-  const active = [day, cat, zone, tech].filter(Boolean).length;
+  const active = [day, cat, zone, tech, col, jobType].filter(Boolean).length;
 
   const dayRange = useMemo(() => { const today = todayLocal(), monday = presetRange("week", today)[0];
-    return (day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : null) as [string, string] | null; }, [day, pickDate]);
+    return (day === "today" ? [today, today] : day === "week" ? [monday, shiftDay(monday, 6)] : day === "date" ? [pickDate, pickDate] : day === "range" ? (from <= to ? [from, to] : [to, from]) : null) as [string, string] | null; }, [day, pickDate, from, to]);
   // D-171: the same filters drive the board and the Excel file
   const exportParams = { ...(dayRange ? { from: dayRange[0], to: dayRange[1] } : {}), category: cat || undefined, zone: zone || undefined, technician: tech ? [tech] : [],
-    closed: hideClosed ? "0" as const : "1" as const, cancelled: showCancelled ? "1" as const : "0" as const, q: q.trim() || undefined };
+    closed: hideClosed ? "0" as const : "1" as const, cancelled: showCancelled ? "1" as const : "0" as const, q: q.trim() || undefined,
+    status: col ? [...(BOARD_COLUMNS.find((c) => c.key === col)?.statuses ?? [])] : undefined, jobtype: (jobType || undefined) as "A" | "B" | undefined };
   const rows = useMemo(() => {
     const s = q.trim().toLowerCase();
     const [from, to] = dayRange ?? ["", ""];
@@ -46,8 +50,8 @@ export default function BookingsPage() {
     return (bookings.data ?? []).filter((b) => (b.status === "cancelled" ? showCancelled : !hideClosed || b.status !== "closed") &&
       matchesSearch(s, [b.number, b.customer_name, b.service_text, b.address, ...(b.technicians ?? []).map((x) => x.full_name)], b.customer_phones ?? []) && // D-137: Khmer keyboard + phones
       (!day || (localDay(b.scheduled_at) >= from && localDay(b.scheduled_at) <= to)) && (!cat || b.category === cat) && (!zone || b.zone === zone) &&
-      (!tech || (b.technicians ?? []).some((x) => x.user_id === tech)));
-  }, [bookings.data, q, hideClosed, showCancelled, day, dayRange, cat, zone, tech]);
+      (!tech || (b.technicians ?? []).some((x) => x.user_id === tech)) && (!col || ((BOARD_COLUMNS.find((c) => c.key === col)?.statuses ?? []) as readonly string[]).includes(b.status)) && (!jobType || b.type === jobType));
+  }, [bookings.data, q, hideClosed, showCancelled, day, dayRange, cat, zone, tech, col, jobType]);
 
   return (
     <div>
@@ -65,15 +69,18 @@ export default function BookingsPage() {
         </div>
       </div>
       <ReportToolbar report={can("report.ops") ? "bookings" : undefined} params={exportParams} active={active}>
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2 w-full" data-testid="filters">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-2 w-full" data-testid="filters">
           <Select value={day} onChange={(e) => setDay(e.target.value as typeof day)} aria-label={t("booking.f_day")}>
-            <option value="">{t("booking.f_day_all")}</option><option value="today">{t("range.today")}</option><option value="week">{t("range.week")}</option><option value="date">{t("booking.f_day_pick")}</option>
+            <option value="">{t("booking.f_day_all")}</option><option value="today">{t("range.today")}</option><option value="week">{t("range.week")}</option><option value="date">{t("booking.f_day_pick")}</option><option value="range">{t("booking.f_day_range")}</option>
           </Select>
           {day === "date" ? <Input type="date" value={pickDate} onChange={(e) => e.target.value && setPickDate(e.target.value)} aria-label={t("booking.f_day_pick")} /> : null}
+          {day === "range" ? <><Input type="date" value={from} onChange={(e) => e.target.value && setFrom(e.target.value)} aria-label={t("booking.f_from")} data-testid="f-from" /><Input type="date" value={to} onChange={(e) => e.target.value && setTo(e.target.value)} aria-label={t("booking.f_to")} data-testid="f-to" /></> : null}
+          <Select value={col} onChange={(e) => setCol(e.target.value)} aria-label={t("booking.f_status_all")} data-testid="f-status"><option value="">{t("booking.f_status_all")}</option>{BOARD_COLUMNS.map((c) => <option key={c.key} value={c.key}>{t(`board.${c.key}`)}</option>)}</Select>
+          <Select value={jobType} onChange={(e) => setJobType(e.target.value)} aria-label={t("booking.f_type_all")} data-testid="f-type"><option value="">{t("booking.f_type_all")}</option><option value="A">{t("booking.type_A")}</option><option value="B">{t("booking.type_B")}</option></Select>
           <Select value={cat} onChange={(e) => setCat(e.target.value)} aria-label={t("booking.category")}><option value="">{t("booking.f_cat_all")}</option>{SERVICE_CATEGORIES.map((c) => <option key={c} value={c}>{t(`category.${c}`)}</option>)}</Select>
           <Select value={zone} onChange={(e) => setZone(e.target.value)} aria-label={t("customers.zone")}><option value="">{t("booking.f_zone_all")}</option>{ZONES.map((z) => <option key={z} value={z}>{t(`zone.${z}`)}</option>)}</Select>
           <Select value={tech} onChange={(e) => setTech(e.target.value)} aria-label={t("booking.team")}><option value="">{t("booking.f_tech_all")}</option>{techs.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select>
-          {active > 0 && <Button type="button" onClick={() => { setDay(""); setCat(""); setZone(""); setTech(""); }}>{t("booking.f_clear")}</Button>}
+          {active > 0 && <Button type="button" onClick={() => { setDay(""); setCat(""); setZone(""); setTech(""); setCol(""); setJobType(""); }}>{t("booking.f_clear")}</Button>}
         </div>
       </ReportToolbar>
       {bookings.isLoading ? <Skeleton /> : bookings.isError ? <ErrorState text={t("app.error")} onRetry={() => void bookings.refetch()} /> : rows.length === 0 ? (

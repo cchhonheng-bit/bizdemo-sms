@@ -23,7 +23,7 @@ export type Q = { from?: string; to?: string; asof?: string; technician?: string
   /** the screens' own filters (D-171): month (trial balance) · zone · search text · closed / cancelled bookings · inactive customers · the invoice list tab */
   month?: string; zone?: string; q?: string; closed?: string; cancelled?: string; inactive?: string; list?: string;
   /** the list screens (D-172): role · all (inactive too) · the reminders window · the audit person / group · verification open only */
-  role?: string; all?: string; days?: string; user?: string; type?: string; open?: string;
+  role?: string; all?: string; days?: string; user?: string; type?: string; open?: string; jobtype?: string; // D-196: A / B on the jobs board
   /** D-183: a debt's state — unpaid · partial · paid (account report on a debt account, invoices, receivables, payables) */
   paystatus?: PayStatus;
   /** D-185 the account report's own filters: movement (debit / credit) · transaction types · people (c.<id> · u.<id> · s.<name>) · items */
@@ -536,7 +536,7 @@ async function bookingsSheet(ctx: Ctx, q: Q): Promise<Built> {
     from bookings b join customers cu on cu.id = b.customer_id left join users bu on bu.id = b.created_by
     where b.company_id = ${c} and not b.is_test ${ranged ? sql`and ${day} between ${from}::date and ${to}::date` : sql``}
       ${q.status?.length ? sql`and b.status::text = any(${sql.array(q.status)}::text[])` : sql``} ${q.category ? sql`and b.category::text = ${q.category}` : sql``} ${q.zone ? sql`and b.zone::text = ${q.zone}` : sql``}
-      ${q.closed === "0" ? sql`and b.status <> 'closed'` : sql``} ${q.cancelled === "0" ? sql`and b.status <> 'cancelled'` : sql``}
+      ${q.jobtype ? sql`and b.type::text = ${q.jobtype}` : sql``} ${q.closed === "0" ? sql`and b.status <> 'closed'` : sql``} ${q.cancelled === "0" ? sql`and b.status <> 'cancelled'` : sql``}
       ${q.technician?.length ? sql`and exists (select 1 from booking_technicians t where t.booking_id = b.id and t.user_id = any(${sql.array(q.technician)}::uuid[]))` : sql``}
       ${q.booker?.length ? sql`and b.created_by = any(${sql.array(q.booker)}::uuid[])` : sql``} ${q.customer ? sql`and b.customer_id = ${q.customer}` : sql``}
     order by b.scheduled_at nulls last, b.number`;
@@ -544,7 +544,7 @@ async function bookingsSheet(ctx: Ctx, q: Q): Promise<Built> {
   const cols: Col[] = [{ h: "លេខ", w: 10 }, { h: "ស្ថានភាព", w: 13 }, { h: "ថ្ងៃទី", w: 11, s: "date" }, { h: "ម៉ោង", w: 7 }, { h: "អតិថិជន", w: 20 }, { h: "ទូរស័ព្ទ", w: 14 }, { h: "អាសយដ្ឋាន", w: 36 }, { h: "តំបន់", w: 8 }, { h: "ប្រភេទ", w: 6 }, { h: "ក្រុមសេវា", w: 12 }, { h: "សេវា", w: 30 }, { h: "ជាង", w: 20 }, { h: "អ្នកកក់ការងារ", w: 14 }, { h: "បង្កើត", w: 11, s: "date" }, { h: "វិក្កយបត្រ", w: 14 }, { h: "មូលហេតុបោះបង់", w: 24 }];
   const body = rows.map((r) => [r.number, r.status, D(r.date), r.time, r.customer, r.phones.join(" / "), r.address, r.zone, r.type, r.category, r.service, r.crew, r.booker, D(r.created), r.invoice, r.cancel_reason] as XCell[]);
   const [km, en] = TITLES.bookings;
-  const filters = [...(ranged ? rangeText({ from, to }) : ["គ្រប់ថ្ងៃ"]), f("ស្ថានភាព", q.status?.join(", ")), f("ក្រុមសេវា", q.category), f("តំបន់", q.zone), q.closed === "0" ? "លាក់ការងារបិទ" : "", q.cancelled === "0" ? "គ្មានការងារបោះបង់" : "",
+  const filters = [...(ranged ? rangeText({ from, to }) : ["គ្រប់ថ្ងៃ"]), f("ស្ថានភាព", q.status?.join(", ")), f("ប្រភេទ", q.jobtype), f("ក្រុមសេវា", q.category), f("តំបន់", q.zone), q.closed === "0" ? "លាក់ការងារបិទ" : "", q.cancelled === "0" ? "គ្មានការងារបោះបង់" : "",
     `ជាង: ${await names(c, q.technician, "users")}`, `អ្នកកក់ការងារ: ${await names(c, q.booker, "users")}`, q.customer ? `អតិថិជន: ${await names(c, [q.customer], "customers")}` : "", f("ស្វែងរក", q.q)].filter(Boolean);
   return { title_km: km, title_en: en, filters, rows: rows.length, stamp: ranged ? `${from}_${to}` : `all_${ctx.today}`, sheets: [table(ctx, "Bookings", { title_km: km, title_en: en, filters }, cols, body, { landscape: true })] };
 }
@@ -671,7 +671,7 @@ export async function byBookingData(user: SessionUser, q: Q): Promise<{ from: st
     where i.company_id = ${c} and i.status = 'issued' and i.booking_id = any(${sql.array(ids)}::uuid[]) order by i.issued_at, i.number`;
   const lines = invs.length ? await sql<{ inv: string; text: string; kind: string; qty: string; unit: string | null; price: number; income: string | null }[]>`
     select l.invoice_id::text as inv, l.description as text, l.kind::text as kind, l.qty::text as qty, l.unit, l.unit_price as price, ci.income_account_id::text as income
-    from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.invoice_id = any(${sql.array(invs.map((i) => i.id))}::uuid[]) order by l.invoice_id, l.sort, l.id` : [];
+    from invoice_lines l left join catalog_items ci on ci.id = l.catalog_item_id where l.invoice_id = any(${sql.array(invs.map((i) => i.id))}::uuid[]) and l.row_type = 'line' order by l.invoice_id, l.sort, l.id` : [];
   const match = await jobStockMatch(sql, c, ids);
   const out: ByBooking[] = [];
   for (const b of bks) {

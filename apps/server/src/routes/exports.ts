@@ -18,7 +18,7 @@ const query = z.object({ from: day.optional(), to: day.optional(), asof: day.opt
   type: z.string().regex(/^[a-z_]{2,30}$/).optional(), open: z.enum(["0", "1"]).optional(), paystatus: z.enum(PAY_STATUSES).optional(), // D-183
   dir: z.enum(["in", "out"]).optional(), sources: words, items: ids, // D-185: the account report's filters
   party: z.string().transform((s) => s.split(",").map((x) => x.trim()).filter(Boolean)).pipe(z.array(z.string().regex(/^(?:[cu]\.[0-9a-f-]{36}|s\.[A-Za-z0-9_-]{1,400})$/)).max(200)).optional(),
-  bk: ids, mismatch: z.enum(["0", "1"]).optional() }).strict(); // D-189 «By Booking»: the bookings picked · only the mismatches
+  bk: ids, mismatch: z.enum(["0", "1"]).optional(), jobtype: z.enum(["A", "B"]).optional() }).strict(); // D-196: the jobs board's type filter // D-189 «By Booking»: the bookings picked · only the mismatches
 
 /** the permission of the screen that shows the report */
 const PERM: Record<Report, string | string[]> = {

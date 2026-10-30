@@ -5,7 +5,7 @@ import { z } from "zod";
 import { PAY_STATUSES } from "@sms/shared";
 import { AppError } from "../lib/errors.js";
 import {
-  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, prefillExtra, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
+  assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, prefillExtra, recordPayment, requestVoid, setDiscount, setInvoiceNumber, setLineKind, updateInvoice,
 } from "../services/invoices.js";
 import { invoiceJournal } from "../services/accounting.js";
 import { decideSlip, invoiceLinkFor, notifyInvoiceIssued, resendInvoice, slipPhoto } from "../services/invoice-pay.js";
@@ -17,6 +17,7 @@ const line = z.object({
   qty: z.number().positive().max(1_000_000),
   unit: z.string().trim().max(20).default(""), // D-152: optional — blank prints nothing
   unit_price: z.number().int().min(0).max(100_000_000),
+  row_type: z.enum(["line", "text", "heading"]).optional(), // D-196: a text row inside the price above · a section heading
 }).strict().refine((l) => l.qty * l.unit_price <= 1_000_000_000, "LINE_TOO_LARGE"); // ≤ $10M a line
 const lines = z.array(line).min(1).max(100).refine((ls) => ls.reduce((s, l) => s + l.qty * l.unit_price, 0) <= 2_000_000_000, "TOTAL_TOO_LARGE"); // sums stay in int4
 const idParam = z.object({ id: z.string().uuid() });
@@ -83,6 +84,11 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return recordPayment(req.user!, req.ip, idParam.parse(req.params).id, { parts, paid_on: v.paid_on, note: v.note });
   });
 
+  // D-196: the invoice's own number (a draft freely, an issued one with a reason)
+  app.post("/:id/number", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
+    const v = z.object({ number: z.string().max(40), reason: z.string().max(300).optional() }).strict().parse(req.body);
+    return setInvoiceNumber(req.user!, req.ip, idParam.parse(req.params).id, v.number, v.reason);
+  });
   // D-195: the office sends the invoice by hand — the customer's link to paste into any chat, or the Telegram notice again
   app.get("/:id/customer-link", { preHandler: app.requirePerm("invoice.issue") }, async (req, reply) => { reply.header("Cache-Control", "no-store"); return invoiceLinkFor(req.user!, req.ip, idParam.parse(req.params).id); });
   app.post("/:id/notify", { preHandler: app.requirePerm("invoice.issue") }, async (req) => resendInvoice(req.user!, req.ip, idParam.parse(req.params).id));

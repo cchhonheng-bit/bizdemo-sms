@@ -2,7 +2,7 @@
 // Prices: Admin / CEO (invoice.issue) · discount: GM / CEO (discount.give; ≥ limit needs discount.approve) · payments: payment.record ·
 // void: Admin → GM, GM → CEO, never self, CEO directly (BR-19). Technicians hold none of these permissions (AC-01).
 // Money = US cents; KHR riel with the rate stored on each row. Rows are never deleted (BR-20).
-import { formatUsd, khrToCents, payStatusOf, usdToKhr, type PayStatus } from "@sms/shared";
+import { DOC_NUMBER_RE, formatUsd, khrToCents, payStatusOf, usdToKhr, type PayStatus } from "@sms/shared";
 import { extraInvoiceLines, pendingExtras } from "./extras.js";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, forbidden, notFound } from "../lib/errors.js";
@@ -14,7 +14,12 @@ import { jobStockMatch } from "./inventory.js";
 import { postInvoiceIssue, postInvoiceLineKind, postPayment, reverseSource } from "./ledger-hooks.js";
 import type { Tx } from "../lib/i18n.js";
 
-export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number };
+export type InvoiceLineInput = { catalog_item_id?: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number;
+  /** D-196: «text» = a description inside the price of the line above (a lump-sum job) · «heading» = a section heading — neither has an amount */
+  row_type?: "line" | "text" | "heading" };
+/** a text / heading row never carries an amount, an item or a unit */
+const plainRow = (l: InvoiceLineInput) => l.row_type === "text" || l.row_type === "heading";
+const normLines = (ls: InvoiceLineInput[]): InvoiceLineInput[] => ls.map((l) => (plainRow(l) ? { ...l, catalog_item_id: null, kind: "service", qty: 1, unit: "", unit_price: 0 } : { ...l, row_type: "line" }));
 export type PayMethod = "cash_usd" | "cash_khr" | "aba" | "acleda";
 type Inv = { id: string; company_id: string; booking_id: string | null; customer_id: string; number: string; status: "draft" | "issued" | "void"; is_extra: boolean;
   discount: number; discount_status: string; discount_requested: number | null; discount_by: string | null; customer_name: string };
@@ -24,9 +29,12 @@ export async function nextInvoiceNumber(t: Db, companyId: string, at: Date = new
   const c = (await t<{ yymm: string; prefix: string }[]>`select to_char(${at}::timestamptz at time zone co.timezone, 'YYMM') as yymm, s.invoice_prefix as prefix
     from companies co join company_settings s on s.company_id = co.id where co.id = ${companyId}`)[0];
   if (!c) throw notFound();
-  const no = (await t<{ last_no: number }[]>`insert into invoice_counters (company_id, yymm, last_no) values (${companyId}, ${c.yymm}, 1)
-    on conflict (company_id, yymm) do update set last_no = invoice_counters.last_no + 1 returning last_no`)[0]!.last_no;
-  return `${c.prefix}-${c.yymm}-${String(no).padStart(4, "0")}`;
+  for (;;) { // D-196: a number typed by hand may already hold the next one — skip it
+    const no = (await t<{ last_no: number }[]>`insert into invoice_counters (company_id, yymm, last_no) values (${companyId}, ${c.yymm}, 1)
+      on conflict (company_id, yymm) do update set last_no = invoice_counters.last_no + 1 returning last_no`)[0]!.last_no;
+    const n = `${c.prefix}-${c.yymm}-${String(no).padStart(4, "0")}`;
+    if (!(await t`select 1 from invoices where company_id = ${companyId} and number = ${n}`).length) return n;
+  }
 }
 
 const fxOf = async (db: Db, companyId: string) => Number((await db<{ fx: string }[]>`select fx_rate_khr::text as fx from company_settings where company_id = ${companyId}`)[0]?.fx ?? 4100);
@@ -38,10 +46,10 @@ async function checkItems(t: Db, user: SessionUser, lines: InvoiceLineInput[]) {
 async function writeLines(t: Db, id: string, lines: InvoiceLineInput[]) {
   await t`delete from invoice_lines where invoice_id = ${id}`;
   let i = 0;
-  for (const l of lines) await t`insert into invoice_lines (invoice_id, sort, catalog_item_id, description, kind, qty, unit, unit_price)
-    values (${id}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim()}, ${l.unit_price})`;
+  for (const l of normLines(lines)) await t`insert into invoice_lines (invoice_id, sort, catalog_item_id, description, kind, qty, unit, unit_price, row_type)
+    values (${id}, ${i++}, ${l.catalog_item_id ?? null}, ${l.description.trim()}, ${l.kind}::item_kind, ${l.qty}, ${l.unit.trim()}, ${l.unit_price}, ${l.row_type ?? "line"})`;
 }
-const subtotalOf = (lines: InvoiceLineInput[]) => lines.reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
+const subtotalOf = (lines: InvoiceLineInput[]) => normLines(lines).reduce((s, l) => s + Math.round(l.qty * l.unit_price), 0);
 
 async function sums(db: Db, id: string): Promise<{ subtotal: number; paid: number; payments: number }> {
   return (await db<{ subtotal: number; paid: number; payments: number }[]>`select
@@ -339,6 +347,23 @@ export async function recordPaymentIn(t: Db, user: SessionUser, ip: string | nul
   return { id: ids[0]!, ids, paid: nowPaid, balance: total - nowPaid, payment_status: payStatus(total, nowPaid) };
 }
 
+// ---------- D-196 (client 30-10): the invoice's own number (their paper serial) ----------
+/** invoice.issue: a draft at any time; an issued one with a reason (the books keep their history); never a void one; unique; audited */
+export async function setInvoiceNumber(user: SessionUser, ip: string | null, id: string, raw: string, reason = "") {
+  const number = raw.trim();
+  if (!DOC_NUMBER_RE.test(number)) throw new AppError("BAD_NUMBER", 400);
+  return tx(user.id, async (t) => {
+    const i = await lockInvoice(t, user, id);
+    if (i.status === "void") throw new AppError("INVOICE_VOID", 400);
+    if (i.number === number) return { number };
+    if (i.status === "issued" && reason.trim().length < 3) throw new AppError("REASON_REQUIRED", 400);
+    if ((await t`select 1 from invoices where company_id = ${user.companyId} and number = ${number} and id <> ${id}`).length) throw new AppError("NUMBER_TAKEN", 409);
+    await t`update invoices set number = ${number} where id = ${id}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "invoice.number", table: "invoices", rowId: id, old: { number: i.number }, new: { number, ...(reason.trim() ? { reason: reason.trim() } : {}) }, ip });
+    return { number };
+  });
+}
+
 // ---------- void (BR-18 … BR-21 · AC-06/07/20) ----------
 async function assertVoidable(t: Db, i: Inv) {
   if (i.status === "void") throw new AppError("INVOICE_VOID", 400);
@@ -406,8 +431,8 @@ export async function getInvoice(user: SessionUser, perms: string[], id: string)
       left join users cu on cu.id = i.created_by left join users iu on iu.id = i.issued_by left join users vu on vu.id = i.voided_by left join users du on du.id = i.discount_by
     where i.id = ${id} and i.company_id = ${user.companyId}`)[0];
   if (!i) throw notFound();
-  const lines = (await sql<{ id: number; catalog_item_id: string | null; description: string; kind: string; qty: number; unit: string; unit_price: number }[]>`
-    select id, catalog_item_id, description, kind, qty::float as qty, unit, unit_price from invoice_lines where invoice_id = ${id} order by sort, id`)
+  const lines = (await sql<{ id: number; catalog_item_id: string | null; description: string; kind: string; qty: number; unit: string; unit_price: number; row_type: string }[]>`
+    select id, catalog_item_id, description, kind, qty::float as qty, unit, unit_price, row_type from invoice_lines where invoice_id = ${id} order by sort, id`)
     .map((l) => ({ ...l, line_total: Math.round(l.qty * l.unit_price) }));
   const payments = await sql`select p.id, p.amount::float8 as amount, p.currency, p.method, p.fx_rate_khr::float as fx_rate_khr, p.usd_cents, p.paid_on::text, p.note, p.created_at, u.full_name as received_by_name,
       p.deposit_id is not null as from_deposit, p.reversal_of, p.voided_at, p.void_reason,

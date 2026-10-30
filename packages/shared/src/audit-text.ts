@@ -54,6 +54,8 @@ export const AUDIT_ACTION: Record<string, AuditText> = {
   "password.test_set": T("កំណត់ពាក្យសម្ងាត់សាកល្បង", "Test password set"),
   "payment.record": T("ទទួលប្រាក់", "Payment received"), "payment.slip": T("អតិថិជនផ្ញើបង្កាន់ដៃបង់ប្រាក់", "Customer sent a payment receipt"),
   "payment.slip_confirm": T("បញ្ជាក់បង្កាន់ដៃបង់ប្រាក់", "Payment receipt confirmed"), "payment.slip_reject": T("បដិសេធបង្កាន់ដៃបង់ប្រាក់", "Payment receipt refused"),
+  "booking.number": T("ប្ដូរលេខការងារ", "Booking number changed"), "invoice.number": T("ប្ដូរលេខវិក្កយបត្រ", "Invoice number changed"),
+  "settings.review_substitute": T("កំណត់អ្នកត្រួតពិនិត្យជំនួស", "Substitute reviewer set"),
   "invoice.link": T("ចម្លងតំណវិក្កយបត្រសម្រាប់អតិថិជន", "Invoice link copied for the customer"), "invoice.notify": T("ផ្ញើវិក្កយបត្រទៅអតិថិជនម្ដងទៀត", "Invoice sent to the customer again"), "payment.void": T("មោឃៈការបង់ប្រាក់", "Payment voided"),
   "payment.void_reject": T("បដិសេធការមោឃៈការបង់ប្រាក់", "Payment void rejected"), "payment.void_request": T("ស្នើមោឃៈការបង់ប្រាក់", "Payment void requested"),
   "payroll.adjust": T("កែប្រាក់ខែ", "Payroll adjusted"), "payroll.adjust_remove": T("ដកការកែប្រាក់ខែ", "Payroll adjustment removed"),

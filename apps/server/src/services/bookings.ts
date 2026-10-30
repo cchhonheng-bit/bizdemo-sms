@@ -3,7 +3,7 @@
 // R3 no start in the past, end time, no overlaps — the exclusion constraints of 0003 are the last line under concurrency
 // R4 cancel with a reason · R5 lead technician optional, crew ≥ 1.
 // Every function takes companyId + the acting user; technicians only see bookings they are assigned to (D-18).
-import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, type BookingStatus, type RescheduleRequester } from "@sms/shared";
+import { CANCELLABLE_STATUSES, DEFAULT_DURATION_MIN, DOC_NUMBER_RE, type BookingStatus, type RescheduleRequester } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
 import type { SessionUser } from "./auth.js";
@@ -246,9 +246,26 @@ async function setUnits(t: Db, companyId: string, bookingId: string, customerId:
 
 /** the next booking number of the company (BK-0001 …) — one counter for bookings made by the staff and on the website */
 export async function nextBookingNumber(t: Db, companyId: string): Promise<string> {
-  const no = (await t<{ last_no: number }[]>`insert into booking_counters (company_id, last_no) values (${companyId}, 1)
-    on conflict (company_id) do update set last_no = booking_counters.last_no + 1 returning last_no`)[0]!.last_no;
-  return `BK-${String(no).padStart(4, "0")}`;
+  for (;;) { // D-196: a number typed by hand may already hold the next one — skip it
+    const no = (await t<{ last_no: number }[]>`insert into booking_counters (company_id, last_no) values (${companyId}, 1)
+      on conflict (company_id) do update set last_no = booking_counters.last_no + 1 returning last_no`)[0]!.last_no;
+    const n = `BK-${String(no).padStart(4, "0")}`;
+    if (!(await t`select 1 from bookings where company_id = ${companyId} and number = ${n}`).length) return n;
+  }
+}
+/** D-196 (client 30-10): the people who book give a job its own number (their paper serial) — unique in the company, audited */
+export async function setBookingNumber(user: SessionUser, ip: string | null, id: string, raw: string) {
+  const number = raw.trim();
+  if (!DOC_NUMBER_RE.test(number)) throw new AppError("BAD_NUMBER", 400);
+  return tx(user.id, async (t) => {
+    const b = (await t<{ number: string }[]>`select number from bookings where id = ${id} and company_id = ${user.companyId} for update`)[0];
+    if (!b) throw notFound();
+    if (b.number === number) return { number };
+    if ((await t`select 1 from bookings where company_id = ${user.companyId} and number = ${number} and id <> ${id}`).length) throw new AppError("NUMBER_TAKEN", 409);
+    await t`update bookings set number = ${number} where id = ${id}`;
+    await audit(t, { companyId: user.companyId, userId: user.id, action: "booking.number", table: "bookings", rowId: id, old: { number: b.number }, new: { number }, ip });
+    return { number };
+  });
 }
 
 export async function createBooking(user: SessionUser, ip: string | null, b: CreateInput) {

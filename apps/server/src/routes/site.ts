@@ -28,7 +28,7 @@ import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
 import { deletePost, listPosts, postPhoto, publicPost, publicPosts, savePost } from "../services/site-posts.js";
 import { linkInvoice, myInvoice, submitLinkSlip, submitMySlip } from "../services/invoice-pay.js";
-import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, invoicePage, linkGonePage, newsPage, postPage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
+import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guestInvoices, guidePage, helpPage, homePage, invoicePage, myInvoices, linkGonePage, newsPage, postPage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
 import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
@@ -316,7 +316,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).parse(req.params).ref, d = await site(), lang = langOf(req, reply);
     const v = await doneView(ref);
     reply.header("Cache-Control", "no-store");
-    return { state: v.state, sig: v.sig, html: trackHtml(lang, v.track, d.tz) };
+    return { state: v.state, sig: v.sig, html: trackHtml(lang, v.track, d.tz, guestInvoices(v)) };
   });
   /** opened inside Telegram (Mini App): the launch data is the login (D-121: the page calls this BEFORE it shows anything). A live
    *  session of the same person is kept. Answers with the linked customer's name + phone for the booking form. /api/public/tg-login
@@ -340,7 +340,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const s = await customer(req), d = await site();
     const b = await myBookingDetail(s, z.object({ id: uuid }).parse(req.params).id);
     reply.header("Cache-Control", "no-store");
-    return { ...b, html: trackHtml(langOf(req, reply), b.track, d.tz) };
+    return { ...b, html: trackHtml(langOf(req, reply), b.track, d.tz, myInvoices(b.invoices)) };
   });
   // D-194 the transfer receipt: from the account (own invoices) or from the signed link (that invoice only); the office is alerted
   app.post("/api/my/invoices/:id/slip", { bodyLimit: 3_000_000 }, async (req) => {

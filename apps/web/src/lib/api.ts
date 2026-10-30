@@ -100,7 +100,8 @@ export type JobExtra = { id: string; kind: "service" | "other" | "material"; cat
   /** D-152: the price-list price as a hint for the office (never sent to technicians) — the technician's line carries no price */
   list_price?: number | null;
   photo_file: string | null; status: "pending" | "confirmed" | "removed"; added_at: string; added_by: string | null; added_by_name: string | null; reviewed_at: string | null; reviewed_by_name: string | null; review_note: string | null };
-export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number };
+export type QuoteLine = { id?: number; catalog_item_id: string | null; description: string; kind: "service" | "product"; qty: number; unit: string; unit_price: number; line_total?: number;
+  row_type?: "line" | "text" | "heading" }; // D-196: invoices only — a text row inside the price above · a section heading
 export type Quote = { id: string; number: string; status: "sent" | "accepted" | "rejected"; notes: string | null; valid_until: string | null; fx_rate_khr: number; created_at: string; decided_at: string | null;
   reject_reason: string | null; booking_id: string; booking_number: string; address: string | null; service_text: string; customer_name: string; customer_phones: string[]; created_by_name: string | null;
   lines: QuoteLine[]; subtotal: number; total: number; total_khr: number; company: { name: string; company_info: Record<string, string> } };
@@ -339,6 +340,8 @@ export const api = {
   createBooking: (v: { customer_id: string; type: BookingType; category: ServiceCategory; service_text: string; service_item_id: string | null; scheduled_at: string | null; ends_at: string | null; address: string | null; lat: number | null; lng: number | null; zone: Zone; vehicle_id?: string | null; notes: string | null; warranty_of?: string | null; unit_ids?: string[]; lines?: { item_id: string; qty: number }[] }) =>
     post<{ id: string; number: string; status: BookingStatus }>("/api/bookings", { ...v, service_item_id: v.service_item_id ?? "", scheduled_at: v.scheduled_at ?? "", ends_at: v.ends_at ?? "", address: v.address ?? "", vehicle_id: v.vehicle_id ?? "", notes: v.notes ?? "" }),
   updateBooking: (id: string, patchBody: Record<string, unknown>) => patch(`/api/bookings/${id}`, patchBody),
+  /** D-196: the job's own number (the people who book) */
+  setBookingNumber: (id: string, number: string) => post<{ number: string }>(`/api/bookings/${id}/number`, { number }),
   /** D-140: the one «កែ» screen — everything in one save */
   editBooking: (id: string, v: Record<string, unknown>) => put<{ id: string; changed: string[]; rescheduled: boolean }>(`/api/bookings/${id}`, v),
   assignBooking: (v: { id: string; lead: string | null; assistants: string[]; vehicle_id: string | null; scheduled_at: string | null; ends_at: string | null; overrides?: Override[] }) =>
@@ -398,6 +401,8 @@ export const api = {
     rejectSlip: (id: string, slip: string, reason: string) => post(`/api/invoices/${id}/slips/${slip}/reject`, { reason }),
     /** D-195: the customer's link (to paste into any chat) · the Telegram notice again */
     customerLink: (id: string) => get<{ url: string }>(`/api/invoices/${id}/customer-link`),
+    /** D-196: the invoice's own number (an issued one with a reason) */
+    setNumber: (id: string, number: string, reason = "") => post<{ number: string }>(`/api/invoices/${id}/number`, { number, ...(reason ? { reason } : {}) }),
     notify: (id: string) => post<{ sent: boolean }>(`/api/invoices/${id}/notify`, {}),
     void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
     decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
@@ -562,6 +567,9 @@ export const api = {
   settings: () => get<CompanySettings | null>("/api/settings/company"),
   /** D-120 (CEO only) */
   testPhones: { get: () => get<{ phones: string[]; max: number }>("/api/settings/test-phones"), save: (phones: string[]) => put<{ ok: true; phones: string[] }>("/api/settings/test-phones", { phones }) },
+  /** D-196: the substitute reviewer while the GM is away */
+  reviewSubstitute: { get: () => get<{ user_id: string | null; until: string | null; name: string | null; active: boolean }>("/api/settings/review-substitute"),
+    save: (v: { user_id: string | null; until: string | null }) => put<{ ok: true }>("/api/settings/review-substitute", v) },
   updateSettings: (patchBody: Record<string, unknown>) => patch("/api/settings/company", patchBody),
   setFx: (rate: number) => post("/api/settings/fx", { rate }),
   vehicles: async (): Promise<Vehicle[]> => (await get<Vehicle[]>("/api/settings/vehicles")).filter((v) => v.is_active),

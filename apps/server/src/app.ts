@@ -13,6 +13,7 @@ import { sql } from "./db.js";
 import { AppError, fromPg, unauthenticated } from "./lib/errors.js";
 import { resolveSession, type SessionUser } from "./services/auth.js";
 import { permissionsFor } from "./services/permissions.js";
+import { activeSubstitute } from "./services/reviewers.js";
 import { authRoutes } from "./routes/auth.js";
 import { meRoutes } from "./routes/me.js";
 import { usersRoutes } from "./routes/users.js";
@@ -85,6 +86,8 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
     if (!user) throw unauthenticated();
     req.user = user;
     req.perms = await permissionsFor(sql, user.companyId, user.role);
+    // D-196: the substitute the CEO named while the GM is away reviews the technicians' reports too
+    if (user.role !== "tech" && !req.perms.includes("job.review") && (await activeSubstitute(sql, user.companyId)) === user.id) req.perms = [...req.perms, "job.review"];
     if (user.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(req.routeOptions.url ?? req.url.split("?")[0]!)) {
       throw new AppError("PASSWORD_CHANGE_REQUIRED", 403);
     }

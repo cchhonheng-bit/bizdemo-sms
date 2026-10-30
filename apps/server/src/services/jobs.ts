@@ -9,6 +9,7 @@ import { AppError, forbidden, notFound } from "../lib/errors.js";
 import { stripImageMeta } from "../lib/image-meta.js";
 import type { SessionUser } from "./auth.js";
 import { audit } from "./audit.js";
+import { activeSubstitute } from "./reviewers.js";
 import { enqueue, fmtLocal, notifyUser } from "./telegram.js";
 import { ceoIds, isTestBooking } from "./test-mode.js";
 
@@ -255,9 +256,10 @@ export async function submitReport(user: SessionUser, perms: string[], ip: strin
     await t`update bookings set status = 'pending_review' where id = ${id}`;
     await audit(t, { companyId: b.company_id, userId: user.id, action: "job.report", table: "booking_reports", rowId: id, new: { notes: v.notes.trim() }, ip });
     // FR-1002: GM receives the job waiting for review
+    const sub = await activeSubstitute(t, b.company_id); // D-196: the CEO's substitute while the GM is away hears about it too
     const reviewers = (await isTestBooking(t, id)) ? (await ceoIds(t, b.company_id)).map((x) => ({ id: x })) // D-120: a test → the CEO only
       : await t<{ id: string }[]>`select distinct u.id from users u join role_permissions rp on rp.company_id = u.company_id and rp.role = u.role
-      where u.company_id = ${b.company_id} and u.is_active and ((rp.permission_key = 'job.review' and rp.allowed and u.role = 'gm') or (u.role = 'tech' and u.is_lead and u.id <> ${user.id}))`;
+      where u.company_id = ${b.company_id} and u.is_active and ((rp.permission_key = 'job.review' and rp.allowed and u.role = 'gm') or (u.role = 'tech' and u.is_lead and u.id <> ${user.id})${sub ? t` or u.id = ${sub}` : t``})`;
     for (const r of reviewers) await notifyUser(t, b.company_id, r.id, "job.review", { km: `🔎 រង់ចាំពិនិត្យ · ${b.number}`, en: `🔎 Waiting for review · ${b.number}` }, { km: `របាយការណ៍ការងារពី ${user.fullName}`, en: `Job report from ${user.fullName}` }, `/bookings/${id}`, `review-req:${id}:${Date.now()}:${r.id}`);
     return { ok: true, status: "pending_review" as const };
   });

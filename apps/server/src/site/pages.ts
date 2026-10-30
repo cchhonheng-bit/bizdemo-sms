@@ -463,12 +463,21 @@ const tgBlock = (t: T, linked: boolean, link: string | null) => (linked
   : link ? `<section class="tg"><div class="r"><span class="tgi">${svg(I.send, 18, 2.2)}</span><div>${t.tg}</div></div><a class="btn tgb" id="tg-open" href="${esc(link)}" rel="noopener">${t.tg_btn}</a></section>` : "");
 const atText = (t: T, iso: string, tz: string) => { const p = partsOf(new Date(iso), tz); return `${p.day} ${t.mon[p.month - 1]} · ${p.time}`; };
 /** the timeline (also sent alone every 30 s while the booking moves — /api/public/track, /api/my/bookings/<id>) */
-export function trackHtml(lang: SiteLang, tr: Track, tz: string): string {
+/** D-196 (client 30-10): the job's invoices inside the timeline, at the «វិក្កយបត្រ» step — one screen, in order (the account's page or the signed link) */
+export type TrackInvoices = { list: BookingInvoice[]; href: (i: BookingInvoice) => string };
+function trackInvoices(t: T, inv: TrackInvoices): string {
+  const owe = inv.list.find((i) => i.balance > 0 && !i.slip_pending) ?? inv.list.find((i) => i.balance > 0);
+  return `<div class="trk-inv" id="inv">${inv.list.map((i) => `<a class="ivr" href="${esc(inv.href(i))}"><span class="ic m">${svg(I.doc, 16)}</span><span class="tx"><b>#${esc(i.number)} · ${formatUsd(i.total)}</b>${
+    i.balance > 0 ? `<span class="pl sm w">${esc(t.inv_owe(formatUsd(i.balance)))}</span>${i.slip_pending ? ` <small>${t.slip_wait_s}</small>` : ""}` : `<span class="pl sm g">${t.inv_st.paid}</span>`}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}${
+    owe ? `<a class="btn sm" href="${esc(inv.href(owe))}">${svg(I.doc, 16)}${t.inv_view}</a>` : ""}</div>`;
+}
+export function trackHtml(lang: SiteLang, tr: Track, tz: string, inv?: TrackInvoices): string {
   const t = TXT[lang];
   if (tr.ended) return `<p class="trk-end"><span class="pl r">${t.st[tr.ended]}</span></p>`;
   return `<ol class="trk">${tr.steps.map((x) => `<li class="${x.done ? "dn" : x.now ? "cur" : ""}"><i>${x.done ? svg(I.check, 12, 3) : ""}</i><div><b>${t.tk[x.key]}</b>${
     x.key === "received" && tr.waiting ? `<small>${t.st.pending}</small>` : x.at ? `<small>${atText(t, x.at, tz)}</small>`
-      : x.now && (x.key === "invoice" || x.key === "paid") ? `<small>${x.key === "invoice" ? t.tk_wait_inv : t.tk_wait_pay}</small>` : ""}</div></li>`).join("")}</ol>`; // D-195: what the customer waits for
+      : x.now && (x.key === "invoice" || x.key === "paid") ? `<small>${x.key === "invoice" ? t.tk_wait_inv : t.tk_wait_pay}</small>` : ""}${
+    x.key === "invoice" && inv?.list.length ? trackInvoices(t, inv) : ""}</div></li>`).join("")}</ol>`; // D-195: what the customer waits for
 }
 /** a 4-digit PIN field with the eye button */
 const pinIn = (t: T, id: string, autocomplete: string, max = 4) => `<div class="pwf"><input class="in pin" id="${id}" type="password" inputmode="numeric" maxlength="${max}" autocomplete="${autocomplete}"><button type="button" class="eye" data-eye="${id}" aria-label="${t.show_pw}" data-show="${t.show_pw}" data-hide="${t.hide_pw}">${svg(I.eye)}${svg(I.eyeOff)}</button></div>`;
@@ -486,20 +495,15 @@ ${fresh ? locationRow(t) : ""}
 }
 export type DoneInfo = { id: string; number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean;
   account: "mine" | "exists" | "offer" | null; fresh: boolean; track: Track; invoices: (BookingInvoice & { link: string })[]; sig: string; final: boolean };
-/** D-194 / D-195 a job's issued invoices — on top with «មើល / បង់ប្រាក់» while something is owed (the account's page or the signed link) */
-function invoicesCard(t: T, list: BookingInvoice[], href: (i: BookingInvoice) => string): string {
-  if (!list.length) return "";
-  const owe = list.find((i) => i.balance > 0 && !i.slip_pending) ?? list.find((i) => i.balance > 0);
-  return `<section class="card s g4${owe ? " owe" : ""}" id="inv"><h2 class="h2">${t.inv}</h2>${list.map((i) => `<a class="ivr" href="${esc(href(i))}"><span class="ic m">${svg(I.doc, 16)}</span><span class="tx"><b>#${esc(i.number)} · ${formatUsd(i.total)}</b>${
-    i.balance > 0 ? `<span class="pl sm w">${esc(t.inv_owe(formatUsd(i.balance)))}</span>${i.slip_pending ? ` <small>${t.slip_wait_s}</small>` : ""}` : `<span class="pl sm g">${t.inv_st.paid}</span>`}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}${
-    owe ? `<a class="btn" href="${esc(href(owe))}">${svg(I.doc, 16)}${t.inv_view}</a>` : ""}</section>`;
-}
+/** D-195 / D-196: the guest page's invoice links */
+export const guestInvoices = (b: DoneInfo): TrackInvoices => ({ list: b.invoices, href: (i) => (i as BookingInvoice & { link: string }).link });
+/** D-196: the account page's invoice links */
+export const myInvoices = (list: BookingInvoice[]): TrackInvoices => ({ list, href: (i) => `/my/invoice/${i.id}` });
 export function donePage(d: SiteView, lang: SiteLang, b: DoneInfo, path: string, ref: string): string {
   const t = TXT[lang], n = names(d, lang);
   const head = b.state === "pending" ? [t.sent, `${esc(b.night ? t.sla_night : t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
     : b.state === "declined" ? [t.h_declined, t.p_declined] : b.state === "cancelled" ? [t.h_cancelled, t.p_cancelled] : b.state === "expired" ? [t.h_expired, t.p_expired] : [t.h_done, t.p_done];
   const bad = b.state === "declined" || b.state === "cancelled" || b.state === "expired";
-  const inv = invoicesCard(t, b.invoices, (i) => (i as BookingInvoice & { link: string }).link), owes = b.invoices.some((i) => i.balance > 0);
   const acct = b.account === "offer" ? accountCard(t, b.fresh)
     : b.account === "exists" ? `<section class="card s g8"><h2 class="h2">${t.acct_exists}</h2><a class="btn" href="/my/login?next=${encodeURIComponent(`/my/b/${b.id}`)}">${svg(I.user, 16)}<span>${t.acct_signin}</span></a></section>`
     : b.account === "mine" ? `<a class="btn" href="/my/b/${esc(b.id)}">${t.view_booking}</a>` : "";
@@ -508,9 +512,8 @@ ${band(d, lang, {})}
 <section class="ok"><div class="okc${bad ? " r" : ""}">${svg(bad ? I.x : I.check, 28, 2.5)}</div><h1>${head[0]}</h1><p>${head[1]}</p></section>
 <section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}" id="st-pill">${t.st[b.state]}</span></div>
 <div><span>${t.r_svc}</span><b>${esc(lang === "en" ? b.service_en : b.service_km)}</b></div><div><span>${t.r_when}</span><b>${whenText(t, partsOf(b.at, d.tz))}</b></div></section>
-${owes ? inv : ""}
-<section class="card s"><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
-${owes ? "" : inv}${acct}
+<section class="card s"><div id="tl">${trackHtml(lang, b.track, d.tz, guestInvoices(b))}</div></section>
+${acct}
 ${tgBlock(t, b.linked, b.link)}
 <a class="ob b" href="/">${t.home}</a></main>`;
   return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, data: { state: b.state, sig: b.sig, final: b.final ? "1" : "0", ref, ...(b.account === "offer" ? { fresh: b.fresh ? "1" : "0" } : {}) } });
@@ -648,14 +651,11 @@ export function bookingPage(d: SiteView, lang: SiteLang, b: MyBooking, path: str
   const t = TXT[lang], n = names(d, lang), phones = phonesOf(d), p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
   const svc = esc(lang === "en" && b.service_en ? b.service_en : b.service_km);
   const initial = b.technician ? esc([...new Intl.Segmenter(lang, { granularity: "grapheme" }).segment(b.technician.trim())][0]?.segment ?? "") : "";
-  const inv = invoicesCard(t, b.invoices, (i) => `/my/invoice/${i.id}`), owes = b.invoices.some((i) => i.balance > 0);
   const stars = (on: number) => [1, 2, 3, 4, 5].map((i) => `<button type="button" class="star${i <= on ? " on" : ""}" data-star="${i}" aria-label="${esc(t.stars(i))}" aria-pressed="${i <= on}">★</button>`).join("");
   const body = `<main class="scr end v3" data-booking="${b.id}">
 ${band(d, lang, { back: "/my/bookings", title: `#${esc(b.number)}`, sub: svc })}
 <section class="card s"><div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${svc}</b><span>${p ? p.time : ""}</span></div><span class="pl sm ${pillOf(b.state)}" id="st-pill">${t.st[b.state]}</span></div></section>
-${owes ? inv : ""}
-<section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
-${owes ? "" : inv}
+<section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz, myInvoices(b.invoices))}</div></section>
 <section class="card s g8"><h2 class="h2">${t.your_tech}</h2><div class="tech">${b.technician ? `<span class="av t">${initial}</span><b>${esc(b.technician)}</b>` : `<span class="sub">${t.tech_wait}</span>`}</div>
 <div class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${esc(t.call_shop(n.short))}</a>` : ""}${b.telegram ? `<a class="ob m" href="${esc(b.telegram)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
 ${b.can_cancel || b.can_reschedule ? `<section class="card s">${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingActions(t, b)}</section>` : ""}
@@ -676,7 +676,9 @@ export function invoicePage(d: SiteView, lang: SiteLang, v: CustomerInvoice, o: 
   const t = TXT[lang], n = names(d, lang), phones = phonesOf(d), usd = (c: number) => formatUsd(c);
   const row = (k: string, val: string, cls = "") => `<div class="ir${cls ? ` ${cls}` : ""}"><span>${k}</span><b>${val}</b></div>`;
   const pill = v.status === "void" ? `<span class="pl sm r">${t.inv_void_s}</span>` : `<span class="pl sm ${v.pay_status === "paid" ? "g" : "w"}">${t.inv_st[v.pay_status]}</span>`;
-  const lines = v.lines.map((l) => `<li><span>${esc(l.description)}${l.qty !== 1 ? ` <i>×${qtyText(l.qty)}${l.unit ? ` ${esc(l.unit)}` : ""}</i>` : ""}</span><b>${usd(l.total)}</b></li>`).join("");
+  // D-196: a section heading / a text row inside the price of the line above (a lump-sum job) — as on the client's Excel
+  const lines = v.lines.map((l) => (l.row_type === "heading" ? `<li class="hd"><b>${esc(l.description)}</b></li>` : l.row_type === "text" ? `<li class="tx"><span>${esc(l.description)}</span></li>`
+    : `<li><span>${esc(l.description)}${l.qty !== 1 ? ` <i>×${qtyText(l.qty)}${l.unit ? ` ${esc(l.unit)}` : ""}</i>` : ""}</span><b>${l.total ? usd(l.total) : ""}</b></li>`)).join("");
   const pays = v.payments.length ? `<section class="card s g4"><h2 class="h2">${t.inv_pays}</h2>${v.payments.map((p) => row(`${dateText(t, p.paid_on)} · ${t.pay_m[p.method]}`, usd(p.usd_cents))).join("")}</section>` : "";
   const open = v.status === "issued" && v.balance > 0;
   const rejected = v.slip?.status === "rejected" && v.slip.reject_reason ? `<p class="note r">${esc(t.slip_rejected(v.slip.reject_reason))}</p>` : "";

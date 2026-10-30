@@ -185,3 +185,5 @@ export const PAY_DUE_DAYS_DEFAULT = 3;
 export const INVOICE_LINK_DAYS = 30;
 /** D-194: transfer receipts waiting for the office, per invoice */
 export const MAX_PENDING_SLIPS = 3;
+/** D-196 (client 30-10): a booking / invoice number the office types itself (their paper serial, e.g. «26-10-042», «010,017») */
+export const DOC_NUMBER_RE = /^[\p{L}\p{N}][\p{L}\p{N} ._/,#-]{0,29}$/u;

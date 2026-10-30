@@ -86,7 +86,7 @@ export default function InvoiceEditorPage() {
           )}
         </Card>
       )}
-      <Card title={t("quote.lines")}><LinesEditor rows={rows} setRows={setRows} catalog={catalog.data ?? []} fx={fx} testId="invoice-subtotal" /></Card>
+      <Card title={t("quote.lines")}><LinesEditor rich rows={rows} setRows={setRows} catalog={catalog.data ?? []} fx={fx} testId="invoice-subtotal" /></Card>
       <Card><Field label={t("invoice.notes")}><textarea className="input h-20 py-2" value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} /></Field></Card>
       <ActionBar>
         <Button type="button" onClick={() => nav(-1)}>{t("app.cancel")}</Button>

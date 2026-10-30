@@ -17,7 +17,7 @@ export type ExportParams = { from?: string; to?: string; asof?: string; technici
   /** D-185 the account report: movement · transaction types · people (tokens from the facets) · items */
   dir?: "in" | "out"; sources?: string[]; party?: string[]; items?: string[];
   /** D-189 «By Booking»: the bookings picked · only the mismatches */
-  bk?: string[]; mismatch?: "0" | "1" };
+  bk?: string[]; mismatch?: "0" | "1"; jobtype?: "A" | "B" };
 export const exportUrl = (report: ExportReport, p: ExportParams = {}): string => {
   const qs = Object.entries(p).filter(([, v]) => v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)).map(([k, v]) => `${k}=${encodeURIComponent(Array.isArray(v) ? v.join(",") : String(v))}`).join("&");
   return `/api/export/${report}.xlsx${qs ? `?${qs}` : ""}`;

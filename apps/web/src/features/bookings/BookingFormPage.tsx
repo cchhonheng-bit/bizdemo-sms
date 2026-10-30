@@ -5,7 +5,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { ASSIGNABLE_STATUSES, bookingSchema, DEFAULT_DURATION_MIN, EDITABLE_STATUSES, formatKhPhone, matchesSearch, normalizeKhPhone, SERVICE_CATEGORIES, ZONES, type BookingInput, type BookingStatus } from "@sms/shared";
-import { Plus, Search, X } from "lucide-react";
+import { Pencil, Plus, Search, X } from "lucide-react";
+import { ItemDialog } from "@/features/catalog/CatalogPage";
 import { api, errCode, type Booking, type CatalogItem, type Conflict, type Customer } from "@/lib/api";
 import { ApiError } from "@/lib/http";
 import { useAuth } from "@/lib/auth";
@@ -46,7 +47,8 @@ export default function BookingFormPage() {
   const warrantyOf = editing ? null : sp.get("warranty_of");
   const original = useQuery({ queryKey: ["booking", warrantyOf], queryFn: () => api.booking(warrantyOf!), enabled: !!warrantyOf });
   // A2: units of the customer (reminders per unit) + prefill from a reminder's «book» (?customer=&service=&unit=)
-  const remindersOn = useFeature("reminders");
+  const remindersOn = useFeature("reminders"), websiteOn = useFeature("website");
+  const [svcDialog, setSvcDialog] = useState<CatalogItem | "new" | null>(null); // D-196: a new / changed service right from the form
   const [unitIds, setUnitIds] = useState<string[]>(() => (sp.get("unit") ? [sp.get("unit")!] : []));
   const customers = useQuery({ queryKey: ["customers"], queryFn: () => api.customers() });
   const catalog = useQuery({ queryKey: ["catalog"], queryFn: api.catalog });
@@ -264,10 +266,12 @@ export default function BookingFormPage() {
                     </Select>
                     <Input type="number" inputMode="numeric" min={1} max={99} className="w-20 tabular" name={`line_qty_${i}`} aria-label={t("booking.line_qty")} value={l.qty}
                       onChange={(e) => setLinesAnd(lines.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) || 1 } : x)))} />
+                    {can("catalog.manage") && itemOf(l.item_id) && <Button type="button" aria-label={t("booking.service_edit")} onClick={() => setSvcDialog(itemOf(l.item_id) ?? null)} data-testid="service-edit"><Pencil size={16} /></Button>}
                     {lines.length > 1 && <Button type="button" aria-label={t("booking.line_remove")} onClick={() => setLinesAnd(lines.filter((_, j) => j !== i))}><X size={16} /></Button>}
                   </div>
                 ))}
                 {lines.length < 20 && <button type="button" className="text-sm text-blue underline min-h-[44px]" onClick={() => setLines([...lines, { item_id: "", qty: 1 }])} data-testid="line-add">+ {t("booking.line_add")}</button>}
+                {can("catalog.manage") && <button type="button" className="text-sm text-blue underline min-h-[44px] ml-4" onClick={() => setSvcDialog("new")} data-testid="service-new">+ {t("booking.service_new")}</button>}
               </div>
             </Field>
             {remindersOn && (units.data ?? []).some((u) => u.is_active) && (
@@ -361,6 +365,7 @@ export default function BookingFormPage() {
           <Button type="submit" variant="primary" className="flex-1 sm:flex-none" loading={isSubmitting} disabled={cancelled || (needsTick && !confirmRunning)} data-testid="booking-save">{editing ? t("app.save") : t("booking.create")}</Button>
         </ActionBar>
       </form>
+      {svcDialog && <ItemDialog item={svcDialog === "new" ? null : svcDialog} showCost={can("cost.read")} websiteOn={websiteOn} onClose={() => setSvcDialog(null)} />}
       {newCust && <CustomerDialog customer={null} initialPhone={normalizeKhPhone(custQ) ? custQ : undefined} onClose={() => setNewCust(false)} onSaved={(cid) => { void customers.refetch().then((r) => { const c = r.data?.find((x) => x.id === cid); if (c) pick(c); }); }} />}
     </div>
   );

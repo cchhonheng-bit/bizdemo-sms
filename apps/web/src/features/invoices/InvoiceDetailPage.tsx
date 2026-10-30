@@ -15,6 +15,7 @@ import PaymentRow from "./PaymentRow";
 import AccountingPanel from "./AccountingPanel";
 import { useFeature } from "@/lib/config";
 import { todayLocal } from "./util";
+import { NumberDialog } from "@/components/NumberDialog";
 
 export default function InvoiceDetailPage() {
   const { t } = useTranslation();
@@ -24,6 +25,7 @@ export default function InvoiceDetailPage() {
   const q = useQuery({ queryKey: ["invoice", id], queryFn: () => api.invoices.get(id!) });
   const [paying, setPaying] = useState(false);
   const [voiding, setVoiding] = useState(false);
+  const [numbering, setNumbering] = useState(false); // D-196
   const refresh = () => { for (const k of [["invoice", id], ["invoices"], ["invoice-for"], ["booking"], ["bookings"]]) void qc.invalidateQueries({ queryKey: k }); };
   const onErr = (e: unknown) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") }));
   // D-126: the invoice date may be earlier (inside an unlocked period; a reason when more than 3 days back)
@@ -39,7 +41,7 @@ export default function InvoiceDetailPage() {
     <div className="max-w-3xl space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h1 className="font-mono break-all">{d.number}</h1>
+          <h1 className="font-mono break-all">{d.number}{d.can.issue && d.status !== "void" && <button type="button" className="ml-2 align-middle text-muted hover:text-ink" aria-label={t("numbers.edit")} onClick={() => setNumbering(true)} data-testid="invoice-number-edit"><Pencil size={16} /></button>}</h1>
           <p className="text-sm text-muted break-words">{d.customer_name}{d.booking_number && <> · <Link className="text-blue underline" to={`/bookings/${d.booking_id}`}>{d.booking_number}</Link></>}</p>
         </div>
         <InvoiceBadge status={d.status} payment={d.payment_status} />
@@ -84,6 +86,7 @@ export default function InvoiceDetailPage() {
       {draft && d.discount_status === "pending" && <p className="text-sm text-warning">{t("invoice.err.DISCOUNT_PENDING")}</p>}
       {issuing && <IssueDialog loading={issue.isPending} onClose={() => setIssuing(false)} onIssue={(v) => issue.mutate(v)} />}
       {paying && <PaymentDialog d={d} onClose={() => setPaying(false)} onDone={() => { setPaying(false); refresh(); }} />}
+      {numbering && <NumberDialog title={t("numbers.title_invoice")} current={d.number} needReason={d.status === "issued"} onSave={(n, r) => api.invoices.setNumber(d.id, n, r).then(refresh)} onClose={() => setNumbering(false)} />}
       {voiding && <VoidDialog d={d} onClose={() => setVoiding(false)} onDone={() => { setVoiding(false); refresh(); }} />}
     </div>
   );
@@ -121,6 +124,9 @@ function LineRow({ d, l, canSwitch, onDone }: { d: Invoice; l: Invoice["lines"][
     onSuccess: () => { toast.success(t("invoice.kind_done")); setAsk(false); onDone(); },
     onError: (e) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") })),
   });
+  // D-196: a section heading / a text row inside the price of the line above (the client's Excel)
+  if (l.row_type === "heading") return <li className="py-2 text-center font-semibold bg-warning-50 rounded" data-testid="invoice-heading">{l.description}</li>;
+  if (l.row_type === "text") return <li className="py-1 pl-6 text-muted break-words" data-testid="invoice-text-row">↳ {l.description}</li>;
   return (
     <li className="py-2 flex flex-wrap items-center gap-2" data-testid="invoice-line">
       <span className="flex-1 min-w-0 break-words">{l.description} <span className="text-xs text-muted">× {l.qty} {l.unit}</span> <Badge tone={l.kind === "product" ? "blue" : "grey"} data-testid="line-kind">{t(`catalog.kind_${l.kind}`)}</Badge></span>

@@ -390,4 +390,8 @@ a.bk{color:inherit;text-decoration:none}a.bk .go{margin-left:auto;color:#94A3B8}
 .ivr .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:flex-start;line-height:1.35}
 .ivr .tx b{font-size:14px;font-weight:600}.ivr .tx small{font-size:11px;color:#87888C}
 .owe{border:1.5px solid #E7C66A}
+/* D-196: the invoice inside the timeline step; Excel-style rows on the customer invoice */
+.trk-inv{margin-top:6px;display:flex;flex-direction:column;gap:6px;padding:8px 10px;border-radius:12px;background:#F3F5FC;border:1.5px solid #E7C66A}
+.trk-inv .ivr{padding:4px 0}.trk-inv .btn.sm{width:100%;height:40px;align-self:stretch}
+.il li.hd{justify-content:center;background:#FCE9DC;border-radius:8px;padding:4px 8px}.il li.tx{padding-left:12px;color:#5B6676}
 @media print{body{background:#FFF}.band,.tabbar,.noprint,.paycard{display:none!important}.scr{padding:0}.card{box-shadow:none;border:1px solid #DDE2EC;break-inside:avoid}}

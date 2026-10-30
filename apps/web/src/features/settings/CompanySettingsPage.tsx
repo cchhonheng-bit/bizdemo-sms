@@ -117,6 +117,7 @@ export default function CompanySettingsPage() {
       <TelegramGroupCard current={settings.data} />
       {websiteOn && <Card title={t("website.title")}><p className="text-sm text-muted mb-3">{t("website.own_page")}</p><Link className="btn-secondary" to="/website" data-testid="web-open"><Globe size={16} /> {t("nav.website")}</Link></Card>}
       {isCeo && <TestPhonesCard />}
+      {isCeo && <ReviewSubstituteCard />}
 
       <Card title={t("settings.vehicles")}>
         <table className="table table-stack mb-3">
@@ -150,6 +151,37 @@ export default function CompanySettingsPage() {
 
 /** D-120 (CEO only): bookings / quotes from these phones are tests — the CEO alone is told, reports and customer lists leave them
  *  out, whatever is still open after 24 h is cancelled by itself. One number per line. */
+/** D-196 (client 30-10): while the GM is away the CEO names who reviews the technicians' reports, until a day */
+function ReviewSubstituteCard() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const q = useQuery({ queryKey: ["review-substitute"], queryFn: api.reviewSubstitute.get });
+  const users = useQuery({ queryKey: ["users-basic"], queryFn: api.usersBasic });
+  const [who, setWho] = useState<string | null>(null);
+  const [until, setUntil] = useState<string | null>(null);
+  const cur = who ?? q.data?.user_id ?? "", day = until ?? q.data?.until ?? "";
+  const save = useMutation({
+    mutationFn: (clear: boolean) => api.reviewSubstitute.save(clear ? { user_id: null, until: null } : { user_id: cur || null, until: day || null }),
+    onSuccess: () => { toast.success(t("app.saved")); setWho(null); setUntil(null); void qc.invalidateQueries({ queryKey: ["review-substitute"] }); },
+    onError: (e) => toast.error(t(`settings.subst_err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  const people = (users.data ?? []).filter((u) => u.role !== "tech");
+  return (
+    <Card title={t("settings.subst_title")}>
+      <p className="text-xs text-muted mb-2">{t("settings.subst_hint")}</p>
+      {q.data?.user_id && <p className="text-sm mb-2" data-testid="subst-state">{q.data.active ? "✅ " : "⏸ "}{t(q.data.active ? "settings.subst_on" : "settings.subst_off", { name: q.data.name ?? "", until: q.data.until ?? "—" })}</p>}
+      <div className="grid sm:grid-cols-2 gap-x-3">
+        <Field label={t("settings.subst_who")}><Select value={cur} onChange={(e) => setWho(e.target.value)} data-testid="subst-user"><option value="">—</option>{people.map((u) => <option key={u.id} value={u.id}>{u.full_name}</option>)}</Select></Field>
+        <Field label={t("settings.subst_until")}><Input type="date" value={day} onChange={(e) => setUntil(e.target.value)} data-testid="subst-until" /></Field>
+      </div>
+      <div className="flex flex-wrap gap-2 justify-end">
+        {q.data?.user_id && <Button onClick={() => save.mutate(true)} loading={save.isPending}>{t("settings.subst_clear")}</Button>}
+        <Button variant="primary" disabled={!cur} onClick={() => save.mutate(false)} loading={save.isPending} data-testid="subst-save">{t("app.save")}</Button>
+      </div>
+    </Card>
+  );
+}
+
 function TestPhonesCard() {
   const { t } = useTranslation();
   const qc = useQueryClient();
