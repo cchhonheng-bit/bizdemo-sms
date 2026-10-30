@@ -32,6 +32,8 @@ export const btn = {
   rebook: () => webApp(CUSTOMER_BTN.rebook, CUSTOMER_PATHS.book),
   again: () => webApp(CUSTOMER_BTN.again, CUSTOMER_PATHS.book),
   book: () => webApp(CUSTOMER_BTN.book, CUSTOMER_PATHS.book),
+  /** D-195: «job done» → rate it on the booking's own page */
+  rate: (bookingId: string) => webApp(CUSTOMER_BTN.rate, `/my/b/${bookingId}#rate`),
   login: (): Btn | null => (https() ? { text: CUSTOMER_BTN.login, url: siteUrl(CUSTOMER_PATHS.home) } : null),
   /** D-191: the website's «change PIN» page — the code is typed there, never carried in the address */
   pin: (): Btn | null => (https() ? { text: CUSTOMER_BTN.pin, url: siteUrl(CUSTOMER_PATHS.reset) } : null),

@@ -118,6 +118,7 @@ export type Invoice = {
   discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
   created_at: string; issued_at: string | null; voided_at: string | null; void_reason: string | null; voided_by_name: string | null; created_by_name: string | null; issued_by_name: string | null;
   booking_number: string | null; service_text: string | null; address: string | null; customer_name: string; customer_phones: string[];
+  customer_notified_at: string | null; customer_linked: boolean; customer_has_account: boolean; // D-195
   lines: QuoteLine[]; payments: Payment[]; slips: PaymentSlip[]; subtotal: number; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid"; total_khr: number; balance_khr: number;
   void_request: { id: string; reason: string; requested_by: string; requester_role: string; created_at: string; requested_by_name: string } | null;
   company: { name: string; company_info: Record<string, string>; has_logo: boolean; has_qr: boolean; fx_now: number };
@@ -395,6 +396,9 @@ export const api = {
     /** D-194: a customer's transfer receipt → a payment (ABA / ACLEDA / cash) or refused with a reason the customer reads */
     confirmSlip: (id: string, slip: string, v: { amount: number; method: "aba" | "acleda" | "cash_usd"; paid_on: string }) => post<{ balance: number; payment_status: string }>(`/api/invoices/${id}/slips/${slip}/confirm`, v),
     rejectSlip: (id: string, slip: string, reason: string) => post(`/api/invoices/${id}/slips/${slip}/reject`, { reason }),
+    /** D-195: the customer's link (to paste into any chat) · the Telegram notice again */
+    customerLink: (id: string) => get<{ url: string }>(`/api/invoices/${id}/customer-link`),
+    notify: (id: string) => post<{ sent: boolean }>(`/api/invoices/${id}/notify`, {}),
     void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
     decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
     debts: (paystatus?: string) => get<DebtRow[]>(`/api/invoices/debts${paystatus ? `?paystatus=${paystatus}` : ""}`), // D-183

@@ -71,7 +71,7 @@ export async function customerNotices(now: Date = new Date()): Promise<number> {
     const w = d.scheduled_at ? kmWhen(d.scheduled_at, d.tz || "Asia/Phnom_Penh") : { day: "—", time: "—" };
     const m: CustomerMsg = d.kind === "reminder" ? { text: customerText.reminder(w.time, d.service_text, d.technician), buttons: row(btn.track()) }
       : d.kind === "on_the_way" ? { text: customerText.onTheWay(d.technician), buttons: row(btn.track()) }
-      : { text: customerText.done(d.number, d.until ? kmDate(d.until) : null, await finalLines(d.id)), buttons: row(btn.again()) };
+      : { text: customerText.done(d.number, d.until ? kmDate(d.until) : null, await finalLines(d.id)), buttons: row(btn.rate(d.id), btn.again()) };
     const r = await hubCall("POST", "/internal/notify-subscriber", { subscriber_id: Number(d.sub), text: m.text, ...(m.buttons ? { buttons: m.buttons } : {}) }).catch(() => null);
     const ok = !!r && r.status === 200 && r.json?.ok === true;
     if (!ok && !(r && r.status === 200 && r.json?.error === "NOT_SUBSCRIBED")) continue; // hub down or a passing error: next sweep

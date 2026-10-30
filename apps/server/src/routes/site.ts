@@ -230,7 +230,8 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (!checkRate(`site:inv:ip:${req.ip}`, 60, 3600)) throw new AppError("RATE_LIMITED", 429);
     const lang = langOf(req, reply), d = await site(), p = invToken.safeParse(req.params);
     if (!p.success) throw new AppError("NOT_FOUND", 404);
-    const v = await linkInvoice(p.data.token);
+    const v = await linkInvoice(p.data.token).catch((e) => { if (e instanceof AppError && e.code === "NOT_FOUND") return null; throw e; });
+    if (!v) return html(reply, 404, notFoundPage(d, lang), "no-store"); // a changed link: the site's own page, not a bare error
     if (v === "expired") return html(reply, 410, linkGonePage(d, lang), "no-store");
     return html(reply, 200, invoicePage(d, lang, v, { via: "link", path: pathOf(req), api: `/api/public/invoice/${p.data.token}/slip`, signed: !!(await sessionOf(req, reply)) }), "no-store");
   });
@@ -315,7 +316,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const ref = z.object({ ref: z.string().regex(/^[A-Za-z0-9_-]{22}$/) }).parse(req.params).ref, d = await site(), lang = langOf(req, reply);
     const v = await doneView(ref);
     reply.header("Cache-Control", "no-store");
-    return { state: v.state, html: trackHtml(lang, v.track, d.tz) };
+    return { state: v.state, sig: v.sig, html: trackHtml(lang, v.track, d.tz) };
   });
   /** opened inside Telegram (Mini App): the launch data is the login (D-121: the page calls this BEFORE it shows anything). A live
    *  session of the same person is kept. Answers with the linked customer's name + phone for the booking form. /api/public/tg-login

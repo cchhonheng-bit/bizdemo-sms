@@ -13,7 +13,7 @@ export const CUSTOMER_MENU_OLD = { password: "🔑 កំណត់ពាក្�
 export const CUSTOMER_BTN = {
   track: "📍 តាមដានការកក់", rebook: "កក់ម៉ោងផ្សេង", again: "កក់ម្ដងទៀត", book: "📅 កក់សេវា", login: "ចូលគណនី", resume: "🔔 បើកវិញ",
   stopPromo: "ឈប់ទទួលប្រូម៉ូសិន", stopPromoOnly: "ឈប់តែប្រូម៉ូសិន", stopAll: "ឈប់ទាំងអស់", cancel: "បោះបង់", resumePromo: "🎁 បើកប្រូម៉ូសិនវិញ",
-  resumeAll: "🔔 បើកដំណឹងវិញ", share: "📱 ផ្ញើលេខទូរស័ព្ទ", pin: "🔑 ប្ដូរលេខសម្ងាត់", invoice: "🧾 មើលវិក្កយបត្រ",
+  resumeAll: "🔔 បើកដំណឹងវិញ", share: "📱 ផ្ញើលេខទូរស័ព្ទ", pin: "🔑 ប្ដូរលេខសម្ងាត់", invoice: "🧾 មើលវិក្កយបត្រ", rate: "⭐ វាយតម្លៃសេវា",
 } as const;
 
 export const KM_WEEKDAYS = ["ច័ន្ទ", "អង្គារ", "ពុធ", "ព្រហស្បតិ៍", "សុក្រ", "សៅរ៍", "អាទិត្យ"] as const;

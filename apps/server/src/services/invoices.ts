@@ -399,6 +399,7 @@ export async function decideVoid(user: SessionUser, ip: string | null, id: strin
 export async function getInvoice(user: SessionUser, perms: string[], id: string) {
   const i = (await sql`select i.id, i.number, i.status, i.is_extra, i.notes, i.booking_id, i.customer_id, i.fx_rate_khr::float as fx_rate_khr, i.discount, i.discount_status,
       i.discount_requested, i.discount_note, i.created_at, i.issued_at, i.voided_at, i.void_reason,
+      i.customer_notified_at, coalesce(b.web_subscriber_id, c.tg_subscriber_id) is not null as customer_linked, c.password_hash is not null as customer_has_account, -- D-195
       b.number as booking_number, b.service_text, coalesce(b.address, c.address) as address, c.name as customer_name, c.phones as customer_phones,
       cu.full_name as created_by_name, iu.full_name as issued_by_name, vu.full_name as voided_by_name, du.full_name as discount_by_name
     from invoices i join customers c on c.id = i.customer_id left join bookings b on b.id = i.booking_id

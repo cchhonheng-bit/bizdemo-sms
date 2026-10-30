@@ -161,15 +161,17 @@
   /** D-191: the timeline of a moving booking refreshes itself every 30 s (only while the page is in front); a new state reloads
    *  the page — unless the visitor is typing into a form on it */
   var FINAL = { done: 1, declined: 1, cancelled: 1, expired: 1 };
+  // D-195: the page follows the job until it is paid — a new invoice, a payment or a receipt decided reloads it (the signature)
   function follow(url, busyNow) {
-    if (FINAL[body.dataset.state]) return;
+    if (body.dataset.final ? body.dataset.final === "1" : FINAL[body.dataset.state]) return;
     setInterval(function () {
       if (document.visibilityState !== "visible") return;
       send("GET", url).then(function (r) {
         if (!r.ok) return;
         var tl = $("#tl");
         if (tl && r.json.html) tl.innerHTML = r.json.html;
-        if (r.json.state && r.json.state !== body.dataset.state && !busyNow()) location.reload();
+        var moved = r.json.sig && body.dataset.sig ? r.json.sig !== body.dataset.sig : r.json.state && r.json.state !== body.dataset.state;
+        if (moved && !busyNow()) location.reload();
       }).catch(function () { /* next time */ });
     }, 30000);
   }

@@ -1003,6 +1003,17 @@
       "acleda": "ACLEDA"
     },
     "paid_on": "Paid on",
+    "send": {
+      "title": "Send to the customer",
+      "notified": "Sent by Telegram · {{at}}",
+      "not_yet": "Not sent by Telegram yet",
+      "no_telegram": "This customer has no Telegram link — copy the link and send it in any chat app.",
+      "account": "The customer also sees this invoice in their account.",
+      "copy": "Copy the link",
+      "copied": "Link copied",
+      "again": "Send by Telegram again",
+      "sent": "Sent"
+    },
     "slips": {
       "title": "Receipts from the customer",
       "photo": "Receipt photo",
@@ -1063,6 +1074,9 @@
       "BAD_METHOD": "Method does not match the currency",
       "BAD_DATE": "The payment date cannot be in the future",
       "SLIP_DECIDED": "This receipt was already decided",
+      "NOT_LINKED": "This customer has no Telegram link",
+      "ALREADY_PAID": "This invoice is already paid",
+      "HUB_DOWN": "Could not send right now. Please try again.",
       "OVERPAY": "More than the balance",
       "AMOUNT_TOO_SMALL": "Amount too small",
       "REASON_REQUIRED": "Please enter a reason",

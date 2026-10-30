@@ -5,7 +5,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { client, loginAs, makeApp, PLACE, PW, resetDb, seed, type Client, type Seed } from "./helpers.js";
+import { client, loginAs, makeApp, PLACE, PW, resetDb, seed, span, type Client, type Seed } from "./helpers.js";
+import { customerNotices } from "../src/services/customer-notify.js";
 import { quietUrl } from "../src/app.js";
 import { config } from "../src/config.js";
 import { sql } from "../src/db.js";
@@ -216,5 +217,72 @@ describe("D-194 the invoice reaches the customer and is paid from the phone", ()
     expect(await payReminders(local(10))).toBe(0);
     expect((await ceo.req("PUT", "/api/website", { pay_due_days: 31 })).status).toBe(400);
     expect((await ceo.req("PUT", "/api/website", { pay_due_days: 3 })).status).toBe(200);
+  });
+});
+
+// D-195 (owner 30-10, BK-0012: «the invoice did not reach the client — stuck at «វិក្កយបត្រ»»): the open page stopped following the
+// job once it was done; a customer without Telegram heard nothing; a guest without an account could not see the invoice at all.
+describe("D-195 the invoice reaches every customer of a job", () => {
+  let bk = "", inv = "";
+  const REF = "d195RefAbcdefghijklmno";
+  it("job done, no invoice yet: the page keeps following (not final), «ហាងកំពុងរៀបចំវិក្កយបត្រ» under the invoice step", async () => {
+    const gm = await loginAs(app, "gm01");
+    const svc = (await ceo.req("POST", "/api/catalog", { name_km: "លាងម៉ាស៊ីនត្រជាក់", kind: "service", category: "mep", unit: "job", sell_price: 2500 })).json.id;
+    bk = (await ceo.req("POST", "/api/bookings", { customer_id: custA, type: "A", category: "mep", service_text: "លាងម៉ាស៊ីនត្រជាក់", zone: "inside", ...span(new Date(Date.now() + 3 * 3600_000).toISOString()), service_item_id: svc })).json.id;
+    expect((await gm.req("POST", `/api/bookings/${bk}/assign`, { lead: s.users.kim, assistants: [] })).status).toBe(200);
+    for (const st of ["on_site", "work_done", "pending_review", "reviewed"]) await sql`update bookings set status = ${st}::booking_status where id = ${bk}`;
+    await sql`update bookings set web_ref = ${REF} where id = ${bk}`; // as if booked online (the guest's tracking address)
+    const d = (await A.req("GET", `/api/my/bookings/${bk}`)).json;
+    expect(d.final).toBe(false); expect(d.sig).toBe("done|"); expect(d.html).toContain("ហាងកំពុងរៀបចំវិក្កយបត្រ");
+    const p = (await page(`/my/b/${bk}`, A)).body;
+    expect(p).toContain('data-final="0"'); expect(p).toContain('data-sig="done|"'); expect(p).not.toContain('id="inv"');
+  });
+
+  it("issued: the signature changes (the open page reloads), the invoice sits on top with «មើល / បង់ប្រាក់»; the guest page shows it through its signed link", async () => {
+    inv = (await admin.req("POST", "/api/invoices", { booking_id: bk, lines: [line("លាងម៉ាស៊ីនត្រជាក់", 2500, 2)] })).json.id;
+    expect((await admin.req("POST", `/api/invoices/${inv}/issue`)).status).toBe(200);
+    const d = (await A.req("GET", `/api/my/bookings/${bk}`)).json;
+    expect(d.sig).toBe(`done|${inv}:5000:0`); expect(d.final).toBe(false); expect(d.html).toContain("រង់ចាំការបង់ប្រាក់");
+    const p = (await page(`/my/b/${bk}`, A)).body;
+    expect(p.indexOf('id="inv"')).toBeGreaterThan(-1); expect(p.indexOf('id="inv"')).toBeLessThan(p.indexOf('id="tl"'));
+    expect(p).toContain(`href="/my/invoice/${inv}"`); expect(p).toContain("មើល / បង់ប្រាក់"); expect(p).toContain("ត្រូវបង់ $50.00");
+    const g = await page(`/book/done/${REF}`); // a guest: no cookie
+    expect(g.statusCode).toBe(200);
+    const href = /href="(\/i\/[^"]+)"/.exec(g.body)?.[1];
+    expect(href).toMatch(/^\/i\/[0-9a-f-]{36}\.[0-9a-z]+\.[A-Za-z0-9_-]{32}$/);
+    expect((await page(href!)).body).toContain("ខ្ញុំបានបង់រួច");
+    expect((await app.inject({ method: "GET", url: `/api/public/track/${REF}` })).json().sig).toBe(`done|${inv}:5000:0`);
+  });
+
+  it("the office sends it by hand: the link (audited; invoice.issue only), Telegram again (a linked chat, something owed)", async () => {
+    await until(async () => !!(await admin.req("GET", `/api/invoices/${inv}`)).json.customer_notified_at); // the notice at issue (async)
+    const info = (await admin.req("GET", `/api/invoices/${inv}`)).json;
+    expect(info).toMatchObject({ customer_linked: true, customer_has_account: true }); expect(info.customer_notified_at).toBeTruthy();
+    const l = await admin.req("GET", `/api/invoices/${inv}/customer-link`);
+    expect(l.status).toBe(200); expect(l.json.url).toMatch(/^https:\/\/oneteam\.test\/i\//);
+    expect((await page(l.json.url.replace("https://oneteam.test", ""))).statusCode).toBe(200);
+    for (const c of [kim, cfo]) expect((await c.req("GET", `/api/invoices/${inv}/customer-link`)).status).toBe(403);
+    expect((await ceoB.req("GET", `/api/invoices/${inv}/customer-link`)).status).toBe(404);
+    expect((await sql`select 1 from audit_log where action = 'invoice.link' and row_id = ${inv}`).length).toBe(1);
+    const before = told(SUB).length;
+    expect((await admin.req("POST", `/api/invoices/${inv}/notify`, {})).json).toEqual({ sent: true });
+    expect(told(SUB).length).toBe(before + 1); expect(told(SUB).at(-1)!.text).toContain("🧾 វិក្កយបត្រ");
+    const noChat = await issued(custB, [line("សេវា", 1500)]);
+    expect((await admin.req("POST", `/api/invoices/${noChat}/notify`, {})).json.error).toBe("NOT_LINKED");
+    expect((await admin.req("GET", `/api/invoices/${noChat}`)).json).toMatchObject({ customer_linked: false, customer_notified_at: null });
+  });
+
+  it("paid → final (the page stops following); «job done» on Telegram carries «⭐ វាយតម្លៃសេវា»; a changed link shows the site's own 404 page", async () => {
+    expect((await admin.req("POST", `/api/invoices/${inv}/payments`, { amount: 5000, currency: "usd", method: "aba" })).status).toBe(200);
+    const d = (await A.req("GET", `/api/my/bookings/${bk}`)).json;
+    expect(d.final).toBe(true); expect(d.invoices[0].balance).toBe(0);
+    expect((await admin.req("POST", `/api/invoices/${inv}/notify`, {})).json.error).toBe("ALREADY_PAID");
+    await sql`update bookings set closed_at = coalesce(closed_at, now()) where id = ${bk}`;
+    await customerNotices();
+    const done = told(SUB).find((m) => m.text.includes("✅ ការងាររួចរាល់"))!;
+    expect(done.buttons![0]!.map((b) => b.text)).toEqual(["⭐ វាយតម្លៃសេវា", "កក់ម្ដងទៀត"]);
+    expect(done.buttons![0]![0]!.web_app).toBe(`https://oneteam.test/my/b/${bk}#rate`);
+    const bad = await page(`/i/${invA}.zzzzzz.${"A".repeat(32)}`);
+    expect(bad.statusCode).toBe(404); expect(bad.headers["content-type"]).toContain("text/html");
   });
 });

@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd, fromCents, toCents, usdToKhr } from "@sms/shared";
-import { Ban, Check, Pencil, Printer, Send, Wallet, X } from "lucide-react";
+import { Ban, Check, Link2, Pencil, Printer, Send, Wallet, X } from "lucide-react";
 import { api, errCode, fmtDate, type Invoice, type PaymentSlip, type PayMethod } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { ActionBar, Badge, Button, Card, ConfirmDialog, Dialog, ErrorState, Field, Input, Skeleton } from "@/components/ui";
@@ -56,6 +56,7 @@ export default function InvoiceDetailPage() {
       </Card>
 
       {draft && d.can.discount && <DiscountCard d={d} onDone={refresh} />}
+      {issued && d.balance > 0 && d.can.issue && <SendCard d={d} onDone={refresh} />}
       {d.slips.length > 0 && <SlipsCard d={d} onDone={() => { refresh(); api.flushTelegram(); }} />}
 
       {(issued || d.payments.length > 0) && (
@@ -269,6 +270,30 @@ function PaymentDialog({ d, onClose, onDone }: { d: Invoice; onClose: () => void
         <Field label={t("invoice.pay_note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></Field>
       </div>
     </Dialog>
+  );
+}
+
+/** D-195: the invoice reaches the customer — the Telegram notice (state, send again) or the customer's link to paste into any chat */
+function SendCard({ d, onDone }: { d: Invoice; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [url, setUrl] = useState<string | null>(null);
+  const onErr = (e: unknown) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") }));
+  const link = useMutation({
+    mutationFn: () => api.invoices.customerLink(d.id),
+    onSuccess: async (r) => { setUrl(r.url); try { await navigator.clipboard.writeText(r.url); toast.success(t("invoice.send.copied")); } catch { /* shown below to copy by hand */ } },
+    onError: onErr,
+  });
+  const again = useMutation({ mutationFn: () => api.invoices.notify(d.id), onSuccess: () => { toast.success(t("invoice.send.sent")); onDone(); }, onError: onErr });
+  return (
+    <Card title={t("invoice.send.title")}>
+      <p className="text-sm" data-testid="invoice-send-state">{d.customer_notified_at ? `✅ ${t("invoice.send.notified", { at: fmtDate(d.customer_notified_at) })}` : d.customer_linked ? t("invoice.send.not_yet") : t("invoice.send.no_telegram")}</p>
+      {d.customer_has_account && <p className="text-xs text-muted mt-1">{t("invoice.send.account")}</p>}
+      <div className="flex flex-wrap gap-2 mt-3">
+        <Button onClick={() => link.mutate()} loading={link.isPending} data-testid="invoice-copy-link"><Link2 size={16} /> {t("invoice.send.copy")}</Button>
+        {d.customer_linked && <Button onClick={() => again.mutate()} loading={again.isPending} data-testid="invoice-notify"><Send size={16} /> {t("invoice.send.again")}</Button>}
+      </div>
+      {url && <input readOnly className="input mt-2 text-xs" value={url} onFocus={(e) => e.currentTarget.select()} data-testid="invoice-link" />}
+    </Card>
   );
 }
 

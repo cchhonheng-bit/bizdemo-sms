@@ -8,7 +8,7 @@ import {
   assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, prefillExtra, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
 } from "../services/invoices.js";
 import { invoiceJournal } from "../services/accounting.js";
-import { decideSlip, notifyInvoiceIssued, slipPhoto } from "../services/invoice-pay.js";
+import { decideSlip, invoiceLinkFor, notifyInvoiceIssued, resendInvoice, slipPhoto } from "../services/invoice-pay.js";
 
 const line = z.object({
   catalog_item_id: z.string().uuid().optional().nullable(),
@@ -83,6 +83,9 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return recordPayment(req.user!, req.ip, idParam.parse(req.params).id, { parts, paid_on: v.paid_on, note: v.note });
   });
 
+  // D-195: the office sends the invoice by hand — the customer's link to paste into any chat, or the Telegram notice again
+  app.get("/:id/customer-link", { preHandler: app.requirePerm("invoice.issue") }, async (req, reply) => { reply.header("Cache-Control", "no-store"); return invoiceLinkFor(req.user!, req.ip, idParam.parse(req.params).id); });
+  app.post("/:id/notify", { preHandler: app.requirePerm("invoice.issue") }, async (req) => resendInvoice(req.user!, req.ip, idParam.parse(req.params).id));
   // D-194: the customer's transfer receipts — the photo, confirm (= a payment on the mapped account) or refuse with a reason
   const slipParams = z.object({ id: z.string().uuid(), slip: z.string().uuid() });
   app.get("/:id/slips/:slip/photo", { preHandler: app.requirePerm("payment.record") }, async (req, reply) => {

@@ -11,6 +11,7 @@ import { APP_BASE } from "../lib/app-url.js";
 import { WARRANTY_DAYS } from "../services/bookings.js";
 import type { MyBooking, MyHome, NotifyPrefs } from "../services/customer-home.js";
 import type { CustomerInvoice } from "../services/invoice-pay.js";
+import type { BookingInvoice } from "../services/invoice-link.js";
 import type { Track, TrackStep } from "../services/customer-track.js";
 import { shortName, type SiteService, type SiteView } from "../services/site.js";
 import { videoOf, type Post } from "../services/site-posts.js";
@@ -53,6 +54,7 @@ const TXT = {
     pw_title: "ប្ដូរលេខសម្ងាត់", pw_make: "បង្កើតលេខសម្ងាត់", pw_cur: "លេខសម្ងាត់បច្ចុប្បន្ន", pw_new: "លេខសម្ងាត់ថ្មី", pw_new2: "លេខសម្ងាត់ថ្មីម្ដងទៀត", pw_save: "រក្សាទុក", logout_all: "ចាកចេញពីឧបករណ៍ទាំងអស់", n_link: "ភ្ជាប់ Telegram ដើម្បីទទួលដំណឹងការកក់", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
     g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
+    inv_view: "មើល / បង់ប្រាក់", tk_wait_inv: "ហាងកំពុងរៀបចំវិក្កយបត្រ", tk_wait_pay: "រង់ចាំការបង់ប្រាក់",
     inv: "វិក្កយបត្រ", inv_h: (no: string) => `វិក្កយបត្រ #${no}`, inv_to: "អតិថិជន", inv_job: "ការងារ", inv_date: "ថ្ងៃចេញ", inv_due: "សូមបង់មុន", inv_subtotal: "សរុបរង", inv_discount: "បញ្ចុះតម្លៃ",
     inv_total: "សរុប", inv_paid: "បានបង់", inv_balance: "នៅសល់ត្រូវបង់", inv_st: { unpaid: "មិនទាន់បង់", partial: "បង់ខ្លះ", paid: "បានបង់" }, inv_void_s: "លុបចោល", inv_void: "វិក្កយបត្រនេះត្រូវបានលុបចោល",
     inv_pays: "ការបង់ប្រាក់", pay_m: { cash_usd: "សាច់ប្រាក់", cash_khr: "សាច់ប្រាក់ ៛", aba: "ABA", acleda: "ACLEDA" }, inv_pay_h: "បង់ប្រាក់",
@@ -119,6 +121,7 @@ const TXT = {
     pw_title: "Change PIN", pw_make: "Create a PIN", pw_cur: "Current PIN", pw_new: "New PIN", pw_new2: "New PIN again", pw_save: "Save", logout_all: "Sign out on all devices", n_link: "Connect Telegram to get booking news", l_staff: "Staff: open the work app",
     track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
     g_start: "Please open the shop on Telegram and tap START first",
+    inv_view: "View / pay", tk_wait_inv: "The shop is preparing the invoice", tk_wait_pay: "Waiting for the payment",
     inv: "Invoice", inv_h: (no: string) => `Invoice #${no}`, inv_to: "Customer", inv_job: "Job", inv_date: "Issued", inv_due: "Please pay by", inv_subtotal: "Subtotal", inv_discount: "Discount",
     inv_total: "Total", inv_paid: "Paid", inv_balance: "Still to pay", inv_st: { unpaid: "Not paid", partial: "Part paid", paid: "Paid" }, inv_void_s: "Cancelled", inv_void: "This invoice was cancelled",
     inv_pays: "Payments", pay_m: { cash_usd: "Cash", cash_khr: "Cash (riel)", aba: "ABA", acleda: "ACLEDA" }, inv_pay_h: "Pay",
@@ -464,7 +467,8 @@ export function trackHtml(lang: SiteLang, tr: Track, tz: string): string {
   const t = TXT[lang];
   if (tr.ended) return `<p class="trk-end"><span class="pl r">${t.st[tr.ended]}</span></p>`;
   return `<ol class="trk">${tr.steps.map((x) => `<li class="${x.done ? "dn" : x.now ? "cur" : ""}"><i>${x.done ? svg(I.check, 12, 3) : ""}</i><div><b>${t.tk[x.key]}</b>${
-    x.key === "received" && tr.waiting ? `<small>${t.st.pending}</small>` : x.at ? `<small>${atText(t, x.at, tz)}</small>` : ""}</div></li>`).join("")}</ol>`;
+    x.key === "received" && tr.waiting ? `<small>${t.st.pending}</small>` : x.at ? `<small>${atText(t, x.at, tz)}</small>`
+      : x.now && (x.key === "invoice" || x.key === "paid") ? `<small>${x.key === "invoice" ? t.tk_wait_inv : t.tk_wait_pay}</small>` : ""}</div></li>`).join("")}</ol>`; // D-195: what the customer waits for
 }
 /** a 4-digit PIN field with the eye button */
 const pinIn = (t: T, id: string, autocomplete: string, max = 4) => `<div class="pwf"><input class="in pin" id="${id}" type="password" inputmode="numeric" maxlength="${max}" autocomplete="${autocomplete}"><button type="button" class="eye" data-eye="${id}" aria-label="${t.show_pw}" data-show="${t.show_pw}" data-hide="${t.hide_pw}">${svg(I.eye)}${svg(I.eyeOff)}</button></div>`;
@@ -481,12 +485,21 @@ ${fresh ? locationRow(t) : ""}
 <button type="button" class="ob m" id="a-open" hidden>${svg(I.user, 15)}${t.acct_open}</button>`;
 }
 export type DoneInfo = { id: string; number: string; state: CustomerState; service_km: string; service_en: string; at: Date; linked: boolean; link: string | null; night?: boolean;
-  account: "mine" | "exists" | "offer" | null; fresh: boolean; track: Track };
+  account: "mine" | "exists" | "offer" | null; fresh: boolean; track: Track; invoices: (BookingInvoice & { link: string })[]; sig: string; final: boolean };
+/** D-194 / D-195 a job's issued invoices — on top with «មើល / បង់ប្រាក់» while something is owed (the account's page or the signed link) */
+function invoicesCard(t: T, list: BookingInvoice[], href: (i: BookingInvoice) => string): string {
+  if (!list.length) return "";
+  const owe = list.find((i) => i.balance > 0 && !i.slip_pending) ?? list.find((i) => i.balance > 0);
+  return `<section class="card s g4${owe ? " owe" : ""}" id="inv"><h2 class="h2">${t.inv}</h2>${list.map((i) => `<a class="ivr" href="${esc(href(i))}"><span class="ic m">${svg(I.doc, 16)}</span><span class="tx"><b>#${esc(i.number)} · ${formatUsd(i.total)}</b>${
+    i.balance > 0 ? `<span class="pl sm w">${esc(t.inv_owe(formatUsd(i.balance)))}</span>${i.slip_pending ? ` <small>${t.slip_wait_s}</small>` : ""}` : `<span class="pl sm g">${t.inv_st.paid}</span>`}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}${
+    owe ? `<a class="btn" href="${esc(href(owe))}">${svg(I.doc, 16)}${t.inv_view}</a>` : ""}</section>`;
+}
 export function donePage(d: SiteView, lang: SiteLang, b: DoneInfo, path: string, ref: string): string {
   const t = TXT[lang], n = names(d, lang);
   const head = b.state === "pending" ? [t.sent, `${esc(b.night ? t.sla_night : t.sla(n.short))}${lang === "km" ? "។" : "."}<br>${t.held}`] : b.state === "confirmed" || b.state === "on_the_way" || b.state === "working" ? [t.h_confirmed, t.p_confirmed]
     : b.state === "declined" ? [t.h_declined, t.p_declined] : b.state === "cancelled" ? [t.h_cancelled, t.p_cancelled] : b.state === "expired" ? [t.h_expired, t.p_expired] : [t.h_done, t.p_done];
   const bad = b.state === "declined" || b.state === "cancelled" || b.state === "expired";
+  const inv = invoicesCard(t, b.invoices, (i) => (i as BookingInvoice & { link: string }).link), owes = b.invoices.some((i) => i.balance > 0);
   const acct = b.account === "offer" ? accountCard(t, b.fresh)
     : b.account === "exists" ? `<section class="card s g8"><h2 class="h2">${t.acct_exists}</h2><a class="btn" href="/my/login?next=${encodeURIComponent(`/my/b/${b.id}`)}">${svg(I.user, 16)}<span>${t.acct_signin}</span></a></section>`
     : b.account === "mine" ? `<a class="btn" href="/my/b/${esc(b.id)}">${t.view_booking}</a>` : "";
@@ -495,11 +508,12 @@ ${band(d, lang, {})}
 <section class="ok"><div class="okc${bad ? " r" : ""}">${svg(bad ? I.x : I.check, 28, 2.5)}</div><h1>${head[0]}</h1><p>${head[1]}</p></section>
 <section class="sum c"><div><span>${t.no}</span><b class="x">#${esc(b.number)}</b></div><div><span>${t.status}</span><span class="pl ${b.state === "pending" ? "w" : bad ? "r" : "g"}" id="st-pill">${t.st[b.state]}</span></div>
 <div><span>${t.r_svc}</span><b>${esc(lang === "en" ? b.service_en : b.service_km)}</b></div><div><span>${t.r_when}</span><b>${whenText(t, partsOf(b.at, d.tz))}</b></div></section>
+${owes ? inv : ""}
 <section class="card s"><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
-${acct}
+${owes ? "" : inv}${acct}
 ${tgBlock(t, b.linked, b.link)}
 <a class="ob b" href="/">${t.home}</a></main>`;
-  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, data: { state: b.state, ref, ...(b.account === "offer" ? { fresh: b.fresh ? "1" : "0" } : {}) } });
+  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "done", path, body, data: { state: b.state, sig: b.sig, final: b.final ? "1" : "0", ref, ...(b.account === "offer" ? { fresh: b.fresh ? "1" : "0" } : {}) } });
 }
 
 // ---------- 5 · quote request ----------
@@ -634,13 +648,14 @@ export function bookingPage(d: SiteView, lang: SiteLang, b: MyBooking, path: str
   const t = TXT[lang], n = names(d, lang), phones = phonesOf(d), p = b.scheduled_at ? partsOf(b.scheduled_at, d.tz) : null;
   const svc = esc(lang === "en" && b.service_en ? b.service_en : b.service_km);
   const initial = b.technician ? esc([...new Intl.Segmenter(lang, { granularity: "grapheme" }).segment(b.technician.trim())][0]?.segment ?? "") : "";
+  const inv = invoicesCard(t, b.invoices, (i) => `/my/invoice/${i.id}`), owes = b.invoices.some((i) => i.balance > 0);
   const stars = (on: number) => [1, 2, 3, 4, 5].map((i) => `<button type="button" class="star${i <= on ? " on" : ""}" data-star="${i}" aria-label="${esc(t.stars(i))}" aria-pressed="${i <= on}">★</button>`).join("");
   const body = `<main class="scr end v3" data-booking="${b.id}">
 ${band(d, lang, { back: "/my/bookings", title: `#${esc(b.number)}`, sub: svc })}
 <section class="card s"><div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${svc}</b><span>${p ? p.time : ""}</span></div><span class="pl sm ${pillOf(b.state)}" id="st-pill">${t.st[b.state]}</span></div></section>
+${owes ? inv : ""}
 <section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
-${b.invoices.length ? `<section class="card s g4" id="inv"><h2 class="h2">${t.inv}</h2>${b.invoices.map((i) => `<a class="ivr" href="/my/invoice/${i.id}"><span class="ic m">${svg(I.doc, 16)}</span><span class="tx"><b>#${esc(i.number)} · ${formatUsd(i.total)}</b>${
-  i.balance > 0 ? `<span class="pl sm w">${esc(t.inv_owe(formatUsd(i.balance)))}</span>${i.slip_pending ? ` <small>${t.slip_wait_s}</small>` : ""}` : `<span class="pl sm g">${t.inv_st.paid}</span>`}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}</section>` : ""}
+${owes ? "" : inv}
 <section class="card s g8"><h2 class="h2">${t.your_tech}</h2><div class="tech">${b.technician ? `<span class="av t">${initial}</span><b>${esc(b.technician)}</b>` : `<span class="sub">${t.tech_wait}</span>`}</div>
 <div class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${esc(t.call_shop(n.short))}</a>` : ""}${b.telegram ? `<a class="ob m" href="${esc(b.telegram)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
 ${b.can_cancel || b.can_reschedule ? `<section class="card s">${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingActions(t, b)}</section>` : ""}
@@ -649,7 +664,7 @@ ${b.can_rate ? `<section class="card s g8" id="rate"><h2 class="h2">${t.rate_h}<
 <button type="button" class="btn" id="rate-go">${t.rate_go}</button></section>` : ""}
 ${b.warranty ? `<p class="hint ctr">${b.warranty.active ? t.until(`${Number(b.warranty.until.slice(8, 10))} ${t.mon[Number(b.warranty.until.slice(5, 7)) - 1]}`) : t.expired}</p>` : ""}
 <a class="ob b" href="${esc(b.rebook)}">${svg(I.cal, 15)}${t.again}</a></main>`;
-  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "booking", path, body, data: { id: b.id, state: b.state } });
+  return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "booking", path, body, data: { id: b.id, state: b.state, sig: b.sig, final: b.final ? "1" : "0" } });
 }
 
 // ---------- D-194 the customer's invoice (/my/invoice/<id> · the signed link /i/<token>): what it asks, the shop's QR / bank line,

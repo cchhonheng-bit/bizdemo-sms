@@ -36,6 +36,7 @@ import { btn, customerGrid, menuUrl, row, tellSubscriber, type CustomerMsg } fro
 import type { CustomerSession } from "./customer-home.js";
 import { tellCustomer } from "./customer-notify.js";
 import { trackOf } from "./customer-track.js";
+import { bookingInvoices, invoiceToken, trackFinal, trackSig } from "./invoice-link.js";
 import { hubCall, hubConfigured, shopBotUsername } from "./hub-client.js";
 import { checkImage, writeImage } from "./jobs.js";
 import { customerByPhone, notifyRequestStaff } from "./requests.js";
@@ -323,9 +324,11 @@ export async function doneView(ref: string, session: CustomerSession | null = nu
   const state = customerState(b.status, b.web_status);
   const lines = b.web_lines ?? [{ name_km: b.service_text, name_en: b.name_en, qty: 1 }];
   const account = session?.customerId === b.customer_id ? "mine" : b.has_pin ? "exists" : b.recent ? "offer" : null;
+  // D-195: a guest without an account or Telegram sees the job's invoices too — each through its signed link
+  const invoices = (await bookingInvoices(companyId!, b.id)).map((i) => ({ ...i, link: `/i/${invoiceToken(i.id)}` }));
   return { id: b.id, number: b.number, state, service_km: linesText(lines, "km"), service_en: linesText(lines, "en"), at: b.scheduled_at, linked: b.linked, night: state === "pending" && isNight(clock.now(), b.tz || "Asia/Phnom_Penh", clock.day),
     link: b.token_live && !b.linked && (state === "pending" || state === "confirmed") ? await botLink(bookingToken(b.id)) : null,
-    account: account as "mine" | "exists" | "offer" | null, fresh: b.fresh, track: await trackOf(sql, b.id) };
+    account: account as "mine" | "exists" | "offer" | null, fresh: b.fresh, track: await trackOf(sql, b.id), invoices, sig: trackSig(state, invoices), final: trackFinal(b.status, state, invoices) };
 }
 
 // ---------- Admin / GM: confirm (the job length may change) or decline ----------

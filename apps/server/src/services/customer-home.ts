@@ -18,6 +18,7 @@ import { btn, row } from "./customer-bot.js";
 import { tellCustomer } from "./customer-notify.js";
 import { trackOf } from "./customer-track.js";
 import { hubCall, hubConfigured, shopBotUsername } from "./hub-client.js";
+import { bookingInvoices, trackFinal, trackSig } from "./invoice-link.js";
 import { notifyRequestStaff } from "./requests.js";
 import { siteCompanyId } from "./site.js";
 import { fmtLocal } from "./telegram.js";
@@ -208,16 +209,12 @@ export async function myBookingDetail(s: CustomerSession, id: string) {
     from ${FROM} where b.id = ${id} and ${mine(s)}`)[0];
   if (!r) throw notFound(); // not yours = does not exist
   const state = customerState(r.status, r.web_status), bot = await shopBotUsername().catch(() => null);
-  // D-194: the job's issued invoices — what they ask, what is paid, a transfer receipt waiting for the office
-  const invoices = (await sql<{ id: string; number: string; total: number; paid: number; slip_pending: boolean }[]>`select iv.id, iv.number,
-      (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = iv.id) - iv.discount as total,
-      (select coalesce(sum(p.usd_cents), 0)::int from payments p where p.invoice_id = iv.id) as paid,
-      exists (select 1 from payment_slips x where x.invoice_id = iv.id and x.status = 'pending') as slip_pending
-    from invoices iv where iv.booking_id = ${r.id} and iv.company_id = ${s.companyId} and iv.status = 'issued' order by iv.issued_at`).map((x) => ({ ...x, balance: Math.max(0, x.total - x.paid) }));
+  const invoices = await bookingInvoices(s.companyId, r.id); // D-194: the job's issued invoices
   return {
     id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), scheduled_at: r.scheduled_at, ends_at: r.ends_at, state, technician: r.technician,
     track: await trackOf(sql, r.id), can_cancel: cancellable(r.status), can_reschedule: movable(r.status), reschedule_pending: r.reschedule_pending,
     can_rate: DONE.includes(r.status), rating: r.rating, rebook: rebookOf(r), warranty: r.warranty, invoices,
+    sig: trackSig(state, invoices), final: trackFinal(r.status, state, invoices), // D-195: the open page follows the job until it is paid
     // Telegram: the shop's chat when this booking already reaches a chat, else the booking's own link (optional notifications)
     telegram: r.linked ? (bot ? `https://t.me/${bot}` : null) : ["pending", "confirmed", "on_the_way", "working"].includes(state) ? await bookingBotLink(r.id) : null,
   };

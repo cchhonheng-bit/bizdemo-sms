@@ -9,8 +9,7 @@
 //            receipt waiting; 09:00–17:00 shop time; only invoices whose notice went out this way (a deploy never reminds old ones)
 // Security: a customer reads only own invoices (the customer-home rule) or the one a valid link names; receipts are private (staff
 // with payment.record); uploads and link views are rate-limited; every receipt and decision is audited.
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { customerText, formatUsd, INVOICE_LINK_DAYS, kmDate, MAX_PENDING_SLIPS, PAY_DUE_DAYS_DEFAULT, payStatusOf } from "@sms/shared";
+import { customerText, formatUsd, kmDate, MAX_PENDING_SLIPS, PAY_DUE_DAYS_DEFAULT, payStatusOf } from "@sms/shared";
 import { config } from "../config.js";
 import { sql, tx } from "../db.js";
 import { AppError, notFound } from "../lib/errors.js";
@@ -22,25 +21,13 @@ import type { SessionUser } from "./auth.js";
 import { tellSubscriber, webOn, type Btn } from "./customer-bot.js";
 import { myInvoiceRule, type CustomerSession } from "./customer-home.js";
 import { hubConfigured } from "./hub-client.js";
+import { invoiceToken, readInvoiceToken } from "./invoice-link.js";
 import { recordPaymentIn, type PayMethod } from "./invoices.js";
 import { checkImage, writeImage } from "./jobs.js";
 import { readUpload, siteCompanyId } from "./site.js";
 import { notifyUser } from "./telegram.js";
 
-// ---------- the signed link: <invoice id>.<expiry, base 36 seconds>.<HMAC> — tied to one invoice, expires, cannot be made up ----------
-const linkSig = (id: string, exp: number) => createHmac("sha256", config.sessionSecret).update(`invoice-link:${id}:${exp}`).digest("base64url").slice(0, 32);
-export function invoiceToken(id: string, now = Date.now()): string {
-  const exp = Math.floor(now / 1000) + INVOICE_LINK_DAYS * 86_400;
-  return `${id}.${exp.toString(36)}.${linkSig(id, exp)}`;
-}
-/** the invoice a link names; "expired" when it was real but is too old; null when it was never ours */
-export function readInvoiceToken(tok: string, now = Date.now()): { id: string } | "expired" | null {
-  const m = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.([0-9a-z]{5,8})\.([A-Za-z0-9_-]{32})$/.exec(tok);
-  if (!m) return null;
-  const exp = parseInt(m[2]!, 36), want = Buffer.from(linkSig(m[1]!, exp)), got = Buffer.from(m[3]!);
-  if (want.length !== got.length || !timingSafeEqual(want, got)) return null;
-  return exp * 1000 < now ? "expired" : { id: m[1]! };
-}
+export { invoiceToken, readInvoiceToken }; // the signed link lives in invoice-link.ts (no import cycles)
 const linkButton = (id: string): Btn[][] | undefined => (webOn() ? [[{ text: "🧾 មើលវិក្កយបត្រ", web_app: `${config.publicUrl}/i/${invoiceToken(id)}` }]] : undefined);
 
 // ---------- what the customer sees ----------
@@ -166,10 +153,10 @@ export async function slipPhoto(user: SessionUser, invoiceId: string, slipId: st
 
 // ---------- the notice at issue, and the one reminder ----------
 /** after «ចេញវិក្កយបត្រ»: a linked chat gets the amount, the day to pay by and the invoice button (nothing when nothing is owed) */
-export async function notifyInvoiceIssued(invoiceId: string): Promise<boolean> {
+export async function notifyInvoiceIssued(invoiceId: string, again = false): Promise<boolean> {
   try {
     if (!featureOn("website") || !hubConfigured()) return false;
-    const companyId = (await sql<{ company_id: string }[]>`select company_id from invoices where id = ${invoiceId} and status = 'issued' and customer_notified_at is null`)[0]?.company_id;
+    const companyId = (await sql<{ company_id: string }[]>`select company_id from invoices where id = ${invoiceId} and status = 'issued' ${again ? sql`` : sql`and customer_notified_at is null`}`)[0]?.company_id;
     if (!companyId) return false;
     const v = await invoiceView(companyId, invoiceId);
     if (v.balance <= 0) return false;
@@ -182,6 +169,29 @@ export async function notifyInvoiceIssued(invoiceId: string): Promise<boolean> {
     return false;
   }
 }
+// ---------- D-195 the office sends it by hand: the link to paste into any chat, or the Telegram notice again ----------
+async function issuedOf(user: SessionUser, id: string) {
+  const r = (await sql<{ number: string; status: string }[]>`select number, status::text as status from invoices where id = ${id} and company_id = ${user.companyId}`)[0];
+  if (!r) throw notFound();
+  if (r.status !== "issued") throw new AppError("NOT_ISSUED", 400);
+  return r;
+}
+/** the customer's link (the same as the Telegram button) — for a customer without Telegram; audited */
+export async function invoiceLinkFor(user: SessionUser, ip: string | null, id: string) {
+  const r = await issuedOf(user, id);
+  await audit(sql, { companyId: user.companyId, userId: user.id, action: "invoice.link", table: "invoices", rowId: id, new: { number: r.number }, ip });
+  return { url: `${config.publicUrl}/i/${invoiceToken(id)}` };
+}
+/** the Telegram notice again (a linked chat only, something still owed) */
+export async function resendInvoice(user: SessionUser, ip: string | null, id: string) {
+  const r = await issuedOf(user, id);
+  if (!(await chatOf(id))) throw new AppError("NOT_LINKED", 409);
+  if ((await invoiceView(user.companyId, id)).balance <= 0) throw new AppError("ALREADY_PAID", 400);
+  if (!(await notifyInvoiceIssued(id, true))) throw new AppError("HUB_DOWN", 503);
+  await audit(sql, { companyId: user.companyId, userId: user.id, action: "invoice.notify", table: "invoices", rowId: id, new: { number: r.number }, ip });
+  return { sent: true };
+}
+
 export const PAY_REMINDER_HOURS = { from: 9, to: 17 } as const;
 /** cron: the reminder once the days to pay have passed — a balance, no receipt waiting, notified by D-194 and not older than 60 days */
 export async function payReminders(now: Date = new Date()): Promise<number> {
