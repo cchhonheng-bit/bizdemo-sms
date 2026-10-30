@@ -89,12 +89,12 @@ describe("D-182 the CEO retires an account in use", () => {
   it("keep the amounts: the balance moves to the account picked (one entry today), its item follows with a new code, the account is switched off; only the CEO", async () => {
     const a = await newStockAccount("13111", "ម៉ាស៊ីនត្រជាក់ជាប់ជញ្ជាំង Panasonic 1.0HP");
     const item = (await inv(admin, "/in", { name: "Panasonic 1.0HP", account_id: a, qty: 3, total: 150000, pay: "cash_usd", supplier: "Lim Nguon" })).json.item_id;
-    expect((await sql<{ code: string }[]>`select code from catalog_items where id = ${item}`)[0]!.code).toBe("1311101");
+    expect((await sql<{ code: string }[]>`select code from catalog_items where id = ${item}`)[0]!.code).toBe("131111");
     // the old refusal stays for everybody, and the account form's «stop using» still answers ACCOUNT_IN_USE (the CEO's screen opens the confirm)
     expect((await acc(cfo, "/accounts", { id: a, code: "13111", name_km: "x", type: "asset", is_active: false })).json.error).toBe("ACCOUNT_IN_USE");
     const u = (await acc(ceo, `/accounts/${a}/usage`)).json;
     expect(u).toMatchObject({ code: "13111", balance: 150000, entries: { stock: 1 }, mappings: [], remove_blockers: [] });
-    expect(u.items).toEqual([expect.objectContaining({ code: "1311101", qty: 3, value: 150000 })]);
+    expect(u.items).toEqual([expect.objectContaining({ code: "131111", qty: 3, value: 150000 })]);
     const to = await id("13110"), before = await bal("13110");
     expect((await acc(cfo, `/accounts/${a}/retire`, { mode: "keep", target_id: to })).status).toBe(403);
     expect((await acc(ceo, `/accounts/${a}/retire`, { mode: "keep", target_id: await id("20001") })).json.error).toBe("BAD_TARGET_ACCOUNT"); // another type

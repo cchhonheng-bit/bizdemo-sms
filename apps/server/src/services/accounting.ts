@@ -4,6 +4,7 @@
 // Money = integer US cents (signed internally: + debit, − credit); every entry keeps its KHR rate. Automatic memos hold only
 // references (INV-…, BK-…, dates, item names) so they read the same in Khmer and English; the source badge says what it is.
 // The books start with the opening balances: before that nothing is posted, afterwards every business event is.
+import { legacyN, subCode, subN } from "../lib/item-codes.js";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { khrToCents, PAYABLE_KEY, usdToKhr, type SupplierKind } from "@sms/shared";
@@ -280,10 +281,17 @@ export async function saveAccount(user: SessionUser, ip: string | null, v: { id?
   });
 }
 
-/** D-178: an account's items follow its code — each keeps its id and its 2-digit sequence (13110 → 13115: 1311001 → 1311501) */
+/** D-178: an account's items follow its code — each keeps its id and its n (D-197: 13110 → 13115: 131101 → 131151; a D-165 code 1311001 too) */
 async function recodeItems(t: Db, companyId: string, accountId: string, from: string, to: string): Promise<number> {
-  return (await t`update catalog_items set code = case when code = ${from} then ${to} else ${to} || right(code, 2) end
-    where company_id = ${companyId} and inventory_account_id = ${accountId} and (code = ${from} or code ~ ${`^${from}[0-9]{2}$`}) returning id`).length;
+  const items = await t<{ id: string; code: string }[]>`select id, code from catalog_items where company_id = ${companyId} and inventory_account_id = ${accountId} and code is not null`;
+  let moved = 0;
+  for (const it of items) {
+    const n = it.code === from ? 0 : subN(from, it.code) || legacyN(from, it.code);
+    if (it.code !== from && !n) continue;
+    await t`update catalog_items set code = ${n ? subCode(to, n) : to} where id = ${it.id}`;
+    moved++;
+  }
+  return moved;
 }
 /** the group of a new / recoded account: the group of the accounts that share most of its leading digits (14600 → 14500's group), else the
  *  group whose code starts it (D-141) — the chart's own numbering, no fixed code */

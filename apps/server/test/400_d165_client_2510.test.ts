@@ -33,11 +33,11 @@ afterAll(async () => { config.shop.features = ""; await app.close(); });
 describe("D-165 the chart of 25-10", () => {
   it("a shop still on the 23-10 codes is moved in place: accounts keep their ids and movements, items are re-coded, the generic 13001 is kept switched off", async () => {
     // put the shop back on the 23-10 codes (as One Team's live shop is): the reverse of the map, plus the old generic AC account with a movement
-    for (const [code, acc] of [["1340001", "13400"], ["1350003", "13500"]] as const) expect((await ceo.req("POST", "/api/catalog", { name_km: `item ${code}`, kind: "product", category: "mep", unit: "m", sell_price: 100, code, inventory_account_id: (await account(acc)).id })).status).toBe(200);
+    for (const [code, acc] of [["134001", "13400"], ["135003", "13500"]] as const) expect((await ceo.req("POST", "/api/catalog", { name_km: `item ${code}`, kind: "product", category: "mep", unit: "m", sell_price: 100, code, inventory_account_id: (await account(acc)).id })).status).toBe(200);
     await tx(null, async (t) => {
       for (const [v1, v2] of [...V1_TO_V2].reverse()) await t`update accounts set code = ${v1} where company_id = ${s.a} and code = ${v2}`;
-      await t`update catalog_items set code = '14001' where company_id = ${s.a} and code = '1340001'`;
-      await t`update catalog_items set code = '15003' where company_id = ${s.a} and code = '1350003'`;
+      await t`update catalog_items set code = '14001' where company_id = ${s.a} and code = '134001'`;
+      await t`update catalog_items set code = '15003' where company_id = ${s.a} and code = '135003'`;
       await t`delete from accounts where company_id = ${s.a} and code in ('13110', '13120', '13130', '13210', '13220', '13230', '13310', '13320', '13330', '13810', '13820', '13830')`;
       await t`insert into accounts (company_id, code, name_km, name_en, type, is_group, parent_code, sub_codes) values (${s.a}, '13001', 'ម៉ាស៊ីនត្រជាក់', 'Air conditioners', 'asset', false, '13000', false)`;
     });
@@ -67,7 +67,7 @@ describe("D-165 the chart of 25-10", () => {
     expect((await acc(cfo, "/opening", { date: today, cash_usd: 500000 })).status).toBe(200); // the books start → stock moves post
     const ac = (await inv(admin, "/in", { name: "Daikin 2 HP", account_id: (await account("13220")).id, qty: 1, total: 40000, pay: "cash_usd" })).json;
     expect(ac.item_id).toBeTruthy();
-    expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac.item_id}`)[0]!.c).toBe("1322001");
+    expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac.item_id}`)[0]!.c).toBe("132201"); // D-197: 6 digits
     expect((await inv(admin, "/out", { item_id: ac.item_id, qty: 1, technician_id: s.users.kim, place: "ហាង" })).status).toBe(200);
     expect(await bal("50001")).toBe(40000);
     const pipe = (await sql<{ id: string }[]>`select id from catalog_items where company_id = ${s.a} and code = '1340001'`)[0]!.id;

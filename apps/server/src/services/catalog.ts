@@ -3,6 +3,7 @@
 // audit log with old → new. Excel: download the template (the services as they are now) → upload → preview (new / changed /
 // errors) → apply. Rows are matched by code; nothing is ever deleted (an item is switched off with «active»). Sample items for a
 // new shop are seeded with is_sample = true (prices only in demo / test data — never on the live shop).
+import { legacyN, subCode, subN } from "../lib/item-codes.js";
 import { isStockAccount } from "./account-map.js";
 import { CATALOG_CODE_RE, CATALOG_EDIT_ROLES, latinNumber, WEB_CATEGORIES, WEB_CATEGORY_GROUP, WEB_CATEGORY_LABEL, type CatalogItemInput, type WebCategory } from "@sms/shared";
 import { sql, tx, type Db } from "../db.js";
@@ -43,13 +44,6 @@ function diff(old: Partial<Item> | null, next: Partial<Item>): { old: Record<str
   }
   return Object.keys(n).length ? { old: o, new: n } : null;
 }
-/** D-197 (client 30-10): a sub code = the account code × 10 + n (n = 1 … 99) — always 6 digits: 13110 → 131101 … 131109, 131110 …;
- *  13600's tenth item = 136010, not 1360010. (D-165's «account + 2 digits» form is what `item-codes-6` re-codes.) */
-export const subCode = (account: string, n: number) => String(Number(account) * 10 + n);
-/** n of a 6-digit sub code under this account, else 0 */
-export const subN = (account: string, code: string) => { if (!/^\d{6}$/.test(code)) return 0; const n = Number(code) - Number(account) * 10; return n >= 1 && n <= 99 ? n : 0; };
-/** n of a D-165 code (account + 2 digits: 1311001), else 0 */
-export const legacyN = (account: string, code: string) => (code.length === account.length + 2 && code.startsWith(account) && /^\d{2}$/.test(code.slice(account.length)) ? Number(code.slice(account.length)) : 0);
 /** D-142 (the client's scheme): an item on a stock account follows the account's code scheme — sub codes (D-197: account × 10 + n);
  *  no sub codes: the account code itself, and only one item on that account. An item may keep a D-165 code it already has. */
 export async function assertCodeOnAccount(db: Db, companyId: string, accountId: string, code: string | null, exceptId: string | null) {

@@ -6,7 +6,7 @@ import { audit } from "./audit.js";
 import type { SessionUser } from "./auth.js";
 import { books, post } from "./accounting.js";
 import { itemRemoval, removeItem } from "./inventory.js";
-import { legacyN, subCode } from "./catalog.js";
+import { legacyN, subCode } from "../lib/item-codes.js";
 import { setLineKind } from "./invoices.js";
 import { CHART, OLD_TO_NEW, isSubCodeAccount, replaceChart, seedParent, typeOfCode, updateChartV2, type Role } from "./chart.js";
 

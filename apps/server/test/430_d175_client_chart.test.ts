@@ -95,7 +95,7 @@ describe("D-175 the client's chart of 26-10", () => {
     const id = async (c: string) => (await account(c)).id;
     const ac = (await inv(admin, "/in", { name: "Gree 1.5 HP", account_id: await id("13820"), qty: 10, total: 100000, pay: "cash_usd", paid: 10000, supplier: "ABC", supplier_invoice: "ABC-1", supplier_kind: "ac" })).json; // D-178: an AC supplier
     expect(ac).toMatchObject({ total: 100000, paid: 10000, owed: 90000 });
-    expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac.item_id}`)[0]!.c).toBe("1382001");
+    expect((await sql<{ c: string }[]>`select code as c from catalog_items where id = ${ac.item_id}`)[0]!.c).toBe("138201"); // D-197: 6 digits
     expect((await inv(admin, "/in", { name: "LG 8 kg", account_id: await id("14100"), qty: 1, total: 30000, pay: "credit", supplier: "WM Co", supplier_kind: "washing" })).status).toBe(200);
     const pipe = (await inv(admin, "/in", { name: "ទុយោស្ពាន់ 10mm", account_id: await id("13400"), unit: "m", qty: 10, unit_cost: 200, pay: "credit", supplier: "Copper Co" })).json.item_id;
     const tape = (await inv(admin, "/in", { name: "ស្កុតបិទ", account_id: await id("14500"), unit: "pcs", qty: 10, unit_cost: 50, pay: "cash_usd" })).json.item_id;
