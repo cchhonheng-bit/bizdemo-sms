@@ -12,6 +12,8 @@ export type Customer = {
 export type CustomerSave = { id?: string | null; name: string; phones: string[]; zone: Zone; lat?: number | null; lng?: number | null; notes?: string | null;
   house_no?: string | null; street?: string | null; borey_id?: string | null; borey_zone?: string | null; province_code?: string | null; district_code?: string | null; commune_code?: string | null; village_code?: string | null };
 export type GeoUnitRow = { code: string; km: string; en: string; type: GeoType };
+/** D-193 a post on the customer site («ព័ត៌មាន») */
+export type SitePost = { id: string; title: string; body: string | null; video_url: string | null; has_photo: boolean; published: boolean; created_at: string; updated_at: string; author: string | null };
 export type Borey = { id: string; name: string; province_code: string; district_code: string; commune_code: string | null; is_active: boolean; customers: number; area_km: string; area_en: string };
 export type CatalogItem = {
   id: string; name_km: string; name_en: string | null; kind: "service" | "product"; category: ServiceCategory; unit: string;
@@ -416,6 +418,12 @@ export const api = {
   unlockCustomerLogin: (id: string) => post<{ ok: true }>(`/api/customers/${id}/unlock-login`),
   /** D-191: a one-time code to read to the customer (they set a new PIN on the website) */
   customerPinCode: (id: string) => post<{ code: string; minutes: number }>(`/api/customers/${id}/pin-code`),
+  /** D-193 the shop's posts on the customer site */
+  sitePosts: {
+    list: () => get<SitePost[]>("/api/site-posts"),
+    save: (v: { id: string | null; title: string; body: string | null; video_url: string | null; published: boolean; photo?: string | null }) => post<{ id: string }>("/api/site-posts", v),
+    remove: (id: string) => del<{ ok: true }>(`/api/site-posts/${id}`),
+  },
   fx: {
     get: () => get<{ current: number; history: { rate: number; note: string | null; set_at: string; set_by_name: string | null }[] }>("/api/settings/fx"),
     set: (rate: number, note: string) => post("/api/settings/fx", { rate, note }),

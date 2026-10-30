@@ -26,7 +26,8 @@ import { listRequests, markRequestDone } from "../services/requests.js";
 import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
-import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
+import { deletePost, listPosts, postPhoto, publicPost, publicPosts, savePost } from "../services/site-posts.js";
+import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, newsPage, postPage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
 import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
@@ -85,7 +86,7 @@ export async function siteHome(req: FastifyRequest, reply: FastifyReply) {
   // D-192: a link with lines (older pages, «change») opens the service page of its first line
   const first = refs?.length ? d.services.find((x) => x.id === refs[0]!.id) : null;
   if (first) return reply.redirect(`/s/${first.web_category ?? "other"}?items=${webLinesParam(refs!)}`, 302);
-  return html(reply, 200, homePage(d, lang, pathOf(req), { signed: !!s }));
+  return html(reply, 200, homePage(d, lang, pathOf(req), { signed: !!s, posts: await publicPosts(d.companyId, 4) }));
 }
 /** an unknown address on the public side: the site's own «not found» for browsers, JSON for everything else */
 export async function siteNotFound(req: FastifyRequest, reply: FastifyReply) {
@@ -170,6 +171,14 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (!([...WEB_CATEGORIES, "other"] as string[]).includes(cat) || !d.services.some((x) => (x.web_category ?? "other") === cat)) return reply.redirect("/?tab=home", 302);
     return html(reply, 200, categoryPage(d, lang, cat as (typeof WEB_CATEGORIES)[number] | "other", linesOf(req) ?? [], pathOf(req), !!(await sessionOf(req, reply))));
   });
+  /** D-193 the shop's posts (FixME's NEWS): the list and one post; the cover photo of a published post is public */
+  app.get("/news", async (req, reply) => { const d = await site(); return html(reply, 200, newsPage(d, langOf(req, reply), await publicPosts(d.companyId, 60), pathOf(req), !!(await sessionOf(req, reply)))); });
+  app.get("/news/:id", async (req, reply) => {
+    const id = z.object({ id: uuid }).safeParse(req.params), d = await site();
+    if (!id.success) throw new AppError("NOT_FOUND", 404);
+    return html(reply, 200, postPage(d, langOf(req, reply), await publicPost(d.companyId, id.data.id), pathOf(req), !!(await sessionOf(req, reply))));
+  });
+  app.get("/pub/post/:id", async (req, reply) => image(reply, await postPhoto((await site()).companyId, z.object({ id: uuid }).parse(req.params).id), "public, max-age=3600"));
   /** D-192 «ជំនួយ» — the tab bar's support page */
   app.get("/help", async (req, reply) => html(reply, 200, helpPage(await site(), langOf(req, reply), pathOf(req), !!(await sessionOf(req, reply)))));
   app.get("/quote", async (req, reply) => {
@@ -354,6 +363,18 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
     return r;
   });
+};
+
+/** D-193 the shop's posts — staff with «site.post» (default CEO, GM, Admin) write them; every change audited */
+export const postsRoutes: FastifyPluginAsync = async (app) => {
+  app.addHook("preHandler", app.requireFeature("website"));
+  const can = { preHandler: app.requirePerm("site.post") };
+  const body = z.object({ id: uuid.nullable().optional(), title: z.string().max(200), body: z.string().max(3000).nullable().optional(), video_url: z.string().max(500).nullable().optional(),
+    published: z.boolean().optional(), photo: z.string().max(2_800_000).nullable().optional() }).strict();
+  app.get("/", can, async (req) => listPosts(req.user!));
+  app.post("/", { ...can, bodyLimit: 3_000_000 }, async (req) => savePost(req.user!, req.ip, body.parse(req.body)));
+  app.delete("/:id", can, async (req) => deletePost(req.user!, req.ip, z.object({ id: uuid }).parse(req.params).id));
+  app.get("/:id/photo", can, async (req, reply) => image(reply, await postPhoto(req.user!.companyId, z.object({ id: uuid }).parse(req.params).id, true), "private, max-age=600"));
 };
 
 /** Settings → Website (settings.manage) */

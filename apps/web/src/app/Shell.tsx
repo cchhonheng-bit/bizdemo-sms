@@ -1,7 +1,7 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import PoweredBy from "@/components/PoweredBy";
 import { useTranslation } from "react-i18next";
-import { BarChart3, Bell, BellRing, BookOpen, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, PlayCircle, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
+import { BarChart3, Bell, BellRing, BookOpen, Boxes, Building2, CalendarOff, Fingerprint, FileText, Globe, Newspaper, Receipt, Megaphone, ClipboardList, Inbox, LayoutDashboard, LogOut, Menu, Package, PlayCircle, Settings, User, Users, WifiOff, Landmark } from "lucide-react";
 import HelpButton from "@/features/guide/HelpButton";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
@@ -57,6 +57,7 @@ export default function Shell() {
     { to: "/accounting", label: t("nav.accounting"), icon: Landmark, hidden: !accountingOn || !(can("accounting.view") || can("payroll.manage") || can("payroll.approve")) },
     { to: "/attendance", label: t("nav.attendance"), icon: Fingerprint, hidden: !(can("report.ops") || ["gm", "admin"].includes(me.role)) },
     { to: "/website", label: t("nav.website"), icon: Globe, perm: "settings.manage", hidden: !websiteOn }, // CEO 04-10: its own menu item
+    { to: "/posts", label: t("nav.posts"), icon: Newspaper, perm: "site.post", hidden: !websiteOn }, // D-193 the shop's posts on the site
     { to: "/settings/users", label: t("nav.users"), icon: Users, perm: "user.manage" },
     { to: "/settings/company", label: t("nav.settings"), icon: Settings, perm: "settings.manage" },
     { to: "/all_guide", label: t("nav.all_guide"), icon: PlayCircle, hidden: me.role !== "ceo" }, // D-128: the CEO's menu only (the platform account opens the address)

@@ -25,6 +25,7 @@ export const LIST_SPECS = {
   quotes: { date: "created_at", search: ["number", "booking_number", "customer_name"], phones: "customer_phones", status: "status" },
   uninvoiced: { date: "finished_at", search: ["number", "customer_name"], phones: "phones" },
   users: { date: "created_at", search: ["full_name", "username"], phones: "phone", role: "role" },
+  posts: { date: "created_at", search: ["title", "body", "author"] }, // D-193
 } as const satisfies Record<string, ListSpec>;
 export type ListReport = keyof typeof LIST_SPECS;
 export const LIST_REPORTS = Object.keys(LIST_SPECS) as ListReport[];

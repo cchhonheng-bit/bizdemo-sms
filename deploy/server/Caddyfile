@@ -26,7 +26,7 @@
 		X-Frame-Options "DENY"
 		Referrer-Policy "strict-origin-when-cross-origin"
 		Permissions-Policy "geolocation=(self), camera=(self), microphone=(), payment=()"
-		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'{args[0]}; worker-src 'self'; frame-src https://maps.google.com https://www.google.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		Content-Security-Policy "default-src 'self'; connect-src 'self'; img-src 'self' data: blob:; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'{args[0]}; worker-src 'self'; frame-src https://maps.google.com https://www.google.com https://www.youtube-nocookie.com https://www.facebook.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
 		-Server
 	}
 	# hub ⇄ shop API is for the internal network only (D-51)

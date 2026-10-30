@@ -9,6 +9,7 @@ import FirstLoginPage from "@/features/auth/FirstLoginPage";
 import UsersPage from "@/features/users/UsersPage";
 import CompanySettingsPage from "@/features/settings/CompanySettingsPage";
 import WebsitePage from "@/features/settings/WebsitePage";
+import PostsPage from "@/features/posts/PostsPage";
 import AllGuidePage from "@/features/guide/AllGuidePage";
 import GuidePage from "@/features/guide/GuidePage";
 import MePage from "@/features/me/MePage";
@@ -107,6 +108,7 @@ export default function App() {
               <Route element={<RequirePerm perm="user.manage" />}><Route path="/settings/users" element={<UsersPage />} /></Route>
               <Route element={<RequirePerm perm="settings.manage" />}><Route path="/settings/company" element={<CompanySettingsPage />} /></Route>
               <Route element={<RequireFeature flag="website" />}><Route element={<RequirePerm perm="settings.manage" />}><Route path="/website" element={<WebsitePage />} /></Route></Route>
+              <Route element={<RequireFeature flag="website" />}><Route element={<RequirePerm perm="site.post" />}><Route path="/posts" element={<PostsPage />} /></Route></Route>
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Route>

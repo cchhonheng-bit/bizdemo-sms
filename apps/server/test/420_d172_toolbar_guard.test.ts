@@ -41,7 +41,7 @@ const SCREENS: Record<string, Target[] | "tabs"> = {
   "/subscribe": [["features/subscribe/SubscribePage.tsx", "SubscribePage"]], "/notifications": [["features/notifications/NotificationsPage.tsx", "NotificationsPage"]],
   "/leave": [["features/leave/LeavePage.tsx", "LeavePage"]], "/attendance": [["features/attendance/AttendancePage.tsx", "AttendancePage"]],
   "/reminders": [["features/reminders/RemindersPage.tsx", "RemindersPage"]], "/quotes": [["features/quotes/QuotesPage.tsx", "QuotesPage"]],
-  "/settings/users": [["features/users/UsersPage.tsx", "UsersPage"]],
+  "/settings/users": [["features/users/UsersPage.tsx", "UsersPage"]], "/posts": [["features/posts/PostsPage.tsx", "PostsPage"]],
   "/inventory": "tabs", "/accounting": "tabs", "/reports": "tabs", "/invoices": "tabs",
 };
 const INV = "features/inventory/InventoryPage.tsx", REP = "features/accounting/Reports.tsx", INVO = "features/invoices/InvoicesPage.tsx", RPT = "features/reports/ReportsPage.tsx";

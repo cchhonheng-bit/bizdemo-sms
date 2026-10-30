@@ -36,7 +36,7 @@ import { mapsRoutes } from "./routes/maps.js";
 import { internalRoutes } from "./routes/internal.js";
 import { subscribeRoutes } from "./routes/subscribe.js";
 import { brandRoutes } from "./routes/brand.js";
-import { pubRoutes, requestsRoutes, siteHome, siteLegal, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
+import { postsRoutes, pubRoutes, requestsRoutes, siteHome, siteLegal, siteNotFound, siteRoutes, websiteRoutes } from "./routes/site.js";
 import { guideRoutes } from "./routes/guide.js";
 import { exportsRoutes } from "./routes/exports.js";
 import { APP_BASE } from "./lib/app-url.js";
@@ -166,6 +166,7 @@ export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   app.register(subscribeRoutes, { prefix: "/api/subscribe" });
   app.register(brandRoutes, { prefix: "/brand" }); // HangKH brand files (D-90)
   app.register(websiteRoutes, { prefix: "/api/website" });
+  app.register(postsRoutes, { prefix: "/api/site-posts" });
   app.register(requestsRoutes, { prefix: "/api/requests" });
   app.register(guideRoutes, { prefix: "/api/guide" }); // the all-guide page (D-128)
   app.register(exportsRoutes, { prefix: "/api/export" }); // Excel export of every report (D-169)

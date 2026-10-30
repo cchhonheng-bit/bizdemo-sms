@@ -12,6 +12,7 @@ import { WARRANTY_DAYS } from "../services/bookings.js";
 import type { MyBooking, MyHome, NotifyPrefs } from "../services/customer-home.js";
 import type { Track, TrackStep } from "../services/customer-track.js";
 import { shortName, type SiteService, type SiteView } from "../services/site.js";
+import { videoOf, type Post } from "../services/site-posts.js";
 import type { CustomerState, Lines, WebDay } from "../services/web-booking.js";
 
 export type SiteLang = "km" | "en";
@@ -51,7 +52,7 @@ const TXT = {
     pw_title: "ប្ដូរលេខសម្ងាត់", pw_make: "បង្កើតលេខសម្ងាត់", pw_cur: "លេខសម្ងាត់បច្ចុប្បន្ន", pw_new: "លេខសម្ងាត់ថ្មី", pw_new2: "លេខសម្ងាត់ថ្មីម្ដងទៀត", pw_save: "រក្សាទុក", logout_all: "ចាកចេញពីឧបករណ៍ទាំងអស់", n_link: "ភ្ជាប់ Telegram ដើម្បីទទួលដំណឹងការកក់", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
     g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
-    menu: "ម៉ឺនុយ", tab_home: "ទំព័រដើម", tab_bookings: "ការកក់", tab_help: "ជំនួយ", tab_account: "គណនី", services: "សេវាកម្ម", pick_service: "ជ្រើសសេវា", total: "សរុប",
+    welcome: (shop: string) => `សូមស្វាគមន៍មកកាន់ ${shop}`, news: "ព័ត៌មាន", news_all: "មើលទាំងអស់", news_none: "មិនទាន់មានព័ត៌មានទេ", video: "វីដេអូ", video_open: "មើលវីដេអូ", menu: "ម៉ឺនុយ", tab_home: "ទំព័រដើម", tab_bookings: "ការកក់", tab_help: "ជំនួយ", tab_account: "គណនី", services: "សេវាកម្ម", pick_service: "ជ្រើសសេវា", total: "សរុប",
     quote_photo: "ផ្ញើរូបថតដើម្បីស្នើសុំតម្លៃ", help_h: "ជំនួយ", problem: "ពិពណ៌នាបញ្ហា", problem_ph: "ឧ. ម៉ាស៊ីនត្រជាក់មិនត្រជាក់ មានទឹកស្រក់ · ជាន់ទី ២ ទ្វារពណ៌ខៀវ",
     problem_photos: "រូបថតបញ្ហា", max4: `(មិនចាំបាច់ · អតិបរមា ${kmDigits(WEB_MAX_BOOKING_PHOTOS)})`, price_exact: (p: string) => `តម្លៃ ${p}`,
     acct_h: "បង្កើតគណនី ដើម្បីតាមដានការកក់", acct_p: "ពេលក្រោយ បើកគេហទំព័រនេះ ឃើញការកក់របស់អ្នកភ្លាម។", pin: "លេខសម្ងាត់ ៤ ខ្ទង់", pin2: "បញ្ចូលម្ដងទៀត",
@@ -107,7 +108,7 @@ const TXT = {
     pw_title: "Change PIN", pw_make: "Create a PIN", pw_cur: "Current PIN", pw_new: "New PIN", pw_new2: "New PIN again", pw_save: "Save", logout_all: "Sign out on all devices", n_link: "Connect Telegram to get booking news", l_staff: "Staff: open the work app",
     track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
     g_start: "Please open the shop on Telegram and tap START first",
-    menu: "Menu", tab_home: "Home", tab_bookings: "Bookings", tab_help: "Help", tab_account: "Account", services: "Services", pick_service: "Choose a service", total: "Total",
+    welcome: (shop: string) => `Welcome to ${shop}`, news: "News", news_all: "See all", news_none: "No news yet", video: "Video", video_open: "Watch the video", menu: "Menu", tab_home: "Home", tab_bookings: "Bookings", tab_help: "Help", tab_account: "Account", services: "Services", pick_service: "Choose a service", total: "Total",
     quote_photo: "Send photos for a quote", help_h: "Help", problem: "Describe the problem", problem_ph: "e.g. the AC does not cool and drips water · 2nd floor, blue door",
     problem_photos: "Photos of the problem", max4: `(optional · up to ${WEB_MAX_BOOKING_PHOTOS})`, price_exact: (p: string) => `Price ${p}`,
     acct_h: "Create an account to track your booking", acct_p: "Next time this website shows your bookings straight away.", pin: "4-digit PIN", pin2: "PIN again",
@@ -290,7 +291,7 @@ const svcPrice = (t: T, s: SiteService) => (s.quote_only ? t.quote : s.from_pric
 
 // ---------- 1 · home ----------
 /** start: the /book screen of the bot's «📅» (D-121) — the services without the shop presentation; signed: a customer session */
-export function homePage(d: SiteView, lang: SiteLang, path = "/", o: { start?: boolean; signed?: boolean } = {}): string {
+export function homePage(d: SiteView, lang: SiteLang, path = "/", o: { start?: boolean; signed?: boolean; posts?: Post[] } = {}): string {
   const t = TXT[lang], n = names(d, lang), w = d.website, phones = phonesOf(d);
   const pick = (km?: string, en?: string) => ((lang === "en" ? en : km) ?? "").trim();
   const cats = catsOf(d.services);
@@ -298,9 +299,9 @@ export function homePage(d: SiteView, lang: SiteLang, path = "/", o: { start?: b
   const about = pick(w.about_km, w.about_en), points = ((lang === "en" ? w.highlights_en : w.highlights_km) ?? []).map((x) => x.trim()).filter(Boolean);
   const tagline = pick(w.tagline_km, w.tagline_en);
   // the banner: the shop's own slide first (tagline + «book»), then its work photos (they load when the slide comes near — D-134)
-  const photos = (w.gallery ?? []).slice(0, 6);
+  const photos = (w.gallery ?? []).slice(0, 6), cover = w.hero ?? photos[0] ?? null; // the shop's own slide shows its hero photo, else the first work photo
   const banner = `<section class="banner" id="banner" aria-roledescription="carousel"><div class="slides" id="slides">
-<div class="slide own">${w.hero ? `<img data-src="/pub/img/${esc(w.hero)}" alt="" decoding="async">` : ""}<div class="bt"><b>${esc(tagline || t.h1)}</b><span>${t.sub}</span><a class="btn w sm" href="#svc">${svg(I.cal, 15, 2.2)}<span>${t.book}</span></a></div></div>
+<div class="slide own">${cover ? `<img data-src="/pub/img/${esc(cover)}" alt="" decoding="async">` : ""}<div class="bt"><b>${esc(tagline || t.h1)}</b><span>${t.sub}</span><a class="btn w sm" href="#svc">${svg(I.cal, 15, 2.2)}<span>${t.book}</span></a></div></div>
 ${photos.map((g) => `<div class="slide ph"><img data-src="/pub/img/${esc(g)}" alt="" decoding="async"></div>`).join("")}</div>
 ${photos.length ? `<div class="dots" id="dots">${[0, ...photos].map((_, i) => `<i${i === 0 ? ' class="on"' : ""}></i>`).join("")}</div>` : ""}</section>`;
   const grid = `<section class="card svc3" id="svc"><h2 class="h2">${t.services}</h2>${d.services.length ? `<div class="sgrid">${cats.map((c) => {
@@ -314,9 +315,10 @@ ${photos.length ? `<div class="dots" id="dots">${[0, ...photos].map((_, i) => `<
     d.info.address || phones.length > 1 || w.facebook ? `<section class="card s"><h2 class="h2">${t.contact}</h2>${phones.map((p) => `<a class="ln" href="${esc(tel(p))}">${svg(I.phone, 14)} ${esc(p)}</a>`).join("")}${d.info.address ? `<p class="pre">${esc(d.info.address)}</p>` : ""}${w.facebook ? `<a class="ln" href="${esc(w.facebook)}" rel="noopener">${t.facebook}</a>` : ""}</section>` : "",
   ].join("");
   const body = `<main class="scr home v3 tabs">
-${band(d, lang, { signed: o.signed, hello: o.start ? t.pick_service : t.h1, tall: !o.start })}
+${band(d, lang, { signed: o.signed, hello: o.start ? t.pick_service : t.welcome(n.short), tall: !o.start })}
 ${o.start ? "" : banner}
 ${grid}
+${!o.start && o.posts?.length ? `<section class="card s"><div class="hr"><h2 class="h2">${t.news}</h2><a class="mut" href="/news">${t.news_all}</a></div><div class="news2">${newsCards(t, o.posts, d.tz)}</div></section>` : ""}
 ${o.start ? "" : `${promises(t, lang)}\n${extra}`}
 ${phones[0] || d.bot ? `<section class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${t.call}</a>` : ""}${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</section>` : ""}
 ${footer(t, lang, path, o.start ? "" : area)}
@@ -344,6 +346,33 @@ ${promises(t, lang)}
 ${list.some((s) => s.quote_only) && bookable.length === 0 ? `<a class="ob b" href="/quote">${svg(I.photo, 15)}${t.quote_photo}</a>` : ""}
 ${bookable.length ? `<div class="bar"><div class="sel"><small>${t.total}</small><b id="total" data-from="${esc(t.from)}" data-none="${esc(t.price_contact)}">—</b></div><button type="button" class="btn go" id="go" disabled>${t.next}</button></div>` : tabbar(t, "home")}</main>`;
   return shell(d, lang, { title: `${catLabel(cat, lang)} — ${n.full}`, page: "cat", path, body, data: signed ? { signed: "1" } : {} });
+}
+
+// ---------- D-193 the shop's posts (FixME's NEWS): cards on home, the list, one post with its video ----------
+const postDate = (t: T, d: Date | string, tz: string) => { const p = partsOf(new Date(d), tz); return `${p.day} ${t.mon[p.month - 1]} ${new Date(d).getUTCFullYear()}`; };
+const newsCards = (t: T, posts: Post[], tz: string) => posts.map((p) => `<a class="nw" href="/news/${p.id}">${p.has_photo ? `<img data-src="/pub/post/${p.id}" alt="" decoding="async">` : `<span class="nw-ph">${svg(p.video_url ? I.play : I.photo, 26, 1.8)}</span>`}<b>${esc(p.title)}</b><small>${postDate(t, p.created_at, tz)}${p.video_url ? ` · ${t.video}` : ""}</small></a>`).join("");
+export function newsPage(d: SiteView, lang: SiteLang, posts: Post[], path: string, signed = false): string {
+  const t = TXT[lang], n = names(d, lang);
+  const body = `<main class="scr v3 tabs">
+${band(d, lang, { back: "/?tab=home", title: t.news })}
+${posts.length ? `<section class="news2">${newsCards(t, posts, d.tz)}</section>` : `<section class="card s"><p class="sub">${t.news_none}</p></section>`}
+${footer(t, lang, path)}
+${tabbar(t, "home")}</main>`;
+  return shell(d, lang, { title: `${t.news} — ${n.full}`, page: "news", path, body, msg: false, data: signed ? { signed: "1" } : {} });
+}
+export function postPage(d: SiteView, lang: SiteLang, p: Post, path: string, signed = false): string {
+  const t = TXT[lang], n = names(d, lang), v = videoOf(p.video_url);
+  const body = `<main class="scr v3 tabs">
+${band(d, lang, { back: "/news", title: t.news })}
+<article class="card s post">${p.has_photo ? `<img class="cover" src="/pub/post/${p.id}" alt="">` : ""}
+<h1>${esc(p.title)}</h1><p class="mut">${postDate(t, p.created_at, d.tz)}</p>
+${v?.embed ? `<iframe class="vid" src="${esc(v.embed)}" title="${t.video}" loading="lazy" allow="encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>` : ""}
+${v?.link ? `<a class="ob m" href="${esc(v.link)}" rel="noopener" target="_blank">${svg(I.play, 15)}${t.video_open}</a>` : ""}
+${p.body ? `<p class="pre">${esc(p.body)}</p>` : ""}</article>
+<a class="btn" href="/?tab=home#svc">${svg(I.cal, 16, 2.2)}<span>${t.book}</span></a>
+${footer(t, lang, path)}
+${tabbar(t, "home")}</main>`;
+  return shell(d, lang, { title: `${p.title} — ${n.full}`, page: "post", path, body, msg: false, data: signed ? { signed: "1" } : {} });
 }
 
 /** D-192 «ជំនួយ» (the tab bar's support): call, Telegram, where we are, how-to videos, the rules */

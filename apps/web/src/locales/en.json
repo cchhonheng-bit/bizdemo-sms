@@ -43,6 +43,7 @@
     "catalog": "Services & prices",
     "users": "Users",
     "website": "Website",
+    "posts": "Posts",
     "settings": "Settings",
     "me": "Me",
     "today": "Today",
@@ -1881,6 +1882,35 @@
     "help": "Help",
     "all": "All videos for my role",
     "none": "No videos for this role"
+  },
+  "posts": {
+    "title": "Website posts",
+    "hint": "Text, photos or videos customers see under «News» on the home page. Video: paste a YouTube or Facebook link (plays on the page) or a TikTok link (opens TikTok).",
+    "new": "New post",
+    "edit": "Edit post",
+    "empty": "No posts yet",
+    "view_site": "See on the website",
+    "published": "Shown",
+    "hidden": "Hidden",
+    "video": "Video",
+    "delete": "Delete post",
+    "delete_confirm": "remove it from the website for good?",
+    "deleted": "Deleted",
+    "f_title": "Title",
+    "f_body": "Text",
+    "f_photo": "Cover photo",
+    "photo_hint": "The photo is made smaller and the camera position is removed",
+    "pick_photo": "Choose a photo",
+    "remove_photo": "Remove the photo",
+    "f_video": "Video link (optional)",
+    "video_hint": "YouTube · Facebook · TikTok",
+    "f_published": "Show on the website",
+    "err": {
+      "TITLE_REQUIRED": "Please enter a title",
+      "VIDEO_LINK_INVALID": "This is not a YouTube, Facebook or TikTok video link",
+      "BAD_IMAGE": "This file is not a photo",
+      "IMAGE_TOO_LARGE": "The photo is too large"
+    }
   },
   "boreys": {
     "title": "Borey projects",

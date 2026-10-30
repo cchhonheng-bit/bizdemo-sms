@@ -20,6 +20,9 @@ const col = (h: string, v: (r: R) => ReturnType<typeof D> | string | number | nu
 const range = (q: Q) => `${q.from ? `&from=${q.from}` : ""}${q.to ? `&to=${q.to}` : ""}`;
 
 export const LIST_DEFS: Record<ListReport, ListDef> = {
+  posts: { path: () => "/api/site-posts", title: ["ប្រកាសលើគេហទំព័រ", "Website posts"], sheet: "Posts", // D-193
+    cols: [col("ពេល", (r) => dt(r.created_at), { w: 16 }), col("ចំណងជើង", (r) => r.title, { w: 36 }), col("អត្ថបទ", (r) => r.body, { w: 48 }), col("វីដេអូ", (r) => r.video_url, { w: 30 }),
+      col("រូបថត", (r) => yes(r.has_photo), { w: 7 }), col("បង្ហាញ", (r) => yes(r.published), { w: 8 }), col("អ្នកសរសេរ", (r) => r.author, { w: 18 })] },
   boreys: { path: (q) => `/api/boreys${q.all === "1" ? "?all=1" : ""}`, title: ["គម្រោងបុរី", "Borey projects"], sheet: "Boreys",
     cols: [col("ឈ្មោះ", (r) => r.name, { w: 28 }), col("តំបន់", (r) => r.area_km, { w: 36 }), col("អតិថិជន", (r) => INT(r.customers), { w: 10, s: "int", sum: true }), col("បង្កើត", (r) => day(r.created_at), { w: 11, s: "date" }), col("សកម្ម", (r) => yes(r.is_active), { w: 7 })] },
   requests: { path: (q) => `/api/requests${q.all === "1" ? "?all=1" : ""}`, title: ["សំណើអតិថិជន", "Customer requests"], sheet: "Requests",
