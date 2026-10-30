@@ -23,11 +23,12 @@ import { changeCustomerPin, createAccountFromBooking, logoutEverywhere, pinLogin
 import { cancelByCustomer, CUSTOMER_COOKIE, customerLogin, customerLogout, decideReschedule, myBookingDetail, myHome, myPrefs, mySlots, rateBooking, rebookPlace, requestReschedule, resolveCustomerSession,
   setMyPrefs, type CustomerSession } from "../services/customer-home.js";
 import { listRequests, markRequestDone } from "../services/requests.js";
-import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
+import { addSitePhoto, formToken, getSiteSettings, readSiteImage, readSiteLogo, readSiteQr, removeSitePhoto, saveSite, siteData, sitePatch, type SiteView } from "../services/site.js";
 import { flushOutbox } from "../services/telegram.js";
 import { decideWebBooking, doneView, publicSlots, quoteDoneView, readRequestPhoto, resolveLines, slotGrid, submitQuote, submitWebBooking } from "../services/web-booking.js";
 import { deletePost, listPosts, postPhoto, publicPost, publicPosts, savePost } from "../services/site-posts.js";
-import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, newsPage, postPage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
+import { linkInvoice, myInvoice, submitLinkSlip, submitMySlip } from "../services/invoice-pay.js";
+import { assets, bookingPage, bookPage, categoryPage, donePage, gatePage, guidePage, helpPage, homePage, invoicePage, linkGonePage, newsPage, postPage, legalSitePage, loginPage, myPage, notFoundPage, quoteDonePage, quotePage, resetPage, robotsTxt, trackHtml, type Prefill, type SiteLang } from "../site/pages.js";
 import { customerGuide, customerVideoPath, sendGuideFile } from "../services/guide.js";
 import { expandMapsLink } from "./maps.js";
 
@@ -122,6 +123,10 @@ const uuid = z.string().uuid();
 const coord = { lat: z.number().min(-90).max(90).nullable().optional(), lng: z.number().min(-180).max(180).nullable().optional(), accuracy: z.number().min(0).max(1_000_000).nullable().optional() };
 const formGuard = { ts: z.string().max(60).optional(), company_url: z.string().max(300).optional(), lang: z.enum(["km", "en"]).optional(), consent: z.boolean().optional(), init_data: z.string().max(4000).nullable().optional() };
 const items = z.string().max(400);
+/** D-194 «ខ្ញុំបានបង់រួច»: one photo of the transfer receipt (made smaller on the phone), the amount, the bank */
+const slipBody = z.object({ photo: z.string().min(100).max(2_800_000), amount: z.number().int().positive().max(100_000_000_000), bank: z.enum(["aba", "acleda", "other"]),
+  note: z.string().max(300).nullable().optional() }).strict();
+const invToken = z.object({ token: z.string().min(40).max(120) });
 const bookingBody = z.object({ items, at: z.string().max(40), address: z.string().max(500).default(""), ...coord, name: z.string().max(200).default(""), phone: z.string().max(40).default(""),
   note: z.string().max(600).nullable().optional(), photos: z.array(z.string().max(1_400_000)).max(WEB_MAX_BOOKING_PHOTOS + 2).optional(), ...formGuard }).strict();
 const quoteBody = z.object({ items: items.nullable().optional(), category: z.string().max(20).default("other"), description: z.string().max(2000).default(""), photos: z.array(z.string().max(1_400_000)).max(20).optional(),
@@ -212,6 +217,23 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     if (!s) return html(reply, 200, gatePage(d, lang, `/my/b/${id.data.id}`), "no-store");
     return html(reply, 200, bookingPage(d, lang, await myBookingDetail(s, id.data.id), pathOf(req)), "no-store");
   });
+  /** D-194 an invoice of the account (own only; without a session the skeleton as on /my) and the signed link of the Telegram button:
+   *  that one invoice, never a sign-in; an old link says so and offers the account */
+  app.get("/my/invoice/:id", async (req, reply) => {
+    const lang = langOf(req, reply), d = await site(), id = z.object({ id: uuid }).safeParse(req.params);
+    if (!id.success) throw new AppError("NOT_FOUND", 404);
+    const s = await sessionOf(req, reply);
+    if (!s) return html(reply, 200, gatePage(d, lang, `/my/invoice/${id.data.id}`), "no-store");
+    return html(reply, 200, invoicePage(d, lang, await myInvoice(s, id.data.id), { via: "account", path: pathOf(req) }), "no-store");
+  });
+  app.get("/i/:token", async (req, reply) => {
+    if (!checkRate(`site:inv:ip:${req.ip}`, 60, 3600)) throw new AppError("RATE_LIMITED", 429);
+    const lang = langOf(req, reply), d = await site(), p = invToken.safeParse(req.params);
+    if (!p.success) throw new AppError("NOT_FOUND", 404);
+    const v = await linkInvoice(p.data.token);
+    if (v === "expired") return html(reply, 410, linkGonePage(d, lang), "no-store");
+    return html(reply, 200, invoicePage(d, lang, v, { via: "link", path: pathOf(req), api: `/api/public/invoice/${p.data.token}/slip`, signed: !!(await sessionOf(req, reply)) }), "no-store");
+  });
   /** D-191 forgot PIN: a code by Telegram (or from the shop) → a new PIN */
   app.get("/my/reset", async (req, reply) => html(reply, 200, resetPage(await site(), langOf(req, reply), pathOf(req)), "no-store"));
   /** outside Telegram only: phone + password, then back to the page that asked (a live session goes there at once) */
@@ -229,6 +251,7 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
   app.get("/robots.txt", async (_req, reply) => reply.type("text/plain; charset=utf-8").header("Cache-Control", "no-cache").send(robotsTxt((await siteData())?.website.published === true)));
   app.get("/pub/img/:id", async (req, reply) => image(reply, await readSiteImage(z.object({ id: uuid }).parse(req.params).id)));
   app.get("/pub/logo", async (_req, reply) => image(reply, await readSiteLogo(), "public, max-age=3600"));
+  app.get("/pub/qr", async (_req, reply) => image(reply, await readSiteQr(), "public, max-age=3600")); // D-194: the payment QR the invoice print shows too
   // v1 addresses (D-95): everything under /site now lives at "/"
   for (const p of ["/site", "/site/*"]) app.all(p, async (_req, reply) => reply.redirect("/", 301));
 
@@ -317,6 +340,18 @@ export const siteRoutes: FastifyPluginAsync = async (app) => {
     const b = await myBookingDetail(s, z.object({ id: uuid }).parse(req.params).id);
     reply.header("Cache-Control", "no-store");
     return { ...b, html: trackHtml(langOf(req, reply), b.track, d.tz) };
+  });
+  // D-194 the transfer receipt: from the account (own invoices) or from the signed link (that invoice only); the office is alerted
+  app.post("/api/my/invoices/:id/slip", { bodyLimit: 3_000_000 }, async (req) => {
+    const s = await customer(req);
+    const r = await submitMySlip(s, req.ip, z.object({ id: uuid }).parse(req.params).id, slipBody.parse(req.body));
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
+  });
+  app.post("/api/public/invoice/:token/slip", { bodyLimit: 3_000_000 }, async (req) => {
+    const r = await submitLinkSlip(invToken.parse(req.params).token, req.ip, slipBody.parse(req.body));
+    void flushOutbox().catch((e) => req.log.warn(e, "outbox flush"));
+    return r;
   });
   app.post("/api/my/bookings/:id/rating", async (req) => {
     const s = await customer(req);

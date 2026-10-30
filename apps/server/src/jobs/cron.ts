@@ -10,6 +10,7 @@ import { customerNotices } from "../services/customer-notify.js";
 import { webBookingAlerts } from "../services/web-booking.js";
 import { cancelOldTests } from "../services/test-mode.js";
 import { sendSummaries } from "../services/reports.js";
+import { payReminders } from "../services/invoice-pay.js";
 
 export function startCron(log: FastifyBaseLogger): () => void {
   const outbox = setInterval(() => {
@@ -36,6 +37,8 @@ export function startCron(log: FastifyBaseLogger): () => void {
   const waiting = setInterval(() => { webBookingAlerts().then((r) => { if (r.reminded || r.escalated || r.expired) log.info(r, "web booking alerts"); }).catch((e) => log.warn(e, "web booking alerts")); }, 60_000);
   // D-120 (CEO): bookings / quotes from the test phones still open after 24 h are cancelled — no message, audit only
   const tests = setInterval(() => { cancelOldTests().then((r) => { if (r.bookings || r.requests) log.info(r, "test bookings cancelled"); }).catch((e) => log.warn(e, "test cleanup")); }, 10 * 60_000);
-  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref(); tests.unref();
-  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); clearInterval(tests); };
+  // D-194: one reminder of an unpaid invoice once its days to pay have passed (09:00–17:00 shop time)
+  const pay = setInterval(() => { payReminders().then((n) => { if (n) log.info({ reminders: n }, "pay reminders"); }).catch((e) => log.warn(e, "pay reminders")); }, 5 * 60_000);
+  outbox.unref(); housekeeping.unref(); late.unref(); summaries.unref(); notices.unref(); waiting.unref(); tests.unref(); pay.unref();
+  return () => { clearInterval(outbox); clearInterval(housekeeping); clearInterval(late); clearInterval(summaries); clearInterval(notices); clearInterval(waiting); clearInterval(tests); clearInterval(pay); };
 }

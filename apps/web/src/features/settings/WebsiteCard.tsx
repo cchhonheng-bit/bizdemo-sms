@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ExternalLink, ImagePlus, Trash2 } from "lucide-react";
-import { PROMO_GAP_DAYS_DEFAULT, webHours, type WebHours } from "@sms/shared";
+import { PAY_DUE_DAYS_DEFAULT, PROMO_GAP_DAYS_DEFAULT, webHours, type WebHours } from "@sms/shared";
 import { api, errCode } from "@/lib/api";
 import { Button, Card, Field, Input, Skeleton } from "@/components/ui";
 import { compressPhoto } from "@/lib/offline";
@@ -24,6 +24,7 @@ export default function WebsiteCard() {
   const [published, setPublished] = useState(false);
   const [hours, setHours] = useState<WebHours | null>(null);
   const [gap, setGap] = useState(String(PROMO_GAP_DAYS_DEFAULT));
+  const [payDays, setPayDays] = useState(String(PAY_DUE_DAYS_DEFAULT)); // D-194: days to pay an invoice (0 = no reminder)
   const [busy, setBusy] = useState<string | null>(null);
   useEffect(() => {
     if (!q.data || f) return;
@@ -33,12 +34,14 @@ export default function WebsiteCard() {
     for (const k of TEXTS) init[k] = Array.isArray(w[k]) ? (w[k] as string[]).join("\n") : typeof w[k] === "string" ? (w[k] as string) : "";
     setF(init); setPublished(w.published === true);
     setHours(webHours(w.hours as Partial<WebHours> | undefined)); setGap(String(typeof w.promo_gap_days === "number" ? w.promo_gap_days : PROMO_GAP_DAYS_DEFAULT));
+    setPayDays(String(typeof w.pay_due_days === "number" ? w.pay_due_days : PAY_DUE_DAYS_DEFAULT));
   }, [q.data, f]);
   const onErr = (e: unknown) => toast.error(t(`website.err.${errCode(e)}`, { defaultValue: t("app.error") }));
   const save = useMutation({
     mutationFn: () => {
       const lines = (v: string) => v.split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 6);
-      const body: Record<string, unknown> = { published, ...(hours ? { hours } : {}), promo_gap_days: Math.min(60, Math.max(1, Number(gap) || PROMO_GAP_DAYS_DEFAULT)) };
+      const body: Record<string, unknown> = { published, ...(hours ? { hours } : {}), promo_gap_days: Math.min(60, Math.max(1, Number(gap) || PROMO_GAP_DAYS_DEFAULT)),
+        pay_due_days: payDays.trim() === "" ? PAY_DUE_DAYS_DEFAULT : Math.min(30, Math.max(0, Math.round(Number(payDays)) || 0)) };
       for (const k of [...INFO, ...TEXTS]) body[k] = k.startsWith("highlights_") ? lines(f![k]) : f![k].trim();
       return api.website.save(body);
     },
@@ -92,7 +95,8 @@ export default function WebsiteCard() {
           ))}
         </div>
       </>}
-      <div className="grid sm:grid-cols-2 gap-x-3"><Field label={t("website.promo_gap")}><Input type="number" inputMode="numeric" min={1} max={60} value={gap} onChange={(e) => setGap(e.target.value)} data-testid="web-promo-gap" /></Field></div>
+      <div className="grid sm:grid-cols-2 gap-x-3"><Field label={t("website.promo_gap")}><Input type="number" inputMode="numeric" min={1} max={60} value={gap} onChange={(e) => setGap(e.target.value)} data-testid="web-promo-gap" /></Field>
+        <Field label={t("website.pay_due")} hint={t("website.pay_due_hint")}><Input type="number" inputMode="numeric" min={0} max={30} value={payDays} onChange={(e) => setPayDays(e.target.value)} data-testid="web-pay-due" /></Field></div>
       <label className="flex items-center gap-2 text-sm min-h-[44px]"><input type="checkbox" className="h-5 w-5" checked={published} onChange={(e) => setPublished(e.target.checked)} data-testid="web-published" /> {t("website.published")}</label>
       <div className="flex justify-end"><Button variant="primary" loading={save.isPending} onClick={() => save.mutate()} data-testid="web-save">{t("app.save")}</Button></div>
     </Card>

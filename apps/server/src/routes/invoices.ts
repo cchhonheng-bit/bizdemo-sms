@@ -8,6 +8,7 @@ import {
   assertCanView, createInvoice, uninvoiced, debts, decideDiscount, decideVoid, getInvoice, issueInvoice, listInvoices, prefill, prefillExtra, recordPayment, requestVoid, setDiscount, setLineKind, updateInvoice,
 } from "../services/invoices.js";
 import { invoiceJournal } from "../services/accounting.js";
+import { decideSlip, notifyInvoiceIssued, slipPhoto } from "../services/invoice-pay.js";
 
 const line = z.object({
   catalog_item_id: z.string().uuid().optional().nullable(),
@@ -55,8 +56,13 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     return setLineKind(req.user!, req.ip, p.id, p.line, z.object({ kind: z.enum(["service", "product"]) }).strict().parse(req.body).kind);
   });
   // D-126: an optional earlier invoice date (unlocked period only; a reason when more than 3 days back)
-  app.post("/:id/issue", { preHandler: app.requirePerm("invoice.issue") }, async (req) => issueInvoice(req.user!, req.ip, idParam.parse(req.params).id,
-    z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), reason: z.string().max(300).optional() }).strict().parse(req.body ?? {})));
+  // D-194: the customer hears about it (a linked chat: amount, the day to pay by, the invoice button) once it is issued
+  app.post("/:id/issue", { preHandler: app.requirePerm("invoice.issue") }, async (req) => {
+    const r = await issueInvoice(req.user!, req.ip, idParam.parse(req.params).id,
+      z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), reason: z.string().max(300).optional() }).strict().parse(req.body ?? {}));
+    void notifyInvoiceIssued(r.id);
+    return r;
+  });
 
   app.post("/:id/discount", { preHandler: app.requirePerm("discount.give") }, async (req) => {
     const v = z.object({ amount: z.number().int().min(0).max(100_000_000), note: z.string().max(500).optional().nullable() }).strict().parse(req.body);
@@ -75,6 +81,22 @@ export const invoicesRoutes: FastifyPluginAsync = async (app) => {
     const parts = v.parts ?? (v.amount !== undefined && v.currency && v.method ? [{ amount: v.amount, currency: v.currency, method: v.method }] : []);
     if (!parts.length) throw new AppError("AMOUNT_TOO_SMALL", 400);
     return recordPayment(req.user!, req.ip, idParam.parse(req.params).id, { parts, paid_on: v.paid_on, note: v.note });
+  });
+
+  // D-194: the customer's transfer receipts — the photo, confirm (= a payment on the mapped account) or refuse with a reason
+  const slipParams = z.object({ id: z.string().uuid(), slip: z.string().uuid() });
+  app.get("/:id/slips/:slip/photo", { preHandler: app.requirePerm("payment.record") }, async (req, reply) => {
+    const p = slipParams.parse(req.params), f = await slipPhoto(req.user!, p.id, p.slip);
+    return reply.type(f.mime).header("Cache-Control", "private, no-store").header("X-Content-Type-Options", "nosniff").send(f.data);
+  });
+  app.post("/:id/slips/:slip/confirm", { preHandler: app.requirePerm("payment.record") }, async (req) => {
+    const p = slipParams.parse(req.params);
+    const v = z.object({ amount: z.number().int().positive().max(100_000_000_000), method: z.enum(["aba", "acleda", "cash_usd"]), paid_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable() }).strict().parse(req.body);
+    return decideSlip(req.user!, req.ip, p.id, p.slip, { approve: true, ...v });
+  });
+  app.post("/:id/slips/:slip/reject", { preHandler: app.requirePerm("payment.record") }, async (req) => {
+    const p = slipParams.parse(req.params);
+    return decideSlip(req.user!, req.ip, p.id, p.slip, { approve: false, reason: z.object({ reason: z.string().trim().min(3, "REASON_REQUIRED").max(300) }).strict().parse(req.body).reason });
   });
 
   app.post("/:id/void", { preHandler: app.requirePerm("void.request") }, async (req) => {

@@ -19,7 +19,9 @@ import type { WebHours } from "@sms/shared";
 export type SiteContent = { published?: boolean; short_name?: string; tagline_km?: string; tagline_en?: string; about_km?: string; about_en?: string; area_km?: string; area_en?: string;
   hours_km?: string; hours_en?: string; facebook?: string; highlights_km?: string[]; highlights_en?: string[]; hero?: string | null; gallery?: string[];
   /** D-106: online booking hours (CEO; default 08:00–17:00, lunch 12:00–13:00) and the days between two promotions per customer */
-  hours?: Partial<WebHours>; promo_gap_days?: number };
+  hours?: Partial<WebHours>; promo_gap_days?: number;
+  /** D-194: the days an invoice gives to pay — its «pay by» day, and the one reminder after it (0 = neither) */
+  pay_due_days?: number };
 export type SiteService = WebItem;
 export const MAX_GALLERY = 12;
 
@@ -91,6 +93,7 @@ export const sitePatch = z.object({
   hours: z.object({ open: hm, close: hm, lunch_start: hm, lunch_end: hm }).strict()
     .refine((h) => h.open < h.close && h.lunch_start <= h.lunch_end && (h.lunch_start === h.lunch_end || (h.lunch_start >= h.open && h.lunch_end <= h.close)), "BAD_HOURS").optional(),
   promo_gap_days: z.number().int().min(1).max(60).optional(),
+  pay_due_days: z.number().int().min(0).max(30).optional(),
 }).strict();
 
 export async function getSiteSettings(user: SessionUser) {
@@ -171,6 +174,12 @@ export async function readSiteImage(id: string) {
   const companyId = await siteCompanyId();
   if (!companyId) throw notFound();
   return readUpload((await sql<{ path: string }[]>`select path from job_files where id = ${id} and company_id = ${companyId} and kind = 'website' and deleted_at is null`)[0]?.path);
+}
+/** D-194: the shop's payment QR (the invoice print shows the same) — on the customer's invoice page */
+export async function readSiteQr() {
+  const companyId = await siteCompanyId();
+  if (!companyId) throw notFound();
+  return readUpload((await sql<{ path: string | null }[]>`select qr_image_path as path from company_settings where company_id = ${companyId}`)[0]?.path);
 }
 export async function readSiteLogo() {
   const companyId = await siteCompanyId();

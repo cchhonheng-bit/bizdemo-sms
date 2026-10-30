@@ -118,11 +118,14 @@ export type Invoice = {
   discount: number; discount_status: "none" | "applied" | "pending" | "rejected"; discount_requested: number | null; discount_note: string | null; discount_by_name: string | null;
   created_at: string; issued_at: string | null; voided_at: string | null; void_reason: string | null; voided_by_name: string | null; created_by_name: string | null; issued_by_name: string | null;
   booking_number: string | null; service_text: string | null; address: string | null; customer_name: string; customer_phones: string[];
-  lines: QuoteLine[]; payments: Payment[]; subtotal: number; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid"; total_khr: number; balance_khr: number;
+  lines: QuoteLine[]; payments: Payment[]; slips: PaymentSlip[]; subtotal: number; total: number; paid: number; balance: number; payment_status: "unpaid" | "partial" | "paid"; total_khr: number; balance_khr: number;
   void_request: { id: string; reason: string; requested_by: string; requester_role: string; created_at: string; requested_by_name: string } | null;
   company: { name: string; company_info: Record<string, string>; has_logo: boolean; has_qr: boolean; fx_now: number };
   can: { issue: boolean; discount: boolean; discount_approve: boolean; pay: boolean; void_request: boolean; void_approve: boolean; line_kind?: boolean }; // D-184: service ↔ goods
 };
+/** D-194 a transfer receipt the customer sent from the website */
+export type PaymentSlip = { id: string; amount: number; bank: "aba" | "acleda" | "other"; note: string | null; via: "account" | "link"; status: "pending" | "confirmed" | "rejected";
+  created_at: string; decided_at: string | null; reject_reason: string | null; decided_by_name: string | null };
 export type InvoiceRow = { id: string; number: string; status: Invoice["status"]; created_at: string; issued_at: string | null; booking_id: string | null; customer_id: string; customer_name: string; customer_phones?: string[];
   booking_number: string | null; total: number; paid: number; payment_status: Invoice["payment_status"]; discount_status: Invoice["discount_status"]; void_pending: boolean };
 export type DebtRow = { customer_id: string; customer_name: string; phones: string[]; d0_30: number; d31_60: number; d60_plus: number; total: number; paid: number; invoices: number; oldest: string };
@@ -389,6 +392,9 @@ export const api = {
     decideDiscount: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/discount/${approve ? "approve" : "reject"}`, { note }),
     /** D-161: several parts (method · currency · amount) in one save */
     pay: (id: string, v: { parts: { amount: number; currency: "usd" | "khr"; method: PayMethod }[]; paid_on: string; note: string }) => post<{ balance: number; payment_status: string; ids: string[] }>(`/api/invoices/${id}/payments`, v),
+    /** D-194: a customer's transfer receipt → a payment (ABA / ACLEDA / cash) or refused with a reason the customer reads */
+    confirmSlip: (id: string, slip: string, v: { amount: number; method: "aba" | "acleda" | "cash_usd"; paid_on: string }) => post<{ balance: number; payment_status: string }>(`/api/invoices/${id}/slips/${slip}/confirm`, v),
+    rejectSlip: (id: string, slip: string, reason: string) => post(`/api/invoices/${id}/slips/${slip}/reject`, { reason }),
     void: (id: string, reason: string) => post<{ status: "void" | "pending" }>(`/api/invoices/${id}/void`, { reason }),
     decideVoid: (id: string, approve: boolean, note = "") => post(`/api/invoices/${id}/void/${approve ? "approve" : "reject"}`, { note }),
     debts: (paystatus?: string) => get<DebtRow[]>(`/api/invoices/debts${paystatus ? `?paystatus=${paystatus}` : ""}`), // D-183

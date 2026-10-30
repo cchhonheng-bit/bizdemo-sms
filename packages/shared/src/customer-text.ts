@@ -54,6 +54,13 @@ export const customerText = {
   onTheWay: (tech: string | null) => (tech ? `🚗 ជាង ${tech} កំពុងមក` : "🚗 ជាងកំពុងមក"),
   /** D-140 F: the final lines of the job (the invoice) are listed, one per line */
   done: (no: string, until: string | null, items: string[] = []) => lines(`✅ ការងាររួចរាល់ #${no}`, ...items.map((x) => `• ${x}`), until && `ធានាដល់ ${until}`),
+  /** D-194: an invoice issued — the amount, the day to pay by (none when the shop gives no days); the button opens that invoice */
+  invoice: (no: string, amount: string, due: string | null) => lines(`🧾 វិក្កយបត្រ #${no}`, `ចំនួនទឹកប្រាក់ ${amount}`, due && `សូមបង់មុន ${due}`, "បង់តាម QR ហើយផ្ញើរូបបង្កាន់ដៃនៅទីនោះ"),
+  /** D-194: the one reminder after the days to pay */
+  payReminder: (no: string, amount: string) => lines(`⏰ វិក្កយបត្រ #${no} មិនទាន់បង់`, `នៅសល់ ${amount}`),
+  /** D-194: the office confirmed the transfer receipt / could not match it */
+  slipConfirmed: (no: string, amount: string, rest: string | null) => lines(`✅ បានទទួលប្រាក់ ${amount}`, `វិក្កយបត្រ #${no}`, rest ? `នៅសល់ ${rest}` : "បានបង់គ្រប់ · អរគុណ"),
+  slipRejected: (no: string, reason: string) => lines(`❌ មិនទាន់ទទួលការបង់ #${no}`, `មូលហេតុ៖ ${reason}`, "សូមផ្ញើរូបបង្កាន់ដៃម្ដងទៀត"),
   rescheduled: (no: string, day: string, time: string) => lines(`🔁 បានប្ដូរម៉ោង #${no}`, `${day} ម៉ោង ${time}`),
   rescheduleKept: (no: string, day: string, time: string) => lines(`ℹ️ មិនអាចប្ដូរម៉ោង #${no}`, `ម៉ោងនៅដដែល៖ ${day} ម៉ោង ${time}`),
   tooManyResets: lines("⏳ អ្នកបានស្នើច្រើនដងពេក", "សូមព្យាយាមម្ដងទៀតក្រោយ ១ ម៉ោង"),

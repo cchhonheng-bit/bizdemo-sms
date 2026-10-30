@@ -69,6 +69,10 @@ const mine = (s: CustomerSession) => {
     : sql`(b.customer_id = ${s.customerId} or (c.is_active and c.is_test = ${a.isTest} and c.phones && ${sql.array(a.phones)}::text[]))`;
   return sql`b.company_id = ${s.companyId} and (${own}${s.subscriberId ? sql` or b.web_subscriber_id = ${s.subscriberId} or c.tg_subscriber_id = ${s.subscriberId}` : sql``})`;
 };
+/** D-194: an invoice of this session (invoices i, never a draft): the invoice of one of its bookings, or — no booking — of its own record */
+export const myInvoiceRule = (s: CustomerSession) => sql`i.company_id = ${s.companyId} and i.status <> 'draft' and (
+  exists (select 1 from bookings b join customers c on c.id = b.customer_id where b.id = i.booking_id and ${mine(s)})
+  or (i.booking_id is null and exists (select 1 from customers c where c.id = i.customer_id and c.company_id = ${s.companyId} and (${s.customerId ? sql`c.id = ${s.customerId}` : sql`false`}${s.subscriberId ? sql` or c.tg_subscriber_id = ${s.subscriberId}` : sql``}))))`;
 const OPEN = ["new", "survey", "quoted", "assigned", "en_route", "on_site", "working"];
 const movable = (status: string) => EDITABLE_STATUSES.includes(status as BookingStatus); // before the technician is on the way
 /** D-191 (owner): the customer cancels only while the booking is new or assigned */
@@ -95,12 +99,17 @@ async function whoIs(s: CustomerSession) {
 export async function myHome(s: CustomerSession) {
   const who = await whoIs(s);
   const rows = await sql<Row[]>`select ${ROW} from ${FROM} where ${mine(s)} order by b.scheduled_at nulls last, b.created_at`;
+  // D-194: the issued invoices that still ask for money (a job's or a direct sale's), oldest first
+  const owing = await sql<{ id: string; number: string; balance: number; issued_at: Date }[]>`select x.id, x.number, x.balance, x.issued_at from (select i.id, i.number, i.issued_at,
+      ((select coalesce(sum(round(l.qty * l.unit_price)), 0) from invoice_lines l where l.invoice_id = i.id) - i.discount - (select coalesce(sum(p.usd_cents), 0) from payments p where p.invoice_id = i.id))::int as balance
+    from invoices i where i.status = 'issued' and ${myInvoiceRule(s)}) x where x.balance > 0 order by x.issued_at`;
   return {
     ...who,
     upcoming: rows.filter((r) => OPEN.includes(r.status)).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), scheduled_at: r.scheduled_at, ends_at: r.ends_at,
       status: customerState(r.status, r.web_status), technician: r.technician, can_cancel: cancellable(r.status), can_reschedule: movable(r.status), reschedule_pending: r.reschedule_pending })),
     past: rows.filter((r) => !OPEN.includes(r.status)).reverse().slice(0, 30).map((r) => ({ id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), date: r.closed_at ?? r.scheduled_at,
       status: customerState(r.status, r.web_status), warranty: r.warranty ? { until: r.warranty.until, active: r.warranty.active } : null, rebook: rebookOf(r), rated: r.rated, can_rate: DONE.includes(r.status) && !r.rated })),
+    owing,
   };
 }
 export type MyHome = Awaited<ReturnType<typeof myHome>>;
@@ -199,10 +208,16 @@ export async function myBookingDetail(s: CustomerSession, id: string) {
     from ${FROM} where b.id = ${id} and ${mine(s)}`)[0];
   if (!r) throw notFound(); // not yours = does not exist
   const state = customerState(r.status, r.web_status), bot = await shopBotUsername().catch(() => null);
+  // D-194: the job's issued invoices — what they ask, what is paid, a transfer receipt waiting for the office
+  const invoices = (await sql<{ id: string; number: string; total: number; paid: number; slip_pending: boolean }[]>`select iv.id, iv.number,
+      (select coalesce(sum(round(l.qty * l.unit_price)), 0)::int from invoice_lines l where l.invoice_id = iv.id) - iv.discount as total,
+      (select coalesce(sum(p.usd_cents), 0)::int from payments p where p.invoice_id = iv.id) as paid,
+      exists (select 1 from payment_slips x where x.invoice_id = iv.id and x.status = 'pending') as slip_pending
+    from invoices iv where iv.booking_id = ${r.id} and iv.company_id = ${s.companyId} and iv.status = 'issued' order by iv.issued_at`).map((x) => ({ ...x, balance: Math.max(0, x.total - x.paid) }));
   return {
     id: r.id, number: r.number, service_km: r.service_text, service_en: enText(r), scheduled_at: r.scheduled_at, ends_at: r.ends_at, state, technician: r.technician,
     track: await trackOf(sql, r.id), can_cancel: cancellable(r.status), can_reschedule: movable(r.status), reschedule_pending: r.reschedule_pending,
-    can_rate: DONE.includes(r.status), rating: r.rating, rebook: rebookOf(r), warranty: r.warranty,
+    can_rate: DONE.includes(r.status), rating: r.rating, rebook: rebookOf(r), warranty: r.warranty, invoices,
     // Telegram: the shop's chat when this booking already reaches a chat, else the booking's own link (optional notifications)
     telegram: r.linked ? (bot ? `https://t.me/${bot}` : null) : ["pending", "confirmed", "on_the_way", "working"].includes(state) ? await bookingBotLink(r.id) : null,
   };

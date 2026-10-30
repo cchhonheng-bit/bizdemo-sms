@@ -369,3 +369,25 @@ a.bk{color:inherit;text-decoration:none}a.bk .go{margin-left:auto;color:#94A3B8}
 .post .cover{width:100%;border-radius:12px;display:block}
 .post h1{font-size:18px}
 .vid{width:100%;aspect-ratio:16/9;height:auto;border:0;border-radius:12px;display:block;background:#000}
+/* D-194 the customer's invoice: amount rows, the QR card, the paid stamp, invoice rows on the booking pages; the print keeps the invoice only */
+.ir{display:flex;justify-content:space-between;gap:10px;font-size:13px;line-height:1.4}
+.ir span{color:#5B6676}.ir b{font-weight:600;text-align:right}
+.ir.tot{padding-top:8px;border-top:1px solid #EEF0F5;font-size:15px}.ir.tot span{color:#14213D;font-weight:600}
+.ir.bal b{color:#A3332A;font-size:16px}.ir.late b{color:#A3332A}
+.il{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.il li{display:flex;justify-content:space-between;gap:10px;font-size:13px;line-height:1.4}
+.il li span{min-width:0;overflow-wrap:anywhere}.il li i{font-style:normal;color:#87888C;white-space:nowrap}.il li b{font-weight:600;white-space:nowrap}
+.invh .hr{align-items:flex-start}.invh .tx{min-width:0}.invh small{display:block;font-size:11px;color:#87888C}
+.qr{display:block;margin:0 auto;width:220px;max-width:70%;height:auto;border-radius:12px;border:1px solid #E1E6F0;background:#FFF}
+.bankl{margin:0;text-align:center;font-size:13px;font-weight:600;color:#14213D;overflow-wrap:anywhere}
+.amt{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px;border-radius:14px;background:#F3F5FC}
+.amt span{font-size:12px;color:#5B6676}.amt b{font-size:24px;color:#314075}.amt small{font-size:11px;color:#5B6676;text-align:center}
+.stamp{align-items:center;text-align:center;border:2px solid #314075;background:#F3F5FC}
+.stamp b{display:flex;align-items:center;gap:6px;color:#314075;font-size:15px}.stamp span{font-size:13px;color:#14213D}
+.note.r{color:#A3332A;background:#FBEAE8}
+.ivr{display:flex;align-items:center;gap:10px;padding:8px 0;text-decoration:none;color:#14213D;border-bottom:1px solid #EEF0F5}
+.ivr:last-child{border-bottom:0}.ivr .go{margin-left:auto;color:#94A3B8}
+.ivr .tx{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px;align-items:flex-start;line-height:1.35}
+.ivr .tx b{font-size:14px;font-weight:600}.ivr .tx small{font-size:11px;color:#87888C}
+.owe{border:1.5px solid #E7C66A}
+@media print{body{background:#FFF}.band,.tabbar,.noprint,.paycard{display:none!important}.scr{padding:0}.card{box-shadow:none;border:1px solid #DDE2EC;break-inside:avoid}}

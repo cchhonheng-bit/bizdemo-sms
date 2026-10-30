@@ -686,4 +686,38 @@
       }).catch(function () { busy(btn, false); showErr(rerr, "ERROR"); });
     });
   })();
+
+  // D-194 the invoice: «ទាញយក PDF» = the print of the page (inside Telegram: the phone's browser, where «Save as PDF» exists);
+  //       «ខ្ញុំបានបង់រួច» → one photo of the transfer receipt + the amount + the bank → the shop checks it
+  if (page === "invoice") (function () {
+    var pr = $("#print");
+    if (pr) pr.addEventListener("click", function () {
+      if (inTelegram || window.TelegramWebviewProxy) { window.open(location.href.split("#")[0], "_blank"); return; }
+      window.print();
+    });
+    var open = $("#paid-open"), card = $("#slip-card");
+    if (!open || !card) return;
+    var err = $("#slip-err"), photos = photosUI(err, 1), bank = "aba", amt = $("#slip-amt");
+    open.addEventListener("click", function () { card.hidden = false; open.hidden = true; });
+    $("#slip-close").addEventListener("click", function () { card.hidden = true; open.hidden = false; hideErr(err); });
+    $("#slip-bank").addEventListener("click", function (e) {
+      var c = e.target.closest(".chip");
+      if (!c) return;
+      bank = c.dataset.bank;
+      $$(".chip", this).forEach(function (x) { x.setAttribute("aria-pressed", x === c ? "true" : "false"); });
+    });
+    clearOnEdit(card, err);
+    $("#slip-send").addEventListener("click", function () {
+      var btn = this, list = photos.list();
+      var cents = Math.round(Number((amt.value || "").replace(/[០-៩]/g, function (d) { return String(d.charCodeAt(0) - 0x17E0); }).replace(/[^0-9.]/g, "")) * 100);
+      if (!list.length) return showErr(err, "PHOTO_REQUIRED");
+      if (!(cents > 0)) return showErr(err, "AMOUNT_REQUIRED");
+      if (cents > Number(amt.dataset.max)) return showErr(err, "AMOUNT_TOO_LARGE");
+      busy(btn, true);
+      send("POST", body.dataset.api, { photo: list[0], amount: cents, bank: bank, note: $("#slip-note").value.trim() || null }).then(function (r) {
+        if (!r.ok) { busy(btn, false); return showErr(err, r.json.error || "ERROR"); }
+        location.reload();
+      }).catch(function () { busy(btn, false); showErr(err, "ERROR"); });
+    });
+  })();
 })();

@@ -179,3 +179,9 @@ export const PIN_CODE_MINUTES = { bot: 10, staff: 30 } as const;
 export const PIN_CODE_TRIES = 5;
 /** D-191: the customer's sign-in on a device lasts this long and is renewed while it is used */
 export const CUSTOMER_SESSION_DAYS = 180;
+/** D-194: the days an issued invoice gives to pay (Settings → Website; 0 = no due day, no reminder) — one Telegram reminder after them */
+export const PAY_DUE_DAYS_DEFAULT = 3;
+/** D-194: a signed invoice link (the Telegram button) works this long; afterwards the customer signs in or asks the shop */
+export const INVOICE_LINK_DAYS = 30;
+/** D-194: transfer receipts waiting for the office, per invoice */
+export const MAX_PENDING_SLIPS = 3;

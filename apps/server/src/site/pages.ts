@@ -3,13 +3,14 @@
 // details + the one-tap consent · 4 request sent · 5 quote request · 6 customer home · privacy / terms. Server-rendered,
 // everything escaped, one language per page (Khmer default, English with ?lang=en — never side by side). The look lives in
 // /pub/site.css, the behaviour in /pub/site.js (same origin; no inline script — the CSP forbids it). [Brackets] in the design = data.
-import { CUSTOMER_PASSWORD_HINT, fillCompany, WEB_MAX_BOOKING_PHOTOS, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
+import { CUSTOMER_PASSWORD_HINT, fillCompany, formatUsd, WEB_MAX_BOOKING_PHOTOS, NIGHT_CONFIRM, fromPriceText, kmDigits, LEGAL_VERSION, PRIVACY, siteConsentLines, TERMS, WEB_CATEGORIES, WEB_CATEGORY_LABEL, WEB_CONFIRM_MIN, WEB_MAX_LINES, WEB_MAX_PHOTOS, WEB_MAX_QTY,
   type WebLineRef } from "@sms/shared";
 import { config } from "../config.js";
 import { esc } from "../hub/pages.js";
 import { APP_BASE } from "../lib/app-url.js";
 import { WARRANTY_DAYS } from "../services/bookings.js";
 import type { MyBooking, MyHome, NotifyPrefs } from "../services/customer-home.js";
+import type { CustomerInvoice } from "../services/invoice-pay.js";
 import type { Track, TrackStep } from "../services/customer-track.js";
 import { shortName, type SiteService, type SiteView } from "../services/site.js";
 import { videoOf, type Post } from "../services/site-posts.js";
@@ -52,6 +53,14 @@ const TXT = {
     pw_title: "ប្ដូរលេខសម្ងាត់", pw_make: "បង្កើតលេខសម្ងាត់", pw_cur: "លេខសម្ងាត់បច្ចុប្បន្ន", pw_new: "លេខសម្ងាត់ថ្មី", pw_new2: "លេខសម្ងាត់ថ្មីម្ដងទៀត", pw_save: "រក្សាទុក", logout_all: "ចាកចេញពីឧបករណ៍ទាំងអស់", n_link: "ភ្ជាប់ Telegram ដើម្បីទទួលដំណឹងការកក់", l_staff: "បុគ្គលិក៖ ចូលប្រព័ន្ធការងារ",
     track_h: "តាមដានការកក់", account: "គណនីរបស់ខ្ញុំ", g_wait: "កំពុងបើក...", g_err: "មិនអាចបើកបានទេ។ សូមព្យាយាមម្ដងទៀត។", g_retry: "ព្យាយាមម្ដងទៀត",
     g_start: "សូមបើក Telegram របស់ហាង ហើយចុច START ជាមុនសិន",
+    inv: "វិក្កយបត្រ", inv_h: (no: string) => `វិក្កយបត្រ #${no}`, inv_to: "អតិថិជន", inv_job: "ការងារ", inv_date: "ថ្ងៃចេញ", inv_due: "សូមបង់មុន", inv_subtotal: "សរុបរង", inv_discount: "បញ្ចុះតម្លៃ",
+    inv_total: "សរុប", inv_paid: "បានបង់", inv_balance: "នៅសល់ត្រូវបង់", inv_st: { unpaid: "មិនទាន់បង់", partial: "បង់ខ្លះ", paid: "បានបង់" }, inv_void_s: "លុបចោល", inv_void: "វិក្កយបត្រនេះត្រូវបានលុបចោល",
+    inv_pays: "ការបង់ប្រាក់", pay_m: { cash_usd: "សាច់ប្រាក់", cash_khr: "សាច់ប្រាក់ ៛", aba: "ABA", acleda: "ACLEDA" }, inv_pay_h: "បង់ប្រាក់",
+    inv_pay_how: "ស្កេន QR ក្នុងកម្មវិធីធនាគាររបស់អ្នក ហើយបង់ចំនួនខាងក្រោម។ បន្ទាប់មកផ្ញើរូបបង្កាន់ដៃនៅទីនេះ។", inv_amount_pay: "ចំនួនត្រូវបង់", inv_ref: (no: string) => `សរសេរ «${no}» ក្នុងកំណត់ចំណាំពេលផ្ទេរប្រាក់`,
+    inv_paid_btn: "ខ្ញុំបានបង់រួច", slip_photo: "រូបបង្កាន់ដៃផ្ទេរប្រាក់", slip_pick: "ជ្រើសរូបថត", slip_amount: "ចំនួនដែលបានបង់ ($)", slip_bank: "ធនាគារ", slip_other: "ផ្សេងៗ", slip_note: "កំណត់ចំណាំ (មិនចាំបាច់)",
+    slip_send: "ផ្ញើបង្កាន់ដៃ", slip_wait: "បានទទួលបង្កាន់ដៃ · ហាងកំពុងពិនិត្យ", slip_wait_s: "កំពុងពិនិត្យ", slip_rejected: (r: string) => `ហាងមិនអាចបញ្ជាក់បង្កាន់ដៃមុនបានទេ៖ ${r}`,
+    inv_receipt: "បង្កាន់ដៃទទួលប្រាក់", inv_thanks: "បានបង់គ្រប់ · អរគុណ!", inv_pdf: "ទាញយក PDF", inv_owe: (amt: string) => `ត្រូវបង់ ${amt}`, inv_owing_h: "វិក្កយបត្រត្រូវបង់",
+    inv_no_qr: "សូមទូរស័ព្ទមកហាង ដើម្បីដឹងពីរបៀបបង់ប្រាក់", link_gone_h: "តំណនេះផុតកំណត់ហើយ", link_gone: "ចូលគណនីរបស់អ្នក ដើម្បីមើលវិក្កយបត្រ ឬទូរស័ព្ទមកហាង។",
     welcome: (shop: string) => `សូមស្វាគមន៍មកកាន់ ${shop}`, news: "ព័ត៌មាន", news_all: "មើលទាំងអស់", news_none: "មិនទាន់មានព័ត៌មានទេ", video: "វីដេអូ", video_open: "មើលវីដេអូ", menu: "ម៉ឺនុយ", tab_home: "ទំព័រដើម", tab_bookings: "ការកក់", tab_help: "ជំនួយ", tab_account: "គណនី", services: "សេវាកម្ម", pick_service: "ជ្រើសសេវា", total: "សរុប",
     quote_photo: "ផ្ញើរូបថតដើម្បីស្នើសុំតម្លៃ", help_h: "ជំនួយ", problem: "ពិពណ៌នាបញ្ហា", problem_ph: "ឧ. ម៉ាស៊ីនត្រជាក់មិនត្រជាក់ មានទឹកស្រក់ · ជាន់ទី ២ ទ្វារពណ៌ខៀវ",
     problem_photos: "រូបថតបញ្ហា", max4: `(មិនចាំបាច់ · អតិបរមា ${kmDigits(WEB_MAX_BOOKING_PHOTOS)})`, price_exact: (p: string) => `តម្លៃ ${p}`,
@@ -75,7 +84,9 @@ const TXT = {
       REASON_REQUIRED: "សូមសរសេរមូលហេតុ", ALREADY_REQUESTED: "អ្នកបានស្នើប្ដូរម៉ោងរួចហើយ។ សូមរង់ចាំការឆ្លើយតប។", SAME_TIME: "នេះជាម៉ោងដដែល", BOOKING_LOCKED: "ការកក់នេះលែងប្ដូរបានហើយ។ សូមហៅទូរស័ព្ទមកយើង។",
       BOOKING_NOT_CANCELLABLE: "ការកក់នេះលែងបោះបង់បានហើយ។ សូមហៅទូរស័ព្ទមកយើង។", GPS_FAILED: "មិនអាចចាប់ទីតាំងបានទេ។ សូមបិទភ្ជាប់តំណ Google Maps ឬសរសេរអាសយដ្ឋាន។",
       MAP_LINK_INVALID: "តំណនេះមិនមែនជាទីតាំង Google Maps ទេ", QUOTE_ONLY: "សេវានេះត្រូវស្នើសុំតម្លៃជាមុន", SERVICE_NOT_BOOKABLE: "សេវានេះមិនអាចកក់តាមអ៊ីនធឺណិតបានទេ។ សូមហៅទូរស័ព្ទមកយើង។",
-      ERROR: "មានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។", SENT_MOVE: "បានផ្ញើសំណើប្ដូរម៉ោង", SENDING: "កំពុងផ្ញើ..." },
+      ERROR: "មានបញ្ហា។ សូមព្យាយាមម្ដងទៀត។", SENT_MOVE: "បានផ្ញើសំណើប្ដូរម៉ោង", SENDING: "កំពុងផ្ញើ...",
+      PHOTO_REQUIRED: "សូមជ្រើសរូបបង្កាន់ដៃ", AMOUNT_REQUIRED: "សូមបញ្ចូលចំនួនទឹកប្រាក់", AMOUNT_TOO_LARGE: "ចំនួននេះលើសពីអ្វីដែលនៅសល់", ALREADY_PAID: "វិក្កយបត្រនេះបានបង់គ្រប់ហើយ",
+      TOO_MANY_SLIPS: "ហាងកំពុងពិនិត្យបង្កាន់ដៃរបស់អ្នក។ សូមរង់ចាំ។", LINK_EXPIRED: "តំណនេះផុតកំណត់ហើយ។ សូមចូលគណនី។", INVOICE_VOID: "វិក្កយបត្រនេះត្រូវបានលុបចោល" },
   },
   en: {
     s1: "Service", s2: "Time", s3: "Confirmation", steps: "Book in 3 easy steps",
@@ -108,6 +119,14 @@ const TXT = {
     pw_title: "Change PIN", pw_make: "Create a PIN", pw_cur: "Current PIN", pw_new: "New PIN", pw_new2: "New PIN again", pw_save: "Save", logout_all: "Sign out on all devices", n_link: "Connect Telegram to get booking news", l_staff: "Staff: open the work app",
     track_h: "Track my bookings", account: "My account", g_wait: "Opening...", g_err: "Could not open this page. Please try again.", g_retry: "Try again",
     g_start: "Please open the shop on Telegram and tap START first",
+    inv: "Invoice", inv_h: (no: string) => `Invoice #${no}`, inv_to: "Customer", inv_job: "Job", inv_date: "Issued", inv_due: "Please pay by", inv_subtotal: "Subtotal", inv_discount: "Discount",
+    inv_total: "Total", inv_paid: "Paid", inv_balance: "Still to pay", inv_st: { unpaid: "Not paid", partial: "Part paid", paid: "Paid" }, inv_void_s: "Cancelled", inv_void: "This invoice was cancelled",
+    inv_pays: "Payments", pay_m: { cash_usd: "Cash", cash_khr: "Cash (riel)", aba: "ABA", acleda: "ACLEDA" }, inv_pay_h: "Pay",
+    inv_pay_how: "Scan the QR in your banking app and pay the amount below. Then send a photo of the receipt here.", inv_amount_pay: "Amount to pay", inv_ref: (no: string) => `Write «${no}» in the transfer note`,
+    inv_paid_btn: "I have paid", slip_photo: "Photo of the transfer receipt", slip_pick: "Choose a photo", slip_amount: "Amount paid ($)", slip_bank: "Bank", slip_other: "Other", slip_note: "Note (optional)",
+    slip_send: "Send the receipt", slip_wait: "Receipt received · the shop is checking it", slip_wait_s: "being checked", slip_rejected: (r: string) => `The shop could not confirm the last receipt: ${r}`,
+    inv_receipt: "Payment receipt", inv_thanks: "Paid in full · thank you!", inv_pdf: "Download PDF", inv_owe: (amt: string) => `To pay ${amt}`, inv_owing_h: "Invoices to pay",
+    inv_no_qr: "Please call the shop for how to pay", link_gone_h: "This link has expired", link_gone: "Sign in to your account to see the invoice, or call the shop.",
     welcome: (shop: string) => `Welcome to ${shop}`, news: "News", news_all: "See all", news_none: "No news yet", video: "Video", video_open: "Watch the video", menu: "Menu", tab_home: "Home", tab_bookings: "Bookings", tab_help: "Help", tab_account: "Account", services: "Services", pick_service: "Choose a service", total: "Total",
     quote_photo: "Send photos for a quote", help_h: "Help", problem: "Describe the problem", problem_ph: "e.g. the AC does not cool and drips water · 2nd floor, blue door",
     problem_photos: "Photos of the problem", max4: `(optional · up to ${WEB_MAX_BOOKING_PHOTOS})`, price_exact: (p: string) => `Price ${p}`,
@@ -131,7 +150,9 @@ const TXT = {
       REASON_REQUIRED: "Please write the reason", ALREADY_REQUESTED: "You already asked to reschedule. Please wait for the answer.", SAME_TIME: "This is the same time", BOOKING_LOCKED: "This booking can no longer be changed. Please call us.",
       BOOKING_NOT_CANCELLABLE: "This booking can no longer be cancelled. Please call us.", GPS_FAILED: "Could not get your location. Please paste a Google Maps link or type the address.",
       MAP_LINK_INVALID: "This is not a Google Maps location link", QUOTE_ONLY: "This service needs a quote first", SERVICE_NOT_BOOKABLE: "This service cannot be booked online. Please call us.",
-      ERROR: "Something went wrong. Please try again.", SENT_MOVE: "Reschedule request sent", SENDING: "Sending..." },
+      ERROR: "Something went wrong. Please try again.", SENT_MOVE: "Reschedule request sent", SENDING: "Sending...",
+      PHOTO_REQUIRED: "Please choose the photo of the receipt", AMOUNT_REQUIRED: "Please enter the amount", AMOUNT_TOO_LARGE: "This is more than what is left to pay", ALREADY_PAID: "This invoice is already paid",
+      TOO_MANY_SLIPS: "The shop is checking your receipts. Please wait.", LINK_EXPIRED: "This link has expired. Please sign in.", INVOICE_VOID: "This invoice was cancelled" },
   },
 };
 type T = (typeof TXT)["km"];
@@ -153,6 +174,7 @@ const I = {
   eye: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
   home: '<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', help: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/>',
   eyeOff: '<path d="M17.9 17.9A10 10 0 0 1 12 20c-7 0-11-8-11-8a18.5 18.5 0 0 1 5.1-5.9M9.9 4.2A9 9 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.2 3.2M14.1 14.1a3 3 0 1 1-4.2-4.2"/><path d="m1 1 22 22"/>',
+  doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h5"/>', down: '<path d="M12 3v12M7 10l5 5 5-5M5 21h14"/>',
 };
 type Cat = (typeof WEB_CATEGORIES)[number] | "other";
 const CAT_ICON: Record<Cat, string> = { ac: I.ac, water: I.drop, electric: I.bolt, cctv: I.cam, construction: I.build, decor: I.brush, other: I.tool };
@@ -580,11 +602,14 @@ ${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingA
   const past = h.past.length ? `<section class="card s g4"><h2 class="h2">${t.history}</h2>${h.past.map((j) => `<div class="pj"><span class="ic m">${svg(I.tool, 16)}</span><a class="tx" href="/my/b/${j.id}"><b>${esc(lang === "en" && j.service_en ? j.service_en : j.service_km)}</b><span>${dm(j.date)} · ${
     j.status === "done" ? (j.warranty?.active ? `<span class="w">${t.until(dm(j.warranty.until))}</span>` : j.warranty ? t.expired : t.st.done) : `<span class="pl sm ${pillOf(j.status)}">${t.st[j.status]}</span>`}</span></a>${
     j.can_rate ? `<a href="/my/b/${j.id}#rate">${t.rate_btn}</a>` : `<a href="${esc(j.rebook)}">${t.again}</a>`}</div>`).join("")}</section>` : "";
+  // D-194: what the issued invoices still ask, on top — each opens its booking's invoice card
+  const owe = h.owing.length ? `<section class="card s g4 owe"><h2 class="h2">${svg(I.doc, 16)} ${t.inv_owing_h}</h2>${h.owing.map((o) => `<a class="ivr" href="/my/invoice/${o.id}"><span class="tx"><b>#${esc(o.number)}</b><small>${dm(o.issued_at)}</small></span><span class="pl sm w">${esc(t.inv_owe(formatUsd(o.balance)))}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}</section>` : "";
   const toggle = (id: string, label: string, on: boolean, disabled = false) => `<label class="sw"><span>${label}</span><input type="checkbox" role="switch" id="${id}"${on ? " checked" : ""}${disabled ? " disabled" : ""}><i aria-hidden="true"></i></label>`;
   const notify = prefs ? `${toggle("n-service", t.n_service, prefs.service)}${toggle("n-promo", t.n_promo, prefs.promo, !prefs.service)}`
     : h.linked ? `<p class="hint">${t.n_off}</p>` : `<p class="hint">${t.n_link}</p>${d.bot ? `<a class="ob m" href="https://t.me/${esc(d.bot)}" rel="noopener">${svg(I.send, 15)}${t.l_open}</a>` : ""}`;
   const body = `<main class="scr v3 tabs">
 ${band(d, lang, { signed: true, hello: view === "bookings" ? t.my_h : `${t.hello} ${esc(h.name)}` })}
+${owe}
 ${up || `<section class="card s"><h2 class="h2">${t.upcoming}</h2><p class="sub">${t.no_up}</p></section>`}
 ${past}
 <section class="row2"><a class="ob m" href="/quote">${t.quote}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section>
@@ -614,6 +639,8 @@ export function bookingPage(d: SiteView, lang: SiteLang, b: MyBooking, path: str
 ${band(d, lang, { back: "/my/bookings", title: `#${esc(b.number)}`, sub: svc })}
 <section class="card s"><div class="bk"><div class="dt">${p ? `<small>${t.wd[p.dow - 1]}</small><b>${p.day}</b><i>${t.mon[p.month - 1]}</i>` : "<b>—</b>"}</div><div class="bi"><b>${svc}</b><span>${p ? p.time : ""}</span></div><span class="pl sm ${pillOf(b.state)}" id="st-pill">${t.st[b.state]}</span></div></section>
 <section class="card s"><h2 class="h2">${t.status}</h2><div id="tl">${trackHtml(lang, b.track, d.tz)}</div></section>
+${b.invoices.length ? `<section class="card s g4" id="inv"><h2 class="h2">${t.inv}</h2>${b.invoices.map((i) => `<a class="ivr" href="/my/invoice/${i.id}"><span class="ic m">${svg(I.doc, 16)}</span><span class="tx"><b>#${esc(i.number)} · ${formatUsd(i.total)}</b>${
+  i.balance > 0 ? `<span class="pl sm w">${esc(t.inv_owe(formatUsd(i.balance)))}</span>${i.slip_pending ? ` <small>${t.slip_wait_s}</small>` : ""}` : `<span class="pl sm g">${t.inv_st.paid}</span>`}</span><span class="go">${svg(I.chev, 16)}</span></a>`).join("")}</section>` : ""}
 <section class="card s g8"><h2 class="h2">${t.your_tech}</h2><div class="tech">${b.technician ? `<span class="av t">${initial}</span><b>${esc(b.technician)}</b>` : `<span class="sub">${t.tech_wait}</span>`}</div>
 <div class="row2">${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${esc(t.call_shop(n.short))}</a>` : ""}${b.telegram ? `<a class="ob m" href="${esc(b.telegram)}" rel="noopener">${svg(I.send, 15)}Telegram</a>` : ""}</div></section>
 ${b.can_cancel || b.can_reschedule ? `<section class="card s">${b.reschedule_pending ? `<p class="note">${t.pending_move}</p>` : ""}${bookingActions(t, b)}</section>` : ""}
@@ -623,6 +650,62 @@ ${b.can_rate ? `<section class="card s g8" id="rate"><h2 class="h2">${t.rate_h}<
 ${b.warranty ? `<p class="hint ctr">${b.warranty.active ? t.until(`${Number(b.warranty.until.slice(8, 10))} ${t.mon[Number(b.warranty.until.slice(5, 7)) - 1]}`) : t.expired}</p>` : ""}
 <a class="ob b" href="${esc(b.rebook)}">${svg(I.cal, 15)}${t.again}</a></main>`;
   return shell(d, lang, { title: `#${b.number} — ${n.full}`, page: "booking", path, body, data: { id: b.id, state: b.state } });
+}
+
+// ---------- D-194 the customer's invoice (/my/invoice/<id> · the signed link /i/<token>): what it asks, the shop's QR / bank line,
+// «ខ្ញុំបានបង់រួច» with a photo of the transfer receipt; paid in full = the receipt; «ទាញយក PDF» = the print of this page ----------
+const dateText = (t: T, iso: string) => `${Number(iso.slice(8, 10))} ${t.mon[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+const qtyText = (q: number) => (Number.isInteger(q) ? String(q) : String(Number(q.toFixed(2))));
+export type InvoiceOpts = { via: "account" | "link"; path: string; api?: string; signed?: boolean };
+export function invoicePage(d: SiteView, lang: SiteLang, v: CustomerInvoice, o: InvoiceOpts): string {
+  const t = TXT[lang], n = names(d, lang), phones = phonesOf(d), usd = (c: number) => formatUsd(c);
+  const row = (k: string, val: string, cls = "") => `<div class="ir${cls ? ` ${cls}` : ""}"><span>${k}</span><b>${val}</b></div>`;
+  const pill = v.status === "void" ? `<span class="pl sm r">${t.inv_void_s}</span>` : `<span class="pl sm ${v.pay_status === "paid" ? "g" : "w"}">${t.inv_st[v.pay_status]}</span>`;
+  const lines = v.lines.map((l) => `<li><span>${esc(l.description)}${l.qty !== 1 ? ` <i>×${qtyText(l.qty)}${l.unit ? ` ${esc(l.unit)}` : ""}</i>` : ""}</span><b>${usd(l.total)}</b></li>`).join("");
+  const pays = v.payments.length ? `<section class="card s g4"><h2 class="h2">${t.inv_pays}</h2>${v.payments.map((p) => row(`${dateText(t, p.paid_on)} · ${t.pay_m[p.method]}`, usd(p.usd_cents))).join("")}</section>` : "";
+  const open = v.status === "issued" && v.balance > 0;
+  const rejected = v.slip?.status === "rejected" && v.slip.reject_reason ? `<p class="note r">${esc(t.slip_rejected(v.slip.reject_reason))}</p>` : "";
+  const how = v.has_qr || v.bank_line
+    ? `${v.has_qr ? '<img class="qr" src="/pub/qr" alt="QR" width="220" height="220">' : ""}${v.bank_line ? `<p class="bankl">${esc(v.bank_line)}</p>` : ""}<p class="hint ctr">${t.inv_pay_how}</p>`
+    : `<p class="hint">${t.inv_no_qr}</p>`;
+  const banks = ([["aba", "ABA"], ["acleda", "ACLEDA"], ["other", t.slip_other]] as const)
+    .map(([k, label], i) => `<button type="button" class="chip" data-bank="${k}" aria-pressed="${i === 0}">${label}</button>`).join("");
+  const pay = !open ? "" : v.slip_pending
+    ? `<section class="card s paycard"><p class="note g" id="slip-wait">${svg(I.check, 14, 2.6)} ${t.slip_wait}</p></section>`
+    : `<section class="card s g8 paycard" id="pay"><h2 class="h2">${t.inv_pay_h}</h2>${rejected}${how}
+<div class="amt"><span>${t.inv_amount_pay}</span><b>${usd(v.balance)}</b><small>${esc(t.inv_ref(v.number))}</small></div>
+<button type="button" class="btn" id="paid-open">${svg(I.check, 16, 2.4)}${t.inv_paid_btn}</button>
+<div class="pn g8" id="slip-card" hidden>
+<div class="lb s">${t.slip_photo}</div>
+<div class="photos" id="photos" data-remove="${t.remove_photo}"><button type="button" class="pa" id="add" aria-label="${t.slip_pick}">${svg(I.photo)}${t.slip_pick}</button></div><input type="file" id="file" accept="image/jpeg,image/png,image/webp" hidden>
+<div class="f"><label class="lb s" for="slip-amt">${t.slip_amount}</label><input class="in sm" id="slip-amt" inputmode="decimal" autocomplete="off" value="${(v.balance / 100).toFixed(2)}" data-max="${v.balance}"></div>
+<div class="f"><span class="lb s">${t.slip_bank}</span><div class="chips" id="slip-bank">${banks}</div></div>
+<div class="f"><label class="lb s" for="slip-note">${t.slip_note}</label><input class="in sm" id="slip-note" maxlength="300" autocomplete="off"></div>
+<p class="err" id="slip-err" role="alert" hidden></p>
+<div class="row2"><button type="button" class="sb" id="slip-close">${t.close}</button><button type="button" class="sb p" id="slip-send">${t.slip_send}</button></div></div></section>`;
+  const paidOff = v.status === "issued" && v.balance <= 0 ? `<section class="card s stamp"><b>${svg(I.check, 18, 2.6)} ${t.inv_receipt}</b><span>${t.inv_thanks}</span></section>` : "";
+  const voided = v.status === "void" ? `<section class="card s"><p class="note r">${t.inv_void}</p></section>` : "";
+  const head = o.via === "account"
+    ? band(d, lang, { back: v.booking_id ? `/my/b/${v.booking_id}` : "/my/bookings", title: esc(t.inv_h(v.number)), sub: v.service_text ? esc(v.service_text) : "" })
+    : band(d, lang, { signed: o.signed });
+  const body = `<main class="scr v3 inv${o.via === "account" ? " tabs" : ""}" data-invoice="${v.id}">
+${head}
+<section class="card s g4 invh"><div class="hr"><div class="tx"><small>${esc(n.full)}</small><h1 class="h2">${esc(t.inv_h(v.number))}</h1></div>${pill}</div>
+${row(t.inv_to, esc(v.customer_name))}${v.booking_number ? row(t.inv_job, `#${esc(v.booking_number)}`) : ""}${row(t.inv_date, dateText(t, v.issued_on))}${open && v.due ? row(t.inv_due, dateText(t, v.due), v.overdue ? "late" : "") : ""}</section>
+<section class="card s g4"><ul class="il">${lines}</ul>
+${v.discount ? `${row(t.inv_subtotal, usd(v.subtotal))}${row(t.inv_discount, `−${usd(v.discount)}`)}` : ""}${row(t.inv_total, usd(v.total), "tot")}${v.paid ? row(t.inv_paid, usd(v.paid)) : ""}${v.status === "issued" ? row(t.inv_balance, usd(v.balance), v.balance > 0 ? "bal" : "") : ""}</section>
+${voided}${paidOff}${pay}${pays}
+<div class="row2 noprint"><button type="button" class="ob m" id="print">${svg(I.down, 15)}${t.inv_pdf}</button>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${svg(I.phone, 15)}${esc(t.call_shop(n.short))}</a>` : ""}</div>
+<footer class="ft low noprint"><nav><a href="/privacy">${t.privacy}</a>${langLink(t, lang, o.path)}${powered(t)}</nav></footer>
+${o.via === "account" ? tabbar(t, "bookings") : ""}</main>`;
+  return shell(d, lang, { title: `${t.inv_h(v.number)} — ${n.full}`, page: "invoice", path: o.path, body, data: { api: o.api ?? `/api/my/invoices/${v.id}/slip` } });
+}
+/** an invoice link older than its 30 days: the account or a call instead */
+export function linkGonePage(d: SiteView, lang: SiteLang): string {
+  const t = TXT[lang], n = names(d, lang), phones = phonesOf(d);
+  const body = `<main class="scr v3">${band(d, lang)}<section class="card s g8 ctr"><h1 class="h2">${t.link_gone_h}</h1><p class="sub">${t.link_gone}</p>
+<a class="btn" href="/my/bookings">${t.login}</a>${phones[0] ? `<a class="ob m" href="${esc(tel(phones[0]))}">${esc(t.call_shop(n.short))}</a>` : ""}</section></main>`;
+  return shell(d, lang, { title: `${t.link_gone_h} — ${n.full}`, page: "gone", path: "/", body });
 }
 
 // ---------- privacy / terms: public pages of the site (D-106) — back to where the visitor came from, else "/" ----------

@@ -62,9 +62,13 @@ const PASSWORD_CHANGE_ALLOWED = new Set(["/api/me", "/api/me/password", "/api/au
 /** read per call so tests (and a restart after changing FEATURES) see the current value */
 export { features } from "./lib/features.js";
 
+/** an address with its secret part blanked: /i/<token>, /book/done/<ref>, /api/public/track/<ref>, /api/public/invoice/<token>/… */
+export const quietUrl = (url: string): string => url.replace(/^(\/i\/|\/book\/done\/|\/api\/public\/track\/|\/api\/public\/invoice\/)[^/?#]+/, "$1…");
+
 export function buildApp(opts: { logger?: boolean } = {}): FastifyInstance {
   const app = Fastify({
-    logger: opts.logger === false ? false : { level: config.logLevel },
+    // D-194: the capability links (an invoice link, a guest's tracking ref) never reach the log — only their kind
+    logger: opts.logger === false ? false : { level: config.logLevel, serializers: { req: (r: FastifyRequest) => ({ method: r.method, url: quietUrl(r.url), host: r.hostname, remoteAddress: r.ip }) } },
     // trust exactly one hop (caddy in the same compose network); numeric hop counts are accepted at runtime but not typed
     trustProxy: config.trustProxy ? TRUSTED_PROXIES : false,
     bodyLimit: 1_000_000,

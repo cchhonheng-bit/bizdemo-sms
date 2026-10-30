@@ -6,7 +6,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatKhr, formatUsd, fromCents, toCents, usdToKhr } from "@sms/shared";
 import { Ban, Check, Pencil, Printer, Send, Wallet, X } from "lucide-react";
-import { api, errCode, fmtDate, type Invoice, type PayMethod } from "@/lib/api";
+import { api, errCode, fmtDate, type Invoice, type PaymentSlip, type PayMethod } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { ActionBar, Badge, Button, Card, ConfirmDialog, Dialog, ErrorState, Field, Input, Skeleton } from "@/components/ui";
 import { toast } from "@/lib/toast";
@@ -56,6 +56,7 @@ export default function InvoiceDetailPage() {
       </Card>
 
       {draft && d.can.discount && <DiscountCard d={d} onDone={refresh} />}
+      {d.slips.length > 0 && <SlipsCard d={d} onDone={() => { refresh(); api.flushTelegram(); }} />}
 
       {(issued || d.payments.length > 0) && (
         <Card title={t("invoice.payments")} actions={issued && d.can.pay && d.balance > 0 ? <Button variant="primary" onClick={() => setPaying(true)} data-testid="pay-open"><Wallet size={16} /> {t("invoice.record_payment")}</Button> : undefined}>
@@ -207,6 +208,8 @@ function DiscountCard({ d, onDone }: { d: Invoice; onDone: () => void }) {
 }
 
 const METHODS: PayMethod[] = ["cash_usd", "cash_khr", "aba", "acleda"];
+type SlipMethod = "aba" | "acleda" | "cash_usd";
+const SLIP_METHODS: SlipMethod[] = ["aba", "acleda", "cash_usd"];
 type PayLine = { key: number; currency: "usd" | "khr"; method: PayMethod; amount: string };
 const lineCents = (l: PayLine, fx: number): number => {
   try { const v = l.currency === "usd" ? toCents(l.amount) : /^\d[\d,]*$/.test(l.amount.trim()) ? Number(l.amount.replace(/,/g, "")) : NaN; return l.currency === "usd" ? v : Math.round((v / fx) * 100); } catch { return NaN; }
@@ -265,6 +268,87 @@ function PaymentDialog({ d, onClose, onDone }: { d: Invoice; onClose: () => void
         <Field label={t("invoice.paid_on")}><Input type="date" value={paidOn} max={todayLocal()} onChange={(e) => setPaidOn(e.target.value)} /></Field>
         <Field label={t("invoice.pay_note")}><Input value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} /></Field>
       </div>
+    </Dialog>
+  );
+}
+
+/** D-194: the customer's transfer receipts (website «ខ្ញុំបានបង់រួច») — the photo, then confirm (= a payment on the mapped account) or refuse with a reason */
+function SlipsCard({ d, onDone }: { d: Invoice; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [confirming, setConfirming] = useState<PaymentSlip | null>(null);
+  const [rejecting, setRejecting] = useState<PaymentSlip | null>(null);
+  const canDecide = d.can.pay && d.status === "issued" && d.balance > 0;
+  return (
+    <Card title={t("invoice.slips.title")} className={d.slips.some((s) => s.status === "pending") ? "border-warning" : ""}>
+      <ul className="text-sm divide-y divide-grey-line">
+        {d.slips.map((s) => (
+          <li key={s.id} className="py-3 flex gap-3" data-testid="slip-row">
+            {d.can.pay && <a href={`/api/invoices/${d.id}/slips/${s.id}/photo`} target="_blank" rel="noopener" className="shrink-0">
+              <img src={`/api/invoices/${d.id}/slips/${s.id}/photo`} alt={t("invoice.slips.photo")} className="w-20 h-20 object-cover rounded-md border border-grey-line" loading="lazy" />
+            </a>}
+            <div className="min-w-0 flex-1 space-y-1">
+              <p className="font-semibold tabular">{formatUsd(s.amount)} · {s.bank === "other" ? t("invoice.slips.bank_other") : t(`invoice.method.${s.bank}`)}</p>
+              <p className="text-xs text-muted">{fmtDate(s.created_at)} · {t(`invoice.slips.via_${s.via}`)}</p>
+              {s.note && <p className="text-xs break-words">📝 {s.note}</p>}
+              {s.status === "pending"
+                ? canDecide
+                  ? <div className="flex flex-wrap gap-2 pt-1"><Button variant="primary" onClick={() => setConfirming(s)} data-testid="slip-confirm"><Check size={16} /> {t("invoice.slips.confirm")}</Button>
+                    <Button onClick={() => setRejecting(s)} data-testid="slip-reject"><X size={16} /> {t("invoice.slips.reject")}</Button></div>
+                  : <Badge tone="warning">{t("invoice.slips.pending")}</Badge>
+                : <p className="text-xs break-words"><Badge tone={s.status === "confirmed" ? "green" : "danger"}>{t(`invoice.slips.${s.status}`)}</Badge> {s.decided_by_name}{s.reject_reason ? ` · ${s.reject_reason}` : ""}</p>}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {confirming && <ConfirmSlipDialog d={d} s={confirming} onClose={() => setConfirming(null)} onDone={() => { setConfirming(null); onDone(); }} />}
+      {rejecting && <RejectSlipDialog d={d} s={rejecting} onClose={() => setRejecting(null)} onDone={() => { setRejecting(null); onDone(); }} />}
+    </Card>
+  );
+}
+
+function ConfirmSlipDialog({ d, s, onClose, onDone }: { d: Invoice; s: PaymentSlip; onClose: () => void; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [amount, setAmount] = useState(fromCents(Math.min(s.amount, d.balance)).toFixed(2));
+  const [method, setMethod] = useState<SlipMethod>(s.bank === "acleda" ? "acleda" : "aba");
+  const [paidOn, setPaidOn] = useState(todayLocal());
+  let cents = NaN; try { cents = toCents(amount); } catch { /* invalid */ }
+  const ok = cents > 0 && cents <= d.balance;
+  const save = useMutation({
+    mutationFn: () => api.invoices.confirmSlip(d.id, s.id, { amount: cents, method, paid_on: paidOn }),
+    onSuccess: (r) => { toast.success(r.payment_status === "paid" ? t("invoice.paid_full") : t("invoice.paid_part", { balance: formatUsd(r.balance) })); onDone(); },
+    onError: (e) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  return (
+    <Dialog open onClose={onClose} title={`${t("invoice.slips.confirm")} · ${d.number}`} footer={<>
+      <Button onClick={onClose}>{t("app.cancel")}</Button>
+      <Button variant="primary" className="flex-1 sm:flex-none" disabled={!ok} loading={save.isPending} onClick={() => save.mutate()} data-testid="slip-confirm-save">{t("invoice.slips.confirm")}</Button>
+    </>}>
+      <p className="text-sm mb-3">{t("invoice.slips.confirm_hint")}</p>
+      <Field label={t("invoice.amount_usd")} required><Input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="slip-amount" /></Field>
+      {cents > d.balance && <p className="text-xs text-danger -mt-2 mb-2">{t("invoice.err.OVERPAY")}</p>}
+      <div className="grid grid-cols-3 gap-2 mb-3" role="radiogroup" aria-label={t("invoice.method_label")}>
+        {SLIP_METHODS.map((m) => <button key={m} type="button" role="radio" aria-checked={method === m} onClick={() => setMethod(m)} className={`min-h-[44px] rounded-md border text-sm ${method === m ? "bg-navy text-white border-navy" : "bg-white border-grey-line"}`}>{t(`invoice.method.${m}`)}</button>)}
+      </div>
+      <Field label={t("invoice.paid_on")}><Input type="date" value={paidOn} max={todayLocal()} onChange={(e) => setPaidOn(e.target.value)} /></Field>
+    </Dialog>
+  );
+}
+
+function RejectSlipDialog({ d, s, onClose, onDone }: { d: Invoice; s: PaymentSlip; onClose: () => void; onDone: () => void }) {
+  const { t } = useTranslation();
+  const [reason, setReason] = useState("");
+  const save = useMutation({
+    mutationFn: () => api.invoices.rejectSlip(d.id, s.id, reason.trim()),
+    onSuccess: () => { toast.success(t("app.saved")); onDone(); },
+    onError: (e) => toast.error(t(`invoice.err.${errCode(e)}`, { defaultValue: t("app.error") })),
+  });
+  return (
+    <Dialog open onClose={onClose} title={`${t("invoice.slips.reject")} · ${formatUsd(s.amount)}`} footer={<>
+      <Button onClick={onClose}>{t("app.back")}</Button>
+      <Button variant="danger" className="flex-1 sm:flex-none" disabled={reason.trim().length < 3} loading={save.isPending} onClick={() => save.mutate()} data-testid="slip-reject-save">{t("invoice.slips.reject")}</Button>
+    </>}>
+      <p className="text-sm mb-2">{t("invoice.slips.reject_hint")}</p>
+      <Field label={t("invoice.slips.reason")} required><textarea className="input h-20 py-2" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} autoFocus data-testid="slip-reason" /></Field>
     </Dialog>
   );
 }
