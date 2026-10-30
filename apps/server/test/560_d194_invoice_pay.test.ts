@@ -35,7 +35,7 @@ async function issued(customer: string, lines = [line("លាងម៉ាស៊�
   return id;
 }
 const numberOf = async (id: string) => (await sql<{ number: string }[]>`select number from invoices where id = ${id}`)[0]!.number;
-const slip = (url: string, over: Record<string, unknown> = {}) => pub(url, { photo: JPEG, amount: 5000, bank: "aba", ...over });
+const slip = (url: string, over: Record<string, unknown> = {}, headers: Record<string, string> = {}) => pub(url, { photo: JPEG, amount: 5000, bank: "aba", ...over }, headers);
 /** 10:00 / 21:00 today in Phnom Penh */
 const local = (h: number) => { const d = new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10); return new Date(`${d}T${String(h - 7).padStart(2, "0")}:00:00Z`); };
 
@@ -210,7 +210,8 @@ describe("D-194 the invoice reaches the customer and is paid from the phone", ()
     expect((await ceo.req("PUT", "/api/website", { pay_due_days: 0 })).status).toBe(200);
     const none = await issued(custA, [line("សេវា", 2000)]);
     await until(async () => (await sql`select 1 from invoices where id = ${none} and customer_notified_at is not null`).length === 1);
-    expect(told(SUB).find((m) => m.text.includes(await numberOf(none)))!.text).not.toContain("សូមបង់មុន");
+    const noneNo = await numberOf(none);
+    expect(told(SUB).find((m) => m.text.includes(noneNo))!.text).not.toContain("សូមបង់មុន");
     await back(none, 10);
     expect(await payReminders(local(10))).toBe(0);
     expect((await ceo.req("PUT", "/api/website", { pay_due_days: 31 })).status).toBe(400);
